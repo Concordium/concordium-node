@@ -193,8 +193,6 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type TransferLogCallback =
-    unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
@@ -213,7 +211,6 @@ extern "C" {
         maximum_log_level: u8,
         log_callback: LogCallback,
         transfer_log_enabled: u8,
-        transfer_log_callback: TransferLogCallback,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
     ) -> *mut consensus_runner;
@@ -224,6 +221,7 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
+        transfer_log_enabled: u8,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
     ) -> *mut consensus_runner;
@@ -361,7 +359,6 @@ pub fn get_consensus_ptr(
                     maximum_log_level as u8,
                     on_log_emited,
                     if enable_transfer_logging { 1 } else { 0 },
-                    on_transfer_log_emitted,
                     appdata_buf.as_ptr() as *const u8,
                     appdata_buf.len() as i64,
                 )
@@ -378,6 +375,7 @@ pub fn get_consensus_ptr(
                         catchup_status_callback,
                         maximum_log_level as u8,
                         on_log_emited,
+                        if enable_transfer_logging { 1 } else { 0 },
                         appdata_buf.as_ptr() as *const u8,
                         appdata_buf.len() as i64,
                     )
