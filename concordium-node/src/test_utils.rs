@@ -31,7 +31,7 @@ static PORT_START_NODE: u16 = 8888;
 
 const TESTCONFIG: &[&str] = &[];
 
-/// It returns the next available port
+/// Returns the next available port.
 pub fn next_available_port() -> u16 {
     let mut available_port = None;
 
@@ -44,6 +44,7 @@ pub fn next_available_port() -> u16 {
     available_port.unwrap()
 }
 
+/// Produces a config object for test purposes.
 pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     let mut config = Config::from_iter(TESTCONFIG.iter()).add_options(
         Some("127.0.0.1".to_owned()),
@@ -57,7 +58,7 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     config
 }
 
-/// It initializes the global logger with an `env_logger`, but just once.
+/// Initializes the global logger with an `env_logger` - just once.
 pub fn setup_logger() {
     // @note It adds thread ID to each message.
     INIT.call_once(|| {
@@ -104,6 +105,7 @@ pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) -> Fallible<()> {
     connectivity::connect(source, target.self_peer.peer_type, target.internal_addr(), None)
 }
 
+/// Waits until handshake between 2 nodes has concluded.
 pub fn await_handshake(node1: &P2PNode, node2: &P2PNode) -> Fallible<()> {
     loop {
         if let Some(conn) = read_or_die!(node1.connections()).values().next() {
@@ -120,6 +122,7 @@ pub fn await_handshake(node1: &P2PNode, node2: &P2PNode) -> Fallible<()> {
     Ok(())
 }
 
+/// Creates a vector of given size containing random bytes.
 pub fn generate_random_data(size: usize) -> Vec<u8> {
     thread_rng().sample_iter(&Alphanumeric).take(size).map(|c| c as u32 as u8).collect()
 }
@@ -131,6 +134,7 @@ fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
     Ok(buffer)
 }
 
+/// Produces a network message containing a packet that simulates a block of given size.
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     netmsg!(NetworkPacket, NetworkPacket {
         packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
