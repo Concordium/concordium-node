@@ -294,10 +294,6 @@ extern "C" {
         block_hash: *const u8,
         delta: Delta,
     ) -> *const u8;
-    pub fn hookTransaction(
-        consensus: *mut consensus_runner,
-        transaction_hash: *const u8,
-    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
     pub fn receiveCatchUpStatus(
@@ -423,14 +419,6 @@ impl ConsensusContainer {
 
     pub fn get_consensus_status(&self) -> String {
         wrap_c_call_string!(self, consensus, |consensus| getConsensusStatus(consensus))
-    }
-
-    pub fn hook_transaction(&self, transaction_hash: &str) -> String {
-        let c_str = CString::new(transaction_hash).unwrap();
-        wrap_c_call_string!(self, consensus, |consensus| hookTransaction(
-            consensus,
-            c_str.as_ptr() as *const u8
-        ))
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> String {
