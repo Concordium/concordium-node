@@ -1,9 +1,8 @@
 #[cfg(feature = "network_dump")]
 use crate::common::P2PNodeId;
-use crate::network::NetworkMessage;
-
 #[cfg(feature = "network_dump")]
 use crate::configuration::APP_INFO;
+use crate::network::NetworkMessage;
 #[cfg(feature = "network_dump")]
 use app_dirs2::{get_app_root, AppDataType};
 use chrono::prelude::{DateTime, Utc};
@@ -16,8 +15,9 @@ use failure::Fallible;
 #[cfg(feature = "network_dump")]
 use std::io::Write;
 
-use std::{net::IpAddr, sync::Arc};
+use std::{fmt, net::IpAddr, sync::Arc};
 
+/// A structure containing network data to be dumped to the disk.
 pub struct DumpItem {
     timestamp:   DateTime<Utc>,
     inbound:     bool,
@@ -26,6 +26,7 @@ pub struct DumpItem {
 }
 
 impl DumpItem {
+    /// Creates a new dump item object.
     pub fn new(
         timestamp: DateTime<Utc>,
         inbound: bool,
@@ -39,11 +40,12 @@ impl DumpItem {
             msg,
         }
     }
+}
 
-    pub fn into_pretty_dump(self) -> String {
-        let msg = NetworkMessage::deserialize(&self.msg).expect("Can't dump network data!");
-
-        format!(
+impl fmt::Display for DumpItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{} - {} - {} - {:?} - {:?}",
             self.timestamp,
             if self.inbound {
@@ -53,11 +55,14 @@ impl DumpItem {
             },
             self.remote_addr,
             self.msg,
-            msg
+            NetworkMessage::deserialize(&self.msg)
+                .map(|m| format!("{:?}", m))
+                .unwrap_or_else(|_| "couldn't deserialize".to_string())
         )
     }
 }
 
+/// Creates the thread responsible for intercepting and dumping network data.
 #[cfg(feature = "network_dump")]
 pub fn create_dump_thread(
     ip: IpAddr,
@@ -142,7 +147,7 @@ pub fn create_dump_thread(
 
                 // Pretty dump
                 if let Some(ref mut pd) = pretty_dump {
-                    pd.write_fmt(format_args!("{}\n\n", msg.into_pretty_dump())).map_err(|e| {
+                    pd.write_fmt(format_args!("{}\n\n", msg)).map_err(|e| {
                         error!("Aborting dump due to error: {}", e);
                         e
                     })?;
