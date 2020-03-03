@@ -32,6 +32,7 @@ import qualified Data.Set as Set
 import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Lens.Micro.Platform
 
@@ -52,7 +53,7 @@ existsValidCredential cm acc = do
     Just (expiry, _) -> expiry >= slotTime cm
 
 
--- |Check that 
+-- |Check that
 --  * the transaction has a valid sender,
 --  * the amount they have deposited is on their account,
 --  * the transaction is not expired.
@@ -168,7 +169,7 @@ dispatch msg = do
               handleDeployEncryptionKey senderAccount meta encKey
 
             AddBaker{..} ->
-              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount
+              handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
 
             RemoveBaker{..} ->
               handleRemoveBaker senderAccount meta rbId rbProof
@@ -603,8 +604,9 @@ handleAddBaker ::
     -> Proofs.Dlog25519Proof
     -> Proofs.Dlog25519Proof
     -> AccountOwnershipProof
+    -> BakerAggregationProof
     -> m TxResult
-handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount =
+handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation =
   withDeposit senderAccount meta c k
   where c = tickEnergy Cost.addBaker
         k ls _ = do
@@ -614,11 +616,12 @@ handleAddBaker senderAccount meta abElectionVerifyKey abSignatureVerifyKey abAgg
           getAccount abAccount >>=
               \case Nothing -> return $! TxReject (NonExistentRewardAccount abAccount) energyCost usedEnergy
                     Just Account{..} ->
-                      let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
+                      let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAggregationVerifyKey <> S.put abAccount)
                           electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
                           signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
                           accountP = checkAccountOwnership challenge _accountVerificationKeys abProofAccount
-                      in if electionP && signP && accountP then do
+                          aggregationP = Bls.checkProofOfKnowledgeSK challenge abProofAggregation abAggregationVerifyKey
+                      in if electionP && signP && accountP && aggregationP then do
                         -- the proof validates that the baker owns all the private keys.
                         -- Moreover at this point we know the reward account exists and belongs
                         -- to the baker.
@@ -811,7 +814,7 @@ filterTransactions maxSize maxEnergy = go 0 0 [] [] []
                       ftFailed = invalid,
                       ftUnprocessed = unprocessed
                     }
-          in return (txs, totalEnergyUsed)         
+          in return (txs, totalEnergyUsed)
         -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
         -- with a SuccessorOfInvalidTransaction failure
         invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
