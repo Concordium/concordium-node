@@ -425,7 +425,8 @@ impl ConnectionLowLevel {
         self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
         self.conn().handler.stats.pkt_sent_inc();
 
-        if cfg!(feature = "network_dump") {
+        #[cfg(feature = "network_dump")]
+        {
             self.conn().send_to_dump(input.clone(), false);
         }
 

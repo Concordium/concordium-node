@@ -13,9 +13,10 @@ use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
 use priority_queue::PriorityQueue;
 use twox_hash::XxHash64;
 
+#[cfg(feature = "network_dump")]
+use crate::dumper::DumpItem;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
-    dumper::DumpItem,
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
@@ -23,6 +24,7 @@ use crate::{
     },
     p2p::{bans::BanId, P2PNode},
 };
+
 use concordium_common::PacketType;
 use crypto_common::Deserial;
 
@@ -280,7 +282,8 @@ impl Connection {
         self.handler.connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
         self.handler.stats.pkt_received_inc();
 
-        if cfg!(feature = "network_dump") {
+        #[cfg(feature = "network_dump")]
+        {
             self.send_to_dump(message.clone(), true);
         }
 
@@ -371,6 +374,7 @@ impl Connection {
         write_or_die!(self.remote_end_networks).remove(&network);
     }
 
+    #[cfg(feature = "network_dump")]
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
         if let Some(ref sender) = &*read_or_die!(self.handler.connection_handler.log_dumper) {
             let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr().ip(), buf);
