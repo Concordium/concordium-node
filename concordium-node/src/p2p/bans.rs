@@ -11,10 +11,8 @@ const BAN_STORE_NAME: &str = "bans";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-/// Represents a structure used to manage a ban
-///
-/// A node can either be banned by its id or
-/// by its address.
+/// A node can be banned either by its id node or
+/// by its address - IP or IP+port.
 pub enum BanId {
     NodeId(P2PNodeId),
     Ip(IpAddr),
@@ -25,14 +23,14 @@ impl Serial for BanId {
     fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
         match self {
             BanId::NodeId(id) => {
-                target.write_u8(0).expect("Writing to buffer is safe.");
+                target.write_u8(0).unwrap(); // writing to memory is infallible
                 id.serial(target);
             }
             BanId::Ip(addr) => {
-                target.write_u8(1).expect("Writing to buffer is safe.");
+                target.write_u8(1).unwrap(); // ditto
                 addr.serial(target);
             }
-            _ => unimplemented!("Serializing a socket address ban is unsupported"),
+            _ => unimplemented!("Serializing a socket address ban is not supported"),
         }
     }
 }
@@ -50,7 +48,8 @@ impl Deserial for BanId {
 }
 
 impl P2PNode {
-    /// Adds a new node to the banned list and marks its connection for closure
+    /// Adds a new node to the banned list and closes its connection if there is
+    /// one.
     pub fn ban_node(&self, peer: BanId) -> Fallible<()> {
         info!("Banning node {:?}", peer);
 
@@ -108,6 +107,7 @@ impl P2PNode {
         Ok(())
     }
 
+    /// Checks whether a specified id has been banned.
     pub fn is_banned(&self, peer: BanId) -> Fallible<bool> {
         let ban_kvs_env = safe_read!(self.kvs)?;
         let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
@@ -119,6 +119,7 @@ impl P2PNode {
         Ok(ban_store.get(&ban_reader, store_key)?.is_some())
     }
 
+    /// Obtains the list of banned nodes.
     pub fn get_banlist(&self) -> Fallible<Vec<BanId>> {
         let ban_kvs_env = safe_read!(self.kvs)?;
         let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
@@ -136,6 +137,7 @@ impl P2PNode {
         Ok(banlist)
     }
 
+    /// Lifts all existing bans.
     pub fn clear_bans(&self) -> Fallible<()> {
         let kvs_env = safe_read!(self.kvs)?;
         let ban_store = kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;

@@ -776,8 +776,7 @@ mod tests {
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         let _rcv = client
             .peer_total_received(req_with_auth!(proto::Empty {}, TOKEN))
             .await
@@ -793,8 +792,7 @@ mod tests {
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         let _sent = client
             .peer_total_sent(req_with_auth!(proto::Empty {}, TOKEN))
             .await
@@ -819,8 +817,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         Ok(())
     }
 
@@ -834,8 +831,7 @@ mod tests {
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         let ncr = req_with_auth!(
             proto::NetworkChangeRequest {
                 network_id: Some(10),
@@ -852,8 +848,7 @@ mod tests {
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         let ncr = req_with_auth!(
             proto::NetworkChangeRequest {
                 network_id: Some(100),
@@ -870,8 +865,7 @@ mod tests {
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         let req = req_with_auth!(
             proto::PeersRequest {
                 include_bootstrappers: false,
@@ -903,8 +897,7 @@ mod tests {
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node)?;
-        await_handshake(&node2)?;
-        await_handshake(&node)?;
+        await_handshake(&node, &node2)?;
         let rcv = client.peer_list(req()).await.unwrap().get_ref().peer.clone();
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();

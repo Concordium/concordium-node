@@ -5,15 +5,16 @@ use rand::{
     Rng,
 };
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use semver::Version;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
+    connection::{Connection, DeduplicationQueues, MessageSendingPriority},
     netmsg,
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType,
-        NetworkRequest,
+        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
+        NetworkPacketType, NetworkRequest,
     },
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };
@@ -120,7 +121,7 @@ impl P2PNode {
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
-            .filter(|conn| conn.remote_peer().addr().ip() == ip)
+            .filter(|conn| conn.remote_peer.addr().ip() == ip)
             .map(|conn| Arc::clone(conn))
             .collect()
     }
@@ -237,7 +238,8 @@ impl P2PNode {
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
 
-                if let Err(e) = send_pending_messages(&conn.pending_messages, &mut low_level)
+                if let Err(e) = low_level
+                    .send_pending_messages(&conn.pending_messages)
                     .and_then(|_| low_level.flush_socket())
                 {
                     error!("{}", e);
@@ -259,6 +261,24 @@ impl P2PNode {
                 }
             })
             .unzip()
+    }
+
+    /// Creates a "high-level" handshake request to be sent to new peers.
+    pub fn produce_handshake_request(&self) -> Fallible<Vec<u8>> {
+        let handshake_request = netmsg!(
+            NetworkRequest,
+            NetworkRequest::Handshake(Handshake {
+                remote_id:   self.self_peer.id(),
+                remote_port: self.self_peer.port(),
+                networks:    read_or_die!(self.networks()).iter().copied().collect(),
+                version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
+                proof:       vec![],
+            })
+        );
+        let mut serialized = Vec::with_capacity(128);
+        handshake_request.serialize(&mut serialized)?;
+
+        Ok(serialized)
     }
 }
 
@@ -430,12 +450,11 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     }
 
     let is_conn_faulty = |conn: &Connection| -> bool {
-        conn.failed_pkts() >= config::MAX_FAILED_PACKETS_ALLOWED
-            || if let Some(max_latency) = node.config.max_latency {
-                conn.get_last_latency() >= max_latency
-            } else {
-                false
-            }
+        if let Some(max_latency) = node.config.max_latency {
+            conn.get_last_latency() >= max_latency
+        } else {
+            false
+        }
     };
 
     let is_conn_inactive = |conn: &Connection| -> bool {
@@ -491,9 +510,8 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     Ok(())
 }
 
-/// Connetion is valid for a broadcast if sender is not target,
-/// network_id is owned by connection, and the remote peer is not
-/// a bootstrap node.
+/// A connetion is applicable for a broadcast if it is not in the exclusion
+/// list, belongs to the same network, and doesn't belong to a bootstrapper.
 fn is_valid_broadcast_target(
     conn: &Connection,
     peers_to_skip: &[P2PNodeId],
@@ -503,10 +521,10 @@ fn is_valid_broadcast_target(
 
     conn.remote_peer.peer_type() != PeerType::Bootstrapper
         && !peers_to_skip.contains(&peer_id)
-        && read_or_die!(conn.remote_end_networks()).contains(&network_id)
+        && read_or_die!(conn.remote_end_networks).contains(&network_id)
 }
 
-/// Send a direct packet to the peer with the given id.
+/// Send a direct packet with `msg` contents to the specified peer.
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
@@ -517,6 +535,7 @@ pub fn send_direct_message(
     send_message_over_network(node, Some(target_id), vec![], network_id, msg, false)
 }
 
+/// Send a broadcast packet with `msg` contents to the specified peer.
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,

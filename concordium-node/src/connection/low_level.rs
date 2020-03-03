@@ -7,8 +7,9 @@ use noiseexplorer_xx::{
     noisesession::NoiseSession,
     types::Keypair,
 };
+use priority_queue::PriorityQueue;
 
-use super::{Connection, DeduplicationQueues};
+use super::{Connection, DeduplicationQueues, PendingPriority};
 use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
@@ -17,7 +18,7 @@ use std::{
     convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
-    sync::{atomic::Ordering, Arc},
+    sync::{atomic::Ordering, Arc, RwLock},
     time::Duration,
 };
 
@@ -185,7 +186,7 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
-        let payload_out = self.conn().produce_handshake_request()?;
+        let payload_out = self.conn().handler.produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
         self.conn().set_sent_handshake();
 
@@ -197,9 +198,9 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .try_into()?;
-        let payload_out = self.conn().produce_handshake_request()?;
+        let payload_out = self.conn().handler.produce_handshake_request()?;
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
-        self.conn().handler().stats.peers_inc();
+        self.conn().handler.stats.peers_inc();
 
         Ok(payload_in)
     }
@@ -209,7 +210,7 @@ impl ConnectionLowLevel {
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .try_into()?;
-        self.conn().handler().stats.peers_inc();
+        self.conn().handler.stats.peers_inc();
 
         Ok(payload)
     }
@@ -346,11 +347,14 @@ impl ConnectionLowLevel {
                     _ => bail!("invalid XX handshake"),
                 }?;
 
-                if !self.noise_session.is_initiator()
-                    && self.noise_session.get_message_count() == 1
-                    && payload != PSK
-                {
-                    bail!("Invalid PSK");
+                if !self.noise_session.is_initiator() {
+                    if self.noise_session.get_message_count() == 1 && payload != PSK {
+                        bail!("Invalid PSK");
+                    } else if self.noise_session.get_message_count() == 2 {
+                        // message C doesn't carry a payload; break the reading loop
+                        self.socket_buffer.reset();
+                        return Ok(ReadResult::Incomplete);
+                    }
                 }
 
                 self.socket_buffer.reset();
@@ -412,10 +416,10 @@ impl ConnectionLowLevel {
     /// Enqueue a message to be written to the socket.
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
-        self.conn().handler().connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+        self.conn().handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
         self.conn().stats.messages_sent.fetch_add(1, Ordering::Relaxed);
         self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
-        self.conn().handler().stats.pkt_sent_inc();
+        self.conn().handler.stats.pkt_sent_inc();
 
         if cfg!(feature = "network_dump") {
             self.conn().send_to_dump(input.clone(), false);
@@ -523,5 +527,28 @@ impl ConnectionLowLevel {
 
     /// Get the desired socket write size.
     #[inline]
-    fn write_size(&self) -> usize { self.conn().handler().config.socket_write_size }
+    fn write_size(&self) -> usize { self.conn().handler.config.socket_write_size }
+
+    /// Processes a queue with pending messages, writing them to the socket.
+    #[inline]
+    pub fn send_pending_messages(
+        &mut self,
+        pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+    ) -> Fallible<()> {
+        let mut pending_messages = write_or_die!(pending_messages);
+
+        while let Some((msg, _)) = pending_messages.pop() {
+            trace!(
+                "Attempting to send {} to {}",
+                ByteSize(msg.len() as u64).to_string_as(true),
+                self.conn()
+            );
+
+            if let Err(err) = self.write_to_socket(msg) {
+                bail!("Can't send a raw network request: {}", err);
+            }
+        }
+
+        Ok(())
+    }
 }
