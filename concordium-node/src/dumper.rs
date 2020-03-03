@@ -1,19 +1,16 @@
-#[cfg(feature = "network_dump")]
-use crate::common::P2PNodeId;
-#[cfg(feature = "network_dump")]
-use crate::configuration::APP_INFO;
-use crate::network::NetworkMessage;
-#[cfg(feature = "network_dump")]
-use app_dirs2::{get_app_root, AppDataType};
+cfg_if! {
+    if #[cfg(feature = "network_dump")] {
+        use crate::common::P2PNodeId;
+        use crate::configuration::APP_INFO;
+        use app_dirs2::{get_app_root, AppDataType};
+        use crossbeam_channel::{self, Receiver};
+        use failure::Fallible;
+        use std::io::Write;
+    }
+}
 use chrono::prelude::{DateTime, Utc};
-#[cfg(feature = "network_dump")]
-use crossbeam_channel;
-#[cfg(feature = "network_dump")]
-use crossbeam_channel::Receiver;
-#[cfg(feature = "network_dump")]
-use failure::Fallible;
-#[cfg(feature = "network_dump")]
-use std::io::Write;
+
+use crate::network::NetworkMessage;
 
 use std::{fmt, net::IpAddr, sync::Arc};
 
