@@ -49,14 +49,8 @@ cfg_if! {
             registry: Registry,
             pkts_received_counter: IntCounter,
             pkts_sent_counter: IntCounter,
-            pkts_dropped_counter: IntCounter,
-            pkts_resend_counter: IntCounter,
             peers_gauge: IntGauge,
             connections_received: IntCounter,
-            invalid_packets_received: IntCounter,
-            invalid_network_packets_received: IntCounter,
-            queue_size: IntGauge,
-            resend_queue_size: IntGauge,
             inbound_high_priority_consensus_drops_counter: IntCounter,
             inbound_low_priority_consensus_drops_counter: IntCounter,
             inbound_high_priority_consensus_counter: IntCounter,
@@ -79,14 +73,8 @@ cfg_if! {
 pub struct StatsExportService {
     pkts_received_counter: AtomicUsize,
     pkts_sent_counter: AtomicUsize,
-    pkts_dropped_counter: AtomicUsize,
-    pkts_resend_counter: AtomicUsize,
     peers_gauge: AtomicUsize,
     connections_received: AtomicUsize,
-    invalid_packets_received: AtomicUsize,
-    invalid_network_packets_received: AtomicUsize,
-    queue_size: AtomicUsize,
-    resend_queue_size: AtomicUsize,
     inbound_high_priority_consensus_drops_counter: AtomicUsize,
     inbound_low_priority_consensus_drops_counter: AtomicUsize,
     inbound_high_priority_consensus_counter: AtomicUsize,
@@ -235,14 +223,8 @@ impl StatsExportService {
             registry,
             pkts_received_counter: prc,
             pkts_sent_counter: psc,
-            pkts_dropped_counter: dp,
-            pkts_resend_counter: rs,
             peers_gauge: pg,
             connections_received: cr,
-            invalid_packets_received: ipr,
-            invalid_network_packets_received: inpr,
-            queue_size: qs,
-            resend_queue_size: rqs,
             inbound_high_priority_consensus_drops_counter,
             inbound_low_priority_consensus_drops_counter,
             inbound_high_priority_consensus_counter,
@@ -294,88 +276,11 @@ impl StatsExportService {
         self.pkts_sent_counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    pub fn pkt_dropped_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.pkts_dropped_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.pkts_dropped_counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn pkt_sent_inc_by(&self, to_add: i64) {
-        #[cfg(feature = "instrumentation")]
-        self.pkts_sent_counter.inc_by(to_add);
-        #[cfg(not(feature = "instrumentation"))]
-        self.pkts_sent_counter.fetch_add(to_add as usize, Ordering::Relaxed);
-    }
-
     pub fn conn_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.connections_received.inc();
         #[cfg(not(feature = "instrumentation"))]
         self.connections_received.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn invalid_pkts_received_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.invalid_packets_received.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.invalid_packets_received.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn invalid_network_pkts_received_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.invalid_network_packets_received.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.invalid_network_packets_received.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn queue_size_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.queue_size.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.queue_size.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn queue_size_dec(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.queue_size.dec();
-        #[cfg(not(feature = "instrumentation"))]
-        self.queue_size.fetch_sub(1, Ordering::Relaxed);
-    }
-
-    pub fn resend_queue_size_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.resend_queue_size.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.resend_queue_size.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn resend_queue_size_dec(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.resend_queue_size.dec();
-        #[cfg(not(feature = "instrumentation"))]
-        self.resend_queue_size.fetch_sub(1, Ordering::Relaxed);
-    }
-
-    pub fn queue_size_inc_by(&self, to_add: i64) {
-        #[cfg(feature = "instrumentation")]
-        self.queue_size.add(to_add);
-        #[cfg(not(feature = "instrumentation"))]
-        self.queue_size.fetch_add(to_add as usize, Ordering::Relaxed);
-    }
-
-    pub fn pkt_resend_inc(&self) {
-        #[cfg(feature = "instrumentation")]
-        self.pkts_resend_counter.inc();
-        #[cfg(not(feature = "instrumentation"))]
-        self.pkts_resend_counter.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub fn queue_size(&self) -> i64 {
-        #[cfg(feature = "instrumentation")]
-        return self.queue_size.get();
-        #[cfg(not(feature = "instrumentation"))]
-        return self.queue_size.load(Ordering::Relaxed) as i64;
     }
 
     pub fn inbound_high_priority_consensus_drops_inc(&self) {
