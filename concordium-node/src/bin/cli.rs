@@ -27,7 +27,7 @@ use p2p_client::{
     },
     plugins::{self, consensus::*},
     rpc::RpcServerImpl,
-    stats_export_service::{instantiate_stats_export_engine, StatsExportService, StatsServiceMode},
+    stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
 use parking_lot::Mutex as ParkingMutex;
@@ -61,7 +61,7 @@ async fn main() -> Fallible<()> {
         }
     }
 
-    let stats_export_service = instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode)?;
+    let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     info!("Debugging enabled: {}", conf.common.debug);
 

@@ -1,5 +1,4 @@
 use chrono::prelude::*;
-use crossbeam_channel::{self, Sender};
 use failure::Fallible;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -10,14 +9,13 @@ use nohash_hasher::BuildNoHashHasher;
 use rkv::{Manager, Rkv};
 
 #[cfg(feature = "network_dump")]
-use crate::dumper::create_dump_thread;
+use crate::dumper::{create_dump_thread, DumpItem};
 #[cfg(feature = "beta")]
 use crate::plugins::beta::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
     connection::{Connection, DeduplicationQueues},
-    dumper::DumpItem,
     network::{Buckets, NetworkId},
     p2p::{
         bans::BanId,
@@ -28,6 +26,8 @@ use crate::{
     utils,
 };
 use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
+#[cfg(feature = "network_dump")]
+use crossbeam_channel::{self, Sender};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -90,17 +90,18 @@ pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>
 
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
-    pub socket_server:    TcpListener,
-    pub next_token:       AtomicUsize,
-    pub buckets:          RwLock<Buckets>,
-    pub log_dumper:       RwLock<Option<Sender<DumpItem>>>,
-    pub connections:      RwLock<Connections>,
-    pub soft_bans:        RwLock<HashMap<BanId, Instant>>, // (id, expiry)
-    pub networks:         RwLock<Networks>,
-    pub last_bootstrap:   AtomicU64,
+    pub socket_server: TcpListener,
+    pub next_token: AtomicUsize,
+    pub buckets: RwLock<Buckets>,
+    #[cfg(feature = "network_dump")]
+    pub log_dumper: RwLock<Option<Sender<DumpItem>>>,
+    pub connections: RwLock<Connections>,
+    pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
+    pub networks: RwLock<Networks>,
+    pub last_bootstrap: AtomicU64,
     pub last_peer_update: AtomicU64,
-    pub total_received:   AtomicU64,
-    pub total_sent:       AtomicU64,
+    pub total_received: AtomicU64,
+    pub total_sent: AtomicU64,
 }
 
 impl ConnectionHandler {
@@ -111,6 +112,7 @@ impl ConnectionHandler {
             socket_server,
             next_token: AtomicUsize::new(1),
             buckets: Default::default(),
+            #[cfg(feature = "network_dump")]
             log_dumper: Default::default(),
             connections: Default::default(),
             soft_bans: Default::default(),
@@ -363,11 +365,13 @@ impl P2PNode {
     }
 
     /// Start dumping network data to the disk.
+    #[cfg(feature = "network_dump")]
     pub fn dump_start(&self, log_dumper: Sender<DumpItem>) {
         *write_or_die!(self.connection_handler.log_dumper) = Some(log_dumper);
     }
 
     /// Stop dumping network data to the disk.
+    #[cfg(feature = "network_dump")]
     pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
 
     /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).

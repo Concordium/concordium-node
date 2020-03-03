@@ -11,7 +11,7 @@ use failure::Error;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
     p2p::{maintenance::spawn, *},
-    stats_export_service::{instantiate_stats_export_engine, StatsServiceMode},
+    stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
 
@@ -31,8 +31,7 @@ fn main() -> Result<(), Error> {
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
-    let stats_export_service =
-        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode)?;
+    let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     info!("Debugging enabled: {}", conf.common.debug);
 

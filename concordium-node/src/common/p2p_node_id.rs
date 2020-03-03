@@ -7,6 +7,7 @@ use crypto_common::{Buffer, Deserial, Serial};
 
 use std::fmt;
 
+/// The basic identifier of a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PNodeId(pub PeerId);
@@ -45,5 +46,6 @@ impl Deserial for P2PNodeId {
 }
 
 impl P2PNodeId {
+    /// Obtain the integer behind the node id.
     pub fn as_raw(self) -> PeerId { self.0 }
 }

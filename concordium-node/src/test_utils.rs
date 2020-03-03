@@ -9,7 +9,7 @@ use crate::{
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
     p2p::{connectivity, maintenance::spawn, P2PNode},
-    stats_export_service::{StatsExportService, StatsServiceMode},
+    stats_export_service::StatsExportService,
 };
 use concordium_common::PacketType;
 use crypto_common::Serial;
@@ -92,7 +92,7 @@ pub fn make_node_and_sync(
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let stats = Arc::new(StatsExportService::new(StatsServiceMode::NodeMode).unwrap());
+    let stats = Arc::new(StatsExportService::new().unwrap());
     let node = P2PNode::new(None, &config, node_type, stats, None);
 
     spawn(&node);
