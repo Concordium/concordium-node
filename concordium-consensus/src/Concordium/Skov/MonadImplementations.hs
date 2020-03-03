@@ -18,6 +18,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Lens.Micro.Platform
 import Data.Proxy
+import Data.Set(toList)
 
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
@@ -25,6 +26,8 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState
+import Concordium.Types
+import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.Block (Block(GenesisBlock))
 import Concordium.GlobalState.AccountTransactionIndex
@@ -216,6 +219,10 @@ instance (
     queryBlockState = blockState
     {-# INLINE queryTransactionStatus #-}
     queryTransactionStatus trHash = fmap snd <$> lookupTransaction trHash
+    {-# INLINE queryNonFinalizedTransactions #-}
+    queryNonFinalizedTransactions addr = do
+      txs <- getAccountNonFinalized addr minNonce
+      return $! map transactionHash . concatMap (toList . snd) $ txs
 
 instance (
         Monad m,

@@ -113,6 +113,10 @@ getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
                              "result" .= outcome
                             ]
 
+getAccountNonFinalizedTransactions :: SkovStateQueryable z m => AccountAddress -> z -> IO [TransactionHash]
+getAccountNonFinalizedTransactions addr sfsRef = runStateQuery sfsRef $
+    queryNonFinalizedTransactions addr
+
 -- |Return a block with given hash and outcomes.
 getBlockSummary :: SkovStateQueryable z m => BlockHash -> z -> IO Value
 getBlockSummary hash sfsRef = runStateQuery sfsRef $

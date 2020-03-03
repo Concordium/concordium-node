@@ -616,6 +616,14 @@ getInstances cptr blockcstr = do
       logm External LLTrace $ "Replying with the list: " ++ show istances
       jsonValueToCString istances
 
+withAccountAddress :: CString -> (String -> IO ()) -> (AccountAddress -> IO CString) -> IO CString
+withAccountAddress cstr logm k = do
+  bs <- BS.packCString cstr
+  case addressFromBytes bs of
+      Left err -> do
+        logm $ "Could not decode address: " ++ err
+        jsonValueToCString Null
+      Right acc -> k acc
 
 -- |Get account information for the given block and instance. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
@@ -628,12 +636,7 @@ getAccountInfo cptr blockcstr cstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLInfo "Received account info request."
-    bs <- BS.packCString cstr
-    case addressFromBytes bs of
-      Left err -> do
-        logm External LLInfo $ "Could not decode address: " ++ err
-        jsonValueToCString Null
-      Right acc -> do
+    withAccountAddress cstr (logm External LLDebug) $ \acc -> do
         logm External LLInfo $ "Decoded address to: " ++ show acc
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc
@@ -827,6 +830,22 @@ getTransactionStatusInBlock cptr trcstr bhcstr = do
         logm External LLTrace $ "Replying with: " ++ show status
         jsonValueToCString status
 
+
+-- |Get the list of non-finalized transactions for a given account.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with account address.
+getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
+getAccountNonFinalizedTransactions cptr addrcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Received account non-finalized transactions request."
+    withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
+        status <- runConsensusQuery c (Get.getAccountNonFinalizedTransactions addr)
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString (AE.toJSON status)
+
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a NUL-termianated string encoding a JSON value.
 getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
@@ -953,6 +972,7 @@ foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking

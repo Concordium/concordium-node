@@ -72,6 +72,9 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     queryBlockState :: BlockPointer m -> m (BlockState m)
     -- |Get the outcomes of a transaction.
     queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
+    -- |Get non-finalized transactions for an account, ordered by increasing nonce.
+    queryNonFinalizedTransactions :: AccountAddress -> m [TransactionHash]
+
 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
@@ -104,6 +107,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     getBlocksAtHeight = lift . getBlocksAtHeight
     queryBlockState = lift . queryBlockState
     queryTransactionStatus = lift . queryTransactionStatus
+    queryNonFinalizedTransactions = lift . queryNonFinalizedTransactions
     {-# INLINE resolveBlock #-}
     {-# INLINE isFinalized #-}
     {-# INLINE lastFinalizedBlock #-}
@@ -115,6 +119,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     {-# INLINE getBlocksAtHeight #-}
     {-# INLINE queryBlockState #-}
     {-# INLINE queryTransactionStatus #-}
+    {-# INLINE queryNonFinalizedTransactions #-}
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b

@@ -27,6 +27,7 @@ EXPORTS
  getModuleSource
  getTransactionStatus
  getTransactionStatusInBlock
+ getAccountNonFinalizedTransactions
  getBlockSummary
  checkIfWeAreBaker
  checkIfWeAreFinalizer
