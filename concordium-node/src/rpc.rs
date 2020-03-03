@@ -571,6 +571,56 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn get_transaction_status(
+        &self,
+        req: Request<TransactionHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetTransactionStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_transaction_status(&req.get_ref().transaction_hash)
+        })
+    }
+
+    async fn get_transaction_status_in_block(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(
+            self,
+            "GetTransactionStatusInBlock",
+            JsonResponse,
+            |cc: &ConsensusContainer| {
+                cc.get_transaction_status_in_block(&req.get_ref().block_hash)
+            }
+        )
+    }
+
+    async fn get_account_non_finalized_transactions(
+        &self,
+        req: Request<AccountAddress>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(
+            self,
+            "GetAccountNonFinalizedTransactions",
+            JsonResponse,
+            |cc: &ConsensusContainer| {
+                cc.get_account_non_finalized_transactions(&req.get_ref().account_address)
+            }
+        )
+    }
+
+    async fn get_block_summary(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBlockSummary", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_block_summary(&req.get_ref().block_hash)
+        })
+    }
+
     async fn get_module_source(
         &self,
         req: Request<GetModuleSourceRequest>,
