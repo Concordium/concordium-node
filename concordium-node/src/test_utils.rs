@@ -106,20 +106,17 @@ pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) -> Fallible<()> {
 }
 
 /// Waits until handshake between 2 nodes has concluded.
-pub fn await_handshake(node1: &P2PNode, node2: &P2PNode) -> Fallible<()> {
+pub fn await_handshake(node1: &P2PNode, node2: &P2PNode) {
     loop {
-        if let Some(conn) = read_or_die!(node1.connections()).values().next() {
-            if let Some(id) = conn.remote_id() {
-                if id == node2.id() {
-                    break;
-                }
-            }
+        if read_or_die!(node1.connections())
+            .values()
+            .any(|conn| conn.remote_id() == Some(node2.id()))
+        {
+            return;
         }
 
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(10));
     }
-
-    Ok(())
 }
 
 /// Creates a vector of given size containing random bytes.
@@ -134,7 +131,8 @@ fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
     Ok(buffer)
 }
 
-/// Produces a network message containing a packet that simulates a block of given size.
+/// Produces a network message containing a packet that simulates a block of
+/// given size.
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     netmsg!(NetworkPacket, NetworkPacket {
         packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
