@@ -244,7 +244,7 @@ impl StatsExportService {
     #[cfg(not(feature = "instrumentation"))]
     pub fn new() -> Fallible<Self> { Ok(Default::default()) }
 
-    /// Increases the number of peers.
+    /// Increases the peer count.
     pub fn peers_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.peers_gauge.inc();
@@ -252,7 +252,7 @@ impl StatsExportService {
         self.peers_gauge.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Decreases the number of peers.
+    /// Decreases the peer count.
     pub fn peers_dec(&self) {
         #[cfg(feature = "instrumentation")]
         self.peers_gauge.dec();
@@ -268,7 +268,7 @@ impl StatsExportService {
         self.pkts_received_counter.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Decreases the number of received packets.
+    /// Increases the number of sent packets.
     pub fn pkt_sent_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.pkts_sent_counter.inc();
@@ -276,6 +276,7 @@ impl StatsExportService {
         self.pkts_sent_counter.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Increases the number of received connections.
     pub fn conn_received_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.connections_received.inc();
@@ -283,6 +284,8 @@ impl StatsExportService {
         self.connections_received.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Increases the number of high priority consensus messages dropped due to
+    /// the queue being full.
     pub fn inbound_high_priority_consensus_drops_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_drops_counter.inc();
@@ -290,6 +293,8 @@ impl StatsExportService {
         self.inbound_high_priority_consensus_drops_counter.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Increases the number of low priority consensus messages dropped due to
+    /// the queue being full.
     pub fn inbound_low_priority_consensus_drops_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_drops_counter.inc();
@@ -297,6 +302,7 @@ impl StatsExportService {
         self.inbound_low_priority_consensus_drops_counter.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Increases the number of received high priority consensus messages.
     pub fn inbound_high_priority_consensus_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_counter.inc();
@@ -304,6 +310,7 @@ impl StatsExportService {
         self.inbound_high_priority_consensus_counter.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Increases the number of received low priority consensus messages.
     pub fn inbound_low_priority_consensus_inc(&self) {
         #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_counter.inc();
@@ -311,6 +318,7 @@ impl StatsExportService {
         self.inbound_low_priority_consensus_counter.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Sets the size value of the high priority inbound consensus queue.
     pub fn set_inbound_high_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.inbound_high_priority_consensus_size.set(value);
@@ -318,6 +326,7 @@ impl StatsExportService {
         self.inbound_high_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
+    /// Sets the size value of the low priority inbound consensus queue.
     pub fn set_inbound_low_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.inbound_low_priority_consensus_size.set(value);
@@ -325,6 +334,7 @@ impl StatsExportService {
         self.inbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
+    /// Sets the size value of the high priority outbound consensus queue.
     pub fn set_outbound_high_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.outbound_high_priority_consensus_size.set(value);
@@ -332,6 +342,7 @@ impl StatsExportService {
         self.outbound_high_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
+    /// Sets the size value of the low priority outbound consensus queue.
     pub fn set_outbound_low_priority_consensus_size(&self, value: i64) {
         #[cfg(feature = "instrumentation")]
         self.outbound_low_priority_consensus_size.set(value);
@@ -339,6 +350,7 @@ impl StatsExportService {
         self.outbound_low_priority_consensus_size.store(value as usize, Ordering::Relaxed);
     }
 
+    /// Gets the count of received bytes.
     pub fn get_bytes_received(&self) -> u64 {
         #[cfg(feature = "instrumentation")]
         {
@@ -350,6 +362,7 @@ impl StatsExportService {
         }
     }
 
+    /// Gets the count of sent bytes.
     pub fn get_bytes_sent(&self) -> u64 {
         #[cfg(feature = "instrumentation")]
         {
@@ -361,6 +374,7 @@ impl StatsExportService {
         }
     }
 
+    /// Sets the value of received bytes.
     pub fn set_bytes_received(&self, value: u64) {
         #[cfg(feature = "instrumentation")]
         self.bytes_received.set(value);
@@ -368,6 +382,7 @@ impl StatsExportService {
         self.bytes_received.store(value, Ordering::Relaxed);
     }
 
+    /// Sets the value of sent bytes.
     pub fn set_bytes_sent(&self, value: u64) {
         #[cfg(feature = "instrumentation")]
         self.bytes_sent.set(value);
@@ -375,6 +390,7 @@ impl StatsExportService {
         self.bytes_sent.store(value, Ordering::Relaxed);
     }
 
+    /// Gets the value of average inbound throughput.
     pub fn get_avg_bps_in(&self) -> u64 {
         #[cfg(feature = "instrumentation")]
         {
@@ -384,6 +400,7 @@ impl StatsExportService {
         self.avg_bps_in.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Gets the value of average outbound throughput.
     pub fn get_avg_bps_out(&self) -> u64 {
         #[cfg(feature = "instrumentation")]
         {
@@ -393,6 +410,7 @@ impl StatsExportService {
         self.avg_bps_out.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    /// Sets the value of average inbound throughput.
     pub fn set_avg_bps_in(&self, value: u64) {
         #[cfg(feature = "instrumentation")]
         self.avg_bps_in.set(value);
@@ -400,6 +418,7 @@ impl StatsExportService {
         self.avg_bps_in.store(value, Ordering::Relaxed);
     }
 
+    /// Sets the value of average outbound throughput.
     pub fn set_avg_bps_out(&self, value: u64) {
         #[cfg(feature = "instrumentation")]
         self.avg_bps_out.set(value);
@@ -442,16 +461,14 @@ impl StatsExportService {
         })
     }
 
+    /// Starts the statistics server.
     #[cfg(feature = "instrumentation")]
     pub async fn start_server(&self, listen_addr: SocketAddr) -> impl std::future::Future {
         gotham::plain::init_server(listen_addr, self.router())
     }
 
-    #[cfg(not(feature = "instrumentation"))]
-    pub fn stop_server(&self) {}
-
     #[cfg(feature = "instrumentation")]
-    pub fn start_push_to_gateway(
+    fn start_push_to_gateway(
         &self,
         prometheus_push_gateway: String,
         prometheus_push_interval: u64,
@@ -485,6 +502,7 @@ impl StatsExportService {
     }
 }
 
+/// Starts the stats export engine.
 #[cfg(feature = "instrumentation")]
 pub fn instantiate_stats_export_engine(
     conf: &configuration::Config,
@@ -502,6 +520,7 @@ pub fn instantiate_stats_export_engine(
     Ok(Arc::new(prom))
 }
 
+/// Starts the stats export engine.
 #[cfg(not(feature = "instrumentation"))]
 pub fn instantiate_stats_export_engine(
     _: &configuration::Config,
@@ -509,6 +528,7 @@ pub fn instantiate_stats_export_engine(
     Ok(Arc::new(StatsExportService::new()?))
 }
 
+/// Starts the push gateway to Prometheus.
 #[cfg(feature = "instrumentation")]
 pub fn start_push_gateway(
     conf: &configuration::PrometheusConfig,
