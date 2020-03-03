@@ -26,6 +26,7 @@ use std::{
 tonic::include_proto!("concordium");
 use p2p_server::*;
 
+/// The object used to initiate a gRPC server.
 #[derive(Clone)]
 pub struct RpcServerImpl {
     node: Arc<P2PNode>,
@@ -37,6 +38,7 @@ pub struct RpcServerImpl {
 }
 
 impl RpcServerImpl {
+    /// Creates a new RPC server object.
     pub fn new(
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
@@ -55,6 +57,7 @@ impl RpcServerImpl {
         })
     }
 
+    /// Starts the gRPC server.
     pub async fn start_server(&mut self) -> Fallible<()> {
         let self_clone = self.clone();
         let server = Server::builder().add_service(P2pServer::new(self_clone));

@@ -103,8 +103,9 @@ enum ReadResult {
 
 /// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
-    /// The reference to the parent `Connection` object.
+    /// A reference to the parent `Connection` object.
     pub conn_ref: Option<Arc<Connection>>,
+    /// The socket associated with the connection.
     pub socket: TcpStream,
     noise_session: NoiseSession,
     noise_buffer: Box<[u8]>,
@@ -143,10 +144,12 @@ macro_rules! send_xx_msg {
 }
 
 impl ConnectionLowLevel {
+    /// Obtain a reference to the partent object.
     pub fn conn(&self) -> &Connection {
         &self.conn_ref.as_ref().unwrap() // safe; always available
     }
 
+    /// Creates a new `ConnectionLowLevel` object.
     pub fn new(socket: TcpStream, is_initiator: bool, socket_read_size: usize) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
             error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
@@ -174,6 +177,7 @@ impl ConnectionLowLevel {
 
     // the XX noise handshake
 
+    /// Immediately sends the XX-A handshake message
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = 16;
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
