@@ -55,6 +55,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                                              (baker ^. _2)
                                              (baker ^. _1 . bakerSignatureVerifyKey)
                                              (baker ^. _1 . bakerAggregationVerifyKey)
+                                             (baker ^. _4)
                                              (baker ^. _3)
                                              alesAccount
                                              alesKP

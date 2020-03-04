@@ -33,6 +33,7 @@ import qualified Data.Set as Set
 import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Lens.Micro.Platform
 
@@ -191,7 +192,7 @@ dispatch msg = do
                      handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
        
                    AddBaker{..} ->
-                     handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount
+                     handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
        
                    RemoveBaker{..} ->
                      handleRemoveBaker (mkWTC TTRemoveBaker) rbId rbProof
@@ -627,8 +628,9 @@ handleAddBaker ::
     -> Proofs.Dlog25519Proof
     -> Proofs.Dlog25519Proof
     -> AccountOwnershipProof
+    -> BakerAggregationProof
     -> m (Maybe TransactionSummary)
-handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount =
+handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation =
   withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -641,11 +643,12 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
           getAccount abAccount >>=
               \case Nothing -> return $! (TxReject (NonExistentRewardAccount abAccount), energyCost, usedEnergy)
                     Just Account{..} ->
-                      let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAccount)
+                      let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAggregationVerifyKey <> S.put abAccount)
                           electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
                           signP = checkSignatureVerifyKeyProof challenge abSignatureVerifyKey abProofSig
                           accountP = checkAccountOwnership challenge _accountVerificationKeys abProofAccount
-                      in if electionP && signP && accountP then do
+                          aggregationP = Bls.checkProofOfKnowledgeSK challenge abProofAggregation abAggregationVerifyKey
+                      in if electionP && signP && accountP && aggregationP then do
                         -- the proof validates that the baker owns all the private keys.
                         -- Moreover at this point we know the reward account exists and belongs
                         -- to the baker.
@@ -857,8 +860,8 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
                 -- with a SuccessorOfInvalidTransaction failure
                 invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
 
--- |Execute transactions in sequence. Return 'Left fk' if one of the transactions
--- fails, and otherwise return a list of transactions with their outcomes, as well as used energy.
+-- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
+-- fails, and otherwise return a list of transactions with their outcomes.
 runTransactions :: (TransactionData msg, SchedulerMonad m)
                    => [msg] -> m (Either (Maybe FailureKind) [(msg, TransactionSummary)])
 runTransactions = go []

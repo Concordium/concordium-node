@@ -50,12 +50,16 @@ baker1 = mkFullBaker 1 alesAccount
 baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker2 = mkFullBaker 2 thomasAccount
 
+baker3 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
+baker3 = mkFullBaker 3 alesAccount
+
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = AddBaker (baker0 ^. _1 . bakerElectionVerifyKey)
                                 (baker0 ^. _2)
                                 (baker0 ^. _1 . bakerSignatureVerifyKey)
                                 (baker0 ^. _1 . bakerAggregationVerifyKey)
+                                (baker0 ^. _4)
                                 (baker0 ^. _3)
                                 alesAccount
                                 alesKP
@@ -66,6 +70,7 @@ transactionsInput =
                                 (baker1 ^. _2)
                                 (baker1 ^. _1 . bakerSignatureVerifyKey)
                                 (baker1 ^. _1 . bakerAggregationVerifyKey)
+                                (baker1 ^. _4)
                                 (baker1 ^. _3)
                                 alesAccount
                                 alesKP
@@ -76,14 +81,26 @@ transactionsInput =
                                 (baker2 ^. _2)
                                 (baker2 ^. _1 . bakerSignatureVerifyKey)
                                 (baker2 ^. _1 . bakerAggregationVerifyKey)
+                                (baker2 ^. _4)
                                 (baker2 ^. _3)
                                 thomasAccount
                                 thomasKP
            , metadata = makeDummyHeader alesAccount 3 10000
            , keypair = alesKP
            },
-     TJSON { payload = RemoveBaker 1 "<dummy proof>"
+     TJSON { payload = AddBaker (baker3 ^. _1 . bakerElectionVerifyKey)
+                                (baker3 ^. _2)
+                                (baker3 ^. _1 . bakerSignatureVerifyKey)
+                                (baker3 ^. _1 . bakerAggregationVerifyKey)
+                                (baker0 ^. _4) -- WRONG KEY, intentional! We want this to fail
+                                (baker3 ^. _3)
+                                alesAccount
+                                alesKP
            , metadata = makeDummyHeader alesAccount 4 10000
+           , keypair = alesKP
+           },
+     TJSON { payload = RemoveBaker 1 "<dummy proof>"
+           , metadata = makeDummyHeader alesAccount 5 10000
            , keypair = alesKP
            },
      TJSON { payload = UpdateBakerAccount 2 alesAccount alesKP
@@ -92,7 +109,7 @@ transactionsInput =
            -- baker 2's account is Thomas account, so only it can update it
            },
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
-           , metadata = makeDummyHeader alesAccount 5 10000
+           , metadata = makeDummyHeader alesAccount 6 10000
            , keypair = alesKP
            -- baker 0's account is Thomas account, so only it can update it
            }
@@ -136,15 +153,21 @@ tests = do
             Map.keys (bps3 ^. Types.birkCurrentBakers . bakerMap) == [0,1,2]
           _ -> False
 
-    specify "Remove second baker." $
+    specify "Attempt to add baker with incorrect proof of knowledge of aggregation secret key" $
       case results !! 3 of
+        ([(_, Types.TxReject Types.InvalidProof)], [], bps) ->
+          Map.keys (bps ^. Types.birkCurrentBakers . bakerMap) == [0,1,2]
+        _ -> False
+
+    specify "Remove second baker." $
+      case results !! 4 of
         ([(_,Types.TxSuccess [Types.BakerRemoved 1])], [], bps4) ->
             Map.keys (bps4 ^. Types.birkCurrentBakers . bakerMap) == [0,2]
         _ -> False
 
     specify "Update third baker's account." $
       -- first check that before the account was thomasAccount, and now it is alesAccount
-      case (results !! 3, results !! 4) of
+      case (results !! 4, results !! 5) of
         ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _])], [], bps5)) ->
           Map.keys (bps5 ^. Types.birkCurrentBakers . bakerMap) == [0,2] &&
           let b2 = (bps5 ^. Types.birkCurrentBakers . bakerMap) Map.! 2
@@ -154,7 +177,7 @@ tests = do
 
 
     specify "Update first baker's sign key." $
-      case (results !! 4, results !! 5) of
+      case (results !! 5, results !! 6) of
         ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
           Map.keys (bps6 ^. Types.birkCurrentBakers . bakerMap) == [0,2] &&
           let b0 = (bps6 ^. Types.birkCurrentBakers . bakerMap) Map.! 0

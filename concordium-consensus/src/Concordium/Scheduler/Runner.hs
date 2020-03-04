@@ -15,6 +15,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.Proofs as Proofs
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
 import Concordium.Types.Execution(Proof)
@@ -58,12 +59,13 @@ transactionHelper t =
           abSignatureVerifyKey = bsigvfkey
           abAggregationVerifyKey = baggvfkey
           abAccount = baccountAddress
-          challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAccount)
+          challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAggregationVerifyKey <> put abAccount)
       in do
         Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bvfSecretKey abElectionVerifyKey)
         Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bsigkey bsigvfkey)
         Just abProofAccount' <- liftIO $ Proofs.proveDlog25519KP challenge baccountKeyPair
         let abProofAccount = Types.singletonAOP abProofAccount' -- FIXME: This only works for simple accounts.
+            abProofAggregation = Bls.proveKnowledgeOfSK challenge baggsigkey -- TODO: Make sure enough context data is included that this proof can't be reused.
         return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
     (TJSON meta (RemoveBaker bid proof) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
@@ -120,6 +122,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      bvfSecretKey :: VRF.SecretKey,
                      bsigvfkey :: BakerSignVerifyKey,
                      baggvfkey :: BakerAggregationVerifyKey,
+                     baggsigkey :: BakerAggregationPrivateKey,
                      bsigkey :: BlockSig.SignKey,
                      baccountAddress :: AccountAddress,
                      baccountKeyPair :: Sig.KeyPair

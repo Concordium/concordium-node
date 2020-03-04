@@ -63,6 +63,7 @@ transactions = [[-- t1: first transaction in group valid
                                            (baker ^. _2)
                                            (baker ^. _1 . bakerSignatureVerifyKey)
                                            (baker ^. _1 . bakerAggregationVerifyKey)
+                                           (baker ^. _4)
                                            (baker ^. _3)
                                            alesAccount
                                            alesKP
@@ -80,6 +81,7 @@ transactions = [[-- t1: first transaction in group valid
                                            (baker ^. _2)
                                            (baker ^. _1 . bakerSignatureVerifyKey)
                                            (baker ^. _1 . bakerAggregationVerifyKey)
+                                           (baker ^. _4)
                                            (baker ^. _3)
                                            alesAccount
                                            alesKP
@@ -164,7 +166,7 @@ checkResult (valid, invalid, unproc, [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t
                               _ -> False) validResults
         invalidCheck = do
           assertEqual "5 invalid transactions" 5 (length invalid)
-          assertEqual "2nd transaction fails with NonSequentialNonce reason:" True $ 
+          assertEqual "2nd transaction fails with NonSequentialNonce reason:" True $
             (t2, Types.NonSequentialNonce 2) `elem` invalid
           assertEqual "7th transaction fails with DepositInsufficient reason:" True $
             (t7, Types.DepositInsufficient) `elem` invalid

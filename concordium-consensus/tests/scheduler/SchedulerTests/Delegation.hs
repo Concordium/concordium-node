@@ -77,13 +77,14 @@ addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
         -- FIXME: Once we require proof of knowledge of this key the last secret aggregation key
         -- will be needed.
-        let (bkr, electionSecretKey, signKey, _aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
+        let (bkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
             payload = AddBaker
                       (bkr ^. bakerElectionVerifyKey)
                       electionSecretKey
                       (bkr ^. bakerSignatureVerifyKey)
                       (bkr ^. bakerAggregationVerifyKey)
+                      aggregationKey
                       signKey
                       bkrAcct
                       kp,
