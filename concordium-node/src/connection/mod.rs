@@ -143,6 +143,7 @@ impl Connection {
             socket,
             is_initiator,
             handler.config.socket_read_size,
+            handler.config.socket_write_size,
         ));
 
         let stats = ConnectionStats {

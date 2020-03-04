@@ -113,6 +113,8 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
+    /// The desired size of a single write to the socket.
+    write_size: usize,
 }
 
 macro_rules! recv_xx_msg {
@@ -150,7 +152,7 @@ impl ConnectionLowLevel {
     }
 
     /// Creates a new `ConnectionLowLevel` object.
-    pub fn new(socket: TcpStream, is_initiator: bool, socket_read_size: usize) -> Self {
+    pub fn new(socket: TcpStream, is_initiator: bool, read_size: usize, write_size: usize) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
             error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
         }
@@ -169,9 +171,10 @@ impl ConnectionLowLevel {
             socket,
             noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
-            socket_buffer: SocketBuffer::new(socket_read_size),
+            socket_buffer: SocketBuffer::new(read_size),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
+            write_size,
         }
     }
 
@@ -532,7 +535,7 @@ impl ConnectionLowLevel {
 
     /// Get the desired socket write size.
     #[inline]
-    fn write_size(&self) -> usize { self.conn().handler.config.socket_write_size }
+    fn write_size(&self) -> usize { self.write_size }
 
     /// Processes a queue with pending messages, writing them to the socket.
     #[inline]
