@@ -462,6 +462,7 @@ handleTransferAccount ::
   -> Amount -- amount that was sent in the transaction
   -> m [Event]
 handleTransferAccount _origin accAddr txsender transferamount = do
+  tickEnergy Cost.transferAccount
   -- the sender must have the amount available.
   -- Otherwise we reject the transaction immediately.
   senderamount <- getCurrentAmount txsender
