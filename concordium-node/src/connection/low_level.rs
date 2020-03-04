@@ -10,7 +10,7 @@ use noiseexplorer_xx::{
 use priority_queue::PriorityQueue;
 
 use super::{Connection, DeduplicationQueues, PendingPriority};
-use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
+use crate::configuration::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
     cmp,
