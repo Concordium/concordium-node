@@ -10,8 +10,9 @@ use crate::{
     p2p::bans::BanId,
 };
 
-use std::{collections::HashSet, fmt};
+use std::collections::HashSet;
 
+/// Identifies a network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkId {
@@ -26,10 +27,7 @@ impl From<u16> for NetworkId {
     }
 }
 
-impl fmt::Display for NetworkId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:05}", self.id) }
-}
-
+/// The main object used to transmit data over the network.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkMessage {
@@ -52,6 +50,7 @@ macro_rules! netmsg {
     }};
 }
 
+/// The contents of a network message.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkMessagePayload {
@@ -60,6 +59,7 @@ pub enum NetworkMessagePayload {
     NetworkPacket(NetworkPacket),
 }
 
+/// The "high-level" network handshake.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct Handshake {
@@ -70,6 +70,7 @@ pub struct Handshake {
     pub proof:       Vec<u8>,
 }
 
+/// A network message serving a specified purpose.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
@@ -82,6 +83,7 @@ pub enum NetworkRequest {
     LeaveNetwork(NetworkId),
 }
 
+/// A network message sent only in response to a network request.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
@@ -89,6 +91,7 @@ pub enum NetworkResponse {
     PeerList(Vec<P2PPeer>),
 }
 
+/// A network message carrying any bytes as payload.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkPacket {
@@ -97,6 +100,7 @@ pub struct NetworkPacket {
     pub message:     Vec<u8>,
 }
 
+/// The desired target of a network packet.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkPacketType {
