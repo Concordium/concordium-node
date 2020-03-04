@@ -139,7 +139,6 @@ impl P2PNode {
                 if conn.is_post_handshake() {
                     update_peer_list = true;
                 }
-                write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
                 removed += 1;
             }
         }

@@ -8,8 +8,7 @@ use noiseexplorer_xx::{
     types::Keypair,
 };
 
-use super::Connection;
-use crate::configuration::PROTOCOL_MAX_MESSAGE_SIZE;
+use crate::{configuration::PROTOCOL_MAX_MESSAGE_SIZE, p2p::maintenance::P2PNode};
 
 use std::{
     cmp,
@@ -17,7 +16,7 @@ use std::{
     convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
-    sync::Arc,
+    sync::{Arc, Weak},
     time::Duration,
 };
 
@@ -102,8 +101,8 @@ pub enum ReadResult {
 
 /// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
-    /// A reference to the parent `Connection` object.
-    pub conn_ref: Option<Arc<Connection>>,
+    /// A reference to the node.
+    pub handler: Weak<P2PNode>,
     /// The socket associated with the connection.
     pub socket: TcpStream,
     noise_session: NoiseSession,
@@ -145,13 +144,14 @@ macro_rules! send_xx_msg {
 }
 
 impl ConnectionLowLevel {
-    /// Obtain a reference to the partent object.
-    pub fn conn(&self) -> &Connection {
-        &self.conn_ref.as_ref().unwrap() // safe; always available
-    }
-
     /// Creates a new `ConnectionLowLevel` object.
-    pub fn new(socket: TcpStream, is_initiator: bool, read_size: usize, write_size: usize) -> Self {
+    pub fn new(
+        handler: &Arc<P2PNode>,
+        socket: TcpStream,
+        is_initiator: bool,
+        read_size: usize,
+        write_size: usize,
+    ) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
             error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
         }
@@ -166,7 +166,7 @@ impl ConnectionLowLevel {
         );
 
         ConnectionLowLevel {
-            conn_ref: None,
+            handler: Arc::downgrade(handler),
             socket,
             noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
@@ -191,7 +191,7 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
-        let payload_out = self.conn().handler.produce_handshake_request()?;
+        let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
 
         Ok(payload_in)
@@ -202,9 +202,8 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .try_into()?;
-        let payload_out = self.conn().handler.produce_handshake_request()?;
+        let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
-        self.conn().handler.stats.peers_inc();
 
         Ok(payload_in)
     }
@@ -214,7 +213,6 @@ impl ConnectionLowLevel {
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .try_into()?;
-        self.conn().handler.stats.peers_inc();
 
         Ok(payload)
     }

@@ -142,6 +142,7 @@ impl Connection {
         let curr_stamp = get_current_stamp();
 
         let low_level = RwLock::new(ConnectionLowLevel::new(
+            handler,
             socket,
             is_initiator,
             handler.config.socket_read_size,
@@ -170,8 +171,6 @@ impl Connection {
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
         });
-
-        write_or_die!(conn.low_level).conn_ref = Some(Arc::clone(&conn));
 
         conn
     }
@@ -365,6 +364,7 @@ impl Connection {
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.is_post_handshake.store(true, Ordering::SeqCst);
+        self.handler.stats.peers_inc();
         self.handler.bump_last_peer_update();
     }
 
@@ -568,11 +568,7 @@ pub fn send_pending_messages(
     let mut pending_messages = write_or_die!(pending_messages);
 
     while let Some((msg, _)) = pending_messages.pop() {
-        trace!(
-            "Attempting to send {} to {}",
-            ByteSize(msg.len() as u64).to_string_as(true),
-            low_level.conn()
-        );
+        trace!("Attempting to send {} to {}", ByteSize(msg.len() as u64).to_string_as(true), conn);
 
         if let Err(err) = low_level.write_to_socket(msg.clone()) {
             bail!("Can't send a raw network request: {}", err);
