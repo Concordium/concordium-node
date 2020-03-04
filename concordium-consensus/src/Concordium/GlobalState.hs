@@ -344,12 +344,6 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
 -- |Disk Tree & Disk Block instance with transaction logging.
 
-data PerAccountAffectIndex = PAAIConfig Text.Text
--- When we want to dump data to disk.
-data DiskDump
-type instance ATIValues DiskDump = AccountTransactionIndex
-type instance ATIContext DiskDump = PerAccountAffectIndex
-
 instance ATITypes (BlockStateM c r (SkovPersistentData DiskDump bs) s m) where
   type ATIStorage (BlockStateM c r (SkovPersistentData DiskDump bs) s m) = ATIValues DiskDump
 
@@ -373,9 +367,6 @@ doFlushBlockSummaries bh ati sos = do
 instance (MonadIO m, s ~ (SkovPersistentData DiskDump bs), MonadState s m, HasLogContext (ATIContext DiskDump) s)
          => PerAccountDBOperations (TreeStateM (SkovPersistentData DiskDump bs) m) where
   flushBlockSummaries = doFlushBlockSummaries
-
-instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
-  logContext = atiCtx
 
 deriving via (TreeStateM (SkovPersistentData DiskDump bs) (BlockStateM PersistentBlockStateContext r (SkovPersistentData DiskDump bs) s m))
     instance (TSMStateConstraints PersistentBlockStateContext r (SkovPersistentData DiskDump) bs s m,
