@@ -8,7 +8,7 @@ use crate::{
 };
 use concordium_common::PacketType;
 
-use std::{sync::Arc, thread, time::Duration};
+use std::sync::Arc;
 
 const NID: u16 = 100;
 const NODE_COUNT: usize = 10;

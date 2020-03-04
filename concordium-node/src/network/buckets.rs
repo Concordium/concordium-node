@@ -67,7 +67,7 @@ impl Buckets {
     ) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
-            node.peer.peer_type() == PeerType::Node
+            node.peer.peer_type == PeerType::Node
                 && if let Some(sender) = sender {
                     node.peer != *sender
                 } else {
@@ -134,16 +134,16 @@ mod tests {
 
         let p2p_node_id = P2PNodeId::default();
 
-        let p2p_peer = P2PPeer::from(
+        let p2p_peer = P2PPeer::from((
             PeerType::Node,
             p2p_node_id,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8888),
-        );
-        let p2p_duplicate_peer = P2PPeer::from(
+        ));
+        let p2p_duplicate_peer = P2PPeer::from((
             PeerType::Node,
             p2p_node_id,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
-        );
+        ));
         buckets.insert_into_bucket(&p2p_peer, HashSet::new());
         buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());
         assert_eq!(buckets.buckets.len(), 1);

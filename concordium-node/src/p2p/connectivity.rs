@@ -121,7 +121,7 @@ impl P2PNode {
     pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
         read_or_die!(self.connections())
             .values()
-            .filter(|conn| conn.remote_peer.addr().ip() == ip)
+            .filter(|conn| conn.remote_peer.addr.ip() == ip)
             .map(|conn| Arc::clone(conn))
             .collect()
     }
@@ -268,7 +268,7 @@ impl P2PNode {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
-                remote_id:   self.self_peer.id(),
+                remote_id:   self.self_peer.id,
                 remote_port: self.self_peer.port(),
                 networks:    read_or_die!(self.networks()).iter().copied().collect(),
                 version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
@@ -291,7 +291,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     {
         let conn_read_lock = read_or_die!(node.connections());
 
-        if node.self_peer.peer_type() == PeerType::Node
+        if node.self_peer.peer_type == PeerType::Node
             && node.config.hard_connection_limit.is_some()
             && conn_read_lock.values().len() >= node.config.hard_connection_limit.unwrap() as usize
         {
@@ -519,7 +519,7 @@ fn is_valid_broadcast_target(
 ) -> bool {
     let peer_id = read_or_die!(conn.remote_peer.id).unwrap(); // safe, post-handshake
 
-    conn.remote_peer.peer_type() != PeerType::Bootstrapper
+    conn.remote_peer.peer_type != PeerType::Bootstrapper
         && !peers_to_skip.contains(&peer_id)
         && read_or_die!(conn.remote_end_networks).contains(&network_id)
 }

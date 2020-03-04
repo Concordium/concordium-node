@@ -60,13 +60,13 @@ impl Connection {
         self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
         self.add_remote_end_networks(&handshake.networks);
 
-        let remote_peer = P2PPeer::from(
-            self.remote_peer.peer_type(),
+        let remote_peer = P2PPeer::from((
+            self.remote_peer.peer_type,
             handshake.remote_id,
-            SocketAddr::new(self.remote_peer.addr().ip(), handshake.remote_port),
-        );
+            SocketAddr::new(self.remote_peer.addr.ip(), handshake.remote_port),
+        ));
 
-        if remote_peer.peer_type() != PeerType::Bootstrapper {
+        if remote_peer.peer_type != PeerType::Bootstrapper {
             write_or_die!(self.handler.connection_handler.buckets)
                 .insert_into_bucket(&remote_peer, handshake.networks.clone());
         }
@@ -117,8 +117,8 @@ impl Connection {
         });
 
         for peer in applicable_candidates {
-            trace!("Got info for peer {}/{}/{}", peer.id(), peer.ip(), peer.port());
-            if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id())).is_ok() {
+            trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
+            if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                 new_peers += 1;
                 safe_write!(self.handler.connection_handler.buckets)?
                     .insert_into_bucket(peer, HashSet::new());

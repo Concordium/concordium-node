@@ -230,7 +230,7 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from(peer_type, id, SocketAddr::new(ip, own_peer_port));
+        let self_peer = P2PPeer::from((peer_type, id, SocketAddr::new(ip, own_peer_port)));
 
         let breakage = if let (Some(ty), Some(tgt), Some(lvl)) =
             (&conf.cli.breakage_type, conf.cli.breakage_target, conf.cli.breakage_level)

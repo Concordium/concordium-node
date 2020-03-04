@@ -196,7 +196,7 @@ impl Connection {
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
     /// Obtain the type of the peer associated with the connection.
-    pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
+    pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
 
     /// Obtain the peer stats of the connection.
     #[inline]
@@ -213,7 +213,7 @@ impl Connection {
     }
 
     /// Obtain the remote address of the connection.
-    pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
+    pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr }
 
     /// Obtain the external port of the connection.
     pub fn remote_peer_external_port(&self) -> u16 {
@@ -455,7 +455,7 @@ impl Connection {
                     .iter()
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
                     .map(|stat| {
-                        P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.external_address())
+                        P2PPeer::from((stat.peer_type, P2PNodeId(stat.id), stat.external_address()))
                     })
                     .collect::<Vec<_>>();
 
@@ -468,7 +468,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending my PeerList to peer {}", requestor.id());
+            debug!("Sending my PeerList to peer {}", requestor.id);
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
@@ -476,7 +476,7 @@ impl Connection {
 
             Ok(())
         } else {
-            debug!("I don't have any peers to share with peer {}", requestor.id());
+            debug!("I don't have any peers to share with peer {}", requestor.id);
             Ok(())
         }
     }
@@ -491,9 +491,9 @@ impl Connection {
                     conn != self
                         && match peer_to_ban {
                             BanId::NodeId(id) => {
-                                conn.remote_peer.peer().map_or(true, |x| x.id() != *id)
+                                conn.remote_peer.peer().map_or(true, |peer| peer.id != *id)
                             }
-                            BanId::Ip(addr) => conn.remote_peer.addr().ip() != *addr,
+                            BanId::Ip(addr) => conn.remote_peer.addr.ip() != *addr,
                             _ => unimplemented!("Socket address bans don't propagate"),
                         }
                 }
