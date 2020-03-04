@@ -326,6 +326,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let conn = Connection::new(node, socket, token, remote_peer, false);
 
     conn.register(&node.poll)?;
+    conn.set_conn_timestamp();
     node.add_connection(conn);
 
     Ok(token)
@@ -408,6 +409,7 @@ pub fn connect(
             let conn = Connection::new(node, socket, token, remote_peer, true);
 
             conn.register(&node.poll)?;
+            conn.set_conn_timestamp();
 
             write_lock_connections.insert(conn.token, conn);
 

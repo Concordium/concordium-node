@@ -184,7 +184,6 @@ impl ConnectionLowLevel {
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = 16;
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
-        self.conn().set_sent_handshake();
 
         Ok(())
     }
@@ -195,7 +194,6 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
         let payload_out = self.conn().handler.produce_handshake_request()?;
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
-        self.conn().set_sent_handshake();
 
         Ok(payload_in)
     }

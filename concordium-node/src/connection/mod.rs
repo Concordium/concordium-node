@@ -80,7 +80,7 @@ impl DeduplicationQueues {
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     pub last_ping_sent:    AtomicU64,
-    pub sent_handshake:    AtomicU64,
+    pub conn_timestamp:    AtomicU64,
     pub last_seen:         AtomicU64,
     pub messages_sent:     AtomicU64,
     pub messages_received: AtomicU64,
@@ -149,7 +149,7 @@ impl Connection {
         let stats = ConnectionStats {
             messages_received: Default::default(),
             messages_sent:     Default::default(),
-            sent_handshake:    Default::default(),
+            conn_timestamp:    Default::default(),
             valid_latency:     Default::default(),
             last_latency:      Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
@@ -182,10 +182,9 @@ impl Connection {
         self.stats.last_latency.store(value, Ordering::Relaxed);
     }
 
-    /// Set the timestamp of when the handshake request was sent to the
-    /// connection.
-    pub fn set_sent_handshake(&self) {
-        self.stats.sent_handshake.store(get_current_stamp(), Ordering::Relaxed)
+    /// Set the timestamp of when the connection was initiated.
+    pub fn set_conn_timestamp(&self) {
+        self.stats.conn_timestamp.store(get_current_stamp(), Ordering::Relaxed)
     }
 
     /// Get the timestamp of when the latest ping request was sent to the
