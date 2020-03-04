@@ -6,7 +6,7 @@ import Control.Monad.Trans.Maybe
 import qualified Data.HashSet as HS
 import Lens.Micro.Platform
 import Control.Monad.Identity
-import qualified Data.Text as Text
+import qualified Data.ByteString.Char8 as BS
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -119,7 +119,7 @@ type instance ATIContext () = NoLogContext
 
 -- * Sqlite log instance.
 
-data PerAccountAffectIndex = PAAIConfig Text.Text
+data PerAccountAffectIndex = PAAIConfig BS.ByteString
 -- When we want to dump data to disk.
 data DiskDump
 type instance ATIValues DiskDump = AccountTransactionIndex

@@ -25,9 +25,9 @@ import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.Serialize.Put (runPut)
+import Data.ByteString.Char8(ByteString)
 import System.FilePath
 import Lens.Micro.Platform
-import qualified Data.Text as Text
 
 import Concordium.Types.Transactions
 
@@ -421,7 +421,7 @@ data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configRP :: RuntimeParameters,
   configGD :: GenesisData,
   configBS :: BS.BlockState,
-  configTxLog :: !FilePath
+  configTxLog :: !ByteString
   }
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
@@ -435,7 +435,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        let handle = Text.pack txLog
+        let handle = txLog
         createTable handle
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig handle) serBS

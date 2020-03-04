@@ -12,14 +12,13 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
 
 import Database.Persist
-import Database.Persist.Sqlite
+-- import Database.Persist.Sqlite
+import Database.Persist.Postgresql
 import Database.Persist.TH
 import Conduit
 
 import qualified Data.Serialize as S
 import qualified Data.Aeson as AE
-import Data.Text(Text)
-import qualified Data.Text as Text
 
 import Control.Monad.Logger
 import Control.Monad.Reader
@@ -27,7 +26,6 @@ import Control.Monad.Reader
 import Data.Word
 import Data.ByteString
 import Data.ByteString.Lazy(toStrict)
-import System.Directory
 
 share [mkPersist sqlSettings, mkSave "entityDefs", mkMigrate "migrateAll"] [persistLowerCase|
   Entry
@@ -41,16 +39,16 @@ share [mkPersist sqlSettings, mkSave "entityDefs", mkMigrate "migrateAll"] [pers
     deriving Eq Show
   |]
 
-createTable :: Text -> IO ()
-createTable dbName = do
-  exists <- doesFileExist (Text.unpack dbName)
-  if exists then
-    fail "Database file already exists."
-  else runSqlite dbName (runMigration migrateAll :: ReaderT SqlBackend (NoLoggingT (ResourceT IO)) ())
+runPostgres :: ConnectionString -> ReaderT SqlBackend (NoLoggingT (ResourceT IO)) a -> IO a
+runPostgres connString = runResourceT . runNoLoggingT . withPostgresqlPool connString 5 . runSqlPool
 
-writeEntries :: Text -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
+createTable :: ConnectionString -> IO ()
+createTable dbName =
+  runPostgres dbName (runMigration migrateAll :: ReaderT SqlBackend (NoLoggingT (ResourceT IO)) ())
+
+writeEntries :: ConnectionString -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
 writeEntries dbName BlockContext{..} hm sos = do
-  runSqlite dbName c
+  runPostgres dbName c
   where c :: ReaderT SqlBackend (NoLoggingT (ResourceT IO)) ()
         c = do
           insertMany_
