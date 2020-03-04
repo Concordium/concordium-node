@@ -143,6 +143,9 @@ deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
 instance (ATITypes m, ATIStorage m ~ ATIValues ati) => ATITypes (PersistentTreeStateMonad ati bs m) where
   type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIStorage m
 
+instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
+  logContext = atiCtx
+
 deriving instance (PerAccountDBOperations m, ATIStorage m ~ ATIValues ati) => PerAccountDBOperations (PersistentTreeStateMonad ati bs m)
 
 instance (bs ~ GS.BlockState m, ATIValues ati ~ ATIStorage m) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
