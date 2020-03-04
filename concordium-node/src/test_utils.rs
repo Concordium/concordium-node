@@ -7,7 +7,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     netmsg,
-    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload},
+    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, PacketDestination},
     p2p::{connectivity, maintenance::spawn, P2PNode},
     stats_export_service::StatsExportService,
 };
@@ -135,7 +135,7 @@ fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
 /// given size.
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     netmsg!(NetworkPacket, NetworkPacket {
-        packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
+        destination: PacketDestination::Direct(P2PNodeId::default()),
         network_id:  NetworkId::from(thread_rng().gen::<u16>()),
         message:     generate_fake_block(size).unwrap(),
     })

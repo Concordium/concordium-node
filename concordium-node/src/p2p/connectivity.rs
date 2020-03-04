@@ -13,8 +13,8 @@ use crate::{
     connection::{Connection, DeduplicationQueues, MessageSendingPriority},
     netmsg,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload,
-        NetworkRequest,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
+        PacketDestination,
     },
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };
@@ -153,9 +153,9 @@ impl P2PNode {
     }
 
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
-        let peers_to_skip = match inner_pkt.packet_type {
-            NetworkPacketType::DirectMessage(..) => vec![],
-            NetworkPacketType::BroadcastedMessage(ref dont_relay_to) => {
+        let peers_to_skip = match inner_pkt.destination {
+            PacketDestination::Direct(..) => vec![],
+            PacketDestination::Broadcast(ref dont_relay_to) => {
                 if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
@@ -174,7 +174,7 @@ impl P2PNode {
             }
         };
 
-        let target = if let NetworkPacketType::DirectMessage(receiver) = inner_pkt.packet_type {
+        let target = if let PacketDestination::Direct(receiver) = inner_pkt.destination {
             Some(receiver)
         } else {
             None
@@ -555,13 +555,13 @@ fn send_message_over_network(
     message: Arc<[u8]>,
     broadcast: bool,
 ) -> Fallible<()> {
-    let packet_type = if broadcast {
-        NetworkPacketType::BroadcastedMessage(dont_relay_to)
+    let destination = if broadcast {
+        PacketDestination::Broadcast(dont_relay_to)
     } else {
         let receiver =
             target_id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
 
-        NetworkPacketType::DirectMessage(receiver)
+        PacketDestination::Direct(receiver)
     };
 
     let mut message = message.to_vec();
@@ -574,7 +574,7 @@ fn send_message_over_network(
 
     // Create packet.
     let packet = NetworkPacket {
-        packet_type,
+        destination,
         network_id,
         message,
     };

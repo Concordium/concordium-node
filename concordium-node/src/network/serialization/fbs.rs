@@ -11,8 +11,8 @@ use crate::{
         P2PNodeId,
     },
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload,
-        NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
+        NetworkResponse, PacketDestination,
     },
     p2p::bans::BanId,
 };
@@ -104,15 +104,15 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
         bail!("missing network message payload (expected a packet)")
     };
 
-    let packet_type = if let Some(direct) = packet.destination_as_direct() {
-        NetworkPacketType::DirectMessage(P2PNodeId(direct.target_id()))
+    let destination = if let Some(direct) = packet.destination_as_direct() {
+        PacketDestination::Direct(P2PNodeId(direct.target_id()))
     } else if let Some(broadcast) = packet.destination_as_broadcast() {
         let ids_to_exclude = if let Some(ids) = broadcast.ids_to_exclude() {
             ids.safe_slice().iter().copied().map(P2PNodeId).collect()
         } else {
             Vec::new()
         };
-        NetworkPacketType::BroadcastedMessage(ids_to_exclude)
+        PacketDestination::Broadcast(ids_to_exclude)
     } else {
         bail!("invalid network packet type")
     };
@@ -126,7 +126,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
     };
 
     Ok(NetworkPayload::NetworkPacket(NetworkPacket {
-        packet_type,
+        destination,
         network_id,
         message: payload,
     }))
@@ -299,15 +299,15 @@ fn serialize_packet(
     builder: &mut FlatBufferBuilder,
     packet: &NetworkPacket,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
-    let (destination_offset, destination_type) = match packet.packet_type {
-        NetworkPacketType::DirectMessage(target_id) => {
+    let (destination_offset, destination_type) = match packet.destination {
+        PacketDestination::Direct(target_id) => {
             let offset = network::Direct::create(builder, &network::DirectArgs {
                 target_id: target_id.as_raw(),
             });
 
             (offset.as_union_value(), network::Destination::Direct)
         }
-        NetworkPacketType::BroadcastedMessage(ref ids_to_exclude) => {
+        PacketDestination::Broadcast(ref ids_to_exclude) => {
             builder.start_vector::<u64>(ids_to_exclude.len());
             for id in ids_to_exclude {
                 builder.push(id.as_raw());

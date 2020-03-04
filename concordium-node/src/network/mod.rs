@@ -95,7 +95,7 @@ pub enum NetworkResponse {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct NetworkPacket {
-    pub packet_type: NetworkPacketType,
+    pub destination: PacketDestination,
     pub network_id:  NetworkId,
     pub message:     Vec<u8>,
 }
@@ -103,7 +103,7 @@ pub struct NetworkPacket {
 /// The desired target of a network packet.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub enum NetworkPacketType {
-    DirectMessage(P2PNodeId),
-    BroadcastedMessage(Vec<P2PNodeId>),
+pub enum PacketDestination {
+    Direct(P2PNodeId),
+    Broadcast(Vec<P2PNodeId>),
 }

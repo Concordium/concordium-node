@@ -3,8 +3,8 @@ use crate::{
     configuration::COMPATIBLE_CLIENT_VERSIONS,
     connection::Connection,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload,
-        NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
+        NetworkResponse, PacketDestination,
     },
     p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
@@ -176,20 +176,19 @@ impl Connection {
 
         trace!("Received a Packet from peer {}", peer_id);
 
-        let is_broadcast = match pac.packet_type {
-            NetworkPacketType::BroadcastedMessage(..) => true,
+        let is_broadcast = match pac.destination {
+            PacketDestination::Broadcast(..) => true,
             _ => false,
         };
 
-        let dont_relay_to =
-            if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
-                let mut list = Vec::with_capacity(peers.len() + 1);
-                list.extend_from_slice(peers);
-                list.push(peer_id);
-                list
-            } else {
-                vec![]
-            };
+        let dont_relay_to = if let PacketDestination::Broadcast(ref peers) = pac.destination {
+            let mut list = Vec::with_capacity(peers.len() + 1);
+            list.extend_from_slice(peers);
+            list.push(peer_id);
+            list
+        } else {
+            vec![]
+        };
 
         handle_pkt_out(&self.handler, dont_relay_to, peer_id, pac.message, is_broadcast)
     }
