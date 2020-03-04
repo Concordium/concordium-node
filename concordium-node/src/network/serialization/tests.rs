@@ -3,8 +3,7 @@ use semver::Version;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerType},
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest,
-        NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkPayload, NetworkRequest, NetworkResponse,
     },
     p2p::bans::BanId,
     test_utils::create_random_packet,
@@ -33,16 +32,16 @@ macro_rules! test_s11n {
     };
 }
 
-test_s11n!(s11n_req_ping, NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping));
+test_s11n!(s11n_req_ping, NetworkPayload::NetworkRequest(NetworkRequest::Ping));
 test_s11n!(
     s11n_req_get_peers,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(
+    NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(
         [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
     ))
 );
 test_s11n!(
     s11n_req_handshake,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+    NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
         remote_id:   P2PNodeId(77),
         remote_port: 1234,
         networks:    [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
@@ -52,40 +51,36 @@ test_s11n!(
 );
 test_s11n!(
     s11n_req_ban_id,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::NodeId(P2PNodeId(1337))))
+    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::NodeId(P2PNodeId(1337))))
 );
 test_s11n!(
     s11n_req_unban_id,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(BanId::NodeId(P2PNodeId(
-        1337
-    ))))
+    NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(BanId::NodeId(P2PNodeId(1337))))
 );
 test_s11n!(
     s11n_req_ban_ip_v4,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
-        4, 3, 2, 1
-    ])),))
+    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([4, 3, 2, 1])),))
 );
 test_s11n!(
     s11n_req_ban_ip_v6,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
+    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
         1, 2, 3, 4, 5, 6, 7, 8
     ])),))
 );
 test_s11n!(
     s11n_req_join_net,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(NetworkId::from(1337),))
+    NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(NetworkId::from(1337),))
 );
 test_s11n!(
     s11n_req_leave_net,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
+    NetworkPayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
 );
 
-test_s11n!(s11n_resp_pong, NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong));
+test_s11n!(s11n_resp_pong, NetworkPayload::NetworkResponse(NetworkResponse::Pong));
 
 test_s11n!(
     s11n_resp_peer_list,
-    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
+    NetworkPayload::NetworkResponse(NetworkResponse::PeerList(
         [
             P2PPeer {
                 id:        P2PNodeId(1234567890123),

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// Contains all the node information used by the collector.
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize)]
 pub struct NodeInfo {
@@ -53,6 +54,7 @@ pub struct NodeInfo {
     pub averageBytesPerSecondOut: u64,
 }
 
+/// Contains node details available in `nodes_summary`.
 #[allow(non_snake_case)]
 #[derive(Serialize)]
 pub struct NodeInfoDashboard<'a> {
@@ -153,6 +155,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
     }
 }
 
+/// Contains node details available in `nodes_block_info`.
 #[allow(non_snake_case)]
 #[derive(Serialize)]
 pub struct NodeInfoChainViz<'a> {
@@ -179,6 +182,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
     }
 }
 
+/// Contains node details available in `nodes_beta_users_info`.
 #[allow(non_snake_case)]
 #[derive(Serialize)]
 pub struct NodeInfoBetaUsers<'a> {

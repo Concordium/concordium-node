@@ -78,11 +78,11 @@ table NetworkResponse {
 
 // network message
 
-union NetworkMessagePayload { NetworkPacket, NetworkRequest, NetworkResponse }
+union NetworkPayload { NetworkPacket, NetworkRequest, NetworkResponse }
 
 table NetworkMessage {
     timestamp: uint64;
-    payload: NetworkMessagePayload;
+    payload: NetworkPayload;
 }
 
 file_identifier "CP2P";

@@ -19,8 +19,7 @@ use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     netmsg,
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
-        NetworkResponse,
+        NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
     },
     p2p::{bans::BanId, P2PNode},
 };
@@ -196,7 +195,7 @@ impl Connection {
     pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
 
     /// Obtain the type of the peer associated with the connection.
-    pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type() }
+    pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
 
     /// Obtain the peer stats of the connection.
     #[inline]
@@ -213,7 +212,7 @@ impl Connection {
     }
 
     /// Obtain the remote address of the connection.
-    pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr() }
+    pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr }
 
     /// Obtain the external port of the connection.
     pub fn remote_peer_external_port(&self) -> u16 {
@@ -246,12 +245,12 @@ impl Connection {
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<bool> {
         ensure!(!packet.message.is_empty());
-        let packet_type = PacketType::try_from(
+        let destination = PacketType::try_from(
             u8::deserial(&mut Cursor::new(&packet.message[..1]))
                 .expect("Writing to buffer is safe."),
         );
 
-        let is_duplicate = match packet_type {
+        let is_duplicate = match destination {
             Ok(PacketType::FinalizationMessage) => {
                 dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.finalizations))?
             }
@@ -289,7 +288,7 @@ impl Connection {
 
         let mut message = NetworkMessage::deserialize(&message)?;
 
-        if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
+        if let NetworkPayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode
             if self.handler.self_peer.peer_type == PeerType::Bootstrapper {
                 return Ok(());
@@ -301,12 +300,12 @@ impl Connection {
         }
 
         let is_msg_processable = match message.payload {
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
+            NetworkPayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
             _ => self.is_post_handshake(),
         };
 
         let is_msg_forwardable = match message.payload {
-            NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
+            NetworkPayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
                     !self.handler.config.no_trust_bans
                 }
@@ -317,7 +316,7 @@ impl Connection {
 
         // forward applicable messages to other connections
         if is_msg_forwardable {
-            if let NetworkMessagePayload::NetworkRequest(..) = message.payload {
+            if let NetworkPayload::NetworkRequest(..) = message.payload {
                 if let Err(e) = self.forward_network_message(&message) {
                     error!("Couldn't forward a network message: {}", e);
                 }
@@ -377,7 +376,7 @@ impl Connection {
     #[cfg(feature = "network_dump")]
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
         if let Some(ref sender) = &*read_or_die!(self.handler.connection_handler.log_dumper) {
-            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr().ip(), buf);
+            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr.ip(), buf);
             let _ = sender.send(di);
         }
     }
@@ -455,7 +454,7 @@ impl Connection {
                     .iter()
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
                     .map(|stat| {
-                        P2PPeer::from(stat.peer_type, P2PNodeId(stat.id), stat.external_address())
+                        P2PPeer::from((stat.peer_type, P2PNodeId(stat.id), stat.external_address()))
                     })
                     .collect::<Vec<_>>();
 
@@ -468,7 +467,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending my PeerList to peer {}", requestor.id());
+            debug!("Sending my PeerList to peer {}", requestor.id);
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;
@@ -476,7 +475,7 @@ impl Connection {
 
             Ok(())
         } else {
-            debug!("I don't have any peers to share with peer {}", requestor.id());
+            debug!("I don't have any peers to share with peer {}", requestor.id);
             Ok(())
         }
     }
@@ -486,14 +485,14 @@ impl Connection {
         msg.serialize(&mut serialized)?;
 
         let conn_filter = |conn: &Connection| match msg.payload {
-            NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
+            NetworkPayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(peer_to_ban) => {
                     conn != self
                         && match peer_to_ban {
                             BanId::NodeId(id) => {
-                                conn.remote_peer.peer().map_or(true, |x| x.id() != *id)
+                                conn.remote_peer.peer().map_or(true, |peer| peer.id != *id)
                             }
-                            BanId::Ip(addr) => conn.remote_peer.addr().ip() != *addr,
+                            BanId::Ip(addr) => conn.remote_peer.addr.ip() != *addr,
                             _ => unimplemented!("Socket address bans don't propagate"),
                         }
                 }

@@ -3,8 +3,8 @@ use crate::{
     configuration::COMPATIBLE_CLIENT_VERSIONS,
     connection::Connection,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
+        NetworkResponse, PacketDestination,
     },
     p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
@@ -19,30 +19,30 @@ impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(&self, full_msg: NetworkMessage) -> Fallible<()> {
         match full_msg.payload {
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 self.handle_handshake_req(handshake)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
-            NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
+            NetworkPayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
+            NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
                 self.handle_get_peers_req(networks)
             }
-            NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
+            NetworkPayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
                 self.handle_peer_list_resp(peers)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 self.handle_join_network_req(network)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
                 self.handle_leave_network_req(network)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
                 self.handler.ban_node(peer_to_ban)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
                 self.handle_unban(peer_to_unban)
             }
-            NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
+            NetworkPayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
         }
     }
 
@@ -60,13 +60,13 @@ impl Connection {
         self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
         self.add_remote_end_networks(&handshake.networks);
 
-        let remote_peer = P2PPeer::from(
-            self.remote_peer.peer_type(),
+        let remote_peer = P2PPeer::from((
+            self.remote_peer.peer_type,
             handshake.remote_id,
-            SocketAddr::new(self.remote_peer.addr().ip(), handshake.remote_port),
-        );
+            SocketAddr::new(self.remote_peer.addr.ip(), handshake.remote_port),
+        ));
 
-        if remote_peer.peer_type() != PeerType::Bootstrapper {
+        if remote_peer.peer_type != PeerType::Bootstrapper {
             write_or_die!(self.handler.connection_handler.buckets)
                 .insert_into_bucket(&remote_peer, handshake.networks.clone());
         }
@@ -117,8 +117,8 @@ impl Connection {
         });
 
         for peer in applicable_candidates {
-            trace!("Got info for peer {}/{}/{}", peer.id(), peer.ip(), peer.port());
-            if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id())).is_ok() {
+            trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
+            if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                 new_peers += 1;
                 safe_write!(self.handler.connection_handler.buckets)?
                     .insert_into_bucket(peer, HashSet::new());
@@ -176,20 +176,19 @@ impl Connection {
 
         trace!("Received a Packet from peer {}", peer_id);
 
-        let is_broadcast = match pac.packet_type {
-            NetworkPacketType::BroadcastedMessage(..) => true,
+        let is_broadcast = match pac.destination {
+            PacketDestination::Broadcast(..) => true,
             _ => false,
         };
 
-        let dont_relay_to =
-            if let NetworkPacketType::BroadcastedMessage(ref peers) = pac.packet_type {
-                let mut list = Vec::with_capacity(peers.len() + 1);
-                list.extend_from_slice(peers);
-                list.push(peer_id);
-                list
-            } else {
-                vec![]
-            };
+        let dont_relay_to = if let PacketDestination::Broadcast(ref peers) = pac.destination {
+            let mut list = Vec::with_capacity(peers.len() + 1);
+            list.extend_from_slice(peers);
+            list.push(peer_id);
+            list
+        } else {
+            vec![]
+        };
 
         handle_pkt_out(&self.handler, dont_relay_to, peer_id, pac.message, is_broadcast)
     }

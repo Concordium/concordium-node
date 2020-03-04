@@ -18,14 +18,17 @@ pub const APP_INFO: AppInfo = AppInfo {
 // it is impossible to omit manual inspection upon future updates
 pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.1", "0.2.0"];
 
+/// The maximum size of objects accepted from the network.
+pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
+
 const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
-// maximum time allowed for a peer to catch up with in milliseconds
+/// Maximum time allowed for a peer to catch up with, in milliseconds.
 pub const MAX_CATCH_UP_TIME: u64 = 300_000;
 
-// queue depths
+// dump queue depths
 pub const DUMP_QUEUE_DEPTH: usize = 100;
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
@@ -445,7 +448,6 @@ impl Config {
 }
 
 pub fn parse_config() -> Fallible<Config> {
-    use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
 
     ensure!(
