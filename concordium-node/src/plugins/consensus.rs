@@ -483,7 +483,7 @@ fn update_peer_states(
                     .filter(|(&id, &state)| id != source_peer && state.status != Pending)
                     .map(|(&id, _)| id)
                 {
-                    let _ = send_consensus_msg_to_net(
+                    send_consensus_msg_to_net(
                         node,
                         Vec::new(),
                         Some(P2PNodeId(non_pending_peer)),
