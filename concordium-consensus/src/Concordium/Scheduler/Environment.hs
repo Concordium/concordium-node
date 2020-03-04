@@ -74,7 +74,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- existed. Also store the code of the module for archival purposes.
   commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Module -> m Bool
 
-  -- |Check whehter we already cache the expression in a linked format.
+  -- |Check whether we already cache the expression in a linked format.
   -- It is valid for the implementation to always return 'Nothing', although this
   -- will affect memory use since linked expressions will not be shared.
   smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps NoAnnot))
@@ -134,7 +134,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- account and should be rewarded because of it.
   notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
 
-  -- |Convert the given energy amount into a the amount of GTU. The exchange
+  -- |Convert the given energy amount into an amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
   -- TODO: In this setup the exchange rate is determined by the blockchain, and
   -- the user (aka sender of the transaction) cannot choose to pay more to have
