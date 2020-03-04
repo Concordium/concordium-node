@@ -41,8 +41,6 @@ use crate::{
     },
 };
 
-pub fn sha256(bytes: &[u8]) -> HashBytes { HashBytes::new(&Sha256::digest(bytes)) }
-
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     genesis_data: Vec<u8>,
@@ -137,7 +135,6 @@ pub fn get_baker_data(
         None
     };
 
-    debug!("Obtained genesis data {:?}", sha256(&[&[0u8; 8], genesis_data.as_slice()].concat()));
     Ok((genesis_data, private_data))
 }
 
