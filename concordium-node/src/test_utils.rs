@@ -7,7 +7,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     netmsg,
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
+    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload},
     p2p::{connectivity, maintenance::spawn, P2PNode},
     stats_export_service::StatsExportService,
 };

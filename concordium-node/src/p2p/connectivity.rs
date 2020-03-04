@@ -13,8 +13,8 @@ use crate::{
     connection::{Connection, DeduplicationQueues, MessageSendingPriority},
     netmsg,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
-        NetworkPacketType, NetworkRequest,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload,
+        NetworkRequest,
     },
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };

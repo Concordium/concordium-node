@@ -11,8 +11,8 @@ use crate::{
         P2PNodeId,
     },
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload,
+        NetworkRequest, NetworkResponse,
     },
     p2p::bans::BanId,
 };
@@ -33,7 +33,7 @@ impl NetworkMessage {
     }
 
     pub fn serialize<T: Write>(&self, target: &mut T) -> Fallible<()> {
-        let capacity = if let NetworkMessagePayload::NetworkPacket(ref packet) = self.payload {
+        let capacity = if let NetworkPayload::NetworkPacket(ref packet) = self.payload {
             packet.message.len() + 64 // FIXME: fine-tune the overhead
         } else {
             256
@@ -41,16 +41,14 @@ impl NetworkMessage {
         let mut builder = FlatBufferBuilder::new_with_capacity(capacity);
 
         let (payload_type, payload_offset) = match self.payload {
-            NetworkMessagePayload::NetworkPacket(ref packet) => (
-                network::NetworkMessagePayload::NetworkPacket,
-                serialize_packet(&mut builder, packet)?,
-            ),
-            NetworkMessagePayload::NetworkRequest(ref request) => (
-                network::NetworkMessagePayload::NetworkRequest,
-                serialize_request(&mut builder, request)?,
-            ),
-            NetworkMessagePayload::NetworkResponse(ref response) => (
-                network::NetworkMessagePayload::NetworkResponse,
+            NetworkPayload::NetworkPacket(ref packet) => {
+                (network::NetworkPayload::NetworkPacket, serialize_packet(&mut builder, packet)?)
+            }
+            NetworkPayload::NetworkRequest(ref request) => {
+                (network::NetworkPayload::NetworkRequest, serialize_request(&mut builder, request)?)
+            }
+            NetworkPayload::NetworkResponse(ref response) => (
+                network::NetworkPayload::NetworkResponse,
                 serialize_response(&mut builder, response)?,
             ),
         };
@@ -86,9 +84,9 @@ fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
     let created = root.timestamp();
 
     let payload = match root.payload_type() {
-        network::NetworkMessagePayload::NetworkPacket => deserialize_packet(&root)?,
-        network::NetworkMessagePayload::NetworkRequest => deserialize_request(&root)?,
-        network::NetworkMessagePayload::NetworkResponse => deserialize_response(&root)?,
+        network::NetworkPayload::NetworkPacket => deserialize_packet(&root)?,
+        network::NetworkPayload::NetworkRequest => deserialize_request(&root)?,
+        network::NetworkPayload::NetworkResponse => deserialize_response(&root)?,
         _ => bail!("invalid network message payload type"),
     };
 
@@ -99,7 +97,7 @@ fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
     })
 }
 
-fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessagePayload> {
+fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload> {
     let packet = if let Some(payload) = root.payload() {
         network::NetworkPacket::init_from_table(payload)
     } else {
@@ -127,14 +125,14 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkMessage
         bail!("missing packet payload")
     };
 
-    Ok(NetworkMessagePayload::NetworkPacket(NetworkPacket {
+    Ok(NetworkPayload::NetworkPacket(NetworkPacket {
         packet_type,
         network_id,
         message: payload,
     }))
 }
 
-fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessagePayload> {
+fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayload> {
     let request = if let Some(payload) = root.payload() {
         network::NetworkRequest::init_from_table(payload)
     } else {
@@ -142,9 +140,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
     };
 
     match request.variant() {
-        network::RequestVariant::Ping => {
-            Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping))
-        }
+        network::RequestVariant::Ping => Ok(NetworkPayload::NetworkRequest(NetworkRequest::Ping)),
         network::RequestVariant::GetPeers => {
             if let Some(network_ids) = request
                 .payload()
@@ -153,7 +149,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
             {
                 let network_ids =
                     network_ids.safe_slice().iter().copied().map(NetworkId::from).collect();
-                Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(network_ids)))
+                Ok(NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(network_ids)))
             } else {
                 bail!("missing network ids in a GetPeers request")
             }
@@ -174,7 +170,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
                     bail!("missing network ids in a Handshake")
                 };
 
-                Ok(NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+                Ok(NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
                     remote_id,
                     remote_port,
                     networks,
@@ -210,7 +206,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
                     bail!("missing ban id/ip in a ban/unban request")
                 };
 
-                Ok(NetworkMessagePayload::NetworkRequest(match request.variant() {
+                Ok(NetworkPayload::NetworkRequest(match request.variant() {
                     network::RequestVariant::BanNode => NetworkRequest::BanNode(tgt),
                     network::RequestVariant::UnbanNode => NetworkRequest::UnbanNode(tgt),
                     _ => unreachable!(),
@@ -225,7 +221,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
                 .map(network::NetworkId::init_from_table)
                 .map(|id| NetworkId::from(id.id()))
             {
-                Ok(NetworkMessagePayload::NetworkRequest(match request.variant() {
+                Ok(NetworkPayload::NetworkRequest(match request.variant() {
                     network::RequestVariant::JoinNetwork => NetworkRequest::JoinNetwork(id),
                     network::RequestVariant::LeaveNetwork => NetworkRequest::LeaveNetwork(id),
                     _ => unreachable!(),
@@ -237,7 +233,7 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkMessag
     }
 }
 
-fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessagePayload> {
+fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkPayload> {
     let response = if let Some(payload) = root.payload() {
         network::NetworkResponse::init_from_table(payload)
     } else {
@@ -246,7 +242,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
 
     match response.variant() {
         network::ResponseVariant::Pong => {
-            Ok(NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong))
+            Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
             if let Some(peers) = response.payload_as_peer_list().and_then(|peers| peers.peers()) {
@@ -289,7 +285,7 @@ fn deserialize_response(root: &network::NetworkMessage) -> Fallible<NetworkMessa
                     list.push(peer);
                 }
 
-                Ok(NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(list)))
+                Ok(NetworkPayload::NetworkResponse(NetworkResponse::PeerList(list)))
             } else {
                 bail!("missing peers in a PeerList response")
             }

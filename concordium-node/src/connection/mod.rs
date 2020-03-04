@@ -19,8 +19,7 @@ use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
     netmsg,
     network::{
-        NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkRequest,
-        NetworkResponse,
+        NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
     },
     p2p::{bans::BanId, P2PNode},
 };
@@ -289,7 +288,7 @@ impl Connection {
 
         let mut message = NetworkMessage::deserialize(&message)?;
 
-        if let NetworkMessagePayload::NetworkPacket(ref mut packet) = message.payload {
+        if let NetworkPayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode
             if self.handler.self_peer.peer_type == PeerType::Bootstrapper {
                 return Ok(());
@@ -301,12 +300,12 @@ impl Connection {
         }
 
         let is_msg_processable = match message.payload {
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
+            NetworkPayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
             _ => self.is_post_handshake(),
         };
 
         let is_msg_forwardable = match message.payload {
-            NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
+            NetworkPayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
                     !self.handler.config.no_trust_bans
                 }
@@ -317,7 +316,7 @@ impl Connection {
 
         // forward applicable messages to other connections
         if is_msg_forwardable {
-            if let NetworkMessagePayload::NetworkRequest(..) = message.payload {
+            if let NetworkPayload::NetworkRequest(..) = message.payload {
                 if let Err(e) = self.forward_network_message(&message) {
                     error!("Couldn't forward a network message: {}", e);
                 }
@@ -486,7 +485,7 @@ impl Connection {
         msg.serialize(&mut serialized)?;
 
         let conn_filter = |conn: &Connection| match msg.payload {
-            NetworkMessagePayload::NetworkRequest(ref request, ..) => match request {
+            NetworkPayload::NetworkRequest(ref request, ..) => match request {
                 NetworkRequest::BanNode(peer_to_ban) => {
                     conn != self
                         && match peer_to_ban {

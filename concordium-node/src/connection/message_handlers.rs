@@ -3,8 +3,8 @@ use crate::{
     configuration::COMPATIBLE_CLIENT_VERSIONS,
     connection::Connection,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket,
-        NetworkPacketType, NetworkRequest, NetworkResponse,
+        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPacketType, NetworkPayload,
+        NetworkRequest, NetworkResponse,
     },
     p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
@@ -19,30 +19,30 @@ impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(&self, full_msg: NetworkMessage) -> Fallible<()> {
         match full_msg.payload {
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 self.handle_handshake_req(handshake)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
-            NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
+            NetworkPayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
+            NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
                 self.handle_get_peers_req(networks)
             }
-            NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
+            NetworkPayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
                 self.handle_peer_list_resp(peers)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 self.handle_join_network_req(network)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
                 self.handle_leave_network_req(network)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
                 self.handler.ban_node(peer_to_ban)
             }
-            NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
                 self.handle_unban(peer_to_unban)
             }
-            NetworkMessagePayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
+            NetworkPayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
         }
     }
 

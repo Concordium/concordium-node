@@ -36,7 +36,7 @@ pub struct NetworkMessage {
     /// The receipt timestamp (if received from the network).
     pub received: Option<u64>,
     /// The message's payload.
-    pub payload: NetworkMessagePayload,
+    pub payload: NetworkPayload,
 }
 
 #[macro_export]
@@ -45,7 +45,7 @@ macro_rules! netmsg {
         NetworkMessage {
             created:  get_current_stamp(),
             received: None,
-            payload:  NetworkMessagePayload::$payload_type($payload),
+            payload:  NetworkPayload::$payload_type($payload),
         }
     }};
 }
@@ -53,7 +53,7 @@ macro_rules! netmsg {
 /// The contents of a network message.
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
-pub enum NetworkMessagePayload {
+pub enum NetworkPayload {
     NetworkRequest(NetworkRequest),
     NetworkResponse(NetworkResponse),
     NetworkPacket(NetworkPacket),
