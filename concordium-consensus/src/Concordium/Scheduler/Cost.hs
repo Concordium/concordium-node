@@ -52,6 +52,10 @@ updateMessageTypecheck size = assert (size > 0) (fromIntegral size)
 interContractMessage :: Energy
 interContractMessage = 10
 
+-- |Cost to transfer to an account.
+transferAccount :: Energy
+transferAccount = 100
+
 -- |Cost to add a credential to an account. This cost is costant regardless of
 -- the details of the data. This might change.
 deployCredential :: Energy
