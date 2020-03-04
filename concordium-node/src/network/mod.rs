@@ -39,6 +39,7 @@ pub struct NetworkMessage {
     pub payload: NetworkPayload,
 }
 
+/// A helper macro used to create a network message with the given payload.
 #[macro_export]
 macro_rules! netmsg {
     ($payload_type:ident, $payload:expr) => {{
@@ -74,12 +75,19 @@ pub struct Handshake {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkRequest {
+    /// Used to measure connection liveness and latency.
     Ping,
+    /// Used to obtain peers' peers.
     GetPeers(HashSet<NetworkId>),
+    /// Used in the initial exchange of metadata with peers.
     Handshake(Handshake),
+    /// Requests that peers ban a specific node.
     BanNode(BanId),
+    /// Requests that peers unban a specific node.
     UnbanNode(BanId),
+    /// Asks that a node joins a specific network.
     JoinNetwork(NetworkId),
+    /// Asks that a node leaves a specific network.
     LeaveNetwork(NetworkId),
 }
 
@@ -87,7 +95,9 @@ pub enum NetworkRequest {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum NetworkResponse {
+    /// A response to a Ping request.
     Pong,
+    /// A response to a GetPeers request.
     PeerList(Vec<P2PPeer>),
 }
 
@@ -104,6 +114,8 @@ pub struct NetworkPacket {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PacketDestination {
+    /// A single node.
     Direct(P2PNodeId),
+    /// All peers, optionally excluding the ones in the vector.
     Broadcast(Vec<P2PNodeId>),
 }
