@@ -320,6 +320,7 @@ extern "C" {
     ) -> *const c_char;
     pub fn getTransactionStatusInBlock(
         consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
         block_hash: *const u8,
     ) -> *const c_char;
 }
@@ -579,10 +580,16 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn get_transaction_status_in_block(&self, block_hash: &str) -> String {
+    pub fn get_transaction_status_in_block(
+        &self,
+        transaction_hash: &str,
+        block_hash: &str,
+    ) -> String {
+        let transaction_hash = CString::new(transaction_hash).unwrap();
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getTransactionStatusInBlock(
             consensus,
+            transaction_hash.as_ptr() as *const u8,
             block_hash.as_ptr() as *const u8
         ))
     }
