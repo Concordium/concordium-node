@@ -1,3 +1,5 @@
+//! Incoming network message handing.
+
 use crate::{
     common::{get_current_stamp, P2PPeer, PeerType},
     configuration::COMPATIBLE_CLIENT_VERSIONS,

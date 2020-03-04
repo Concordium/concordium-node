@@ -1,3 +1,5 @@
+//! Miscellaneous utilities.
+
 use concordium_dns::dns;
 
 use crate::{self as p2p_client, configuration as config};
@@ -16,6 +18,11 @@ use std::{
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
+
+const DEFAULT_DNS_PUBLIC_KEY: &str =
+    "58C4FD93586B92A76BA89141667B1C205349C6C38CC8AB2F6613F7483EBFDAA3";
+const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
+fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
 fn serialize_ip(ip: IpAddr) -> String {
     match ip {
@@ -226,7 +233,7 @@ pub fn get_bootstrap_nodes(
             return Err("No valid resolvers given");
         }
         match dns::resolve_dns_txt_record(bootstrap_server, &resolver_addresses, dnssec_fail) {
-            Ok(res) => read_peers_from_dns_entries(res, super::get_dns_public_key()),
+            Ok(res) => read_peers_from_dns_entries(res, get_dns_public_key()),
             Err(_) => Err("Error looking up bootstrap nodes"),
         }
     }

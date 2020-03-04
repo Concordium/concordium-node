@@ -1,3 +1,5 @@
+//! Network object serialization.
+
 #[cfg(feature = "s11n_fbs")]
 pub mod fbs;
 

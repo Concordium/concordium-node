@@ -1,3 +1,5 @@
+//! Central node object handling.
+
 pub mod bans;
 pub mod connectivity;
 pub mod maintenance;

@@ -1,3 +1,5 @@
+//! Handles the `network_dump` feature.
+
 cfg_if! {
     if #[cfg(feature = "network_dump")] {
         use crate::common::P2PNodeId;

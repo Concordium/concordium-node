@@ -1,3 +1,5 @@
+//! The node identifier.
+
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 use rand::distributions::{Distribution, Uniform};

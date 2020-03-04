@@ -1,3 +1,5 @@
+//! Flatbuffers serialization.
+
 use failure::{Error, Fallible};
 use flatbuffers::FlatBufferBuilder;
 use semver::Version;

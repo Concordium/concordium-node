@@ -1,3 +1,5 @@
+//! Peer ban handling.
+
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};

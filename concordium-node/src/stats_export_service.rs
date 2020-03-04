@@ -1,3 +1,5 @@
+//! Node's statistics and their exposure.
+
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, core::{AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};

@@ -1,3 +1,5 @@
+//! Node connection handling.
+
 use failure::{err_msg, Error, Fallible};
 use mio::{net::TcpStream, Events, Token};
 use rand::{

@@ -1,3 +1,5 @@
+//! Consensus layer handling.
+
 use crossbeam_channel::TrySendError;
 use failure::Fallible;
 
