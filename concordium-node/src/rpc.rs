@@ -583,7 +583,7 @@ impl P2p for RpcServerImpl {
 
     async fn get_transaction_status_in_block(
         &self,
-        req: Request<BlockHash>,
+        req: Request<GetTransactionStatusInBlockRequest>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
         call_consensus!(
@@ -591,7 +591,10 @@ impl P2p for RpcServerImpl {
             "GetTransactionStatusInBlock",
             JsonResponse,
             |cc: &ConsensusContainer| {
-                cc.get_transaction_status_in_block(&req.get_ref().block_hash)
+                cc.get_transaction_status_in_block(
+                    &req.get_ref().transaction_hash,
+                    &req.get_ref().block_hash,
+                )
             }
         )
     }
