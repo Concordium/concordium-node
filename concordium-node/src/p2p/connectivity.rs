@@ -251,7 +251,7 @@ impl P2PNode {
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
                 {
-                    if let Err(e) = low_level.read_stream(deduplication_queues) {
+                    if let Err(e) = conn.read_stream(&mut low_level, deduplication_queues) {
                         error!("{}", e);
                         Some((*token, (conn.remote_addr().ip(), e)))
                     } else {

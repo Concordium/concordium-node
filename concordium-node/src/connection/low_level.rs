@@ -8,7 +8,7 @@ use noiseexplorer_xx::{
     types::Keypair,
 };
 
-use super::{Connection, DeduplicationQueues};
+use super::Connection;
 use crate::configuration::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
@@ -91,7 +91,7 @@ impl SocketBuffer {
 
 /// A type used to indicate what the result of the current read from the socket
 /// is.
-enum ReadResult {
+pub enum ReadResult {
     /// A single message was fully read.
     Complete(Vec<u8>),
     /// The currently read message is incomplete - further reads are needed.
@@ -231,23 +231,9 @@ impl ConnectionLowLevel {
 
     // input
 
-    /// Keeps reading from the socket as long as there is data to be read
-    /// and the operation is not blocking.
-    #[inline]
-    pub fn read_stream(&mut self, dedup_queues: &DeduplicationQueues) -> Fallible<()> {
-        loop {
-            match self.read_from_socket()? {
-                ReadResult::Complete(msg) => {
-                    self.conn().process_message(Arc::from(msg), dedup_queues)?
-                }
-                ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
-            }
-        }
-    }
-
     /// Attempts to read a complete message from the socket.
     #[inline]
-    fn read_from_socket(&mut self) -> Fallible<ReadResult> {
+    pub fn read_from_socket(&mut self) -> Fallible<ReadResult> {
         if self.socket_buffer.is_exhausted() {
             self.socket_buffer.reset();
         }

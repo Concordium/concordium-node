@@ -20,6 +20,7 @@ use twox_hash::XxHash64;
 use crate::dumper::DumpItem;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
+    connection::low_level::ReadResult,
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
@@ -274,6 +275,22 @@ impl Connection {
         };
 
         Ok(is_duplicate)
+    }
+
+    /// Keeps reading from the socket as long as there is data to be read
+    /// and the operation is not blocking.
+    #[inline]
+    pub fn read_stream(
+        &self,
+        low_level: &mut ConnectionLowLevel,
+        dedup_queues: &DeduplicationQueues,
+    ) -> Fallible<()> {
+        loop {
+            match low_level.read_from_socket()? {
+                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), dedup_queues)?,
+                ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
+            }
+        }
     }
 
     #[inline]
