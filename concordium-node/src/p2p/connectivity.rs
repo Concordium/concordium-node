@@ -12,7 +12,7 @@ use semver::Version;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{Connection, DeduplicationQueues, MessageSendingPriority},
+    connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
     netmsg,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
@@ -240,8 +240,7 @@ impl P2PNode {
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
 
-                if let Err(e) = low_level
-                    .send_pending_messages(&conn.pending_messages)
+                if let Err(e) = send_pending_messages(conn, &mut low_level, &conn.pending_messages)
                     .and_then(|_| low_level.flush_socket())
                 {
                     error!("{}", e);

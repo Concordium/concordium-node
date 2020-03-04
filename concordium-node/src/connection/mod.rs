@@ -7,6 +7,7 @@ mod tests;
 
 use low_level::ConnectionLowLevel;
 
+use bytesize::ByteSize;
 use chrono::prelude::Utc;
 use circular_queue::CircularQueue;
 use digest::Digest;
@@ -538,4 +539,38 @@ fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> 
         trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
+}
+
+/// Processes a queue with pending messages, writing them to the socket.
+#[inline]
+pub fn send_pending_messages(
+    conn: &Connection,
+    low_level: &mut ConnectionLowLevel,
+    pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+) -> Fallible<()> {
+    let mut pending_messages = write_or_die!(pending_messages);
+
+    while let Some((msg, _)) = pending_messages.pop() {
+        trace!(
+            "Attempting to send {} to {}",
+            ByteSize(msg.len() as u64).to_string_as(true),
+            low_level.conn()
+        );
+
+        if let Err(err) = low_level.write_to_socket(msg.clone()) {
+            bail!("Can't send a raw network request: {}", err);
+        } else {
+            conn.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+            conn.handler.stats.pkt_sent_inc();
+            conn.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+            conn.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+
+            #[cfg(feature = "network_dump")]
+            {
+                conn.send_to_dump(msg, false);
+            }
+        }
+    }
+
+    Ok(())
 }

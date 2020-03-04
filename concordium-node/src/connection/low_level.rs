@@ -7,9 +7,8 @@ use noiseexplorer_xx::{
     noisesession::NoiseSession,
     types::Keypair,
 };
-use priority_queue::PriorityQueue;
 
-use super::{Connection, DeduplicationQueues, PendingPriority};
+use super::{Connection, DeduplicationQueues};
 use crate::configuration::PROTOCOL_MAX_MESSAGE_SIZE;
 
 use std::{
@@ -18,7 +17,7 @@ use std::{
     convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
-    sync::{atomic::Ordering, Arc, RwLock},
+    sync::Arc,
     time::Duration,
 };
 
@@ -421,16 +420,6 @@ impl ConnectionLowLevel {
     /// Enqueue a message to be written to the socket.
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
-        self.conn().handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
-        self.conn().stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-        self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
-        self.conn().handler.stats.pkt_sent_inc();
-
-        #[cfg(feature = "network_dump")]
-        {
-            self.conn().send_to_dump(input.clone(), false);
-        }
-
         self.encrypt_and_enqueue(&input)
     }
 
@@ -534,27 +523,4 @@ impl ConnectionLowLevel {
     /// Get the desired socket write size.
     #[inline]
     fn write_size(&self) -> usize { self.write_size }
-
-    /// Processes a queue with pending messages, writing them to the socket.
-    #[inline]
-    pub fn send_pending_messages(
-        &mut self,
-        pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
-    ) -> Fallible<()> {
-        let mut pending_messages = write_or_die!(pending_messages);
-
-        while let Some((msg, _)) = pending_messages.pop() {
-            trace!(
-                "Attempting to send {} to {}",
-                ByteSize(msg.len() as u64).to_string_as(true),
-                self.conn()
-            );
-
-            if let Err(err) = self.write_to_socket(msg) {
-                bail!("Can't send a raw network request: {}", err);
-            }
-        }
-
-        Ok(())
-    }
 }
