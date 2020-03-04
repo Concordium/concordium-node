@@ -1,35 +1,5 @@
-pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
-pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
-pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
-pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
-pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
-
-use failure::Fallible;
-
-use concordium_common::{
-    ConsensusFfiResponse, HashBytes,
-    PacketType::{self, *},
-    QueueMsg,
-};
 use crossbeam_channel::TrySendError;
-use crypto_common::Deserial;
-use digest::Digest;
-use ec_vrf_ed25519_sha256::Sha256;
-use std::{
-    convert::TryFrom,
-    fs::OpenOptions,
-    io::{Cursor, Read},
-    mem,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
-
-use consensus_rust::{
-    catch_up::{PeerList, PeerState, PeerStatus},
-    consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
-    ffi,
-    messaging::{ConsensusMessage, DistributionMode, MessageType},
-};
+use failure::Fallible;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId},
@@ -40,7 +10,33 @@ use crate::{
         P2PNode,
     },
 };
+use concordium_common::{
+    ConsensusFfiResponse,
+    PacketType::{self, *},
+    QueueMsg,
+};
+use consensus_rust::{
+    catch_up::{PeerList, PeerState, PeerStatus},
+    consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
+    ffi,
+    messaging::{ConsensusMessage, DistributionMode, MessageType},
+};
+use crypto_common::Deserial;
 
+use std::{
+    convert::TryFrom,
+    fs::OpenOptions,
+    io::{Cursor, Read},
+    mem,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
+
+const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
+const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
+const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
+
+/// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
     genesis_data: Vec<u8>,
@@ -72,6 +68,7 @@ pub fn start_consensus_layer(
     )
 }
 
+/// Obtain the path to the file containing baker private data.
 pub fn get_baker_private_data_json_file(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
@@ -92,6 +89,7 @@ pub fn get_baker_private_data_json_file(
     }
 }
 
+/// Obtains the genesis data and baker's private data.
 pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
