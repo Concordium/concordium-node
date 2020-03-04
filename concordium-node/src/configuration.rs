@@ -25,7 +25,7 @@ const APP_PREFERENCES_MAIN: &str = "main.config";
 pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
-/// Maximum time allowed for a peer to catch up with in milliseconds.
+/// Maximum time allowed for a peer to catch up with, in milliseconds.
 pub const MAX_CATCH_UP_TIME: u64 = 300_000;
 
 // dump queue depths

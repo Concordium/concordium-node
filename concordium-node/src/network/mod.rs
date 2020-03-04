@@ -85,9 +85,9 @@ pub enum NetworkRequest {
     BanNode(BanId),
     /// Requests that peers unban a specific node.
     UnbanNode(BanId),
-    /// Asks that a node joins a specific network.
+    /// Notifies that a node joined a specific network.
     JoinNetwork(NetworkId),
-    /// Asks that a node leaves a specific network.
+    /// Notifies that a node left a specific network.
     LeaveNetwork(NetworkId),
 }
 
