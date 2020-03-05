@@ -15,6 +15,7 @@ import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
 
+import Concordium.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Classes
 import Concordium.Types.Transactions
@@ -178,22 +179,23 @@ shutdownSyncRunner sr@SyncRunner{..} = do
         stopSyncRunner sr
         takeMVar syncState >>= shutdownSkov syncContext
 
+isSlotTooEarly :: (TimeMonad m, TS.TreeStateMonad m, SkovQueryMonad m) => Slot -> m Bool
+isSlotTooEarly s = do
+    threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
+    now <- currentTimestamp
+    slotTime <- getSlotTimestamp s
+    return $ slotTime > now + threshold
 
 syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c
     -> PendingBlock (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
     -> IO UpdateResult
 syncReceiveBlock syncRunner block = do
-  blockTooEarly <- runSkovTransaction syncRunner (isBlockTooEarly block)
-  if blockTooEarly then return ResultEarlyBlock
-  else runSkovTransaction syncRunner (storeBlock block)
-    where
-      isBlockTooEarly b = do
-        threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
-        genesisTime <- genesisTime <$> TS.getGenesisData
-        now <- currentTimestamp
-        blocktime <- getSlotTimestamp (blockSlot b)
-        return $ blocktime < now - genesisTime + (fromIntegral threshold)
+    blockTooEarly <- runSkovTransaction syncRunner (isSlotTooEarly (blockSlot block))
+    if blockTooEarly then
+        return ResultEarlyBlock
+    else
+        runSkovTransaction syncRunner (storeBlock block)
 
 syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c -> Transaction -> IO UpdateResult
@@ -250,16 +252,11 @@ shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdo
 
 syncPassiveReceiveBlock :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> PendingBlock (SkovT (SkovPassiveHandlers LogIO) c LogIO) -> IO UpdateResult
 syncPassiveReceiveBlock spr block = do
-  blockTooEarly <- runSkovPassive spr (isBlockTooEarly block)
-  if blockTooEarly then return ResultEarlyBlock
-  else runSkovPassive spr (storeBlock block)
-    where
-      isBlockTooEarly b = do
-        threshold <- rpEarlyBlockThreshold <$> TS.getRuntimeParameters
-        genesisTime <- genesisTime <$> TS.getGenesisData
-        now <- currentTimestamp
-        blocktime <- getSlotTimestamp (blockSlot b)
-        return $ blocktime < now - genesisTime + (fromIntegral threshold)
+    blockTooEarly <- runSkovPassive spr (isSlotTooEarly (blockSlot block))
+    if blockTooEarly then
+        return ResultEarlyBlock
+    else
+        runSkovPassive spr (storeBlock block)
 
 syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)

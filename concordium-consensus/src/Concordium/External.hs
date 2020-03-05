@@ -293,12 +293,16 @@ genesisState genData = Basic.initialState
                        (genesisIdentityProviders genData)
                        (genesisMintPerSlot genData)
 
+-- |Default value for early block threshold.
+-- Set to 30 seconds.
+defaultEarlyBlockThreshold :: Timestamp
+defaultEarlyBlockThreshold = 30
+
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
 startConsensus ::
            Word64 -- ^Maximum block size.
-           -> Word64 -- ^Threshold for how far into the future we accept blocks
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
@@ -309,7 +313,7 @@ startConsensus ::
            -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock earlyBlockThreshold gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
+startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -317,7 +321,7 @@ startConsensus maxBlock earlyBlockThreshold gdataC gdataLenC bidC bidLenC bcbk c
             (Right genData, Right bid) -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral earlyBlockThreshold))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
@@ -342,21 +346,20 @@ startConsensus maxBlock earlyBlockThreshold gdataC gdataLenC bidC bidLenC bcbk c
 -- a null pointer will be returned.
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
-           -> Word64 -- ^Threshold for how far into the future we accept blocks
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock earlyBlockThreshold gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
+startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
             Right genData -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") (fromIntegral earlyBlockThreshold))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
