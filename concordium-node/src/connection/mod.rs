@@ -375,14 +375,12 @@ impl Connection {
     }
 
     /// Register connection's remote end networks.
-    pub fn populate_remote_end_networks(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {
+    pub fn populate_remote_end_networks(&self, peer: P2PPeer, networks: &HashSet<NetworkId>) {
         write_or_die!(self.remote_end_networks).extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
-            let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
             write_or_die!(self.handler.buckets()).insert_into_bucket(peer, networks.to_owned());
         }
-        Ok(())
     }
 
     /// Add a single network to the connection's remote end networks.

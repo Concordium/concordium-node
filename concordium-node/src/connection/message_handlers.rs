@@ -14,12 +14,12 @@ use crate::{
 
 use failure::Fallible;
 
-use std::sync::atomic::Ordering;
+use std::{net::SocketAddr, sync::atomic::Ordering};
 
 impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(&self, full_msg: NetworkMessage) -> Fallible<()> {
-        // the handshake should be the first accepted network message
+        // the handshake should be the first incoming network message
         let peer_id = match full_msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 return self.handle_handshake_req(handshake);
@@ -83,7 +83,13 @@ impl Connection {
         }
 
         self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
-        self.populate_remote_end_networks(&handshake.networks)?;
+
+        let remote_peer = P2PPeer::from((
+            self.remote_peer.peer_type,
+            handshake.remote_id,
+            SocketAddr::new(self.remote_peer.addr.ip(), handshake.remote_port),
+        ));
+        self.populate_remote_end_networks(remote_peer, &handshake.networks);
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
