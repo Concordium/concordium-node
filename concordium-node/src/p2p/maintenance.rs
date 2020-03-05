@@ -1,3 +1,5 @@
+//! Node maintenance methods.
+
 use chrono::prelude::*;
 use failure::Fallible;
 #[cfg(not(target_os = "windows"))]

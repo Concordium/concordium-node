@@ -91,7 +91,7 @@ async fn main() -> Fallible<()> {
     let is_baker = conf.cli.baker.baker_id.is_some();
 
     let data_dir_path = app_prefs.get_user_app_dir();
-    let (gen_data, prov_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
+    let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
         .expect("Can't get genesis data or private data. Aborting");
     let gs_kvs_handle = Manager::singleton()
         .write()
@@ -106,7 +106,7 @@ async fn main() -> Fallible<()> {
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         gen_data,
-        prov_data,
+        priv_data,
         if conf.common.trace {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
@@ -255,9 +255,7 @@ fn start_consensus_message_threads(
                 last_peer_list_update = get_current_stamp();
             }
 
-            if let Err(e) = check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref) {
-                error!("Couldn't update the catch-up peer list: {}", e);
-            }
+            check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref);
 
             if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
                 if let QueueMsg::Stop = msg {

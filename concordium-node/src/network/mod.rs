@@ -1,3 +1,5 @@
+//! Network-related objects.
+
 pub mod buckets;
 pub mod serialization;
 

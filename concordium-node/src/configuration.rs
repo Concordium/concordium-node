@@ -1,3 +1,5 @@
+//! The client's parameters and constants used by other modules.
+
 use app_dirs2::*;
 use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
@@ -8,40 +10,51 @@ use std::{
 };
 use structopt::StructOpt;
 
+/// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
     author: "Concordium",
 };
 
-// a list of peer client versions applicable for connections; it doesn't
-// contain CARGO_PKG_VERSION (or any other dynamic components) so that
-// it is impossible to omit manual inspection upon future updates
+/// A list of peer client versions applicable for connections.
+// it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
+// so that it is impossible to omit manual inspection upon future updates
 pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.1", "0.2.0"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
 
 const APP_PREFERENCES_MAIN: &str = "main.config";
-pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
+const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
+/// Used for a persistent node id setup.
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
 /// Maximum time allowed for a peer to catch up with, in milliseconds.
 pub const MAX_CATCH_UP_TIME: u64 = 300_000;
 
 // dump queue depths
+#[cfg(feature = "network_dump")]
 pub const DUMP_QUEUE_DEPTH: usize = 100;
+#[cfg(feature = "network_dump")]
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
 // connection-related consts
+/// Maximum time (in ms) a node's connection can remain unreachable.
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
+/// Maximum time (in ms) a bootstrapper can hold an inactive connection to a
+/// node.
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
+/// Maximum time (in ms) a node can hold an inactive connection to a peer.
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
+/// Maximum time (in ms) a connection can be kept without concluding a
+/// handshake.
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
+/// Maximum time (in s) a soft ban is in force.
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
-/// Flags related to Prometheus
+/// Parameters related to Prometheus.
 pub struct PrometheusConfig {
     #[structopt(
         long = "prometheus-listen-addr",
@@ -88,7 +101,7 @@ pub struct PrometheusConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Flags related to Baking (only used in Cli)
+/// Parameters related to Baking (only used in cli).
 pub struct BakerConfig {
     #[structopt(long = "baker-id", help = "Baker ID")]
     pub baker_id: Option<u64>,
@@ -132,7 +145,7 @@ pub struct BakerConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Flags related to the RPC (onl`y used in Cli)
+/// Parameters related to the RPC (onl`y used in cli).
 pub struct RpcCliConfig {
     #[structopt(long = "no-rpc-server", help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
@@ -153,7 +166,7 @@ pub struct RpcCliConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Flags related to connection matters
+/// Parameters related to connections.
 pub struct ConnectionConfig {
     #[structopt(
         long = "desired-nodes",
@@ -267,7 +280,7 @@ pub struct ConnectionConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Common configuration for the three modes
+/// Parameters pertaining to basic setup.
 pub struct CommonConfig {
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
@@ -324,6 +337,7 @@ pub struct CommonConfig {
     pub bucket_cleanup_interval: u64,
 }
 
+/// Client's parameters.
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
@@ -387,6 +401,7 @@ pub struct CliConfig {
     pub breakage_level: Option<usize>,
 }
 
+/// Parameters applicable to a bootstrapper.
 #[derive(StructOpt, Debug)]
 #[structopt(name = "BootstrapperNode")]
 pub struct BootstrapperConfig {
@@ -416,6 +431,7 @@ pub struct BootstrapperConfig {
     pub partition_network_for_time: Option<usize>,
 }
 
+/// The main configuration object.
 #[derive(StructOpt, Debug)]
 pub struct Config {
     #[structopt(flatten)]
@@ -447,6 +463,7 @@ impl Config {
     }
 }
 
+/// Verifies the validity of the configuration.
 pub fn parse_config() -> Fallible<Config> {
     let conf = Config::from_args();
 
@@ -516,6 +533,7 @@ pub fn parse_config() -> Fallible<Config> {
     Ok(conf)
 }
 
+/// Handles the configuration data.
 #[derive(Debug)]
 pub struct AppPreferences {
     preferences_map:     PreferencesMap<String>,
@@ -524,6 +542,7 @@ pub struct AppPreferences {
 }
 
 impl AppPreferences {
+    /// Creates an `AppPreferences` object.
     pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
         let mut new_prefs = match OpenOptions::new().read(true).write(true).open(&file_path) {
@@ -585,6 +604,7 @@ impl AppPreferences {
         }
     }
 
+    /// Add a piece of config to the config map.
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
         match value {
             Some(val) => self.preferences_map.insert(key.to_string(), val),
@@ -609,10 +629,13 @@ impl AppPreferences {
         }
     }
 
+    /// Get a piece of config from the config map.
     pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
 
+    /// Returns the path to the application directory.
     pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
 
+    /// Returns the path to the config directory.
     pub fn get_user_config_dir(&self) -> PathBuf {
         Self::calculate_config_path(&self.override_config_dir)
     }

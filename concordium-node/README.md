@@ -48,6 +48,12 @@ $> cargo run -- --debug
 $> cargo test --all
 ```
 
+## Obtaining documentation
+The output is placed in `target/doc` by default.
+```bash
+$> cargo doc
+```
+
 ## Nix
 Currently this project only sports support for Nix on Linux platforms.
 ### Development

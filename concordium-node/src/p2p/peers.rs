@@ -1,3 +1,5 @@
+//! Peer handling.
+
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerStats, PeerType},
     connection::Connection,

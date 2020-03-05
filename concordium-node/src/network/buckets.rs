@@ -1,3 +1,5 @@
+//! Network bucket handling.
+
 use rand::seq::IteratorRandom;
 use std::{
     collections::HashSet,

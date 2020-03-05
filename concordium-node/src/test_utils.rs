@@ -1,3 +1,5 @@
+//! Test utilities.
+
 use chrono::{offset::Utc, DateTime};
 use failure::Fallible;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};

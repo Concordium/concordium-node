@@ -1,3 +1,5 @@
+//! Connection handling.
+
 mod low_level;
 pub mod message_handlers;
 #[cfg(test)]
@@ -41,11 +43,14 @@ use std::{
     time::Instant,
 };
 
+/// Designates the sending priority of outgoing messages.
 // If a message is labelled as having `High` priority it is always pushed to the
 // front of the queue in the sinks when sending, and otherwise to the back.
 #[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum MessageSendingPriority {
+    /// Queued FIFO-style.
     Normal,
+    /// Sent before all `Normal` messages.
     High,
 }
 
@@ -95,6 +100,7 @@ pub struct Connection {
     pub token: Token,
     /// The connection's representation as a peer object.
     pub remote_peer: RemotePeer,
+    /// Low-level connection objects.
     pub low_level: RwLock<ConnectionLowLevel>,
     /// The list of networks the connection belongs to.
     pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,

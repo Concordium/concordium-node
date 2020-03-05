@@ -1,3 +1,5 @@
+//! Peer objects.
+
 use crate::{common::P2PNodeId, connection::ConnectionStats};
 
 use std::{

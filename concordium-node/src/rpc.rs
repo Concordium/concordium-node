@@ -1,3 +1,6 @@
+//! An implementation of an RPC server and functions handling all available gRPC
+//! calls.
+
 use crate::{
     common::{P2PNodeId, PeerType},
     configuration,
@@ -101,6 +104,7 @@ macro_rules! call_consensus {
     };
 }
 
+/// Enhances a request with an authentication token.
 #[macro_export]
 macro_rules! req_with_auth {
     ($req:expr, $token:expr) => {{
