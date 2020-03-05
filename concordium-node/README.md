@@ -12,6 +12,7 @@ This repository relies on git submodules for internal component dependencies, so
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
+* PostGreSQL >= 10
 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)

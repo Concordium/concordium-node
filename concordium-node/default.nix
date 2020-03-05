@@ -47,6 +47,7 @@ in rustPlatform.buildRustPackage rec {
     unbound
     gcc
     flatbuffers
+    postgresql
   ];
   cargoSha256 = "1lay053m3vk6lzzm9iac6bmnic0qn9xsi9775hv31a1pcf5m7pa0";
   meta = with pkgs.stdenv.lib; {

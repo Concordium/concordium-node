@@ -383,6 +383,38 @@ pub struct CliConfig {
                 mangled bytes"
     )]
     pub breakage_level: Option<usize>,
+    #[structopt(long = "transaction-outcome-logging", help = "Enable transaction outcome logging")]
+    pub transaction_outcome_logging: bool,
+    #[structopt(
+        long = "transaction-outcome-logging-database-name",
+        help = "Transaction outcome logging database name",
+        default_value = "concordium_baker_outcome"
+    )]
+    pub transaction_outcome_logging_database_name: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-host",
+        help = "Transaction outcome logging database host",
+        default_value = "127.0.0.1"
+    )]
+    pub transaction_outcome_logging_database_host: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-username",
+        help = "Transaction outcome logging database username",
+        default_value = "concordium"
+    )]
+    pub transaction_outcome_logging_database_username: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-password",
+        help = "Transaction outcome logging database password",
+        default_value = "concordium"
+    )]
+    pub transaction_outcome_logging_database_password: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-port",
+        help = "Transaction outcome logging database port",
+        default_value = "5432"
+    )]
+    pub transaction_outcome_logging_database_port: u16,
 }
 
 #[derive(StructOpt, Debug)]
