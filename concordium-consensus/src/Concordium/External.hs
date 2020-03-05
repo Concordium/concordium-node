@@ -878,8 +878,8 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                                 -- Mark the peer up-to-date
                                 ResultSuccess
 
-foreign export ccall startConsensus :: Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
