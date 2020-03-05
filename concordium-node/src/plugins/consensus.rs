@@ -6,6 +6,7 @@ use failure::Fallible;
 use crate::{
     common::{get_current_stamp, P2PNodeId},
     configuration::{self, MAX_CATCH_UP_TIME},
+    find_conn_by_id,
     network::NetworkId,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
@@ -422,7 +423,7 @@ pub fn check_peer_states(
                 {
                     debug!("Peer {:016x} took too long to catch up; dropping", id);
                     if let Some(token) =
-                        node.find_connection_by_id(P2PNodeId(id)).map(|conn| conn.token)
+                        find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token)
                     {
                         node.remove_connections(&[token]);
                     }

@@ -55,6 +55,22 @@ macro_rules! send_to_all {
     }
 }
 
+/// A macro used to find a connection by the id of its node.
+#[macro_export]
+macro_rules! find_conn_by_id {
+    ($node:expr, $id:expr) => {{
+        read_or_die!($node.connections()).values().find(|conn| conn.remote_id() == Some($id))
+    }};
+}
+
+/// A macro used to find connections by an IP address.
+#[macro_export]
+macro_rules! find_conns_by_ip {
+    ($node:expr, $ip:expr) => {{
+        read_or_die!($node.connections()).values().filter(|conn| conn.remote_peer.addr.ip() == $ip)
+    }};
+}
+
 impl P2PNode {
     send_to_all!(send_ban, BanId, BanNode);
 
@@ -104,28 +120,6 @@ impl P2PNode {
     /// Add a network to the list of node's networks.
     pub fn add_network(&self, network_id: NetworkId) {
         write_or_die!(self.connection_handler.networks).insert(network_id);
-    }
-
-    /// Search for a connection by the node id.
-    pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .values()
-            .find(|conn| conn.remote_id() == Some(id))
-            .map(|conn| Arc::clone(conn))
-    }
-
-    /// Search for a connection by the poll token.
-    pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections()).get(&token).map(|conn| Arc::clone(conn))
-    }
-
-    /// Search for all connections with the specified IP address.
-    pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .values()
-            .filter(|conn| conn.remote_peer.addr.ip() == ip)
-            .map(|conn| Arc::clone(conn))
-            .collect()
     }
 
     /// Shut down connections with the given poll tokens.

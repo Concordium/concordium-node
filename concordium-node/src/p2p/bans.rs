@@ -4,7 +4,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};
 
-use crate::{common::P2PNodeId, p2p::P2PNode};
+use crate::{common::P2PNodeId, find_conn_by_id, find_conns_by_ip, p2p::P2PNode};
 use crypto_common::{Buffer, Deserial, Serial};
 
 use std::net::{IpAddr, SocketAddr};
@@ -68,12 +68,12 @@ impl P2PNode {
 
         match peer {
             BanId::NodeId(id) => {
-                if let Some(conn) = self.find_connection_by_id(id) {
+                if let Some(conn) = find_conn_by_id!(self, id) {
                     self.remove_connections(&[conn.token]);
                 }
             }
             BanId::Ip(addr) => {
-                for conn in self.find_connections_by_ip(addr) {
+                for conn in find_conns_by_ip!(self, addr) {
                     self.remove_connections(&[conn.token]);
                 }
             }
