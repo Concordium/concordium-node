@@ -47,7 +47,7 @@ transactions :: StdGen -> [BareTransaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
+        trs n (a : b : rs) = Example.makeTransferTransaction n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
 sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
@@ -138,9 +138,14 @@ genesisState genData = Example.initialState
                        -- (genesisMintPerSlot genData)
 
 
+-- type TreeConfig = DiskTreeDiskBlockWithLogConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> ByteString -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return . DTDBWLConfig rt genData (genesisState genData)
+
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+
 
 -- type TreeConfig = MemoryTreeDiskBlockConfig
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -167,10 +172,12 @@ main = do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
-        logTransferFile <- openFile ("transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers") WriteMode
+        let transferLogPrefix = "transfer-log-" ++ show now ++ "-" ++ show bakerId
+        logTransferFile <- openFile (transferLogPrefix ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
-        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen
+        -- let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen -- dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler (Just logT)

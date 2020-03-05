@@ -23,6 +23,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 import qualified Acorn.Core as Core
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
@@ -79,17 +81,19 @@ testAccountCreation ::
      Types.BankStatus)
 testAccountCreation = do
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), state) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
-    return (ftAdded, ftFailed, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
+    return (getResults ftAdded, ftFailed, map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount), state ^. blockBank)
 
 checkAccountCreationResult ::
   ([(Types.BareTransaction, Types.ValidResult)],
@@ -105,13 +109,13 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   stateInvariant
   where txsuc = case suc of
           [(_, a11), (_, a12),(_, a13),(_, a14),(_, a15),(_, a16),(_, a17)] |
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a11,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a12,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a13,
-            Types.TxReject (Types.DuplicateAccountRegistrationID _) _ _ <- a14,
-            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed _] _ _ <- a15,
-            Types.TxSuccess [Types.CredentialDeployed _] _ _ <- a16,
-            Types.TxReject Types.OutOfEnergy _ _ <- a17 -> True
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a11,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a12,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a13,
+            Types.TxReject (Types.DuplicateAccountRegistrationID _) <- a14,
+            Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a15,
+            Types.TxSuccess [Types.CredentialDeployed{}] <- a16,
+            Types.TxReject Types.OutOfEnergy <- a17 -> True
           _ -> False
         txstateAccs = case stateAccs of
                         -- account for cdi7 was not created because of out of gas

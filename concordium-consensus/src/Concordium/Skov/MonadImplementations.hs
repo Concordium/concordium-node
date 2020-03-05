@@ -1,5 +1,4 @@
 {-# LANGUAGE
-    GeneralizedNewtypeDeriving,
     TypeFamilies,
     DerivingStrategies,
     DerivingVia,
@@ -10,8 +9,8 @@
     PartialTypeSignatures,
     QuantifiedConstraints,
     RankNTypes,
-    TemplateHaskell,
-    CPP #-}
+    TemplateHaskell
+    #-}
 module Concordium.Skov.MonadImplementations where
 
 import Control.Monad.State.Class
@@ -19,6 +18,7 @@ import Control.Monad.State.Strict
 import Control.Monad.Reader
 import Lens.Micro.Platform
 import Data.Proxy
+import Data.Set(toList)
 
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
@@ -26,12 +26,14 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState
+import Concordium.Types
+import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.Block (Block(GenesisBlock))
+import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
-import Concordium.Skov.Hooks
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -54,6 +56,9 @@ class (
     -- |A type representing the global state context part of 'SkovContext'.
     -- We require 'HasGlobalStateContext (SkovGSContext c) (SkovContext c)'.
     type SkovGSContext c
+    -- |A type representing the log context of 'SkovContext'. For the moment this is only
+    -- (optionally) the index of transactions per account.
+    type SkovLogContext c
     -- |Create an initial context and state from a given configuration.
     initialiseSkov :: c -> IO (SkovContext c, SkovState c)
     -- |Free any resources when we are done with the context and state.
@@ -141,41 +146,55 @@ instance (Monad m, SkovTimerHandlers h c m) => TimerMonad (SkovT h c m) where
     onTimeout timeout a = SkovT (\h _ -> lift (handleOnTimeout h timeout a))
     cancelTimer t = SkovT (\h _ -> lift (handleCancelTimer h t))
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+-- |GlobalStateM where the config parameters come from 'SkovConfiguration' parameters
+type GlobalStateConfigM c m = GlobalStateM (SkovLogContext c) (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) m
+
+deriving via (GlobalStateConfigM c (SkovT h c m))
     instance BlockStateTypes (SkovT h c m)
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+deriving via (GlobalStateConfigM c (SkovT h c m))
     instance (Monad m, BlockStateQuery (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateQuery (SkovT h c m)
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+deriving via (GlobalStateConfigM c (SkovT h c m))
     instance (Monad m, BlockStateOperations (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateOperations (SkovT h c m)
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+deriving via (GlobalStateConfigM c (SkovT h c m))
     instance (Monad m, BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
         => BlockStateStorage (SkovT h c m)
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
-    instance (GlobalStateTypes (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
+deriving via (GlobalStateConfigM c (SkovT h c m))
+    instance (GlobalStateTypes (GlobalStateConfigM c (SkovT h c m)))
         => GlobalStateTypes (SkovT h c m)
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+deriving via (GlobalStateConfigM c (SkovT h c m))
     instance (Monad m,
-              BlockPointerMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)))
+              BlockPointerMonad (GlobalStateConfigM c (SkovT h c m)))
         => BlockPointerMonad (SkovT h c m)
 
-deriving via (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
+-- Horrible misuse of undecidable instances.
+deriving via (GlobalStateConfigM c (SkovT h c m)) instance
+  (ATITypes (GlobalStateConfigM c (SkovT h c m))) => ATITypes (SkovT h c m)
+
+-- Horrible misuse of undecidable instances.
+deriving via (GlobalStateConfigM c (SkovT h c m)) instance
+  (PerAccountDBOperations (GlobalStateConfigM c (SkovT h c m)), Monad m) => PerAccountDBOperations (SkovT h c m)
+
+-- This really makes use of undecidable instances. The context of the generated instance
+-- is strictly bigger than the head.
+deriving via (GlobalStateConfigM c (SkovT h c m))
     instance (
         Monad m,
-        TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
+        PerAccountDBOperations (GlobalStateConfigM c (SkovT h c m)),
+        TreeStateMonad (GlobalStateConfigM c (SkovT h c m)),
         BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => TreeStateMonad (SkovT h c m)
 
 instance (
         Monad m,
-        TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockPointerMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
+        TreeStateMonad (GlobalStateConfigM c (SkovT h c m)),
+        BlockPointerMonad (GlobalStateConfigM c (SkovT h c m)),
         BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => SkovQueryMonad (SkovT h c m) where
     {-# INLINE resolveBlock #-}
@@ -198,14 +217,20 @@ instance (
     getBlocksAtHeight = doGetBlocksAtHeight
     {-# INLINE queryBlockState #-}
     queryBlockState = blockState
+    {-# INLINE queryTransactionStatus #-}
+    queryTransactionStatus trHash = fmap snd <$> lookupTransaction trHash
+    {-# INLINE queryNonFinalizedTransactions #-}
+    queryNonFinalizedTransactions addr = do
+      txs <- getAccountNonFinalized addr minNonce
+      return $! map transactionHash . concatMap (toList . snd) $ txs
 
 instance (
         Monad m,
         TimeMonad m,
         LoggerMonad m,
         OnSkov (SkovT h c m),
-        TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockPointerMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
+        TreeStateMonad (GlobalStateConfigM c (SkovT h c m)),
+        BlockPointerMonad (GlobalStateConfigM c (SkovT h c m)),
         BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
         ) => SkovMonad (SkovT h c m) where
     {-# INLINE storeBlock #-}
@@ -365,12 +390,13 @@ data HookLogHandler = HookLogHandler (Maybe (LogTransferMethod IO))
 instance HandlerConfig (SkovConfig gc fc HookLogHandler) where
     handlerLogTransfer = \_ -> id
     type HCContext (SkovConfig gc fc HookLogHandler) = Maybe (LogTransferMethod IO)
-    type HCState (SkovConfig gc fc HookLogHandler) = TransactionHooks
-    initialiseHandler (SkovConfig _ _ (HookLogHandler logH)) = (logH, emptyHooks)
+    type HCState (SkovConfig gc fc HookLogHandler) = ()
+    initialiseHandler (SkovConfig _ _ (HookLogHandler logH)) = (logH, ())
+
 
 instance Monad m => HandlerConfigHandlers (SkovConfig gc fc HookLogHandler) (SkovT h (SkovConfig gc fc HookLogHandler) m) where
-    handleBlock = hookOnBlock
-    handleFinalize = hookOnFinalize
+    handleBlock = \_ -> return ()
+    handleFinalize = \_ _ -> return ()
 
 instance (GlobalStateConfig gsconf,
         FinalizationConfig (SkovConfig gsconf finconf hconf),
@@ -384,16 +410,20 @@ instance (GlobalStateConfig gsconf,
     data SkovState (SkovConfig gsconf finconf hconf) = SkovState {
             ssGSState :: GSState gsconf,
             ssFinState :: FCState (SkovConfig gsconf finconf hconf),
-            ssHandlerState :: HCState (SkovConfig gsconf finconf hconf)
+            ssHandlerState :: HCState (SkovConfig gsconf finconf hconf),
+            scLogContext :: GSLogContext gsconf
         }
     type SkovGSState (SkovConfig gsconf finconf hconf) = GSState gsconf
     type SkovGSContext (SkovConfig gsconf finconf hconf) = GSContext gsconf
+
+    type SkovLogContext (SkovConfig gsconf finconf hconf) = GSLogContext gsconf
+
     initialiseSkov conf@(SkovConfig gsc _ _) = do
-        (c, s) <- initialiseGlobalState gsc
+        (c, s, logCtx) <- initialiseGlobalState gsc
         let (finctx, finst) = initialiseFinalization conf
         let (hctx, hst) = initialiseHandler conf
-        return (SkovContext c finctx hctx, SkovState s finst hst)
-    shutdownSkov (SkovContext c _ _) (SkovState s _ _) = shutdownGlobalState (Proxy :: Proxy gsconf) c s
+        return (SkovContext c finctx hctx, SkovState s finst hst logCtx)
+    shutdownSkov (SkovContext c _ _) (SkovState s _ _ logCtx) = shutdownGlobalState (Proxy :: Proxy gsconf) c s logCtx
 
 instance (FinalizationStateLenses (FCState (SkovConfig gsconf finconf hconf)) t)
         => FinalizationStateLenses (SkovState (SkovConfig gsconf finconf hconf)) t where
@@ -409,8 +439,8 @@ instance (HasFinalizationInstance (FCContext (SkovConfig gsconf finconf hconf)))
         => HasFinalizationInstance (SkovContext (SkovConfig gsconf finconf hconf)) where
     finalizationInstance = finalizationInstance . scFinContext
 
-instance TransactionHookLenses (SkovState (SkovConfig gc fc HookLogHandler)) where
-    hooks = lens ssHandlerState (\s v -> s {ssHandlerState = v})
+instance GSLogContext gsconf ~ a => HasLogContext a (SkovState (SkovConfig gsconf finconf hconf)) where
+  logContext = lens scLogContext (\sc v -> sc{scLogContext = v })
 
 instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig gsconf finconf hconf)) where
     globalStateContext = lens (scGSContext) (\sc v -> sc{scGSContext = v})
@@ -436,14 +466,14 @@ instance (MonadIO m,
 
 type SkovConfigMonad h c m = (SkovConfiguration c,
         OnSkov (SkovT h c m),
-        TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
-        BlockPointerMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)),
+        TreeStateMonad (GlobalStateConfigM c (SkovT h c m)),
+        BlockPointerMonad (GlobalStateConfigM c (SkovT h c m)),
         BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m))
     )
 
 type SkovQueryConfigMonad c m =
-    (TreeStateMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT () c m)),
-    BlockPointerMonad (GlobalStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT () c m)),
+    (TreeStateMonad (GlobalStateConfigM c (SkovT () c m)),
+    BlockPointerMonad (GlobalStateConfigM c (SkovT () c m)),
     BlockStateStorage (BlockStateM (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT () c m))
     )
 

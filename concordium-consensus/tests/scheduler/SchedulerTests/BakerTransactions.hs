@@ -30,6 +30,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -119,13 +121,14 @@ runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, T
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
-                            let ((Sch.FilteredTransactions{..}, _), st') =
+                            let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) [tx])
+                                    (Sch.filterTransactions dummyBlockSize [tx])
                                     Set.empty -- special beta accounts
                                     Types.dummyChainMeta
+                                    maxBound
                                     st
-                            in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
+                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState))
                          ([], initialBlockState)
                          txs
   return (res, state)
@@ -142,9 +145,9 @@ tests = do
         length results == length transactionsInput
     specify "Adding three bakers from initial empty state" $
         case take 3 results of
-          [([(_,Types.TxSuccess [Types.BakerAdded 0] _ _)],[],bps1),
-           ([(_,Types.TxSuccess [Types.BakerAdded 1] _ _)],[],bps2),
-           ([(_,Types.TxSuccess [Types.BakerAdded 2] _ _)],[],bps3)] ->
+          [([(_,Types.TxSuccess [Types.BakerAdded 0])],[],bps1),
+           ([(_,Types.TxSuccess [Types.BakerAdded 1])],[],bps2),
+           ([(_,Types.TxSuccess [Types.BakerAdded 2])],[],bps3)] ->
             Map.keys (bps1 ^. Types.birkCurrentBakers . bakerMap) == [0] &&
             Map.keys (bps2 ^. Types.birkCurrentBakers . bakerMap) == [0,1] &&
             Map.keys (bps3 ^. Types.birkCurrentBakers . bakerMap) == [0,1,2]
@@ -152,20 +155,20 @@ tests = do
 
     specify "Attempt to add baker with incorrect proof of knowledge of aggregation secret key" $
       case results !! 3 of
-        ([(_, Types.TxReject Types.InvalidProof _ _)], [], bps) ->
+        ([(_, Types.TxReject Types.InvalidProof)], [], bps) ->
           Map.keys (bps ^. Types.birkCurrentBakers . bakerMap) == [0,1,2]
         _ -> False
 
     specify "Remove second baker." $
       case results !! 4 of
-        ([(_,Types.TxSuccess [Types.BakerRemoved 1] _ _)], [], bps4) ->
+        ([(_,Types.TxSuccess [Types.BakerRemoved 1])], [], bps4) ->
             Map.keys (bps4 ^. Types.birkCurrentBakers . bakerMap) == [0,2]
         _ -> False
 
     specify "Update third baker's account." $
       -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 4, results !! 5) of
-        ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _] _ _)], [], bps5)) ->
+        ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _])], [], bps5)) ->
           Map.keys (bps5 ^. Types.birkCurrentBakers . bakerMap) == [0,2] &&
           let b2 = (bps5 ^. Types.birkCurrentBakers . bakerMap) Map.! 2
           in b2 ^. bakerAccount == alesAccount &&
@@ -175,7 +178,7 @@ tests = do
 
     specify "Update first baker's sign key." $
       case (results !! 5, results !! 6) of
-        ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _] _ _)], [], bps6)) ->
+        ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
           Map.keys (bps6 ^. Types.birkCurrentBakers . bakerMap) == [0,2] &&
           let b0 = (bps6 ^. Types.birkCurrentBakers . bakerMap) Map.! 0
           in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&

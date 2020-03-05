@@ -6,6 +6,8 @@ import Test.HUnit
 
 import Control.Monad.IO.Class
 
+import Lens.Micro.Platform
+
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -23,6 +25,8 @@ import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
+
+import SchedulerTests.Helpers
 
 -- Test that sending to and from an account without credentials fails.
 
@@ -62,15 +66,17 @@ testCredentialCheck
         [Types.BareTransaction])
 testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded, ftFailed, concat transactions)
+    return (getResults ftAdded, ftFailed, concat transactions)
 
 checkCredentialCheckResult :: ([(Types.BareTransaction, Types.ValidResult)],
                                [(Types.BareTransaction, Types.FailureKind)],
@@ -87,7 +93,7 @@ checkCredentialCheckResult (suc, fails, transactions) =
         xs -> assertFailure $ "List should be a singleton:" ++ show xs
     rejectCheck =
       case last suc of
-        (tx, Types.TxReject (Types.ReceiverAccountNoCredential _) _ _) ->
+        (tx, Types.TxReject (Types.ReceiverAccountNoCredential _)) ->
           assertEqual "The second transaction should be rejected." tx (transactions !! 1)
         other -> assertFailure $ "Last recorded transaction should fail with no account credential: " ++ show other
     nonrejectCheck =

@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
 
@@ -9,6 +10,7 @@ import qualified Data.Set as Set
 import qualified Data.List as List
 
 import Control.Monad
+import Control.Monad.Writer.Class(MonadWriter)
 
 import Concordium.Types
 import Concordium.GlobalState.TreeState hiding (blockBaker)
@@ -17,9 +19,16 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
+import Concordium.GlobalState.Classes(MGSTrans)
+import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
-import Concordium.Scheduler.EnvironmentImplementation (BSOMonadWrapper(..))
+import Concordium.Scheduler.EnvironmentImplementation
+    (BSOMonadWrapper(..),
+     ContextState(..),
+     HasSchedulerState(..),
+     schedulerBlockState, schedulerEnergyUsed
+     )
 
 import Control.Monad.RWS.Strict
 
@@ -29,20 +38,66 @@ import qualified Acorn.Core as Core
 
 import qualified Concordium.Scheduler as Sch
 
-type ContextState = (HashSet.HashSet AccountAddress, ChainMetadata)
+newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w)
 
-newtype BlockStateMonad state m a = BSM { _runBSM :: RWST ContextState () state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans)
+deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+    instance (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state, BlockStateOperations m)
+             => StaticEnvironmentMonad Core.UA (BlockStateMonad w state m)
 
-deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => StaticEnvironmentMonad Core.UA (BlockStateMonad state m)
+instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
+  type ATIStorage (BlockStateMonad w state m) = ATIStorage m
 
-deriving via (BSOMonadWrapper ContextState state (MGSTrans (RWST ContextState () state) m))
-    instance (UpdatableBlockState m ~ state, BlockStateOperations m) => SchedulerMonad (BlockStateMonad state m)
+data LogSchedulerState (m :: * -> *) = LogSchedulerState {
+  _lssBlockState :: !(UpdatableBlockState m),
+  _lssSchedulerEnergyUsed :: !Energy,
+  _lssNextIndex :: !TransactionIndex,
+  _lssSchedulerTransactionLog :: !(ATIStorage m)
+  }
 
-runBSM :: Monad m => BlockStateMonad b m a -> ContextState -> b -> m (a, b)
+makeLenses ''LogSchedulerState
+
+-- This hack of ExecutionResult' and ExecutionResult is so that we
+-- automatically get the property that if BlockState m = BlockState m'
+-- then ExecutionResult m is interchangeable with ExecutionResult m'
+data ExecutionResult' s ati = ExecutionResult{
+  _finalState :: !s,
+  _energyUsed :: !Energy,
+  _transactionLog :: !ati
+  }
+
+type ExecutionResult m = ExecutionResult' (BlockState m) (ATIStorage m)
+
+makeLenses ''ExecutionResult'
+
+instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
+  type SS (LogSchedulerState m) = UpdatableBlockState m
+  type AccountTransactionLog (LogSchedulerState m) = ATIStorage m
+  schedulerBlockState = lssBlockState
+  schedulerEnergyUsed = lssSchedulerEnergyUsed
+  nextIndex = lssNextIndex
+  accountTransactionLog = lssSchedulerTransactionLog
+
+
+mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogSchedulerState m
+mkInitialSS _lssBlockState =
+  LogSchedulerState{_lssSchedulerEnergyUsed = 0,
+                    _lssSchedulerTransactionLog = defaultValue,
+                    _lssNextIndex = 0,
+                    ..}
+
+
+deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+    instance (
+              SS state ~ UpdatableBlockState m,
+              Footprint (ATIStorage m) ~ w,
+              HasSchedulerState state,
+              TreeStateMonad m,
+              BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
+
+runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
-  (r, s', ()) <- runRWST (_runBSM m) cm s
+  (r, s', _) <- runRWST (_runBSM m) cm s
   return (r, s')
 
 -- |Reward the baker, identity providers, ...
@@ -75,23 +130,27 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
       bshandle2 <- bsoModifyAccount bshandle1
          (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
       -- record the block reward transaction in the transaction outcomes for this block
-      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward (acc ^. accountAddress) (executionReward + bakingReward))
+      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid (acc ^. accountAddress) (executionReward + bakingReward))
 
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
-executeFrom ::
-  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
-  => Slot -- ^Slot number of the block being executed.
+executeFrom :: forall m .
+  (GlobalStateTypes m,
+   BlockPointerMonad m,
+   TreeStateMonad m
+  )
+  => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
+  -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointer m  -- ^Parent pointer from which to start executing
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> BirkParameters
   -> [Transaction] -- ^Transactions on this block.
-  -> m (Either FailureKind (BlockState m, Energy))
-executeFrom slotNumber slotTime blockParent lfPointer blockBaker bps txs =
+  -> m (Either (Maybe FailureKind) (ExecutionResult m))
+executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -102,35 +161,49 @@ executeFrom slotNumber slotTime blockParent lfPointer blockBaker bps txs =
     -- in most cases the block nonce is added to the seed state
     bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
-    (res, bshandle2) <- runBSM (Sch.runTransactions txs) (genBetaAccounts, cm) bshandle1
+    maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
+    let context = ContextState{
+          _specialBetaAccounts = genBetaAccounts,
+          _chainMetadata = cm,
+          _maxBlockEnergy = maxBlockEnergy
+          }
+    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+    let usedEnergy = finState ^. schedulerEnergyUsed
+    let bshandle2 = finState ^. schedulerBlockState
     case res of
         Left fk -> Left fk <$ (dropUpdatableBlockState bshandle2)
-        Right (outcomes, usedEnergy) -> do
+        Right outcomes -> do
+
             -- Record the transaction outcomes
-            bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr, o) -> (transactionHash tr, o)) <$> outcomes)
-            -- the main execution is now done. At this point we must mint new currencty
+            bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
+            -- Record transaction outcomes in the transaction table as well.
+            zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
+            -- the main execution is now done. At this point we must mint new currency
             -- and reward the baker and other parties.
             bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
             finalbsHandle <- freezeBlockState bshandle4
-            return (Right (finalbsHandle, usedEnergy))
+            return (Right (ExecutionResult{_energyUsed = usedEnergy,
+                                           _finalState = finalbsHandle,
+                                           _transactionLog = finState ^. accountTransactionLog}))
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
--- EFFECTS: After execution all transactions that were not added to the block are purged from
--- the transaction table. If the purging is successful then the transaction is
--- also removed from the pending table. Moreover all transactions which were added to the block
--- are removed from the pending table.
--- POSTCONDITION: The function always returns a list of transactions which make a valid block.
-constructBlock ::
-  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+-- EFFECTS: This function only updates the block state. It has no effects on the transaction table.
+-- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
+-- and also returns a list of transactions which failed, and a list of those which were not processed.
+constructBlock :: forall m .
+  (GlobalStateTypes m,
+   BlockPointerMonad m,
+   TreeStateMonad m
+   )
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointer m -- ^Parent pointer from which to start executing
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> BirkParameters
-  -> m ([Transaction], BlockState m, Energy)
+  -> m (Sch.FilteredTransactions Transaction, ExecutionResult m)
 constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -159,58 +232,22 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     let orderedTxs = fst . unzip $ List.sortOn snd txs
     genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisSpecialBetaAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
-    ((Sch.FilteredTransactions{..}, usedEnergy), bshandle2) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) maxBlockEnergy orderedTxs) (genBetaAccounts, cm) bshandle1
+    let context = ContextState{
+          _specialBetaAccounts = genBetaAccounts,
+          _chainMetadata = cm,
+          _maxBlockEnergy = maxBlockEnergy
+          }
+    (ft@Sch.FilteredTransactions{..}, finState) <-
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
-    bshandle3 <- bsoSetTransactionOutcomes bshandle2 ((\(tr,res) -> (transactionHash tr, res)) <$> ftAdded)
+    let usedEnergy = finState ^. schedulerEnergyUsed
+    let bshandle2 = finState ^. schedulerBlockState
+
+    bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
-    -- We first commit all valid transactions to the current block slot to prevent them being purged.
-    -- At the same time we construct the return blockTransactions to avoid an additional traversal
-    ret <- mapM (\(tx, _) -> tx <$ commitTransaction slotNumber tx) ftAdded
-
-    -- Now we need to try to purge each invalid transaction from the pending table.
-    -- Moreover all transactions successfully added will be removed from the pending table.
-    -- Or equivalently, only a subset of invalid transactions and all the
-    -- transactions we have not touched and are small enough will remain in the
-    -- pending table.
-    let nextNonceFor addr = do
-          macc <- bsoGetAccount bshandle4 addr
-          case macc of
-            Nothing -> return minNonce
-            Just acc -> return $ acc ^. accountNonce
-    -- construct a new pending transaction table adding back some failed transactions.
-    let purgeFailed cpt (tx, _) = do
-          b <- purgeTransaction tx
-          if b then return cpt  -- if the transaction was purged don't put it back into the pending table
-          else do
-            -- but otherwise do
-            nonce <- nextNonceFor (transactionSender tx)
-            return $! checkedExtendPendingTransactionTable nonce tx cpt
-
-    newpt <- foldM purgeFailed emptyPendingTransactionTable ftFailed
-
-    -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
-    let purgeTooBig cpt tx =
-          if transactionSize tx < maxSize then do
-            nonce <- nextNonceFor (transactionSender tx)
-            return $! checkedExtendPendingTransactionTable nonce tx cpt
-          else do
-            -- only purge a transaction from the table if it is too big **and**
-            -- not already commited to a recent block. if it is in a currently
-            -- live block then we must not purge it to maintain the invariant
-            -- that all transactions in live blocks exist in the transaction
-            -- table.
-            b <- purgeTransaction tx
-            if b then return cpt
-            else do
-              nonce <- nextNonceFor (transactionSender tx)
-              return $! checkedExtendPendingTransactionTable nonce tx cpt
-
-    newpt' <- foldM purgeTooBig newpt ftUnprocessed
-
-    -- commit the new pending transactions to the tree state
-    putPendingTransactions newpt'
     bshandleFinal <- freezeBlockState bshandle4
-    return (ret, bshandleFinal, usedEnergy)
+    return (ft, ExecutionResult{_energyUsed = usedEnergy,
+                                           _finalState = bshandleFinal,
+                                           _transactionLog = finState ^. accountTransactionLog})

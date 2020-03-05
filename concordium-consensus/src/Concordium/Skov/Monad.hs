@@ -18,6 +18,8 @@ import Concordium.GlobalState.TreeState (BlockPointer, BlockPointerData, BlockSt
 import Concordium.Logger
 import Concordium.TimeMonad
 
+import Concordium.Scheduler.TreeStateEnvironment(ExecutionResult)
+
 data UpdateResult
     = ResultSuccess
     -- ^Message received, validated and processed
@@ -70,6 +72,11 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
     -- |Get a block's state.
     queryBlockState :: BlockPointer m -> m (BlockState m)
+    -- |Get the outcomes of a transaction.
+    queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
+    -- |Get non-finalized transactions for an account, ordered by increasing nonce.
+    queryNonFinalizedTransactions :: AccountAddress -> m [TransactionHash]
+
 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
@@ -82,8 +89,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         PendingBlock m        -- ^The block to add
         -> BlockPointer m     -- ^Parent pointer
         -> BlockPointer m     -- ^Last finalized pointer
-        -> BlockState m       -- ^State
-        -> Energy             -- ^Energy used by the transactions in this block
+        -> ExecutionResult m  -- ^Result of the execution of the block.
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m UpdateResult
@@ -102,10 +108,24 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     branchesFromTop = lift branchesFromTop
     getBlocksAtHeight = lift . getBlocksAtHeight
     queryBlockState = lift . queryBlockState
+    queryTransactionStatus = lift . queryTransactionStatus
+    queryNonFinalizedTransactions = lift . queryNonFinalizedTransactions
+    {-# INLINE resolveBlock #-}
+    {-# INLINE isFinalized #-}
+    {-# INLINE lastFinalizedBlock #-}
+    {-# INLINE getBirkParameters #-}
+    {-# INLINE getGenesisData #-}
+    {-# INLINE genesisBlock #-}
+    {-# INLINE getCurrentHeight #-}
+    {-# INLINE branchesFromTop #-}
+    {-# INLINE getBlocksAtHeight #-}
+    {-# INLINE queryBlockState #-}
+    {-# INLINE queryTransactionStatus #-}
+    {-# INLINE queryNonFinalizedTransactions #-}
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
-    storeBakedBlock pb parent lastFin state energyUsed = lift $ storeBakedBlock pb parent lastFin state energyUsed
+    storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
     receiveTransaction = lift . receiveTransaction
     finalizeBlock fr = lift $ finalizeBlock fr
 

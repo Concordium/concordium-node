@@ -1,6 +1,7 @@
 {-# LANGUAGE
     ScopedTypeVariables,
     UndecidableInstances,
+    TypeFamilies,
     CPP #-}
 module Concordium.Runner where
 
@@ -28,7 +29,6 @@ import Concordium.TimerMonad
 import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
-import Concordium.Skov.Hooks
 import Concordium.Skov.CatchUp (CatchUpStatus)
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
@@ -123,6 +123,7 @@ syncSkovHandlers sr@SyncRunner{..} = handlers
         handlers = SkovHandlers{..}
         shBroadcastFinalizationMessage = liftIO . syncCallback . SOMsgFinalization
         shBroadcastFinalizationRecord = liftIO . syncCallback . SOMsgFinalizationRecord
+        shOnTimeout :: forall a . Timeout -> SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO a -> LogIO ThreadTimer
         shOnTimeout timeout a = liftIO $ makeThreadTimer timeout $ void $ runSkovTransaction sr a
         shCancelTimer = liftIO . cancelThreadTimer
         shPendingLive = liftIO syncHandlePendingLive
@@ -209,10 +210,11 @@ syncReceiveFinalizationRecord :: (SkovConfigMonad (SkovHandlers ThreadTimer c Lo
     => SyncRunner c -> FinalizationRecord -> IO UpdateResult
 syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizeBlock finRec)
 
+{- 
 syncHookTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO, TransactionHookLenses (SkovState c))
     => SyncRunner c -> TransactionHash -> IO HookResult
 syncHookTransaction syncRunner th = runSkovTransaction syncRunner (hookQueryTransaction th)
-
+-}
 
 data SyncPassiveRunner c = SyncPassiveRunner {
     syncPState :: MVar (SkovState c),
@@ -264,9 +266,10 @@ syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction
 syncPassiveReceiveFinalizationRecord :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
 syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizeBlock finRec)
 
+{-
 syncPassiveHookTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO, TransactionHookLenses (SkovState c)) => SyncPassiveRunner c -> TransactionHash -> IO HookResult
 syncPassiveHookTransaction syncRunner th = runSkovPassive syncRunner (hookQueryTransaction th)
-
+-}
 
 
 data InMessage src =

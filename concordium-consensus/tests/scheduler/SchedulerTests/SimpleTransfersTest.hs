@@ -26,6 +26,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -69,15 +71,17 @@ testSimpleTransfer
         [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
 testSimpleTransfer = do
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded,
+    return (getResults ftAdded,
             ftFailed,
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
@@ -94,7 +98,7 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
                            (_, Types.TxReject{}) -> False)
                     (init suc)
     reject = case last suc of
-               (_, Types.TxReject (Types.AmountTooLarge _ _) _ _) -> True
+               (_, Types.TxReject (Types.AmountTooLarge _ _)) -> True
                _ -> False
 
 tests :: SpecWith ()

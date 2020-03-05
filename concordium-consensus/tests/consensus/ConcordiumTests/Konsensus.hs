@@ -64,7 +64,7 @@ import Test.Hspec
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Trs = HM.HashMap TransactionHash (Transaction, Slot)
+type Trs = HM.HashMap TransactionHash (Transaction, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
@@ -182,7 +182,7 @@ invariantSkovData TS.SkovData{..} = do
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
 
 invariantSkovFinalization :: SkovState (Config t) -> Either String ()
-invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
+invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -361,7 +361,7 @@ runKonsensusTest steps g states es
 runKonsensusTestSimple :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTestSimple steps g states es
         | steps <= 0 || null (es ^. esEventPool) =
-            let checkInvariantAndFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
+            let checkInvariantAndFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) = do
                   checkFinalizationRecordsVerify sd
                   invariantSkovFinalization s
             in return

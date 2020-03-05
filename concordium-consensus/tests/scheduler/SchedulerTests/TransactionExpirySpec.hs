@@ -28,6 +28,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -116,14 +118,16 @@ testExpiryTime expiry = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
     ts <- processUngroupedTransactions $ transactions expiry
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) ts)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             dummySpecialBetaAccounts
             Types.dummyChainMeta { Types.slotTime = slotTime }
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
-        Right _ -> return (ftAdded, ftFailed, ftUnprocessed)
+        Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed)
 
 checkExpiryTimeResult :: Types.TransactionExpiryTime ->
                          ([(Types.BareTransaction, Types.ValidResult)],
