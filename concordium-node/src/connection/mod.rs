@@ -7,7 +7,7 @@ mod tests;
 
 use low_level::ConnectionLowLevel;
 
-use chrono::prelude::Utc;
+use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
@@ -19,6 +19,7 @@ use twox_hash::XxHash64;
 use crate::dumper::DumpItem;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
+    connection::low_level::ReadResult,
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
@@ -79,8 +80,8 @@ impl DeduplicationQueues {
 
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
+    pub created:           u64,
     pub last_ping_sent:    AtomicU64,
-    pub sent_handshake:    AtomicU64,
     pub last_seen:         AtomicU64,
     pub messages_sent:     AtomicU64,
     pub messages_received: AtomicU64,
@@ -140,15 +141,17 @@ impl Connection {
         let curr_stamp = get_current_stamp();
 
         let low_level = RwLock::new(ConnectionLowLevel::new(
+            handler,
             socket,
             is_initiator,
             handler.config.socket_read_size,
+            handler.config.socket_write_size,
         ));
 
         let stats = ConnectionStats {
+            created:           get_current_stamp(),
             messages_received: Default::default(),
             messages_sent:     Default::default(),
-            sent_handshake:    Default::default(),
             valid_latency:     Default::default(),
             last_latency:      Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
@@ -157,7 +160,7 @@ impl Connection {
             bytes_sent:        Default::default(),
         };
 
-        let conn = Arc::new(Self {
+        Arc::new(Self {
             handler: Arc::clone(handler),
             token,
             remote_peer,
@@ -166,11 +169,7 @@ impl Connection {
             is_post_handshake: Default::default(),
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
-        });
-
-        write_or_die!(conn.low_level).conn_ref = Some(Arc::clone(&conn));
-
-        conn
+        })
     }
 
     /// Get the connection's latest latency value.
@@ -179,12 +178,6 @@ impl Connection {
     /// Set the connection's latest latency value.
     pub fn set_last_latency(&self, value: u64) {
         self.stats.last_latency.store(value, Ordering::Relaxed);
-    }
-
-    /// Set the timestamp of when the handshake request was sent to the
-    /// connection.
-    pub fn set_sent_handshake(&self) {
-        self.stats.sent_handshake.store(get_current_stamp(), Ordering::Relaxed)
     }
 
     /// Get the timestamp of when the latest ping request was sent to the
@@ -275,6 +268,22 @@ impl Connection {
         Ok(is_duplicate)
     }
 
+    /// Keeps reading from the socket as long as there is data to be read
+    /// and the operation is not blocking.
+    #[inline]
+    pub fn read_stream(
+        &self,
+        low_level: &mut ConnectionLowLevel,
+        dedup_queues: &DeduplicationQueues,
+    ) -> Fallible<()> {
+        loop {
+            match low_level.read_from_socket()? {
+                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), dedup_queues)?,
+                ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
+            }
+        }
+    }
+
     #[inline]
     fn process_message(
         &self,
@@ -347,6 +356,7 @@ impl Connection {
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.is_post_handshake.store(true, Ordering::SeqCst);
+        self.handler.stats.peers_inc();
         self.handler.bump_last_peer_update();
     }
 
@@ -382,7 +392,7 @@ impl Connection {
     #[cfg(feature = "network_dump")]
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
         if let Some(ref sender) = &*read_or_die!(self.handler.connection_handler.log_dumper) {
-            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr.ip(), buf);
+            let di = DumpItem::new(inbound, self.remote_peer.addr.ip(), buf);
             let _ = sender.send(di);
         }
     }
@@ -420,29 +430,16 @@ impl Connection {
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
-                const BOOTSTRAP_PEER_COUNT: usize = 100;
-                let random_nodes =
-                    match self.handler.config.partition_network_for_time {
-                        Some(time) => {
-                            if (Utc::now().timestamp_millis()
-                                - self.handler.start_time.timestamp_millis())
-                                as usize
-                                >= time
-                            {
-                                safe_read!(self.handler.connection_handler.buckets)?
-                                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, false)
-                            } else {
-                                safe_read!(self.handler.connection_handler.buckets)?
-                                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, true)
-                            }
-                        }
-                        _ => safe_read!(self.handler.connection_handler.buckets)?.get_random_nodes(
-                            &requestor,
-                            BOOTSTRAP_PEER_COUNT,
-                            nets,
-                            false,
-                        ),
-                    };
+                let get_100_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
+                    Ok(safe_read!(self.handler.buckets())?
+                        .get_random_nodes(&requestor, 100, nets, partition))
+                };
+                let random_nodes = match self.handler.config.partition_network_for_time {
+                    Some(time) if (self.handler.get_uptime() as usize) < time => {
+                        get_100_random_nodes(true)?
+                    }
+                    _ => get_100_random_nodes(false)?,
+                };
 
                 if !random_nodes.is_empty()
                     && random_nodes.len()
@@ -538,4 +535,34 @@ fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> 
         trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
+}
+
+/// Processes a queue with pending messages, writing them to the socket.
+#[inline]
+pub fn send_pending_messages(
+    conn: &Connection,
+    low_level: &mut ConnectionLowLevel,
+    pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+) -> Fallible<()> {
+    let mut pending_messages = write_or_die!(pending_messages);
+
+    while let Some((msg, _)) = pending_messages.pop() {
+        trace!("Attempting to send {} to {}", ByteSize(msg.len() as u64).to_string_as(true), conn);
+
+        if let Err(err) = low_level.write_to_socket(msg.clone()) {
+            bail!("Can't send a raw network request: {}", err);
+        } else {
+            conn.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+            conn.handler.stats.pkt_sent_inc();
+            conn.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+            conn.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+
+            #[cfg(feature = "network_dump")]
+            {
+                conn.send_to_dump(msg, false);
+            }
+        }
+    }
+
+    Ok(())
 }

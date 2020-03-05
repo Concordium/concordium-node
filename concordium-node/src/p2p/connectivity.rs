@@ -12,7 +12,7 @@ use semver::Version;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{Connection, DeduplicationQueues, MessageSendingPriority},
+    connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
     netmsg,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
@@ -53,6 +53,22 @@ macro_rules! send_to_all {
             }
         }
     }
+}
+
+/// A macro used to find a connection by the id of its node.
+#[macro_export]
+macro_rules! find_conn_by_id {
+    ($node:expr, $id:expr) => {{
+        read_or_die!($node.connections()).values().find(|conn| conn.remote_id() == Some($id))
+    }};
+}
+
+/// A macro used to find connections by an IP address.
+#[macro_export]
+macro_rules! find_conns_by_ip {
+    ($node:expr, $ip:expr) => {{
+        read_or_die!($node.connections()).values().filter(|conn| conn.remote_peer.addr.ip() == $ip)
+    }};
 }
 
 impl P2PNode {
@@ -106,28 +122,6 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
-    /// Search for a connection by the node id.
-    pub fn find_connection_by_id(&self, id: P2PNodeId) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .values()
-            .find(|conn| conn.remote_id() == Some(id))
-            .map(|conn| Arc::clone(conn))
-    }
-
-    /// Search for a connection by the poll token.
-    pub fn find_connection_by_token(&self, token: Token) -> Option<Arc<Connection>> {
-        read_or_die!(self.connections()).get(&token).map(|conn| Arc::clone(conn))
-    }
-
-    /// Search for all connections with the specified IP address.
-    pub fn find_connections_by_ip(&self, ip: IpAddr) -> Vec<Arc<Connection>> {
-        read_or_die!(self.connections())
-            .values()
-            .filter(|conn| conn.remote_peer.addr.ip() == ip)
-            .map(|conn| Arc::clone(conn))
-            .collect()
-    }
-
     /// Shut down connections with the given poll tokens.
     pub fn remove_connections(&self, tokens: &[Token]) -> bool {
         let connections = &mut write_or_die!(self.connections());
@@ -139,7 +133,6 @@ impl P2PNode {
                 if conn.is_post_handshake() {
                     update_peer_list = true;
                 }
-                write_or_die!(conn.low_level).conn_ref = None; // necessary in order for Drop to kick in
                 removed += 1;
             }
         }
@@ -240,8 +233,7 @@ impl P2PNode {
             .filter_map(|(token, conn)| {
                 let mut low_level = write_or_die!(conn.low_level);
 
-                if let Err(e) = low_level
-                    .send_pending_messages(&conn.pending_messages)
+                if let Err(e) = send_pending_messages(conn, &mut low_level, &conn.pending_messages)
                     .and_then(|_| low_level.flush_socket())
                 {
                     error!("{}", e);
@@ -252,7 +244,7 @@ impl P2PNode {
                     .iter()
                     .any(|event| event.token() == *token && event.readiness().is_readable())
                 {
-                    if let Err(e) = low_level.read_stream(deduplication_queues) {
+                    if let Err(e) = conn.read_stream(&mut low_level, deduplication_queues) {
                         error!("{}", e);
                         Some((*token, (conn.remote_addr().ip(), e)))
                     } else {
@@ -324,7 +316,6 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     };
 
     let conn = Connection::new(node, socket, token, remote_peer, false);
-
     conn.register(&node.poll)?;
     node.add_connection(conn);
 
@@ -406,9 +397,7 @@ pub fn connect(
             };
 
             let conn = Connection::new(node, socket, token, remote_peer, true);
-
             conn.register(&node.poll)?;
-
             write_lock_connections.insert(conn.token, conn);
 
             if let Some(ref conn) = write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
@@ -469,7 +458,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
 
     let is_conn_without_handshake = |conn: &Connection| -> bool {
         !conn.is_post_handshake()
-            && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+            && conn.stats.created + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
     };
 
     // remove faulty and inactive connections

@@ -69,7 +69,7 @@ impl Connection {
         ));
 
         if remote_peer.peer_type != PeerType::Bootstrapper {
-            write_or_die!(self.handler.connection_handler.buckets)
+            write_or_die!(self.handler.buckets())
                 .insert_into_bucket(&remote_peer, handshake.networks.clone());
         }
 
@@ -84,8 +84,8 @@ impl Connection {
     fn handle_pong(&self) -> Fallible<()> {
         self.stats.valid_latency.store(true, Ordering::Relaxed);
 
-        let ping_time: u64 = self.stats.last_ping_sent.load(Ordering::SeqCst);
-        let curr_time: u64 = get_current_stamp();
+        let ping_time = self.stats.last_ping_sent.load(Ordering::SeqCst);
+        let curr_time = get_current_stamp();
 
         if curr_time >= ping_time {
             self.set_last_latency(curr_time - ping_time);
@@ -122,8 +122,7 @@ impl Connection {
             trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
             if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                 new_peers += 1;
-                safe_write!(self.handler.connection_handler.buckets)?
-                    .insert_into_bucket(peer, HashSet::new());
+                safe_write!(self.handler.buckets())?.insert_into_bucket(peer, HashSet::new());
             }
 
             if new_peers + curr_peer_count >= self.handler.config.desired_nodes_count as usize {
@@ -141,7 +140,7 @@ impl Connection {
         debug!("Received a JoinNetwork request from peer {}", remote_peer.id);
 
         self.add_remote_end_network(network);
-        safe_write!(self.handler.connection_handler.buckets)?
+        safe_write!(self.handler.buckets())?
             .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
 
         Ok(())
@@ -154,7 +153,7 @@ impl Connection {
         debug!("Received a LeaveNetwork request from peer {}", remote_peer.id);
 
         self.remove_remote_end_network(network);
-        safe_write!(self.handler.connection_handler.buckets)?
+        safe_write!(self.handler.buckets())?
             .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
 
         Ok(())
