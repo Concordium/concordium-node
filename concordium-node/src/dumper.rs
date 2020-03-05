@@ -26,14 +26,9 @@ pub struct DumpItem {
 
 impl DumpItem {
     /// Creates a new dump item object.
-    pub fn new(
-        timestamp: DateTime<Utc>,
-        inbound: bool,
-        remote_addr: IpAddr,
-        msg: Arc<[u8]>,
-    ) -> Self {
+    pub fn new(inbound: bool, remote_addr: IpAddr, msg: Arc<[u8]>) -> Self {
         DumpItem {
-            timestamp,
+            timestamp: Utc::now(),
             inbound,
             remote_addr,
             msg,

@@ -160,7 +160,7 @@ impl Connection {
             bytes_sent:        Default::default(),
         };
 
-        let conn = Arc::new(Self {
+        Arc::new(Self {
             handler: Arc::clone(handler),
             token,
             remote_peer,
@@ -169,9 +169,7 @@ impl Connection {
             is_post_handshake: Default::default(),
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
-        });
-
-        conn
+        })
     }
 
     /// Get the connection's latest latency value.
@@ -394,7 +392,7 @@ impl Connection {
     #[cfg(feature = "network_dump")]
     fn send_to_dump(&self, buf: Arc<[u8]>, inbound: bool) {
         if let Some(ref sender) = &*read_or_die!(self.handler.connection_handler.log_dumper) {
-            let di = DumpItem::new(Utc::now(), inbound, self.remote_peer.addr.ip(), buf);
+            let di = DumpItem::new(inbound, self.remote_peer.addr.ip(), buf);
             let _ = sender.send(di);
         }
     }
