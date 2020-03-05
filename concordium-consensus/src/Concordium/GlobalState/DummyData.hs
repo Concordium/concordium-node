@@ -88,7 +88,6 @@ makeTestingGenesisData ::
     -> Duration  -- ^Slot duration in seconds.
     -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
-    -> StakeFraction -- ^A baker whose stake exceeds this fraction of the total baker stake can be part of the finalization committee
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
@@ -100,7 +99,6 @@ makeTestingGenesisData
   genesisSlotDuration
   elecDiff
   finMinSkip
-  finStakeFrac
   finComMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
@@ -115,7 +113,7 @@ makeTestingGenesisData
                           genesisBakers
                           genesisBakers
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters = FinalizationParameters finMinSkip finStakeFrac finComMaxSize
+        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
