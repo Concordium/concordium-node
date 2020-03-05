@@ -293,6 +293,11 @@ genesisState genData = Basic.initialState
                        (genesisIdentityProviders genData)
                        (genesisMintPerSlot genData)
 
+-- |Default value for early block threshold.
+-- Set to 30 seconds.
+defaultEarlyBlockThreshold :: Timestamp
+defaultEarlyBlockThreshold = 30
+
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
@@ -316,7 +321,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
             (Right genData, Right bid) -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler logT
@@ -354,7 +359,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
             Right genData -> do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
@@ -419,6 +424,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -434,6 +441,7 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
+toReceiveResult ResultEarlyBlock = 11
 
 
 -- |Handle receipt of a block.
@@ -455,8 +463,8 @@ receiveBlock bptr cstr l = do
                 logm External LLDebug err
                 return ResultSerializationFail
             Right block -> case c of
-                            BakerRunner{..} -> syncReceiveBlock bakerSyncRunner block
-                            PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
+                        BakerRunner{..} -> syncReceiveBlock bakerSyncRunner block
+                        PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
 
 
 -- |Handle receipt of a finalization message.
