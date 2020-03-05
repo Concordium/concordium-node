@@ -43,6 +43,8 @@ data UpdateResult
     -- ^The message could not be validated with the current state
     | ResultContinueCatchUp
     -- ^The peer should be marked as pending unless catch up is already in progress
+    | ResultEarlyBlock
+    -- ^The block was sent too early and should be dropped
     deriving (Show)
 
 class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
