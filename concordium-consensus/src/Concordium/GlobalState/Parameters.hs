@@ -163,7 +163,7 @@ data GenesisParameters = GenesisParameters {
     gpIdentityProviders :: [IpInfo],
     gpBetaAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount,
-    -- Maximum total energy that can be consumed by the transactions in a block 
+    -- Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy
 }
 
@@ -195,7 +195,11 @@ data RuntimeParameters = RuntimeParameters {
   -- |Treestate storage directory.
   rpTreeStateDir :: !FilePath,
   -- |BlockState storage file.
-  rpBlockStateFile :: !FilePath
+  rpBlockStateFile :: !FilePath,
+  -- |Threshold for how far into the future we accept blocks. Blocks with a slot
+  -- time that exceeds our current time + this threshold are rejected and the p2p
+  -- is told to not relay these blocks.
+  rpEarlyBlockThreshold :: !Timestamp
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -203,7 +207,8 @@ defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
   rpTreeStateDir = "treestate",
-  rpBlockStateFile = "blockstate"
+  rpBlockStateFile = "blockstate",
+  rpEarlyBlockThreshold = 30 -- 30 seconds
   }
 
 instance FromJSON RuntimeParameters where
@@ -211,8 +216,11 @@ instance FromJSON RuntimeParameters where
     rpBlockSize <- v .: "blockSize"
     rpTreeStateDir <- v .: "treeStateDir"
     rpBlockStateFile <- v .: "blockStateFile"
+    rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
+    when (rpEarlyBlockThreshold <= 0) $
+      fail "The early block threshold must be a postitive integer"
     return RuntimeParameters{..}
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
