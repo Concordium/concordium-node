@@ -89,17 +89,29 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up 
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
 
-## Elastic search in local development mode
+## PostGreSQL in local development mode
+The PostGreSQL instance is exposed on port 5432/tcp and the username is `concordium`, password: `concordium`, and database name is `concordium`.
+
 ### Running the local development version from the stable master branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
+```
+
+Remember to clean out PostGreSQL data between runs using
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
 ```
 
 ### Running the local development version from the unstable develop branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
+```
+
+Remember to clean out PostGreSQL data between runs using
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
 ```
 
 ### Delay baker startup if PostGreSQL starts too slowly

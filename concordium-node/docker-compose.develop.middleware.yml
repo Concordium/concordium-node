@@ -17,6 +17,22 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
+        depends_on:
+            - collector_backend
+            - baker_id_gen
+    collector_backend:
+        image: concordium/dev-client:develop
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=info
+            - MODE=local_collector_backend
+            - COLLECTOR_BACKEND_PORT=10000
+            - COLLECTOR_BACKEND_HOST=0.0.0.0
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh
+        ports:
+            - "12000:10000"
     baker_id_gen:
         image: concordium/dev-client:develop
         entrypoint:
@@ -24,7 +40,6 @@ services:
     baker:
         image: concordium/dev-client:develop
         depends_on:
-            - baker_id_gen
             - bootstrapper
             - postgresql
         entrypoint:
@@ -49,3 +64,17 @@ services:
             - DB_SLEEP=${DB_SLEEP}
         ports:
             - "11100-11500:10000"
+    collector:
+        image: concordium/dev-client:develop
+        depends_on:
+            - baker
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=info
+            - MODE=local_collector
+            - NUM_BAKERS=${NUM_BAKERS}
+            - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
+            - COLLECTOR_URL=http://collector_backend:10000/nodes/post
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh
