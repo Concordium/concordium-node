@@ -73,7 +73,6 @@ instance Serialize VoterInfo where
 
 data FinalizationParameters = FinalizationParameters {
     finalizationMinimumSkip :: BlockHeight,
-    finalizationStakeFraction :: StakeFraction,
     finalizationCommitteeMaxSize :: FinalizationCommitteeSize
 } deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
@@ -157,7 +156,6 @@ data GenesisParameters = GenesisParameters {
     gpEpochLength :: EpochLength,
     gpElectionDifficulty :: ElectionDifficulty,
     gpFinalizationMinimumSkip :: BlockHeight,
-    gpFinalizationStakeFraction :: StakeFraction,
     gpFinalizationCommitteeMaxSize :: FinalizationCommitteeSize,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
@@ -175,7 +173,6 @@ instance FromJSON GenesisParameters where
         when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
         gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
-        gpFinalizationStakeFraction <- v .: "finalizationStakeFraction"
         gpFinalizationCommitteeMaxSize <- v .: "finalizationCommitteeMaxSize"
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
@@ -244,7 +241,6 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
         genesisFinalizationParameters = FinalizationParameters
                                           gpFinalizationMinimumSkip
-                                          gpFinalizationStakeFraction
                                           gpFinalizationCommitteeMaxSize
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
