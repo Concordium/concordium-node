@@ -85,7 +85,7 @@ ENV NODE_URL=localhost:10000
 ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
 ENV GRPC_HOST=localhost:10000
 ENV DISTRIBUTION_CLIENT=true
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 postgresql-server-dev-10
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 postgresql-server-dev-11
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
