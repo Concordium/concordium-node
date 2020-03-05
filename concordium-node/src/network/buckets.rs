@@ -158,8 +158,8 @@ mod tests {
             p2p_node_id,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
         ));
-        buckets.insert_into_bucket(&p2p_peer, HashSet::new());
-        buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());
+        buckets.insert_into_bucket(p2p_peer, HashSet::new());
+        buckets.insert_into_bucket(p2p_duplicate_peer, HashSet::new());
         assert_eq!(buckets.buckets.len(), 1);
     }
 }

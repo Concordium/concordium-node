@@ -118,7 +118,7 @@ impl Connection {
 
         let curr_peer_count = current_peers.len();
 
-        let applicable_candidates = peers.into_iter().filter(|candidate| {
+        let applicable_candidates = peers.iter().filter(|candidate| {
             !current_peers
                 .iter()
                 .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
