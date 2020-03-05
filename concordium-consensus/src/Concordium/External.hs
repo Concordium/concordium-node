@@ -439,6 +439,7 @@ startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> startSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> startSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -446,6 +447,7 @@ stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> stopSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> stopSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to stop baker thread, but consensus was started without baker credentials"
 
 {- | Result values for receive functions.
