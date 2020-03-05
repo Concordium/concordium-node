@@ -110,7 +110,6 @@ impl Connection {
             trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
             if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                 new_peers += 1;
-                safe_write!(self.handler.buckets())?.insert_into_bucket(*peer, HashSet::new());
             }
 
             if new_peers + curr_peer_count >= self.handler.config.desired_nodes_count as usize {
