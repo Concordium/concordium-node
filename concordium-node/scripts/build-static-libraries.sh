@@ -6,7 +6,7 @@ CABAL_BUILDER_VERSION="3.0.0.0"
 pacman -Sy
 pacman -S reflector --noconfirm
 reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git --noconfirm
+pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git postgresql-libs --noconfirm
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 
 # Compile lmdb
