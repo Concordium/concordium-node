@@ -1,4 +1,6 @@
-{-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 module GlobalStateTests.PersistentTreeState where
 
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -9,20 +11,18 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Persistent.LMDB
-import Control.Monad.State
+import Control.Monad.State hiding (state)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
 import Control.Monad.RWS.Strict hiding (state)
-import Control.Monad.IO.Class
 import Data.Time.Clock.POSIX
-import Control.Monad
 import Control.Monad.Identity
 import Data.Proxy
-import Test.QuickCheck
 import Test.Hspec
 import Control.Exception
 import Lens.Micro.Platform
@@ -35,58 +35,78 @@ import Data.ByteString (ByteString)
 import System.FilePath ((</>))
 import System.Random
 
+newtype RSTI c s m a = RSTI {runRSTI :: RWST (Identity c) () (Identity s) m a}
+  deriving(Functor, Applicative, Monad, MonadIO, MonadReader (Identity c), MonadState (Identity s))
+
 newtype MyTreeStateMonad c g s a = MyTreeStateMonad { runMTSM :: RWST c () s IO a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
+type GlobalStateIO c g s = GlobalStateM NoLogContext c (Identity c) g (Identity g) (RSTI c s IO)
+type BlockStateIO c g s = BlockStateM c (Identity c) g (Identity g) (RSTI c s IO)
+
+instance ATITypes (MyTreeStateMonad c g s) where
+  type ATIStorage (MyTreeStateMonad c g s) = ()
+
+instance PerAccountDBOperations (MyTreeStateMonad c g s) where
+  -- default instance
+
+instance ATITypes (RSTI c s m) where
+  type ATIStorage (RSTI c s m) = ()
+
+instance Monad m => PerAccountDBOperations (RSTI c s m) where
+  -- default instance
+
+deriving via (GlobalStateIO c g s)
   instance BlockStateTypes (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockStateQuery (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockStateQuery (BlockStateIO c g s)) =>
     BlockStateQuery (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockStateOperations (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockStateOperations (BlockStateIO c g s)) =>
     BlockStateOperations (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockStateStorage (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockStateStorage (BlockStateIO c g s)) =>
     BlockStateStorage (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (GlobalStateTypes (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (GlobalStateTypes (GlobalStateIO c g s)) =>
     GlobalStateTypes (MyTreeStateMonad c g s)
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (BlockPointerMonad (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (BlockPointerMonad (GlobalStateIO c g s)) =>
     BlockPointerMonad (MyTreeStateMonad c g s)
 
 deriving via (PersistentTreeStateMonad
+              ()
               PBS.PersistentBlockState
               (MyTreeStateMonad
                PBS.PersistentBlockStateContext
-               (SkovPersistentData PBS.PersistentBlockState)
-               (SkovPersistentData PBS.PersistentBlockState)))
+               (SkovPersistentData () PBS.PersistentBlockState)
+               (SkovPersistentData () PBS.PersistentBlockState)))
   instance (MonadState
-            (SkovPersistentData PBS.PersistentBlockState)
+            (SkovPersistentData () PBS.PersistentBlockState)
             (MyTreeStateMonad
              PBS.PersistentBlockStateContext
-             (SkovPersistentData PBS.PersistentBlockState)
-             (SkovPersistentData PBS.PersistentBlockState))) =>
+             (SkovPersistentData () PBS.PersistentBlockState)
+             (SkovPersistentData () PBS.PersistentBlockState))) =>
     LMDBStoreMonad (MyTreeStateMonad
                     PBS.PersistentBlockStateContext
-                    (SkovPersistentData PBS.PersistentBlockState)
-                    (SkovPersistentData PBS.PersistentBlockState))
+                    (SkovPersistentData () PBS.PersistentBlockState)
+                    (SkovPersistentData () PBS.PersistentBlockState))
 
-deriving via (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))
-  instance (TreeStateMonad (GlobalStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO)),
-            BlockStateStorage (BlockStateM c (Identity c) g (Identity g) (RWST (Identity c) () (Identity s) IO))) =>
+deriving via (GlobalStateIO c g s)
+  instance (TreeStateMonad (GlobalStateIO c g s),
+            ATIStorage (GlobalStateIO c g s) ~ (),
+            BlockStateStorage (BlockStateIO c g s)) =>
     TreeStateMonad (MyTreeStateMonad c g s)
 
-type TestM = MyTreeStateMonad PBS.PersistentBlockStateContext (SkovPersistentData PBS.PersistentBlockState) (SkovPersistentData PBS.PersistentBlockState)
+type TestM = MyTreeStateMonad PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState)
 type Test = TestM ()
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData PBS.PersistentBlockState)
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
 createGlobalState dbDir = do
   now <- truncate <$> getPOSIXTime
   let
@@ -94,11 +114,12 @@ createGlobalState dbDir = do
     genesis = makeTestingGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
     state = basicGenesisState genesis
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir }) genesis state
-  initialiseGlobalState config
+  (x, y, NoLogContext) <- initialiseGlobalState config
+  return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PBS.PersistentBlockState) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState) -> IO ()
 destroyGlobalState (c, s) =
-  shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s
+  shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
 specifyWithGS :: String -> FilePath -> Test -> SpecWith (Arg (IO ()))
 specifyWithGS s dbDir f = specify s $
@@ -119,8 +140,8 @@ testFinalizeABlock = do
   proof2 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
   pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 (bpHash genesisBlock) [] now
-  now <- liftIO $ getCurrentTime
-  blockPtr :: BlockPointer TestM <- makeLiveBlock pb genesisBlock genesisBlock state now 0
+  now' <- liftIO $ getCurrentTime
+  blockPtr :: BlockPointer TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   markFinalized (bpHash blockPtr) frec
@@ -156,10 +177,10 @@ testFinalizeABlock = do
   liftIO $ lfin `shouldBe` genesisBlock
 
   -- add another block with different lfin and parent
-  now <- liftIO $ getCurrentTime
-  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now
-  now <- liftIO $ getCurrentTime
-  blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state now 0
+  now'' <- liftIO $ getCurrentTime
+  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now''
+  now''' <- liftIO $ getCurrentTime
+  blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0
 
   -- Add the finalization to the tree state

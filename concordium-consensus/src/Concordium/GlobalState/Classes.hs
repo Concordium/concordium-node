@@ -21,6 +21,7 @@ import Control.Monad.Trans.Class
 import Control.Monad.IO.Class
 import Control.Monad.State.Class
 import Control.Monad.Reader.Class
+import Control.Monad.Writer.Class
 import Data.Functor.Identity
 
 import Concordium.GlobalState.Block
@@ -82,6 +83,7 @@ newtype MGSTrans t (m :: * -> *) a = MGSTrans (t m a)
 
 deriving instance (MonadReader r (t m)) => MonadReader r (MGSTrans t m)
 deriving instance (MonadState s (t m)) => MonadState s (MGSTrans t m)
+deriving instance (MonadWriter w (t m)) => MonadWriter w (MGSTrans t m)
 
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m

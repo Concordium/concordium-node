@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
@@ -13,6 +13,7 @@ import Concordium.Types
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
@@ -58,6 +59,12 @@ instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
 
+instance ATITypes (PureBlockStateMonad m) where
+  type ATIStorage (PureBlockStateMonad m) = ()
+
+instance Monad m => PerAccountDBOperations (PureBlockStateMonad m) where
+  -- default implementation
+
 instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getModule #-}
     getModule bs mref =
@@ -90,10 +97,13 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getTransactionOutcome bs trh =
         return $ bs ^? blockTransactionOutcomes . ix trh
 
+    {-# INLINE getOutcomes #-}
+    getOutcomes bs =
+        return $ bs ^. blockTransactionOutcomes . to Transactions.outcomeValues
+
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
-
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
@@ -220,11 +230,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                            ((blockBank . Rewards.centralBankGTU) +~ amount)
         in (updated ^. blockBank . Rewards.centralBankGTU, updated)
 
-    bsoDecrementCentralBankGTU bs amount = return $
+    bsoDecrementCentralBankGTU bs amount = return $!
         let updated = bs & ((blockBank . Rewards.centralBankGTU) -~ amount)
         in (updated ^. blockBank . Rewards.centralBankGTU, updated)
 
-    bsoDelegateStake bs aaddr target = return $ if targetValid then (True, bs') else (False, bs)
+    bsoDelegateStake bs aaddr target = return $! if targetValid then (True, bs') else (False, bs)
         where
             targetValid = case target of
                 Nothing -> True
@@ -236,9 +246,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             bs' = bs & blockBirkParameters . birkCurrentBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
                     & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
 
+    {-# INLINE bsoGetIdentityProvider #-}
     bsoGetIdentityProvider bs ipId =
       return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
 
+    {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
       return $! bs ^. blockCryptographicParameters
 
@@ -247,8 +259,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoAddSpecialTransactionOutcome bs o =
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
-      
-    bsoUpdateBirkParameters bs bps = return $ bs & blockBirkParameters .~ bps
+
+    {-# INLINE bsoUpdateBirkParameters #-}
+    bsoUpdateBirkParameters bs bps = return $! bs & blockBirkParameters .~ bps
 
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
