@@ -861,8 +861,11 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
                 -- with a SuccessorOfInvalidTransaction failure
                 invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
 
--- |Execute transactions in sequence. Return 'Nothing' if one of the transactions
--- fails, and otherwise return a list of transactions with their outcomes.
+-- |Execute transactions in sequence. Returns
+--
+-- * 'Left Nothing' if maximum block energy limit was exceeded
+-- * 'Left (Just fk)' if a transaction failed with the given failure kind
+-- * 'Right outcomes' if all transactions are successful, with given outcomes.
 runTransactions :: (TransactionData msg, SchedulerMonad m)
                    => [msg] -> m (Either (Maybe FailureKind) [(msg, TransactionSummary)])
 runTransactions = go []
