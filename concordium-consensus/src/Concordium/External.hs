@@ -238,19 +238,10 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
-broadcastCallback :: (BlockData
-                          (TS.BlockPointer
-                             (GlobalStateM
-                                (GSLogContext gs)
-                                (GSContext gs)
-                                (SkovContext (SkovConfig gs finconf hconf))
-                                (GSState gs)
-                                (SkovState (SkovConfig gs finconf hconf))
-                                (SkovT
-                                   (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
-                                   (SkovConfig gs finconf hconf)
-                                   (LoggerT IO)))))
-           => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
+broadcastCallback :: (BlockData (TS.BlockPointer (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
+                                                        (SkovConfig gs finconf hconf)
+                                                        (LoggerT IO))))
+                  => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
