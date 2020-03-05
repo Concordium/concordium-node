@@ -28,6 +28,7 @@ import Data.Serialize.Put (runPut)
 import Data.ByteString.Char8(ByteString)
 import System.FilePath
 import Lens.Micro.Platform
+import Data.Pool(destroyAllResources)
 
 import Concordium.Types.Transactions
 
@@ -435,11 +436,12 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        let handle = txLog
+        handle <- connectPostgres txLog
         createTable handle
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig handle) serBS
         return (pbsc, isd, PAAIConfig handle)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig _) = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig handle) = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
+        destroyAllResources handle

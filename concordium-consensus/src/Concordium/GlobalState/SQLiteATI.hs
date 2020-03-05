@@ -15,7 +15,7 @@ import Database.Persist
 -- import Database.Persist.Sqlite
 import Database.Persist.Postgresql
 import Database.Persist.TH
-import Conduit
+import Data.Pool
 
 import qualified Data.Serialize as S
 import qualified Data.Aeson as AE
@@ -39,17 +39,19 @@ share [mkPersist sqlSettings, mkSave "entityDefs", mkMigrate "migrateAll"] [pers
     deriving Eq Show
   |]
 
-runPostgres :: ConnectionString -> ReaderT SqlBackend (NoLoggingT (ResourceT IO)) a -> IO a
-runPostgres connString = runResourceT . runNoLoggingT . withPostgresqlPool connString 5 . runSqlPool
+connectPostgres :: ConnectionString -> IO (Pool SqlBackend)
+connectPostgres connString = runNoLoggingT (createPostgresqlPool connString 5)
 
-createTable :: ConnectionString -> IO ()
-createTable dbName =
-  runPostgres dbName (runMigration migrateAll :: ReaderT SqlBackend (NoLoggingT (ResourceT IO)) ())
+runPostgres :: Pool SqlBackend -> ReaderT SqlBackend (NoLoggingT IO) a -> IO a
+runPostgres pool c = runNoLoggingT (runSqlPool c pool)
 
-writeEntries :: ConnectionString -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
-writeEntries dbName BlockContext{..} hm sos = do
-  runPostgres dbName c
-  where c :: ReaderT SqlBackend (NoLoggingT (ResourceT IO)) ()
+createTable :: Pool SqlBackend -> IO ()
+createTable pool = runPostgres pool (runMigration migrateAll)
+
+writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
+writeEntries pool BlockContext{..} hm sos = do
+  runPostgres pool c
+  where c :: ReaderT SqlBackend (NoLoggingT IO) ()
         c = do
           insertMany_
               . Prelude.reverse -- reverse is because the latest entry is the head of the list
