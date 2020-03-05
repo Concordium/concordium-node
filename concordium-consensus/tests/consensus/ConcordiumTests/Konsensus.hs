@@ -20,6 +20,7 @@ import Control.Monad.Trans.State
 
 import Concordium.Crypto.SHA256
 
+import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.TreeState as TreeState
@@ -94,7 +95,6 @@ invariantSkovData TS.SkovData{..} = do
         checkBinary (==) ptt _pendingTransactions "==" "expected pending transactions" "recorded pending transactions"
         checkEpochs _focusBlock
     where
-        checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
         -- Notice: checkFin doesn't check that finalization records actually verify. This is only done after the test run
         --         is finished using checkFinalizationRecordsVerify.
         checkFin (finMap, lastFin, i) (fr, bp) = do
@@ -174,14 +174,30 @@ invariantSkovData TS.SkovData{..} = do
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
 
-invariantSkovFinalization :: SkovState (Config t) -> Either String ()
-invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
+lastFinalizationBP :: TS.SkovData BState.BlockState -> BS.BasicBlockPointer BState.BlockState
+lastFinalizationBP TS.SkovData{..} = let (_ Seq.:|> (_, lfb)) = _finalizationList
+                                     in bpLastFinalized lfb
+
+-- TODO (MR) use lenses?
+bakersForBlock :: BS.BasicBlockPointer BState.BlockState -> Bakers
+bakersForBlock = _birkCurrentBakers . BState._blockBirkParameters . BS._bpState
+
+invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> Either String ()
+invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
         checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
-        -- This test assumes that this party should be a member of the finalization committee
-        when (null _finsCurrentRound) $ Left "No current finalization round"
+        -- The baker should be a member of the finalization committee if the baker's stake exceeds the stake fraction of the total baker stake
+        -- TODO (MR) check that _finsCommittee is equal to filterFinalizationBakers stakeFrac finComSize bakers or something like that
+        when bakerInFinCommittee $ do
+            when (null _finsCurrentRound) $ Left "No current finalization round"
+            invariantSkovFinalizationForFinMember s lfr lfb
+        where bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
+              bakerEqParty PartyInfo{..} = bakerInfoToVoterInfo baker == VoterInfo partySignKey partyVRFKey partyWeight partyBlsKey
+
+invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BS.BasicBlockPointer BState.BlockState -> Either String ()
+invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _) lfr lfb =
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
             checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
             unless (popCount (toInteger roundDelta) == 1) $ Left $ "Round delta (" ++ show roundDelta ++ ") is not a power of 2"
@@ -199,24 +215,27 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
             case roundInput of
                 Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
                 Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
-    where
-        checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
+-- This function is called only from runKonsensusTestSimple which is currently not run
 checkFinalizationRecordsVerify :: TS.SkovData BState.BlockState -> Either String ()
 checkFinalizationRecordsVerify TS.SkovData{..} =
       let finSes = FinalizationSessionId (bpHash _genesisBlockPointer) 0
-          finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData)
-          checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
           f (prevRes, i) (fr, bp) = case prevRes of
             Left err -> return (Left err, i+1)
             Right _ ->
               if i == (0 :: Int) then
                   return $ (checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block", i+1)
-              else
+              else do
+                  let bakers = bakersForBlock $ BS._bpLastFinalized bp
+                      finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData) bakers
                   return (unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i, i+1)
       in do
         (res, _) <- foldM f (Right (), 0) _finalizationList
         res
+
+checkBinary :: (Show x, Show y, Monad m) => (x -> y -> Bool) -> x -> y -> String -> String -> String -> m ()
+checkBinary bop x y sbop sx sy =
+  unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
 data DummyM a = DummyM {runDummy :: a}
 
@@ -269,7 +288,7 @@ selectFromSeq g s =
 
 newtype DummyTimer = DummyTimer Integer
 
-type States = Vec.Vector (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
+type States = Vec.Vector (BakerIdentity, BakerInfo, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 
 data ExecState = ExecState {
     _esEventPool :: EventPool,
@@ -310,17 +329,17 @@ myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
 
 runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest steps g states es
-        | steps <= 0 = return $ label ("fin length: " ++ show (maximum $ (\s -> s ^. _3 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
+        | steps <= 0 = return $ label ("fin length: " ++ show (maximum $ (\s -> s ^. _4 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
-            let (bkr, fi, fs) = states Vec.! rcpt
+            let (bkr, bkrInfo, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
-            let continue fs' es' = case invariantSkovFinalization fs' of
+            let continue fs' es' = case invariantSkovFinalization fs' bkrInfo of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                     Right _ -> do
-                        let states' = states & ix rcpt . _3 .~ fs'
+                        let states' = states & ix rcpt . _4 .~ fs'
                         runKonsensusTest (steps - 1) g' states' es'
             let handlers = dummyHandlers rcpt btargets
             case ev of
@@ -356,18 +375,20 @@ runKonsensusTestSimple steps g states es
         | steps <= 0 || null (es ^. esEventPool) =
             let checkInvariantAndFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) = do
                   checkFinalizationRecordsVerify sd
-                  invariantSkovFinalization s
+                  let ((rcpt, _), _, _) = selectFromSeq g (es ^. esEventPool)
+                      (_, bkrInfo, _, _) = states Vec.! rcpt
+                  invariantSkovFinalization s bkrInfo
             in return
-              (case forM_ states $ \s -> checkInvariantAndFinalization (s ^. _3) of
+              (case forM_ states $ \s -> checkInvariantAndFinalization (s ^. _4) of
                   Left err -> counterexample ("Invariant failed: " ++ err) False
                   Right _ -> property True)
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
-            let (bkr, fi, fs) = states Vec.! rcpt
+            let (bkr, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             let continue fs' es' = do
-                        let states' = states & ix rcpt . _3 .~ fs'
+                        let states' = states & ix rcpt . _4 .~ fs'
                         runKonsensusTest (steps - 1) g' states' es'
             let handlers = dummyHandlers rcpt btargets
             case ev of
@@ -431,19 +452,22 @@ initialiseStates :: Int -> PropertyM IO States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
+        let finStakeFrac = 0.001
+        -- finStakeFrac <- pick $ choose (0.001, 0.1) -- TODO (MR) what if no baker exceeds 0.001 stake
+        -- TODO (MR) test different fin committee sizes
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 blspk | (_, (BakerInfo vrfk vvk blspk _ _, _, _)) <- bis] 2
+            fps = FinalizationParameters 2 finStakeFrac maxBound
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
-        res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
+        res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
                                         (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config
-                                return (bid, initCtx, initState)
+                                return (bid, binfo, initCtx, initState)
                              ) bis
         return $ Vec.fromList res
 

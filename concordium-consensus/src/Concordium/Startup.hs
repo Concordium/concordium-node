@@ -65,11 +65,23 @@ makeGenesisData ::
     -> Duration  -- ^Slot duration in seconds.
     -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
+    -> StakeFraction -- ^A baker whose stake exceeds this fraction of the total baker stake can be part of the finalization committee
+    -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
-makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts
+makeGenesisData
+  genesisTime
+  nBakers
+  genesisSlotDuration
+  elecDiff
+  finMinSkip
+  finStakeFrac
+  finComMaxSize
+  genesisCryptographicParameters
+  genesisIdentityProviders
+  genesisSpecialBetaAccounts
     = (GenesisData{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
@@ -80,7 +92,7 @@ makeGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip gene
                           genesisBakers
                           genesisBakers
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 vblsk | (_, BakerInfo vrfk vvk vblsk _ _) <- bakers] finMinSkip
+        genesisFinalizationParameters = FinalizationParameters finMinSkip finStakeFrac finComMaxSize
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 
 -- Need to return string because Bytestring does not implement Lift
@@ -93,3 +105,9 @@ dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
   fromMaybe (error "Could not read crypto params.") $
     readCryptographicParameters (BSL.pack dummyCryptographicParametersFile)
+
+dummyFinalizationStakeFraction :: StakeFraction
+dummyFinalizationStakeFraction = 0.001
+
+dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
+dummyFinalizationCommitteeMaxSize = 1000

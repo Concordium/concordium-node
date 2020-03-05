@@ -48,10 +48,10 @@ runKonsensus steps g states es
     | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
-            let (bkr, fi, fs) = states Vec.! rcpt
+            let (bkr, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             let continue fs' es' = do
-                        let states' = states & ix rcpt . _3 .~ fs'
+                        let states' = states & ix rcpt . _4 .~ fs'
                         runKonsensus (steps - 1) g' states' es'
             let handlers = dummyHandlers rcpt btargets
             case ev of
@@ -89,17 +89,19 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 vblspk | (_, (BakerInfo vrfk vvk vblspk _ _, _, _)) <- take 1 bis] 2
+            -- setting stake fraction to 0 and finalization-committee size to maxBound
+            -- so that every genesis baker stays in the finalization committee for this test
+            fps = FinalizationParameters 2 0.0 maxBound
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
-        res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
+        res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
                                         (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config
-                                return (bid, initCtx, initState)
+                                return (bid, binfo, initCtx, initState)
                              ) bis
         return $ Vec.fromList res
 
@@ -124,8 +126,8 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
-catchUpCheck :: (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
-catchUpCheck (_, c1, s1) (_, c2, s2) = do
+catchUpCheck :: (BakerIdentity, BakerInfo, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, BakerInfo, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
+catchUpCheck (_, _, c1, s1) (_, _, c2, s2) = do
         request <- myEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request) c2 s2
         monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show response ++ "\n"
@@ -182,7 +184,6 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                         (hbp : bps) -> forM_ bps $ \bp -> checkBinary (<=) (bpArriveTime hbp) (bpArriveTime bp) "<=" "first block time" "other block time"
                 return True
     where
-        checkBinary bop x y sbop sx sy = unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
         isLive TS.BlockAlive{} = True
         isLive TS.BlockFinalized{} = True
         isLive _ = False

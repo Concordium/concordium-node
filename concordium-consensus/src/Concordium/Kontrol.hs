@@ -8,6 +8,7 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
+import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
@@ -39,10 +40,19 @@ getSlotTimestamp slot = do
 
 -- |Determine the finalization session ID and finalization committee used for finalizing
 -- at the given index.
-getFinalizationContext :: (SkovQueryMonad m) => FinalizationIndex -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
-getFinalizationContext _ = do
+-- TODO (MR) update comment above
+getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext FinalizationRecord{..} = do
         genHash <- bpHash <$> genesisBlock
         let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
-        -- TODO: Finalization committee determined by block
-        finCom <- makeFinalizationCommittee <$> getFinalizationParameters
-        return $ Just (finSessId, finCom)
+        -- we need to determine the block that was finalized at index `finalizationIndex - 1` 
+        resolveBlock finalizationBlockPointer >>= \case
+          Just bp -> Just . (finSessId,) <$> getFinalizationCommittee (bpLastFinalized bp) -- TODO (MR) ensure that bplastfinalized really does point to index - 1
+          Nothing -> return Nothing
+
+-- |Select the finalization committee based on bakers from the given block
+-- TODO (MR) clarify that it will not be based on the last finalized block
+getFinalizationCommittee :: SkovQueryMonad m => BlockPointer m -> m FinalizationCommittee
+getFinalizationCommittee bp = do
+       finParams <- getFinalizationParameters
+       makeFinalizationCommittee finParams . _birkCurrentBakers <$> getBirkParameters (blockSlot bp) bp

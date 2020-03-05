@@ -5,13 +5,15 @@
     DerivingVia #-}
 module Concordium.Afgjort.Finalize.Types where
 
-
+import qualified Data.Map as Map
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
 import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
+import Data.Function (on)
+import Data.List (sortBy)
 import Data.Maybe
 import Control.Monad
 import Data.ByteString(ByteString)
@@ -21,6 +23,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.Afgjort.Types
@@ -61,13 +64,30 @@ data FinalizationCommittee = FinalizationCommittee {
 committeeMaxParty :: FinalizationCommittee -> Party
 committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
-makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
-makeFinalizationCommittee FinalizationParameters {..} = FinalizationCommittee {..}
+-- |Create a finalization committee by selecting only the bakers whose stake exceeds
+-- a certain fraction of the total baker stake. The fraction is taken from the FinalizationParameters.
+-- The committee will include at most N bakers among the above who hold the biggest stake,
+-- where N is the maximum finalization-committee size specified in the FinalizationParameters.
+makeFinalizationCommittee :: FinalizationParameters -> Bakers -> FinalizationCommittee
+makeFinalizationCommittee FinalizationParameters {..} bakers = FinalizationCommittee {..}
     where
-        parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
+        voters = bakerInfoToVoterInfo <$> filterFinalizationBakers finalizationStakeFraction finalizationCommitteeMaxSize bakers
+        parties = Vec.fromList $ zipWith makeParty [0..] voters
         makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
+
+-- |Filter out the n top bakers prioritized by stake whose stake exceeds the stake fraction of all bakers.
+filterFinalizationBakers :: StakeFraction -> FinalizationCommitteeSize -> Bakers -> [BakerInfo]
+filterFinalizationBakers stakeFraction n bakers = --take (fromIntegral n) $ sortBy (flip compare `on` _bakerStake) TODO (MR) put back
+  bakerWithHighStake
+  where bakerWithHighStake = [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalStake * stakeFraction]
+        bakerInfos = Map.elems $ _bakerMap bakers
+        totalStake = fromIntegral $ _bakerTotalStake bakers
+
+-- TODO (MR) set voter power to stake; doing this currently breaks the Konsensus test
+bakerInfoToVoterInfo :: BakerInfo -> VoterInfo
+bakerInfoToVoterInfo (BakerInfo vrfk vvk vblsk _ _) = VoterInfo vvk vrfk (VoterPower 1) vblsk
 
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: !BlockHash,

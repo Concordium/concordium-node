@@ -4,6 +4,7 @@ import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.TreeState
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Skov.Monad (UpdateResult)
@@ -24,7 +25,7 @@ class (Monad m) => FinalizationMonad m where
     -- block that is passed in must be the block that is finalized
     -- by the finalization record. This should only be called once
     -- per finalization, and finalizations must occur in order.
-    finalizationBlockFinal :: (BlockPointerData bp) => FinalizationRecord -> bp -> m ()
+    finalizationBlockFinal :: FinalizationRecord -> BlockPointer m -> m ()
     -- |Notify finalization that a finalization message has been received.
     -- The result can be one of the following:
     --

@@ -58,6 +58,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState(BlockPointerData(..), BlockPointer)
@@ -174,13 +175,13 @@ instance FinalizationQueueLenses (FinalizationState m) where
 instance FinalizationStateLenses (FinalizationState m) m where
     finState = id
 
-initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> FinalizationState timer
-initialPassiveFinalizationState genHash finParams = FinalizationState {
+initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Bakers -> FinalizationState timer
+initialPassiveFinalizationState genHash finParams genBakers = FinalizationState {
     _finsSessionId = FinalizationSessionId genHash 0,
     _finsIndex = 1,
     _finsHeight = 1 + finalizationMinimumSkip finParams,
     _finsIndexInitialDelta = 1,
-    _finsCommittee = makeFinalizationCommittee finParams,
+    _finsCommittee = makeFinalizationCommittee finParams genBakers,
     _finsMinSkip = finalizationMinimumSkip finParams,
     _finsPendingMessages = Map.empty,
     _finsCurrentRound = Left initialPassiveFinalizationRound,
@@ -192,8 +193,8 @@ initialPassiveFinalizationState genHash finParams = FinalizationState {
     }
 {-# INLINE initialPassiveFinalizationState #-}
 
-initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> FinalizationState timer
-initialFinalizationState FinalizationInstance{..} genHash finParams = (initialPassiveFinalizationState genHash finParams) {
+initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> FinalizationState timer
+initialFinalizationState FinalizationInstance{..} genHash finParams genBakers = (initialPassiveFinalizationState genHash finParams genBakers) {
     _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
         [] -> Left initialPassiveFinalizationRound
         (p:_) -> Right FinalizationRound {
@@ -204,7 +205,7 @@ initialFinalizationState FinalizationInstance{..} genHash finParams = (initialPa
         }
     }
     where
-        com = makeFinalizationCommittee finParams
+        com = makeFinalizationCommittee finParams genBakers
 
 getFinalizationInstance :: (MonadReader r m, HasFinalizationInstance r) => m (Maybe FinalizationInstance)
 getFinalizationInstance = asks finalizationInstance
@@ -338,7 +339,7 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
 
 -- |Handle when a finalization proof is generated:
 --  * Notify Skov of finalization ('trustedFinalize').
---  * If the finalized block is known, 
+--  * If the finalized block is known,
 handleFinalizationProof :: (FinalizationMonad m, SkovMonad m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
 handleFinalizationProof sessId fIndex delta committee (finB, (parties, sig)) = do
         let finRec = FinalizationRecord {
@@ -532,7 +533,7 @@ receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
         case compare finalizationIndex nextFinIx of
             LT -> do
                 fi <- use (finQueue . fqFirstIndex)
-                if fi < fi then
+                if finalizationIndex < fi then
                     return ResultStale
                 else if validateDuplicate then
                     checkFinalizationProof finRec >>= \case
@@ -545,7 +546,7 @@ receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
             EQ -> checkFinalizationProof finRec >>= \case
                 Nothing -> return ResultInvalid
                 Just _ -> trustedFinalize finRec >>= \case
-                    -- In this case, we have received a valid finalization proof, 
+                    -- In this case, we have received a valid finalization proof,
                     -- but it's not for a block that is known.  This shouldn't happen
                     -- often, and we are probably fine to throw it away.
                     Left res -> return res
@@ -633,7 +634,7 @@ pendingToOutputWitnesses sessId finIx delta finBlock = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (FinalizationBaseMonad r s m, FinalizationMonad m, BlockPointerData bp) => FinalizationRecord -> bp -> m ()
+notifyBlockFinalized :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationRecord -> BlockPointer m -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -656,7 +657,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
                             (passiveWitnesses ^. atStrict finalizationDelay . non initialWMVBAPassiveState)
             Right curRound
                 | roundDelta curRound == finalizationDelay ->
-                    -- If the WMVBA is on the same round as the finalization proof, get 
+                    -- If the WMVBA is on the same round as the finalization proof, get
                     -- the additional witnesses from there.
                     return $ getOutputWitnesses finalizationBlockPointer (roundWMVBA curRound)
                 | otherwise ->
@@ -671,6 +672,8 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         fs <- use finMinSkip
         finHeight .= nextFinalizationHeight fs bp
         finIndexInitialDelta .= newFinDelay
+        -- Update finalization committee for the new round
+        finCommittee <~ getFinalizationCommittee bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         forM_ mMyParty $ \myParty -> do
@@ -697,6 +700,8 @@ nextFinalizationJustifierHeight :: (BlockPointerData bp)
     -> BlockHeight
 nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
 
+-- TODO (MR) It might be hard to debug why a party has 0 voting power if the reason for that is that it's not in the
+-- finalization committee. Return Maybe?
 getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0
@@ -718,7 +723,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
 -- |Check a finalization proof, returning the session id and finalization committee if
 -- successful.
 checkFinalizationProof :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
-checkFinalizationProof finRec = getFinalizationContext (finalizationIndex finRec) <&> \case
+checkFinalizationProof finRec = getFinalizationContext finRec <&> \case
         Nothing -> Nothing
         Just (finSessId, finCom) -> if verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
 

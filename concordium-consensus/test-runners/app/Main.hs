@@ -148,7 +148,7 @@ main :: IO ()
 main = do
     let n = 5
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyFinalizationStakeFraction dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders []
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode

@@ -246,10 +246,11 @@ instance FinalizationConfig (SkovConfig gsconf (NoFinalization t) hconf) where
     type FCContext (SkovConfig gsconf (NoFinalization t) hconf) = ()
     type FCState (SkovConfig gsconf (NoFinalization t) hconf) = FinalizationState t
     initialiseFinalization (SkovConfig _ (NoFinalization genData) _)
-            = ((), initialPassiveFinalizationState genHash finParams)
+            = ((), initialPassiveFinalizationState genHash finParams genBakers)
         where
             genHash = getHash (GenesisBlock genData)
             finParams = genesisFinalizationParameters genData
+            genBakers = _birkCurrentBakers $ genesisBirkParameters genData
     {-# INLINE initialiseFinalization #-}
 
 -- This provides an implementation of FinalizationOutputMonad that does nothing.
@@ -266,10 +267,11 @@ instance FinalizationConfig (SkovConfig gc (ActiveFinalization t) hc) where
     type FCContext (SkovConfig gc (ActiveFinalization t) hc) = FinalizationInstance
     type FCState (SkovConfig gc (ActiveFinalization t) hc) = FinalizationState t
     initialiseFinalization (SkovConfig _ (ActiveFinalization finInst genData) _)
-            = (finInst, initialFinalizationState finInst genHash finParams)
-        where
-            genHash = getHash (GenesisBlock genData)
-            finParams = genesisFinalizationParameters genData
+            = (finInst, initialFinalizationState finInst genHash finParams genBakers)
+            where
+                genHash = getHash (GenesisBlock genData)
+                finParams = genesisFinalizationParameters genData
+                genBakers = _birkCurrentBakers $ genesisBirkParameters genData
     {-# INLINE initialiseFinalization #-}
 
 instance (SkovFinalizationHandlers h m, Monad m)
@@ -295,10 +297,11 @@ instance FinalizationConfig (SkovConfig gc (BufferedFinalization t) hc) where
     type FCContext (SkovConfig gc (BufferedFinalization t) hc) = FinalizationInstance
     type FCState (SkovConfig gc (BufferedFinalization t) hc) = BufferedFinalizationState t
     initialiseFinalization (SkovConfig _ (BufferedFinalization finInst genData) _)
-            = (finInst, BufferedFinalizationState (initialFinalizationState finInst genHash finParams) emptyFinalizationBuffer)
+            = (finInst, BufferedFinalizationState (initialFinalizationState finInst genHash finParams genBakers) emptyFinalizationBuffer)
             where
                 genHash = getHash (GenesisBlock genData)
                 finParams = genesisFinalizationParameters genData
+                genBakers = _birkCurrentBakers $ genesisBirkParameters genData
     {-# INLINE initialiseFinalization #-}
 
 instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, LoggerMonad m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
