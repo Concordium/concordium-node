@@ -322,9 +322,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     };
 
     let conn = Connection::new(node, socket, token, remote_peer, false);
-
     conn.register(&node.poll)?;
-    conn.set_conn_timestamp();
     node.add_connection(conn);
 
     Ok(token)
@@ -405,10 +403,7 @@ pub fn connect(
             };
 
             let conn = Connection::new(node, socket, token, remote_peer, true);
-
             conn.register(&node.poll)?;
-            conn.set_conn_timestamp();
-
             write_lock_connections.insert(conn.token, conn);
 
             if let Some(ref conn) = write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
@@ -469,7 +464,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
 
     let is_conn_without_handshake = |conn: &Connection| -> bool {
         !conn.is_post_handshake()
-            && conn.last_seen() + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+            && conn.stats.created + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
     };
 
     // remove faulty and inactive connections

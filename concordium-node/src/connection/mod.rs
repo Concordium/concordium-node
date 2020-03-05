@@ -81,8 +81,8 @@ impl DeduplicationQueues {
 
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
+    pub created:           u64,
     pub last_ping_sent:    AtomicU64,
-    pub conn_timestamp:    AtomicU64,
     pub last_seen:         AtomicU64,
     pub messages_sent:     AtomicU64,
     pub messages_received: AtomicU64,
@@ -150,9 +150,9 @@ impl Connection {
         ));
 
         let stats = ConnectionStats {
+            created:           get_current_stamp(),
             messages_received: Default::default(),
             messages_sent:     Default::default(),
-            conn_timestamp:    Default::default(),
             valid_latency:     Default::default(),
             last_latency:      Default::default(),
             last_ping_sent:    AtomicU64::new(curr_stamp),
@@ -181,11 +181,6 @@ impl Connection {
     /// Set the connection's latest latency value.
     pub fn set_last_latency(&self, value: u64) {
         self.stats.last_latency.store(value, Ordering::Relaxed);
-    }
-
-    /// Set the timestamp of when the connection was initiated.
-    pub fn set_conn_timestamp(&self) {
-        self.stats.conn_timestamp.store(get_current_stamp(), Ordering::Relaxed)
     }
 
     /// Get the timestamp of when the latest ping request was sent to the
