@@ -8,7 +8,6 @@ mod tests;
 use low_level::ConnectionLowLevel;
 
 use bytesize::ByteSize;
-use chrono::prelude::Utc;
 use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
@@ -433,29 +432,16 @@ impl Connection {
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
-                const BOOTSTRAP_PEER_COUNT: usize = 100;
-                let random_nodes =
-                    match self.handler.config.partition_network_for_time {
-                        Some(time) => {
-                            if (Utc::now().timestamp_millis()
-                                - self.handler.start_time.timestamp_millis())
-                                as usize
-                                >= time
-                            {
-                                safe_read!(self.handler.connection_handler.buckets)?
-                                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, false)
-                            } else {
-                                safe_read!(self.handler.connection_handler.buckets)?
-                                    .get_random_nodes(&requestor, BOOTSTRAP_PEER_COUNT, nets, true)
-                            }
-                        }
-                        _ => safe_read!(self.handler.connection_handler.buckets)?.get_random_nodes(
-                            &requestor,
-                            BOOTSTRAP_PEER_COUNT,
-                            nets,
-                            false,
-                        ),
-                    };
+                let get_100_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
+                    Ok(safe_read!(self.handler.buckets())?
+                        .get_random_nodes(&requestor, 100, nets, partition))
+                };
+                let random_nodes = match self.handler.config.partition_network_for_time {
+                    Some(time) if (self.handler.get_uptime() as usize) < time => {
+                        get_100_random_nodes(true)?
+                    }
+                    _ => get_100_random_nodes(false)?,
+                };
 
                 if !random_nodes.is_empty()
                     && random_nodes.len()

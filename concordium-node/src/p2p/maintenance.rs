@@ -348,6 +348,10 @@ impl P2PNode {
     #[inline]
     pub fn networks(&self) -> &RwLock<Networks> { &self.connection_handler.networks }
 
+    /// A convenience method for accessing the collection of  node's buckets.
+    #[inline]
+    pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
+
     /// Activate the network dump feature.
     #[cfg(feature = "network_dump")]
     pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
@@ -558,7 +562,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
                 && now.duration_since(last_buckets_cleaned)
                     >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
             {
-                write_or_die!(self_clone.connection_handler.buckets)
+                write_or_die!(self_clone.buckets())
                     .clean_buckets(self_clone.config.timeout_bucket_entry_period);
                 last_buckets_cleaned = now;
             }
