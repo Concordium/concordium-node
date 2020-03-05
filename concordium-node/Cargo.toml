@@ -64,6 +64,9 @@ bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 semver = { version = "0.9", features = ["serde"] }
 
+# Temporary fix for https://github.com/rust-lang-nursery/failure/issues/342
+quote = "=1.0.2"
+
 # gRPC dependencies
 tonic = "0.1"
 prost = "0.6"
