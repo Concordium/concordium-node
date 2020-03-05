@@ -11,11 +11,10 @@ use crate::{
     p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
 };
-use concordium_common::{read_or_die, write_or_die};
 
 use failure::Fallible;
 
-use std::{collections::HashSet, net::SocketAddr, sync::atomic::Ordering};
+use std::{collections::HashSet, sync::atomic::Ordering};
 
 impl Connection {
     /// Processes a network message based on its type.
@@ -60,18 +59,7 @@ impl Connection {
         }
 
         self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
-        self.add_remote_end_networks(&handshake.networks);
-
-        let remote_peer = P2PPeer::from((
-            self.remote_peer.peer_type,
-            handshake.remote_id,
-            SocketAddr::new(self.remote_peer.addr.ip(), handshake.remote_port),
-        ));
-
-        if remote_peer.peer_type != PeerType::Bootstrapper {
-            write_or_die!(self.handler.buckets())
-                .insert_into_bucket(&remote_peer, handshake.networks.clone());
-        }
+        self.populate_remote_end_networks(&handshake.networks)?;
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
@@ -112,7 +100,7 @@ impl Connection {
 
         let curr_peer_count = current_peers.len();
 
-        let applicable_candidates = peers.iter().filter(|candidate| {
+        let applicable_candidates = peers.into_iter().filter(|candidate| {
             !current_peers
                 .iter()
                 .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
@@ -122,7 +110,7 @@ impl Connection {
             trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
             if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                 new_peers += 1;
-                safe_write!(self.handler.buckets())?.insert_into_bucket(peer, HashSet::new());
+                safe_write!(self.handler.buckets())?.insert_into_bucket(*peer, HashSet::new());
             }
 
             if new_peers + curr_peer_count >= self.handler.config.desired_nodes_count as usize {
@@ -139,9 +127,7 @@ impl Connection {
 
         debug!("Received a JoinNetwork request from peer {}", remote_peer.id);
 
-        self.add_remote_end_network(network);
-        safe_write!(self.handler.buckets())?
-            .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
+        self.add_remote_end_network(network)?;
 
         Ok(())
     }
@@ -152,9 +138,7 @@ impl Connection {
 
         debug!("Received a LeaveNetwork request from peer {}", remote_peer.id);
 
-        self.remove_remote_end_network(network);
-        safe_write!(self.handler.buckets())?
-            .update_network_ids(&remote_peer, read_or_die!(self.remote_end_networks).to_owned());
+        self.remove_remote_end_network(network)?;
 
         Ok(())
     }
