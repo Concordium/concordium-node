@@ -1,12 +1,12 @@
 //! Incoming network message handing.
 
 use crate::{
-    common::{get_current_stamp, P2PPeer, PeerType},
+    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::COMPATIBLE_CLIENT_VERSIONS,
     connection::Connection,
     network::{
-        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
-        NetworkResponse, PacketDestination,
+        Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
+        PacketDestination,
     },
     p2p::{bans::BanId, connectivity::connect},
     plugins::consensus::*,
@@ -14,36 +14,60 @@ use crate::{
 
 use failure::Fallible;
 
-use std::{collections::HashSet, sync::atomic::Ordering};
+use std::sync::atomic::Ordering;
 
 impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(&self, full_msg: NetworkMessage) -> Fallible<()> {
-        match full_msg.payload {
+        // the handshake should be the first accepted network message
+        let peer_id = match full_msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
-                self.handle_handshake_req(handshake)
+                return self.handle_handshake_req(handshake);
             }
-            NetworkPayload::NetworkRequest(NetworkRequest::Ping, ..) => self.send_pong(),
-            NetworkPayload::NetworkResponse(NetworkResponse::Pong, ..) => self.handle_pong(),
+            _ => self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?,
+        };
+
+        match full_msg.payload {
+            NetworkPayload::NetworkRequest(NetworkRequest::Handshake(_), ..) => {
+                // already handled at the beginning
+                Ok(())
+            }
+            NetworkPayload::NetworkRequest(NetworkRequest::Ping, ..) => {
+                // logging pings would be too spammy
+                self.send_pong()
+            }
+            NetworkPayload::NetworkResponse(NetworkResponse::Pong, ..) => {
+                // logging pongs would be too spammy
+                self.handle_pong()
+            }
             NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
-                self.handle_get_peers_req(networks)
+                debug!("Got a GetPeers request from peer {}", peer_id);
+                self.send_peer_list_resp(networks)
             }
             NetworkPayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
+                debug!("Got a PeerList response from peer {}", peer_id);
                 self.handle_peer_list_resp(peers)
             }
             NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
-                self.handle_join_network_req(network)
+                debug!("Got a JoinNetwork request from peer {}", peer_id);
+                self.add_remote_end_network(network)
             }
             NetworkPayload::NetworkRequest(NetworkRequest::LeaveNetwork(network), ..) => {
-                self.handle_leave_network_req(network)
+                debug!("Got a LeaveNetwork request from peer {}", peer_id);
+                self.remove_remote_end_network(network)
             }
             NetworkPayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
+                debug!("Got a Ban request from peer {}", peer_id);
                 self.handler.ban_node(peer_to_ban)
             }
             NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
+                debug!("Got an Unban request from peer {}", peer_id);
                 self.handle_unban(peer_to_unban)
             }
-            NetworkPayload::NetworkPacket(pac, ..) => self.handle_incoming_packet(pac),
+            NetworkPayload::NetworkPacket(pac, ..) => {
+                // packet receipt is logged later, along with its contents
+                self.handle_incoming_packet(pac, peer_id)
+            }
         }
     }
 
@@ -82,19 +106,7 @@ impl Connection {
         Ok(())
     }
 
-    fn handle_get_peers_req(&self, networks: &HashSet<NetworkId>) -> Fallible<()> {
-        let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
-
-        debug!("Got a GetPeers request from peer {}", peer_id);
-
-        self.send_peer_list_resp(networks)
-    }
-
     fn handle_peer_list_resp(&self, peers: &[P2PPeer]) -> Fallible<()> {
-        let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
-
-        debug!("Received a PeerList response from peer {}", peer_id);
-
         let mut new_peers = 0;
         let current_peers = self.handler.get_peer_stats(Some(PeerType::Node));
 
@@ -120,28 +132,6 @@ impl Connection {
         Ok(())
     }
 
-    fn handle_join_network_req(&self, network: NetworkId) -> Fallible<()> {
-        let remote_peer =
-            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
-
-        debug!("Received a JoinNetwork request from peer {}", remote_peer.id);
-
-        self.add_remote_end_network(network)?;
-
-        Ok(())
-    }
-
-    fn handle_leave_network_req(&self, network: NetworkId) -> Fallible<()> {
-        let remote_peer =
-            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
-
-        debug!("Received a LeaveNetwork request from peer {}", remote_peer.id);
-
-        self.remove_remote_end_network(network)?;
-
-        Ok(())
-    }
-
     fn handle_unban(&self, peer: BanId) -> Fallible<()> {
         let is_self_unban = match peer {
             BanId::NodeId(id) => Some(id) == self.remote_id(),
@@ -155,11 +145,7 @@ impl Connection {
         self.handler.unban_node(peer)
     }
 
-    fn handle_incoming_packet(&self, pac: NetworkPacket) -> Fallible<()> {
-        let peer_id = self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?;
-
-        trace!("Received a Packet from peer {}", peer_id);
-
+    fn handle_incoming_packet(&self, pac: NetworkPacket, peer_id: P2PNodeId) -> Fallible<()> {
         let is_broadcast = match pac.destination {
             PacketDestination::Broadcast(..) => true,
             _ => false,

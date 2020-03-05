@@ -418,7 +418,7 @@ impl Connection {
         trace!("Sending a ping to {}", self);
 
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
-        let mut serialized = Vec::with_capacity(64);
+        let mut serialized = Vec::with_capacity(64); // TODO: fine-tune size
         ping.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
@@ -432,7 +432,7 @@ impl Connection {
         trace!("Sending a pong to {}", self);
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
-        let mut serialized = Vec::with_capacity(64);
+        let mut serialized = Vec::with_capacity(64); // TODO: fine-tune size
         pong.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
