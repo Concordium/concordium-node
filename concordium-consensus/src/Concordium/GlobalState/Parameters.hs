@@ -197,9 +197,9 @@ data RuntimeParameters = RuntimeParameters {
   -- |BlockState storage file.
   rpBlockStateFile :: !FilePath,
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
-  -- that exceeds our current slot + this threshold are rejected and the p2p is
-  -- told to not relay these blocks.
-  rpEarlyBlockThreshold :: !Int
+  -- time that exceeds our current time + this threshold are rejected and the p2p
+  -- is told to not relay these blocks.
+  rpEarlyBlockThreshold :: !Timestamp
   }
 
 -- |Default runtime parameters, block size = 10MB.
