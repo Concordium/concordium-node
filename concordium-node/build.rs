@@ -35,6 +35,4 @@ fn main() {
         .build_client(true)
         .compile(&[&proto], &[&proto_root_input])
         .expect("Failed to compile gRPC definitions!");
-
-    println!("cargo:rustc-link-lib=dylib=pq");
 }
