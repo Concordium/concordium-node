@@ -416,7 +416,7 @@ impl Connection {
         trace!("Sending a ping to {}", self);
 
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
-        let mut serialized = Vec::with_capacity(64); // TODO: fine-tune size
+        let mut serialized = Vec::with_capacity(56);
         ping.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
@@ -430,7 +430,7 @@ impl Connection {
         trace!("Sending a pong to {}", self);
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
-        let mut serialized = Vec::with_capacity(64); // TODO: fine-tune size
+        let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
@@ -484,7 +484,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending my PeerList to peer {}", requestor.id);
+            debug!("Sending a PeerList to peer {}", requestor.id);
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;

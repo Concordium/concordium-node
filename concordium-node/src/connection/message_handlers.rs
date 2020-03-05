@@ -33,11 +33,11 @@ impl Connection {
                 Ok(())
             }
             NetworkPayload::NetworkRequest(NetworkRequest::Ping, ..) => {
-                // logging pings would be too spammy
+                trace!("Got a Ping from peer {}", peer_id);
                 self.send_pong()
             }
             NetworkPayload::NetworkResponse(NetworkResponse::Pong, ..) => {
-                // logging pongs would be too spammy
+                trace!("Got a Pong from peer {}", peer_id);
                 self.handle_pong()
             }
             NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
