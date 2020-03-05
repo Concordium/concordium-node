@@ -6,6 +6,8 @@ services:
           POSTGRES_PASSWORD: concordium
           POSTGRES_USER: concordium
           POSTGRES_DB: concordium
+        ports:
+            - "5432:5432"
     bootstrapper:
         image: concordium/dev-client:develop
         environment:

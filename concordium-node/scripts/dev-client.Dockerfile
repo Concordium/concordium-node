@@ -40,7 +40,7 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt-get update && apt-get install -y unbound curl
+RUN apt-get update && apt-get install -y unbound curl postgresql-server-dev-10
 
 COPY --from=build /build-project/baker_id_generator /baker_id_generator
 COPY --from=build /build-project/start.sh /start.sh
