@@ -28,8 +28,11 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
+import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.AccountTransactionIndex
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -72,6 +75,8 @@ class (Eq (BlockPointer m),
        BlockPointerData (BlockPointer m),
        BlockPendingData (PendingBlock m),
        BlockStateStorage m,
+       BlockPointerMonad m,
+       PerAccountDBOperations m,
        Monad m)
       => TreeStateMonad m where
 
@@ -107,11 +112,26 @@ class (Eq (BlockPointer m),
         -> BlockPointer m                    -- ^Parent block pointer
         -> BlockPointer m                    -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
+        -> ATIStorage m                      -- ^This block's account -> transaction index.
         -> UTCTime                           -- ^Block arrival time
         -> Energy                            -- ^Energy cost of the transactions in the block.
         -> m (BlockPointer m)
-    -- |Mark a block as dead.
+    -- |Mark a block as dead. This should only be used directly if there are no other state invariants
+    -- which should be maintained. See 'markLiveBlockDead' for an alternative method which maintains more invariants.
     markDead :: BlockHash -> m ()
+    -- |Mark a live block as dead. In addition, purge the block state and maintain invariants in the
+    -- transaction table by purging all transaction outcomes that refer to this block.
+    -- This has a default implementation in terms of 'markDead', 'purgeBlockState' and 'markDeadTransaction'.
+    markLiveBlockDead :: BlockPointer m -> m ()
+    markLiveBlockDead bp = do
+      let bh = getHash bp
+      -- Mark the block dead
+      markDead bh
+      -- remove the block state
+      purgeBlockState =<< blockState bp
+      -- and remove the status of all transactions in this block
+      mapM_ (markDeadTransaction bh) (blockTransactions bp)
+
     -- |Mark a block as finalized (by a particular 'FinalizationRecord').
     --
     -- Precondition: The block must be alive.
@@ -231,26 +251,34 @@ class (Eq (BlockPointer m),
     addTransaction tr = process <$> addCommitTransaction tr 0
       where process (Added _) = True
             process _ = False
-    -- |Finalize a list of transactions.  Per account, the transactions must be in
+    -- |Finalize a list of transactions on a given block. Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
-    finalizeTransactions :: [Transaction] -> m ()
-    -- |Mark a transaction as committed on a block with the given slot number.
+    finalizeTransactions :: BlockHash -> Slot -> [Transaction] -> m ()
+    -- |Mark a transaction as committed on a block with the given slot number,
+    -- as well as add any additional outcomes for the given block (outcomes are given
+    -- as the index of the transaction in the given block).
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
-    commitTransaction :: Slot -> Transaction -> m ()
+    commitTransaction :: Slot -> BlockHash -> Transaction -> TransactionIndex -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
-    -- for the given slot number.
+    -- for the given slot number. By default the transaction is created in the 'Received' state,
+    -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
+    -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
+    -- when constructing a block.
     addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
-    -- Returns @True@ if the transaction is purged.
+    -- Returns @True@ if and only if the transaction is purged.
     purgeTransaction :: Transaction -> m Bool
-    -- |Lookup a transaction by its hash.  As well as the transaction, returns
-    -- a @Bool@ indicating whether the transaction is already finalized.
-    lookupTransaction :: TransactionHash -> m (Maybe (Transaction, Bool))
+    -- |Mark a transaction as no longer on a given block. This is used when a block is
+    -- marked as dead.
+    markDeadTransaction :: BlockHash -> Transaction -> m ()
+    -- |Lookup a transaction by its hash.  As well as the transaction, return its current
+    -- status as indicated in the transaction table.
+    lookupTransaction :: TransactionHash -> m (Maybe (Transaction, TransactionStatus))
     -- |Replace the transactions in a pending block with an identical set of
     -- transactions.  (If the transactions are not identical, the hash will
     -- not be correct.)  This is intended for de-duplicating transactions.
@@ -271,7 +299,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
     importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus
-    makeLiveBlock b parent lastFin st time energy = lift $ makeLiveBlock b parent lastFin st time energy
+    makeLiveBlock b parent lastFin st ati time energy = lift $ makeLiveBlock b parent lastFin st ati time energy
     markDead = lift . markDead
     markFinalized bh fr = lift $ markFinalized bh fr
     markPending = lift . markPending
@@ -299,11 +327,12 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
-    addTransaction  = lift . addTransaction
-    finalizeTransactions = lift . finalizeTransactions
-    commitTransaction slot tr = lift $ commitTransaction slot tr
+    addTransaction tr = lift $ addTransaction tr
+    finalizeTransactions bh slot = lift . finalizeTransactions bh slot
+    commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
+    markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
     updateBlockTransactions trs b = lift $ updateBlockTransactions trs b
     getConsensusStatistics = lift getConsensusStatistics
@@ -347,6 +376,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE addCommitTransaction #-}
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
+    {-# INLINE markDeadTransaction #-}
     {-# INLINE updateBlockTransactions #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}

@@ -25,6 +25,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import Concordium.Types.Transactions
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.AccountTransactionIndex
 
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
@@ -105,7 +106,9 @@ initialSkovData rp gd genState =
 newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
+
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
+  
 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
     type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
@@ -116,16 +119,22 @@ instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPoi
     bpParent = return . _bpParent
     bpLastFinalized = return . _bpLastFinalized
 
+instance ATITypes (PureTreeStateMonad bs m) where
+  type ATIStorage (PureTreeStateMonad bs m) = ()
+
+instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
+  -- default instance because ati = ()
+
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
-        case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
+        case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
             Right (GenesisBlock {}) -> return $ Left $ "Block deserialization failed: unexpected genesis block"
             Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
-    makeLiveBlock block parent lastFin st arrTime energy = do
+    makeLiveBlock block parent lastFin st () arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy
             blockTable . at (getHash block) ?= TS.BlockAlive blockP
             return blockP
@@ -192,22 +201,22 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do
-            tt <- use transactionTable
             let trHash = getHash tr
+            tt <- use transactionTable
             case tt ^. ttHashMap . at trHash of
                 Nothing ->
                   if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
                     transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                            & (ttHashMap . at (getHash tr) ?~ (tr, slot)))
+                                            & (ttHashMap . at (getHash tr) ?~ (tr, Received slot)))
                     return (TS.Added tr)
                   else return TS.ObsoleteNonce
-                Just (tr', slot') -> do
-                                when (slot > slot') $ transactionTable .= (tt & ttHashMap . at trHash ?~ (tr', slot))
-                                return $ TS.Duplicate tr'
+                Just (tr', results) -> do
+                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+                  return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
-    finalizeTransactions = mapM_ finTrans
+    finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans tr = do
                 let nonce = transactionNonce tr
@@ -216,30 +225,37 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
                     assert (Set.member tr nfn) $ do
-                        -- Remove any other transactions with this nonce from the transaction table
+                        -- Remove any other transactions with this nonce from the transaction table.
+                        -- They can never be part of any other block after this point.
                         forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
+                        -- Mark the status of the transaction as finalized.
+                        -- Singular here is safe due to the precondition (and assertion) that all transactions
+                        -- which are part of live blocks are in the transaction table.
+                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-    commitTransaction slot tr =
-        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ max slot)
+    commitTransaction slot bh tr idx =
+        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
     purgeTransaction tr =
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
-            Just (_, slot) -> do
+            Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if (lastFinSlot >= slot) then do
+                if (lastFinSlot >= results ^. tsSlot) then do
                     let nonce = transactionNonce tr
                         sender = transactionSender tr
                     transactionTable . ttHashMap . at (getHash tr) .= Nothing
                     transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
                     return True
                 else return False
-    lookupTransaction th =
-        use (transactionTable . ttHashMap . at th) >>= \case
-            Nothing -> return Nothing
-            Just (tr, _) -> do
-                nn <- use (transactionTable . ttNonFinalizedTransactions . at (transactionSender tr) . non emptyANFT . anftNextNonce)
-                return $ Just (tr, transactionNonce tr < nn)
+    markDeadTransaction bh tr =
+      -- We only need to update the outcomes. The anf table nor the pending table need be updated
+      -- here since a transaction should not be marked dead in a finalized block.
+      transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
+    lookupTransaction th = use (transactionTable . ttHashMap . at th)
+
     updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
 
     getConsensusStatistics = use statistics
