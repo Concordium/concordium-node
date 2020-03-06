@@ -90,10 +90,7 @@ impl P2PNode {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
 
-        for conn in read_or_die!(self.connections())
-            .values()
-            .filter(|conn| conn.is_post_handshake() && conn_filter(conn))
-        {
+        for conn in read_or_die!(self.connections()).values().filter(|conn| conn_filter(conn)) {
             conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
             sent_messages += 1;
         }
@@ -106,7 +103,7 @@ impl P2PNode {
         debug!("Measuring connection latencies");
 
         let connections = read_or_die!(self.connections()).clone();
-        for conn in connections.values().filter(|conn| conn.is_post_handshake()) {
+        for conn in connections.values() {
             // don't send pings to unresponsive connections so
             // that the latency calculation is not off
             if conn.last_seen() > conn.get_last_ping_sent() {
@@ -127,16 +124,12 @@ impl P2PNode {
         let connections = &mut write_or_die!(self.connections());
 
         let mut removed = 0;
-        let mut update_peer_list = false;
         for token in tokens {
-            if let Some(conn) = connections.remove(&token) {
-                if conn.is_post_handshake() {
-                    update_peer_list = true;
-                }
+            if connections.remove(&token).is_some() {
                 removed += 1;
             }
         }
-        if update_peer_list {
+        if removed > 0 {
             self.bump_last_peer_update();
         }
 
@@ -433,8 +426,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
 
     // deduplicate by P2PNodeId
     {
-        let conns = read_or_die!(node.connections()).clone();
-        let mut conns = conns.values().filter(|conn| conn.is_post_handshake()).collect::<Vec<_>>();
+        let mut conns = read_or_die!(node.connections()).values().cloned().collect::<Vec<_>>();
         conns.sort_by_key(|conn| (conn.remote_id(), Reverse(conn.token)));
         conns.dedup_by_key(|conn| conn.remote_id());
         write_or_die!(node.connections())
@@ -450,22 +442,22 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     };
 
     let is_conn_inactive = |conn: &Connection| -> bool {
-        conn.is_post_handshake()
-            && ((peer_type == PeerType::Node
-                && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
-                || (peer_type == PeerType::Bootstrapper
-                    && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp))
+        (peer_type == PeerType::Node
+            && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
+            || (peer_type == PeerType::Bootstrapper
+                && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
     };
 
     let is_conn_without_handshake = |conn: &Connection| -> bool {
-        !conn.is_post_handshake()
-            && conn.stats.created + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
+        conn.stats.created + config::MAX_PREHANDSHAKE_KEEP_ALIVE < curr_stamp
     };
 
+    // remove connections without handshakes
+    lock_or_die!(node.conn_candidates()).retain(|_, conn| !is_conn_without_handshake(&conn));
+
     // remove faulty and inactive connections
-    write_or_die!(node.connections()).retain(|_, conn| {
-        !(is_conn_faulty(&conn) || is_conn_inactive(&conn) || is_conn_without_handshake(&conn))
-    });
+    write_or_die!(node.connections())
+        .retain(|_, conn| !(is_conn_faulty(&conn) || is_conn_inactive(&conn)));
 
     // if the number of peers exceeds the desired value, close a random selection of
     // post-handshake connections to lower it

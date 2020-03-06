@@ -106,8 +106,6 @@ pub struct Connection {
     pub low_level: RwLock<ConnectionLowLevel>,
     /// The list of networks the connection belongs to.
     pub remote_end_networks: Arc<RwLock<Networks>>,
-    /// Indicates whether the connection's handshake has concluded.
-    pub is_post_handshake: AtomicBool,
     pub stats: ConnectionStats,
     /// The queue of messages to be sent to the connection.
     pub pending_messages: RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
@@ -167,7 +165,6 @@ impl Connection {
             remote_peer,
             low_level,
             remote_end_networks: Default::default(),
-            is_post_handshake: Default::default(),
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
         })
@@ -218,10 +215,6 @@ impl Connection {
     pub fn remote_peer_external_port(&self) -> u16 {
         self.remote_peer.peer_external_port.load(Ordering::Relaxed)
     }
-
-    /// Check whether the handshake with the connection has concluded.
-    #[inline]
-    pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::Relaxed) }
 
     /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
@@ -326,7 +319,6 @@ impl Connection {
         }
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
-        self.is_post_handshake.store(true, Ordering::SeqCst);
         self.handler.stats.peers_inc();
         self.handler.bump_last_peer_update();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
@@ -478,8 +470,8 @@ impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing the connection to {}", self);
 
-        // Report number of peers to stats export engine
-        if self.is_post_handshake() {
+        // update peer stats if it was post-handshake
+        if self.remote_id().is_some() {
             self.handler.stats.peers_dec();
         }
     }

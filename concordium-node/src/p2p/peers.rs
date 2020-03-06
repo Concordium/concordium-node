@@ -16,7 +16,6 @@ impl P2PNode {
     pub fn get_peer_stats(&self, peer_type: Option<PeerType>) -> Vec<PeerStats> {
         read_or_die!(self.connections())
             .values()
-            .filter(|conn| conn.is_post_handshake())
             .filter(|conn| peer_type.is_none() || peer_type == Some(conn.remote_peer_type()))
             .filter_map(|conn| conn.remote_peer_stats().ok())
             .collect()
