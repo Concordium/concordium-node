@@ -1,6 +1,6 @@
 //! Node connection handling.
 
-use failure::{err_msg, Error, Fallible};
+use failure::{Error, Fallible};
 use mio::{net::TcpStream, Events, Token};
 use rand::{
     seq::{index::sample, IteratorRandom},
@@ -522,8 +522,8 @@ pub fn send_direct_message(
     target_id: P2PNodeId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
-) -> Fallible<()> {
-    send_message_over_network(node, Some(target_id), vec![], network_id, msg, false)
+) {
+    send_message_over_network(node, Some(target_id), vec![], network_id, msg)
 }
 
 /// Send a broadcast packet with `msg` contents to the specified peer.
@@ -533,8 +533,8 @@ pub fn send_broadcast_message(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
-) -> Fallible<()> {
-    send_message_over_network(node, None, dont_relay_to, network_id, msg, true)
+) {
+    send_message_over_network(node, None, dont_relay_to, network_id, msg)
 }
 
 #[inline]
@@ -544,15 +544,11 @@ fn send_message_over_network(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     message: Arc<[u8]>,
-    broadcast: bool,
-) -> Fallible<()> {
-    let destination = if broadcast {
-        PacketDestination::Broadcast(dont_relay_to)
+) {
+    let destination = if let Some(target_id) = target_id {
+        PacketDestination::Direct(target_id)
     } else {
-        let receiver =
-            target_id.ok_or_else(|| err_msg("Direct Message requires a valid target id"))?;
-
-        PacketDestination::Direct(receiver)
+        PacketDestination::Broadcast(dont_relay_to)
     };
 
     let mut message = message.to_vec();
@@ -572,13 +568,11 @@ fn send_message_over_network(
 
     if let Ok(sent_packets) = node.process_network_packet(packet) {
         if sent_packets > 0 {
-            trace!("Sent a packet to {} peers", sent_packets);
+            trace!("{} peer(s) will receive the packet", sent_packets);
         }
     } else {
         error!("Couldn't send a packet");
     }
-
-    Ok(())
 }
 
 fn fuzz_packet(payload: &mut [u8], level: usize) {

@@ -18,7 +18,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
     connection::{Connection, DeduplicationQueues},
-    network::{Buckets, NetworkId},
+    network::{Buckets, NetworkId, Networks},
     p2p::{
         bans::BanId,
         connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
@@ -32,7 +32,7 @@ use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUE
 use crossbeam_channel::{self, Sender};
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     io, mem,
     net::{
         IpAddr::{self, V4, V6},
@@ -83,9 +83,6 @@ pub struct NodeConfig {
     pub partition_network_for_time: Option<usize>,
     pub breakage: Option<(String, u8, usize)>,
 }
-
-/// The collection of netwoks the node belongs to.
-pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 
 /// The collection of connections to peer nodes.
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;

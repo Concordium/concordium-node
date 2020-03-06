@@ -101,8 +101,7 @@ fn send_fuzzed_packet(source: &P2PNode, min: usize, max: usize) {
         vec![],
         NetworkId::from(100),
         Arc::from(generate_random_data(thread_rng().gen_range(min, max))),
-    )
-    .unwrap()
+    );
 }
 
 /// Sends a broadcast with between `min` and `max` random raw bytes.
