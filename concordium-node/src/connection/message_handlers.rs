@@ -2,7 +2,7 @@
 
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
-    configuration::COMPATIBLE_CLIENT_VERSIONS,
+    configuration::{COMPATIBLE_CLIENT_VERSIONS, MAX_PEER_NETWORKS},
     connection::Connection,
     network::{
         Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
@@ -14,20 +14,23 @@ use crate::{
 
 use failure::Fallible;
 
-use std::{net::SocketAddr, sync::atomic::Ordering};
+use std::{
+    net::SocketAddr,
+    sync::{atomic::Ordering, Arc},
+};
 
 impl Connection {
     /// Processes a network message based on its type.
-    pub fn handle_incoming_message(&self, full_msg: NetworkMessage) -> Fallible<()> {
+    pub fn handle_incoming_message(&self, msg: NetworkMessage, bytes: Arc<[u8]>) -> Fallible<()> {
         // the handshake should be the first incoming network message
-        let peer_id = match full_msg.payload {
+        let peer_id = match msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 return self.handle_handshake_req(handshake);
             }
             _ => self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?,
         };
 
-        match full_msg.payload {
+        match msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(_), ..) => {
                 // already handled at the beginning
                 Ok(())
@@ -58,7 +61,7 @@ impl Connection {
             }
             NetworkPayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
                 debug!("Got a Ban request from peer {}", peer_id);
-                self.handler.ban_node(peer_to_ban)
+                self.handle_ban(peer_to_ban, bytes)
             }
             NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
                 debug!("Got an Unban request from peer {}", peer_id);
@@ -75,11 +78,13 @@ impl Connection {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
-            bail!("Rejecting a handshake request from a banned node");
+            bail!("Rejecting handshake: banned node");
         }
-
         if !COMPATIBLE_CLIENT_VERSIONS.contains(&handshake.version.to_string().as_str()) {
-            bail!("Rejecting an incompatible client");
+            bail!("Rejecting handshake: incompatible client");
+        }
+        if handshake.networks.len() > MAX_PEER_NETWORKS {
+            bail!("Rejecting handshake: too many networks");
         }
 
         self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
@@ -133,6 +138,27 @@ impl Connection {
             if new_peers + curr_peer_count >= self.handler.config.desired_nodes_count as usize {
                 break;
             }
+        }
+
+        Ok(())
+    }
+
+    fn handle_ban(&self, peer_to_ban: BanId, msg: Arc<[u8]>) -> Fallible<()> {
+        self.handler.ban_node(peer_to_ban)?;
+
+        if !self.handler.config.no_trust_bans {
+            let conn_filter = |conn: &Connection| {
+                conn != self
+                    && match peer_to_ban {
+                        BanId::NodeId(id) => {
+                            conn.remote_peer.peer().map_or(true, |peer| peer.id != id)
+                        }
+                        BanId::Ip(addr) => conn.remote_peer.addr.ip() != addr,
+                        _ => unimplemented!("Socket address bans don't propagate"),
+                    }
+            };
+
+            self.handler.send_over_all_connections(&msg, &conn_filter);
         }
 
         Ok(())

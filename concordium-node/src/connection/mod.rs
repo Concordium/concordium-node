@@ -19,12 +19,13 @@ use twox_hash::XxHash64;
 use crate::dumper::DumpItem;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
+    configuration::MAX_PEER_NETWORKS,
     connection::low_level::ReadResult,
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
     },
-    p2p::{bans::BanId, P2PNode},
+    p2p::P2PNode,
 };
 
 use concordium_common::PacketType;
@@ -287,21 +288,21 @@ impl Connection {
     #[inline]
     fn process_message(
         &self,
-        message: Arc<[u8]>,
+        bytes: Arc<[u8]>,
         deduplication_queues: &DeduplicationQueues,
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_received.fetch_add(message.len() as u64, Ordering::Relaxed);
+        self.stats.bytes_received.fetch_add(bytes.len() as u64, Ordering::Relaxed);
         self.handler.connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
         self.handler.stats.pkt_received_inc();
 
         #[cfg(feature = "network_dump")]
         {
-            self.send_to_dump(message.clone(), true);
+            self.send_to_dump(bytes.clone(), true);
         }
 
-        let mut message = NetworkMessage::deserialize(&message)?;
+        let mut message = NetworkMessage::deserialize(&bytes)?;
 
         if let NetworkPayload::NetworkPacket(ref mut packet) = message.payload {
             // disregard packets when in bootstrapper mode
@@ -314,41 +315,8 @@ impl Connection {
             }
         }
 
-        let is_msg_processable = match message.payload {
-            NetworkPayload::NetworkRequest(NetworkRequest::Handshake(..), ..) => true,
-            _ => self.is_post_handshake(),
-        };
-
-        let is_msg_forwardable = match message.payload {
-            NetworkPayload::NetworkRequest(ref request, ..) => match request {
-                NetworkRequest::BanNode(..) | NetworkRequest::UnbanNode(..) => {
-                    !self.handler.config.no_trust_bans
-                }
-                _ => false,
-            },
-            _ => false,
-        };
-
-        // forward applicable messages to other connections
-        if is_msg_forwardable {
-            if let NetworkPayload::NetworkRequest(..) = message.payload {
-                if let Err(e) = self.forward_network_message(&message) {
-                    error!("Couldn't forward a network message: {}", e);
-                }
-            }
-        }
-
-        // process the incoming message if applicable
-        if is_msg_processable {
-            self.handle_incoming_message(message)?;
-        } else {
-            bail!(
-                "Refusing to process or forward the incoming message ({:?}) before a handshake",
-                message,
-            );
-        };
-
-        Ok(())
+        // process the incoming message
+        self.handle_incoming_message(message, bytes)
     }
 
     /// Concludes the connection's handshake process.
@@ -385,11 +353,13 @@ impl Connection {
 
     /// Add a single network to the connection's remote end networks.
     pub fn add_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
-        write_or_die!(self.remote_end_networks).insert(network);
+        let curr_networks = &mut write_or_die!(self.remote_end_networks);
+        ensure!(curr_networks.len() < MAX_PEER_NETWORKS, "refusing to add any more networks");
+
+        curr_networks.insert(network);
 
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, read_or_die!(self.remote_end_networks).to_owned());
+        write_or_die!(self.handler.buckets()).update_network_ids(peer, curr_networks.to_owned());
         Ok(())
     }
 
@@ -495,31 +465,6 @@ impl Connection {
             debug!("I don't have any peers to share with peer {}", requestor.id);
             Ok(())
         }
-    }
-
-    fn forward_network_message(&self, msg: &NetworkMessage) -> Fallible<()> {
-        let mut serialized = Vec::with_capacity(256);
-        msg.serialize(&mut serialized)?;
-
-        let conn_filter = |conn: &Connection| match msg.payload {
-            NetworkPayload::NetworkRequest(ref request, ..) => match request {
-                NetworkRequest::BanNode(peer_to_ban) => {
-                    conn != self
-                        && match peer_to_ban {
-                            BanId::NodeId(id) => {
-                                conn.remote_peer.peer().map_or(true, |peer| peer.id != *id)
-                            }
-                            BanId::Ip(addr) => conn.remote_peer.addr.ip() != *addr,
-                            _ => unimplemented!("Socket address bans don't propagate"),
-                        }
-                }
-                _ => true,
-            },
-            _ => unreachable!("Only network requests are ever forwarded"),
-        };
-
-        self.handler.send_over_all_connections(&serialized, &conn_filter);
-        Ok(())
     }
 }
 
