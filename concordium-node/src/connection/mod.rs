@@ -19,6 +19,7 @@ use twox_hash::XxHash64;
 use crate::dumper::DumpItem;
 use crate::{
     common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
+    configuration::MAX_PEER_NETWORKS,
     connection::low_level::ReadResult,
     netmsg,
     network::{
@@ -352,11 +353,13 @@ impl Connection {
 
     /// Add a single network to the connection's remote end networks.
     pub fn add_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
-        write_or_die!(self.remote_end_networks).insert(network);
+        let curr_networks = &mut write_or_die!(self.remote_end_networks);
+        ensure!(curr_networks.len() < MAX_PEER_NETWORKS, "refusing to add any more networks");
+
+        curr_networks.insert(network);
 
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, read_or_die!(self.remote_end_networks).to_owned());
+        write_or_die!(self.handler.buckets()).update_network_ids(peer, curr_networks.to_owned());
         Ok(())
     }
 

@@ -51,6 +51,8 @@ pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
 /// Maximum time (in s) a soft ban is in force.
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
+/// Maximum number of networks a peer can share
+pub const MAX_PEER_NETWORKS: usize = 20;
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
