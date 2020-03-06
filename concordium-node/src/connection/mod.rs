@@ -299,7 +299,7 @@ impl Connection {
 
         #[cfg(feature = "network_dump")]
         {
-            self.send_to_dump(message.clone(), true);
+            self.send_to_dump(bytes.clone(), true);
         }
 
         let mut message = NetworkMessage::deserialize(&bytes)?;
