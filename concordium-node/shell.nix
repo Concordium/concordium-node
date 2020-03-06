@@ -38,6 +38,7 @@ stdenv.mkDerivation {
     gnutar
     capnproto
     flatbuffers
+    postgresql
   ];
   shellHook = ''
     scripts/download-static-libs.sh

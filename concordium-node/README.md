@@ -12,6 +12,7 @@ This repository relies on git submodules for internal component dependencies, so
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
+* PostGreSQL >= 10
 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)
@@ -94,36 +95,30 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up 
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
 
-## Elastic search in local development mode
+## PostGreSQL in local development mode
+The PostGreSQL instance is exposed on port 5432/tcp and the username is `concordium`, password: `concordium`, and database name is `concordium`.
+
 ### Running the local development version from the stable master branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
+```
+
+Remember to clean out PostGreSQL data between runs using
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
 ```
 
 ### Running the local development version from the unstable develop branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
 ```
 
-### Delay baker startup if Elastic Search starts too slowly
-If Elastic Search starts too slowly the baker enabled for logging to it can be delayed by using the variable `ES_SLEEP`
-
-### Using persistent local Elastic Search setup with Kibana
-To run a pair of elastic search with kibana for local development do the following
+Remember to clean out PostGreSQL data between runs using
 ```bash
-$> docker network create elasticsearch
-$> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
-$> docker run -d --name kibana --net elasticsearch -p 5601:5601 kibana:7.3.2
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
 ```
 
-
-To delete the docker setup run
-```bash
-$> docker stop kibana
-$> docker rm kibana
-$> docker stop elasticsearch
-$> docker rm elasticsearch
-$> docker network rm elasticsearch
-```
+### Delay baker startup if PostGreSQL starts too slowly
+If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP`

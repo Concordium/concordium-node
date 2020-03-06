@@ -33,12 +33,28 @@ if [ -n "$BAKER_ID" ];
 then
     REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
     ARGS="$ARGS --baker-id $REAL_BAKER_ID"
-    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
+    if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
-        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging"
-        if [ -n "$ELASTIC_SEARCH_URL" ]
+        ARGS="$ARGS --transaction-outcome-logging"
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_NAME" ]
         then
-            ARGS="$ARGS --elastic-logging-url $ELASTIC_SEARCH_URL"
+            ARGS="$ARGS --transaction-outcome-logging-database-name $TRANSACTION_OUTCOME_LOGGING_NAME"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_HOST" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-host $TRANSACTION_OUTCOME_LOGGING_HOST"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PORT" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-port $TRANSACTION_OUTCOME_LOGGING_PORT"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_USERNAME" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-username $TRANSACTION_OUTCOME_LOGGING_USERNAME"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PASSWORD" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-password $TRANSACTION_OUTCOME_LOGGING_PASSWORD"
         fi
     fi
 fi
@@ -346,13 +362,33 @@ elif [ "$MODE" == "local_collector" ]; then
 elif [ "$MODE" == "local_basic" ]; then
     export BAKER_ID=`curl http://baker_id_gen:8000/next_id`
     echo "Using BAKER_ID $BAKER_ID"
-    if [[ -n "$ELASTIC_SEARCH_LOGGING" && "$BAKER_ID" == "0" ]];
+    if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$BAKER_ID" == "0" ]];
     then
-        ARGS="$ARGS --elastic-logging --scheduler-outcome-logging --elastic-logging-url http://elasticsearch:9200"
-        if [ -n "$ES_SLEEP" ];
+        ARGS="$ARGS --transaction-outcome-logging"
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_NAME" ]
         then
-            echo "Sleeping for $ES_SLEEP"
-            sleep $ES_SLEEP
+            ARGS="$ARGS --transaction-outcome-logging-database-name $TRANSACTION_OUTCOME_LOGGING_NAME"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_HOST" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-host $TRANSACTION_OUTCOME_LOGGING_HOST"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PORT" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-port $TRANSACTION_OUTCOME_LOGGING_PORT"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_USERNAME" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-username $TRANSACTION_OUTCOME_LOGGING_USERNAME"
+        fi
+        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PASSWORD" ]
+        then
+            ARGS="$ARGS --transaction-outcome-logging-database-password $TRANSACTION_OUTCOME_LOGGING_PASSWORD"
+        fi
+        if [ -n "$DB_SLEEP" ];
+        then
+            echo "Sleeping for $DB_SLEEP"
+            sleep $DB_SLEEP
         fi
     fi
 

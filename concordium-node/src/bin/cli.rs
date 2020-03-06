@@ -103,6 +103,19 @@ async fn main() -> Fallible<()> {
         error!("Can't set up the desired RKV map size: {}", e);
     }
 
+    let consensus_database_url = if conf.cli.transaction_outcome_logging {
+        format!(
+            "host={} port={} user={} dbname={} password={}",
+            conf.cli.transaction_outcome_logging_database_host,
+            conf.cli.transaction_outcome_logging_database_port,
+            conf.cli.transaction_outcome_logging_database_username,
+            conf.cli.transaction_outcome_logging_database_name,
+            conf.cli.transaction_outcome_logging_database_password
+        )
+    } else {
+        String::new()
+    };
+
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         gen_data,
@@ -117,6 +130,7 @@ async fn main() -> Fallible<()> {
             ConsensusLogLevel::Warning
         },
         &data_dir_path,
+        &consensus_database_url,
     )?;
 
     // Start the transaction logging thread

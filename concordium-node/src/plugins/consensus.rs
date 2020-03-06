@@ -46,6 +46,7 @@ pub fn start_consensus_layer(
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
     appdata_dir: &PathBuf,
+    database_connection_url: &str,
 ) -> Fallible<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -62,12 +63,12 @@ pub fn start_consensus_layer(
 
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
-        conf.scheduler_outcome_logging,
         genesis_data,
         private_data,
         conf.baker_id,
         max_logging_level,
         appdata_dir,
+        database_connection_url,
     )
 }
 
