@@ -388,7 +388,7 @@ pub struct CliConfig {
     #[structopt(
         long = "transaction-outcome-logging-database-name",
         help = "Transaction outcome logging database name",
-        default_value = "concordium_baker_outcome"
+        default_value = "concordium"
     )]
     pub transaction_outcome_logging_database_name: String,
     #[structopt(
