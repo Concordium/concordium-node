@@ -128,7 +128,12 @@ catchUpCheck :: (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Conf
 catchUpCheck (_, c1, s1) (_, c2, s2) = do
         request <- myEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request) c2 s2
-        monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show response ++ "\n"
+        let
+            formatMsg (MessageBlock, b) = show (hash b)
+            formatMsg (MessageFinalizationRecord, fr) = case decode fr of
+                    Left e -> error e
+                    Right fr' -> "Proof(" ++ show (finalizationIndex fr') ++ ", " ++ show (finalizationBlockPointer fr') ++ ")"
+        monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show (fmap (_1 %~ fmap formatMsg) response) ++ "\n"
         cuwp <- case result of
             ResultSuccess -> return False
             ResultPendingBlock -> fail "ResultPendingBlock should not be the result when message is not a response"

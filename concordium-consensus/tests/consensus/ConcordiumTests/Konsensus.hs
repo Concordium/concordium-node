@@ -17,6 +17,7 @@ import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 import Control.Monad.Trans.State
+import Data.Maybe
 
 import Concordium.Crypto.SHA256
 
@@ -45,6 +46,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.FinalizationQueue
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
@@ -199,6 +201,30 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _)
             case roundInput of
                 Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
                 Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
+        -- The finalization queue should include all finalizations back from the last one
+        -- that are not contained in finalized blocks.
+        let finQLF Seq.Empty l = l
+            finQLF (q Seq.:|> (fr, b)) l
+                | b == bpLastFinalized lfb = l
+                | otherwise = finQLF q ((fr, b) Seq.<| l)
+            finQ = finQLF _finalizationList Seq.empty
+        checkBinary (==) (_fqFirstIndex _finsQueue) (maybe 1 (finalizationIndex . fst) (finQ Seq.!? 0) ) "==" ("finalization queue first index (from " ++ show _finsQueue ++ ")") ("expected value (from " ++ show finQ ++ " and last fin's last fin: " ++ show (bpLastFinalized lfb) ++ ")")
+        -- Check that everything in finQLF is actually in the finalization queue
+        -- and check that there is at most one extra record which is for an unknown block
+        let
+            checkFinQ Seq.Empty Seq.Empty = return ()
+            checkFinQ Seq.Empty (fp Seq.:<| Seq.Empty) = case HM.lookup (fpBlock fp) _blockTable of
+                    Nothing -> return ()
+                    Just (TreeState.BlockPending _) -> return ()
+                    Just s -> Left $ "Status of residual finalization proof should be Nothing or BlockPending, but was " ++ show s
+            checkFinQ Seq.Empty s = Left $ "There should be at most 1 residual finalization proof, but there were " ++ show (Seq.length s)
+            checkFinQ ((fr, _) Seq.:<| fl') (fp Seq.:<| fps') = do
+                checkBinary (==) (finalizationBlockPointer fr) (fpBlock fp) "==" "finalization list block" "finalization queue block"
+                checkBinary (==) (finalizationIndex fr) (fpIndex fp) "==" "finalization list index" "finalization queue index"
+                checkFinQ fl' fps'
+            checkFinQ _ _ = Left $ "Finalization queue is missing finalization"
+        checkFinQ finQ (_fqProofs _finsQueue)
+
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 

@@ -410,15 +410,18 @@ instance (MonadIO m,
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (NoFinalization t) hc)) (SkovState (SkovConfig gc (NoFinalization t) hc)) (SkovT h (SkovConfig gc (NoFinalization t) hc) m))
     instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),
+        TreeStateMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),
         SkovTimerHandlers h (SkovConfig gc (NoFinalization t) hc) m)
         => FinalizationMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m)
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (ActiveFinalization t) hc)) (SkovState (SkovConfig gc (ActiveFinalization t) hc)) (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m))
     instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
+        TreeStateMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
         SkovTimerHandlers h (SkovConfig gc (ActiveFinalization t) hc) m, SkovFinalizationHandlers h m)
         => FinalizationMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m)
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (BufferedFinalization t) hc)) (SkovState (SkovConfig gc (BufferedFinalization t) hc)) (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m))
     instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, LoggerMonad m, SkovMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
+        TreeStateMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
         SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m, SkovFinalizationHandlers h m)
         => FinalizationMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m)

@@ -41,6 +41,9 @@ data FinalizationProven = FinalizationProven {
     fpCheckedAggregateSignature :: !Bls.Signature
 }
 
+instance Show FinalizationProven where
+    show FinalizationProven{..} = "FinalizationProven{fpIndex=" ++ show fpIndex ++ ",fpBlock=" ++ show fpBlock ++ "}"
+
 newFinalizationProven :: FinalizationSessionId -> FinalizationCommittee -> FinalizationRecord -> FinalizationProven
 newFinalizationProven sessId fc FinalizationRecord{..} = FinalizationProven {
         fpSessionId = sessId,
@@ -222,7 +225,7 @@ fpGetProofTrivial FinalizationProven{..} = FinalizationRecord {
 data FinalizationQueue = FinalizationQueue {
     _fqFirstIndex :: !FinalizationIndex,
     _fqProofs :: !(Seq.Seq FinalizationProven)
-}
+} deriving (Show)
 makeLenses ''FinalizationQueue
 
 initialFinalizationQueue :: FinalizationQueue
@@ -294,7 +297,7 @@ getQueuedFinalizationsBeyond :: (MonadState s m, FinalizationQueueLenses s) => F
 getQueuedFinalizationsBeyond fi = do
         firsti <- use (finQueue . fqFirstIndex)
         let
-            offset = fromIntegral (fi - firsti)
+            offset = fromIntegral (1 + fi - firsti)
             trav i fp = do
                 let (fr, fp') = fpGetProof fp
                 finQueue . fqProofs . ix (i + offset) .= fp'

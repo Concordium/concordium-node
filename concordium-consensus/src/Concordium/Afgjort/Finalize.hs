@@ -60,7 +60,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState(BlockPointerData(..), BlockPointer)
+import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Classes
 import Concordium.Kontrol
@@ -211,7 +211,7 @@ getFinalizationInstance = asks finalizationInstance
 
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad r s m = (SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad r s m = (TreeStateMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
@@ -644,6 +644,10 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Move to next index
         oldFinIndex <- finIndex <<.= finalizationIndex + 1
         unless (finalizationIndex == oldFinIndex) $ error "Non-sequential finalization"
+        -- Update the finalization queue index as necessary
+        getBlockStatus (bpHash $ bpLastFinalized bp) >>= \case
+            Just (BlockFinalized _ FinalizationRecord{finalizationIndex = fi}) -> updateQueuedFinalizationIndex (fi + 1)
+            _ -> error "Invariant violation: notifyBlockFinalized called on block with last finalized block that is not finalized."
         -- Add all witnesses we have to the finalization queue
         sessId <- use finSessionId
         fc <- use finCommittee
@@ -799,7 +803,7 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, SkovQueryMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, TreeStateMonad, SkovQueryMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad)
 
 deriving instance (BlockPointerData (BlockPointer m)) => GlobalStateTypes (ActiveFinalizationM r s m)
 

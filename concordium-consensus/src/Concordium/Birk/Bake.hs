@@ -90,9 +90,10 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
         Nothing -> return (bpLastFinalized bb, NoFinalizationData)
         Just finRec ->
             resolveBlock (finalizationBlockPointer finRec) >>= \case
-                Nothing -> do
-                    logEvent Baker LLError $ "Invariant violation: missing finalized block " ++ show (finalizationBlockPointer finRec)
-                    return (bpLastFinalized bb, NoFinalizationData)
+                -- It is possible that we have a finalization proof but we
+                -- don't actually have the block that was finalized.
+                -- Possibly we should not even bake in this situation.
+                Nothing -> return (bpLastFinalized bb, NoFinalizationData)
                 Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let bps = birkParams{_birkSeedState = updateSeedState slot nonce _birkSeedState}

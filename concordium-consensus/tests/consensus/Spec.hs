@@ -26,12 +26,12 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
-    ConcordiumTests.Afgjort.Types.tests lvl
-    ConcordiumTests.Afgjort.CSS.tests lvl
-    ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl
-    ConcordiumTests.Afgjort.ABBA.tests lvl
-    ConcordiumTests.Afgjort.Freeze.tests lvl
-    ConcordiumTests.Afgjort.WMVBA.tests lvl
-    ConcordiumTests.Afgjort.Lottery.tests lvl
+    -- ConcordiumTests.Afgjort.Types.tests lvl
+    -- ConcordiumTests.Afgjort.CSS.tests lvl
+    -- ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl
+    -- ConcordiumTests.Afgjort.ABBA.tests lvl
+    -- ConcordiumTests.Afgjort.Freeze.tests lvl
+    -- ConcordiumTests.Afgjort.WMVBA.tests lvl
+    -- ConcordiumTests.Afgjort.Lottery.tests lvl
     ConcordiumTests.Konsensus.tests lvl
     ConcordiumTests.CatchUp.tests lvl

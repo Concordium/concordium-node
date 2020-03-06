@@ -10,6 +10,7 @@ import Data.Function
 import Data.Foldable
 import Data.ByteString (ByteString)
 import Data.Serialize
+import Data.Maybe
 
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
@@ -79,9 +80,18 @@ doHandleCatchUp peerCUS = do
                     let catchUpResult = if catchUpWithPeer then resultDoCatchUp else ResultSuccess
 
                     if cusIsRequest peerCUS then do
-                        frs <- (finalizationUnsettledRecords (finalizationIndex peerFinRec)) >>= mapM (\r ->
-                                    (r,) . maybe 0 bpHeight <$> resolveBlock (finalizationBlockPointer r)
-                                    )
+                        -- Get the unsettled finalization records
+                        frs0 <- finalizationUnsettledRecords (finalizationIndex peerFinRec)
+                        -- and filter for only the ones where we know the block, recording the height of the block.
+                        -- (This should mean dropping at most one finalization record, since we can only validate
+                        -- the next finalization record if we know the previously finalised block, and all of these
+                        -- finalization records will have been validated.)
+                        let resolveFinRecs Seq.Empty = return []
+                            resolveFinRecs (fr Seq.:<| frs) =
+                                resolveBlock (finalizationBlockPointer fr) >>= \case
+                                    Nothing -> return []
+                                    Just fb -> ((fr, bpHeight fb) :) <$> resolveFinRecs frs
+                        frs <- resolveFinRecs frs0
                         let peerKnownBlocks = Set.insert (cusLastFinalizedBlock peerCUS) $
                                 Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                         let
@@ -142,9 +152,9 @@ doHandleCatchUp peerCUS = do
                             -- the corresponding block; and where the block is not being sent, we
                             -- send the finalization record before all other blocks.  We also send
                             -- finalization records and blocks in order.
-                            merge Seq.Empty bs = encodeBlock <$> toList bs
+                            merge [] bs = encodeBlock <$> toList bs
                             merge fs Seq.Empty = encodeFinRec <$> toList fs
-                            merge fs0@((f, fh) Seq.:<| fs1) bs0@(b Seq.:<| bs1)
+                            merge fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
                                 | fh < bpHeight b = encodeFinRec f : merge fs1 bs0
                                 | otherwise = encodeBlock b : merge fs0 bs1
                         return (Just (merge frs outBlocks2, myCUS), catchUpResult)

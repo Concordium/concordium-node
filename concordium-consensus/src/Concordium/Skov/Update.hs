@@ -330,10 +330,6 @@ addBlock block = do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock
                                 Right (gs, energyUsed) -> do
-                                    -- If necessary, finalize
-                                    case blockFinalizationData block of
-                                        BlockFinalizationData fr -> processFinalization lfBlockP fr
-                                        _ -> return ()
                                     -- Add the block to the tree
                                     blockP <- blockArrive block parentP lfBlockP gs energyUsed
                                     -- Notify of the block arrival (for finalization)
