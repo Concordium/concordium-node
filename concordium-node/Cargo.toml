@@ -49,7 +49,7 @@ byteorder = "^1.3.2"
 preferences = "^1.1.0"
 app_dirs2 = "^2.0"
 chrono = "0.4"
-failure = "^0.1.5"
+failure = "0.1.7"
 cfg-if = "0.1"
 base64 = "0.11"
 rkv = "0.10"
@@ -63,9 +63,6 @@ noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 semver = { version = "0.9", features = ["serde"] }
-
-# Temporary fix for https://github.com/rust-lang-nursery/failure/issues/342
-quote = "=1.0.2"
 
 # gRPC dependencies
 tonic = "0.1"
