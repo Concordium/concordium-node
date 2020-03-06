@@ -42,7 +42,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -94,6 +94,7 @@ pub struct ConnectionHandler {
     pub buckets: RwLock<Buckets>,
     #[cfg(feature = "network_dump")]
     pub log_dumper: RwLock<Option<Sender<DumpItem>>>,
+    pub conn_candidates: Mutex<Connections>,
     pub connections: RwLock<Connections>,
     pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
     pub networks: RwLock<Networks>,
@@ -113,6 +114,7 @@ impl ConnectionHandler {
             buckets: Default::default(),
             #[cfg(feature = "network_dump")]
             log_dumper: Default::default(),
+            conn_candidates: Default::default(),
             connections: Default::default(),
             soft_bans: Default::default(),
             networks: RwLock::new(networks),
@@ -340,6 +342,13 @@ impl P2PNode {
     /// A convenience method for accessing the collection of node's connections.
     #[inline]
     pub fn connections(&self) -> &RwLock<Connections> { &self.connection_handler.connections }
+
+    /// A convenience method for accessing the collection of node's connection
+    /// candidates.
+    #[inline]
+    pub fn conn_candidates(&self) -> &Mutex<Connections> {
+        &self.connection_handler.conn_candidates
+    }
 
     /// A convenience method for accessing the collection of  node's networks.
     #[inline]

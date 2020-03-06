@@ -321,11 +321,17 @@ impl Connection {
 
     /// Concludes the connection's handshake process.
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) {
+        if let Some(conn) = lock_or_die!(self.handler.conn_candidates()).remove(&self.token) {
+            write_or_die!(self.handler.connections()).insert(conn.token, conn);
+        }
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.is_post_handshake.store(true, Ordering::SeqCst);
         self.handler.stats.peers_inc();
         self.handler.bump_last_peer_update();
+        if self.remote_peer.peer_type == PeerType::Bootstrapper {
+            self.handler.update_last_bootstrap();
+        }
     }
 
     /// Queues a message to be sent to the connection.

@@ -143,10 +143,6 @@ impl P2PNode {
         removed == tokens.len()
     }
 
-    fn add_connection(&self, conn: Arc<Connection>) {
-        write_or_die!(self.connections()).insert(conn.token, conn);
-    }
-
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
         let peers_to_skip = match inner_pkt.destination {
             PacketDestination::Direct(..) => vec![],
@@ -223,7 +219,10 @@ impl P2PNode {
     ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
         connections.clear();
         // FIXME: it would be cool if we were able to remove this intermediate vector
-        for (token, conn) in read_or_die!(self.connections()).iter() {
+        for (token, conn) in lock_or_die!(self.conn_candidates())
+            .iter()
+            .chain(read_or_die!(self.connections()).iter())
+        {
             connections.push((*token, Arc::clone(&conn)));
         }
 
@@ -282,29 +281,35 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
 
+    // Lock the candidate list for added safety against duplicate connections
+    let mut candidates_lock = lock_or_die!(node.conn_candidates());
+
     {
         let conn_read_lock = read_or_die!(node.connections());
 
-        if node.self_peer.peer_type == PeerType::Node
-            && node.config.hard_connection_limit.is_some()
-            && conn_read_lock.values().len() >= node.config.hard_connection_limit.unwrap() as usize
-        {
-            bail!("Too many connections, rejecting attempt from {:?}", addr);
+        if let Some(limit) = node.config.hard_connection_limit {
+            if node.self_peer.peer_type == PeerType::Node
+                && candidates_lock.len() + conn_read_lock.len() >= limit as usize
+            {
+                bail!("Too many connections, rejecting attempt from {:?}", addr);
+            }
         }
 
-        if conn_read_lock.values().any(|conn| conn.remote_addr() == addr) {
+        if candidates_lock.values().any(|conn| conn.remote_addr() == addr)
+            || conn_read_lock.values().any(|conn| conn.remote_addr() == addr)
+        {
             bail!("Duplicate connection attempt from {:?}; rejecting", addr);
         }
 
         if read_or_die!(node.connection_handler.soft_bans)
-            .iter()
-            .any(|(ip, _)| *ip == BanId::Ip(addr.ip()))
+            .keys()
+            .any(|ip| *ip == BanId::Ip(addr.ip()))
         {
             bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
         }
     }
 
-    debug!("Accepting new connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
+    debug!("Accepting a connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
 
     let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
@@ -317,7 +322,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
 
     let conn = Connection::new(node, socket, token, remote_peer, false);
     conn.register(&node.poll)?;
-    node.add_connection(conn);
+    candidates_lock.insert(conn.token, conn);
 
     Ok(token)
 }
@@ -363,14 +368,15 @@ pub fn connect(
         bail!("Refusing to connect to a soft-banned IP ({:?})", peer_addr.ip());
     }
 
-    // We purposely take a write lock to ensure that we will block all the way until
-    // the connection has been either established or failed, as otherwise we can't
-    // be certain the duplicate check can't pass erroneously because two or more
-    // calls happen in too rapid succession.
-    let mut write_lock_connections = write_or_die!(node.connections());
+    // Lock the candidate list for added safety against duplicate connections
+    let mut candidates_lock = lock_or_die!(node.conn_candidates());
 
-    // Don't connect to peers with a known P2PNodeId or IP+port
-    for conn in write_lock_connections.values() {
+    if candidates_lock.values().any(|cc| cc.remote_addr() == peer_addr) {
+        bail!("Already connected to {}", peer_addr.to_string());
+    }
+
+    // Don't connect to established peers with a known P2PNodeId or IP+port
+    for conn in read_or_die!(node.connections()).values() {
         if conn.remote_addr() == peer_addr || (peer_id.is_some() && conn.remote_id() == peer_id) {
             bail!(
                 "Already connected to {}",
@@ -398,15 +404,10 @@ pub fn connect(
 
             let conn = Connection::new(node, socket, token, remote_peer, true);
             conn.register(&node.poll)?;
-            write_lock_connections.insert(conn.token, conn);
+            candidates_lock.insert(conn.token, conn);
 
-            if let Some(ref conn) = write_lock_connections.get(&token).map(|conn| Arc::clone(conn))
-            {
+            if let Some(ref conn) = candidates_lock.get(&token) {
                 write_or_die!(conn.low_level).send_handshake_message_a()?;
-            }
-
-            if peer_type == PeerType::Bootstrapper {
-                node.update_last_bootstrap();
             }
 
             Ok(())
