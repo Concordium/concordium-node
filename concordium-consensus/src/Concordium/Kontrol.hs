@@ -8,8 +8,10 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
+import Concordium.GlobalState.BlockState 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
 import Concordium.Skov.Monad
@@ -39,20 +41,20 @@ getSlotTimestamp slot = do
   return (genesisSlotDuration * fromIntegral slot + genesisTime)
 
 -- |Determine the finalization session ID and finalization committee used for finalizing
--- at the given index.
--- TODO (MR) update comment above
+-- at the given index i. Note that the finalization committee is determined based on the block state
+-- at index i-1.
 getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 getFinalizationContext FinalizationRecord{..} = do
         genHash <- bpHash <$> genesisBlock
         let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
-        -- we need to determine the block that was finalized at index `finalizationIndex - 1` 
-        resolveBlock finalizationBlockPointer >>= \case
-          Just bp -> Just . (finSessId,) <$> getFinalizationCommittee (bpLastFinalized bp) -- TODO (MR) ensure that bplastfinalized really does point to index - 1
+        blockAtFinIndex (finalizationIndex - 1) >>= \case
+          Just bp -> Just . (finSessId,) <$> getFinalizationCommittee bp
           Nothing -> return Nothing
 
--- |Select the finalization committee based on bakers from the given block
--- TODO (MR) clarify that it will not be based on the last finalized block
+-- |Select the finalization committee based on bakers from the given block.
 getFinalizationCommittee :: SkovQueryMonad m => BlockPointer m -> m FinalizationCommittee
 getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
-       makeFinalizationCommittee finParams . _birkCurrentBakers <$> getBirkParameters (blockSlot bp) bp
+       blockState <- queryBlockState bp
+       gtu <- _totalGTU <$> getRewardStatus blockState
+       makeFinalizationCommittee finParams gtu . _birkCurrentBakers <$> getBirkParameters (blockSlot bp) bp

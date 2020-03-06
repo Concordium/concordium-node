@@ -68,26 +68,23 @@ committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 -- a certain fraction of the total baker stake. The fraction is taken from the FinalizationParameters.
 -- The committee will include at most N bakers among the above who hold the biggest stake,
 -- where N is the maximum finalization-committee size specified in the FinalizationParameters.
-makeFinalizationCommittee :: FinalizationParameters -> Bakers -> FinalizationCommittee
-makeFinalizationCommittee FinalizationParameters {..} bakers = FinalizationCommittee {..}
+makeFinalizationCommittee :: FinalizationParameters -> Amount -> Bakers -> FinalizationCommittee
+makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = FinalizationCommittee {..}
     where
-        voters = bakerInfoToVoterInfo <$> filterFinalizationBakers finalizationStakeFraction finalizationCommitteeMaxSize bakers
+        voters = bakerInfoToVoterInfo <$> filterFinalizationBakers finalizationCommitteeMaxSize bakers totalGTU
         parties = Vec.fromList $ zipWith makeParty [0..] voters
         makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
 
 -- |Filter out the n top bakers prioritized by stake whose stake exceeds the stake fraction of all bakers.
-filterFinalizationBakers :: StakeFraction -> FinalizationCommitteeSize -> Bakers -> [BakerInfo]
-filterFinalizationBakers stakeFraction n bakers = --take (fromIntegral n) $ sortBy (flip compare `on` _bakerStake) TODO (MR) put back
-  bakerWithHighStake
-  where bakerWithHighStake = [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalStake * stakeFraction]
+filterFinalizationBakers :: FinalizationCommitteeSize -> Bakers -> Amount -> [BakerInfo]
+filterFinalizationBakers n bakers totalGTU = take (fromIntegral n) $ sortBy (flip compare `on` _bakerStake) bakerWithHighStake
+  where bakerWithHighStake = [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalGTU `div` 1000]
         bakerInfos = Map.elems $ _bakerMap bakers
-        totalStake = fromIntegral $ _bakerTotalStake bakers
 
--- TODO (MR) set voter power to stake; doing this currently breaks the Konsensus test
 bakerInfoToVoterInfo :: BakerInfo -> VoterInfo
-bakerInfoToVoterInfo (BakerInfo vrfk vvk vblsk _ _) = VoterInfo vvk vrfk (VoterPower 1) vblsk
+bakerInfoToVoterInfo (BakerInfo vrfk vvk vblsk (Amount stake) _) = VoterInfo vvk vrfk (VoterPower stake) vblsk
 
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: !BlockHash,

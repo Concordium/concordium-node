@@ -175,13 +175,13 @@ instance FinalizationQueueLenses (FinalizationState m) where
 instance FinalizationStateLenses (FinalizationState m) m where
     finState = id
 
-initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Bakers -> FinalizationState timer
-initialPassiveFinalizationState genHash finParams genBakers = FinalizationState {
+initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
+initialPassiveFinalizationState genHash finParams genBakers totalGTU = FinalizationState {
     _finsSessionId = FinalizationSessionId genHash 0,
     _finsIndex = 1,
     _finsHeight = 1 + finalizationMinimumSkip finParams,
     _finsIndexInitialDelta = 1,
-    _finsCommittee = makeFinalizationCommittee finParams genBakers,
+    _finsCommittee = makeFinalizationCommittee finParams totalGTU genBakers,
     _finsMinSkip = finalizationMinimumSkip finParams,
     _finsPendingMessages = Map.empty,
     _finsCurrentRound = Left initialPassiveFinalizationRound,
@@ -193,8 +193,8 @@ initialPassiveFinalizationState genHash finParams genBakers = FinalizationState 
     }
 {-# INLINE initialPassiveFinalizationState #-}
 
-initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> FinalizationState timer
-initialFinalizationState FinalizationInstance{..} genHash finParams genBakers = (initialPassiveFinalizationState genHash finParams genBakers) {
+initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
+initialFinalizationState FinalizationInstance{..} genHash finParams genBakers totalGTU = (initialPassiveFinalizationState genHash finParams genBakers totalGTU) {
     _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
         [] -> Left initialPassiveFinalizationRound
         (p:_) -> Right FinalizationRound {
@@ -205,7 +205,7 @@ initialFinalizationState FinalizationInstance{..} genHash finParams genBakers = 
         }
     }
     where
-        com = makeFinalizationCommittee finParams genBakers
+        com = makeFinalizationCommittee finParams totalGTU genBakers
 
 getFinalizationInstance :: (MonadReader r m, HasFinalizationInstance r) => m (Maybe FinalizationInstance)
 getFinalizationInstance = asks finalizationInstance
@@ -700,8 +700,6 @@ nextFinalizationJustifierHeight :: (BlockPointerData bp)
     -> BlockHeight
 nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
 
--- TODO (MR) It might be hard to debug why a party has 0 voting power if the reason for that is that it's not in the
--- finalization committee. Return Maybe?
 getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
         Nothing -> 0

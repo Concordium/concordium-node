@@ -36,7 +36,6 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
@@ -280,14 +279,6 @@ consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMet
 runWithConsensus :: ConsensusRunner -> (forall h f. SkovT h (SkovConfig TreeConfig f HookLogHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
-
-genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
-                       (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and

@@ -55,6 +55,8 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
     lastFinalizedBlock :: m (BlockPointer m)
+    -- |Retrieve the finalized block at a given finalization index.
+    blockAtFinIndex :: FinalizationIndex -> m (Maybe (BlockPointer m))
     -- |Determine the next index for finalization.
     nextFinalizationIndex :: m FinalizationIndex
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
@@ -119,6 +121,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
+    blockAtFinIndex = lift . blockAtFinIndex
     nextFinalizationIndex = lift nextFinalizationIndex
     getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData

@@ -65,7 +65,6 @@ makeGenesisData ::
     -> Duration  -- ^Slot duration in seconds.
     -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
-    -> StakeFraction -- ^A baker whose stake exceeds this fraction of the total baker stake can be part of the finalization committee
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
@@ -77,7 +76,6 @@ makeGenesisData
   genesisSlotDuration
   elecDiff
   finMinSkip
-  finStakeFrac
   finComMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
@@ -92,7 +90,7 @@ makeGenesisData
                           genesisBakers
                           genesisBakers
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters = FinalizationParameters finMinSkip finStakeFrac finComMaxSize
+        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 
 -- Need to return string because Bytestring does not implement Lift
@@ -105,9 +103,6 @@ dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
   fromMaybe (error "Could not read crypto params.") $
     readCryptographicParameters (BSL.pack dummyCryptographicParametersFile)
-
-dummyFinalizationStakeFraction :: StakeFraction
-dummyFinalizationStakeFraction = 0.001
 
 dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
 dummyFinalizationCommitteeMaxSize = 1000

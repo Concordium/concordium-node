@@ -91,7 +91,7 @@ initialiseStatesDictator n = do
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             -- setting stake fraction to 0 and finalization-committee size to maxBound
             -- so that every genesis baker stays in the finalization committee for this test
-            fps = FinalizationParameters 2 0.0 maxBound
+            fps = FinalizationParameters 2 maxBound
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
         res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do

@@ -32,7 +32,7 @@ import Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
-import Concordium.Skov
+import Concordium.Skov hiding (genesisState)
 -- import Concordium.Skov.CatchUp
 import Concordium.Getters
 import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
@@ -211,7 +211,7 @@ main :: IO ()
 main = do
     let n = 3
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyFinalizationStakeFraction dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders []
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
