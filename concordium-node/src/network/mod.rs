@@ -3,6 +3,7 @@
 pub mod buckets;
 pub mod serialization;
 
+use nohash_hasher::BuildNoHashHasher;
 use semver::Version;
 
 pub use self::buckets::Buckets;
@@ -28,6 +29,9 @@ impl From<u16> for NetworkId {
         }
     }
 }
+
+/// The collection of netwoks a node belongs to.
+pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 
 /// The main object used to transmit data over the network.
 #[derive(Debug, PartialEq)]
@@ -68,7 +72,7 @@ pub enum NetworkPayload {
 pub struct Handshake {
     pub remote_id:   P2PNodeId,
     pub remote_port: u16,
-    pub networks:    HashSet<NetworkId>,
+    pub networks:    Networks,
     pub version:     Version,
     pub proof:       Vec<u8>,
 }
@@ -80,7 +84,7 @@ pub enum NetworkRequest {
     /// Used to measure connection liveness and latency.
     Ping,
     /// Used to obtain peers' peers.
-    GetPeers(HashSet<NetworkId>),
+    GetPeers(Networks),
     /// Used in the initial exchange of metadata with peers.
     Handshake(Handshake),
     /// Requests that peers ban a specific node.

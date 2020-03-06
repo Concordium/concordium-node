@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     common::{get_current_stamp, P2PPeer, PeerType},
-    network::NetworkId,
+    network::Networks,
 };
 
 const BUCKET_COUNT: usize = 1;
@@ -17,7 +17,7 @@ const BUCKET_COUNT: usize = 1;
 #[derive(Eq, Clone)]
 pub struct Node {
     pub peer: P2PPeer,
-    pub networks: HashSet<NetworkId>,
+    pub networks: Networks,
     /// The timestamp pointing to when the node was seen last.
     pub last_seen: u64,
 }
@@ -48,7 +48,7 @@ impl Default for Buckets {
 
 impl Buckets {
     /// Adds a peer to a bucket.
-    pub fn insert_into_bucket(&mut self, peer: P2PPeer, networks: HashSet<NetworkId>) {
+    pub fn insert_into_bucket(&mut self, peer: P2PPeer, networks: Networks) {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
@@ -59,7 +59,7 @@ impl Buckets {
     }
 
     /// Update the networks of a node in the bucket.
-    pub fn update_network_ids(&mut self, peer: P2PPeer, networks: HashSet<NetworkId>) {
+    pub fn update_network_ids(&mut self, peer: P2PPeer, networks: Networks) {
         let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
@@ -70,11 +70,7 @@ impl Buckets {
     }
 
     /// Returns all the nodes in buckets.
-    pub fn get_all_nodes(
-        &self,
-        sender: Option<&P2PPeer>,
-        networks: &HashSet<NetworkId>,
-    ) -> Vec<P2PPeer> {
+    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &Networks) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.peer_type == PeerType::Node
@@ -106,7 +102,7 @@ impl Buckets {
         &self,
         sender: &P2PPeer,
         number: usize,
-        networks: &HashSet<NetworkId>,
+        networks: &Networks,
         partition: bool,
     ) -> Vec<P2PPeer> {
         let mut rng = rand::thread_rng();

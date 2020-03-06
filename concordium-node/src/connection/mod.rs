@@ -24,6 +24,7 @@ use crate::{
     netmsg,
     network::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
+        Networks,
     },
     p2p::P2PNode,
 };
@@ -33,7 +34,6 @@ use crypto_common::Deserial;
 
 use std::{
     cmp::Reverse,
-    collections::HashSet,
     convert::TryFrom,
     fmt,
     io::Cursor,
@@ -105,7 +105,7 @@ pub struct Connection {
     /// Low-level connection objects.
     pub low_level: RwLock<ConnectionLowLevel>,
     /// The list of networks the connection belongs to.
-    pub remote_end_networks: Arc<RwLock<HashSet<NetworkId>>>,
+    pub remote_end_networks: Arc<RwLock<Networks>>,
     /// Indicates whether the connection's handshake has concluded.
     pub is_post_handshake: AtomicBool,
     pub stats: ConnectionStats,
@@ -343,7 +343,7 @@ impl Connection {
     }
 
     /// Register connection's remote end networks.
-    pub fn populate_remote_end_networks(&self, peer: P2PPeer, networks: &HashSet<NetworkId>) {
+    pub fn populate_remote_end_networks(&self, peer: P2PPeer, networks: &Networks) {
         write_or_die!(self.remote_end_networks).extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
@@ -408,7 +408,7 @@ impl Connection {
     }
 
     /// Send a response to a request for peers to the connection.
-    pub fn send_peer_list_resp(&self, nets: &HashSet<NetworkId>) -> Fallible<()> {
+    pub fn send_peer_list_resp(&self, nets: &Networks) -> Fallible<()> {
         let requestor =
             self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
