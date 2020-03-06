@@ -374,19 +374,33 @@ impl Connection {
         }
     }
 
-    /// Add a single network to the connection's remote end networks.
-    pub fn add_remote_end_network(&self, network: NetworkId) {
-        write_or_die!(self.remote_end_networks).insert(network);
+    /// Register connection's remote end networks.
+    pub fn populate_remote_end_networks(&self, peer: P2PPeer, networks: &HashSet<NetworkId>) {
+        write_or_die!(self.remote_end_networks).extend(networks.iter());
+
+        if self.remote_peer.peer_type != PeerType::Bootstrapper {
+            write_or_die!(self.handler.buckets()).insert_into_bucket(peer, networks.to_owned());
+        }
     }
 
-    /// Add multiple networks to the connection's remote end networks.
-    pub fn add_remote_end_networks(&self, networks: &HashSet<NetworkId>) {
-        write_or_die!(self.remote_end_networks).extend(networks.iter())
+    /// Add a single network to the connection's remote end networks.
+    pub fn add_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
+        write_or_die!(self.remote_end_networks).insert(network);
+
+        let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
+        write_or_die!(self.handler.buckets())
+            .update_network_ids(peer, read_or_die!(self.remote_end_networks).to_owned());
+        Ok(())
     }
 
     /// Remove a network from the connection's remote end networks.
-    pub fn remove_remote_end_network(&self, network: NetworkId) {
+    pub fn remove_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
         write_or_die!(self.remote_end_networks).remove(&network);
+
+        let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
+        write_or_die!(self.handler.buckets())
+            .update_network_ids(peer, read_or_die!(self.remote_end_networks).to_owned());
+        Ok(())
     }
 
     #[cfg(feature = "network_dump")]
@@ -402,7 +416,7 @@ impl Connection {
         trace!("Sending a ping to {}", self);
 
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
-        let mut serialized = Vec::with_capacity(64);
+        let mut serialized = Vec::with_capacity(56);
         ping.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
@@ -416,7 +430,7 @@ impl Connection {
         trace!("Sending a pong to {}", self);
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
-        let mut serialized = Vec::with_capacity(64);
+        let mut serialized = Vec::with_capacity(56);
         pong.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
@@ -470,7 +484,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending my PeerList to peer {}", requestor.id);
+            debug!("Sending a PeerList to peer {}", requestor.id);
 
             let mut serialized = Vec::with_capacity(256);
             resp.serialize(&mut serialized)?;

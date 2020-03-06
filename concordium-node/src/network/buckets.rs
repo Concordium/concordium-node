@@ -48,22 +48,22 @@ impl Default for Buckets {
 
 impl Buckets {
     /// Adds a peer to a bucket.
-    pub fn insert_into_bucket(&mut self, peer: &P2PPeer, networks: HashSet<NetworkId>) {
+    pub fn insert_into_bucket(&mut self, peer: P2PPeer, networks: HashSet<NetworkId>) {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
-            peer: peer.to_owned(),
+            peer,
             networks,
             last_seen: get_current_stamp(),
         });
     }
 
     /// Update the networks of a node in the bucket.
-    pub fn update_network_ids(&mut self, peer: &P2PPeer, networks: HashSet<NetworkId>) {
+    pub fn update_network_ids(&mut self, peer: P2PPeer, networks: HashSet<NetworkId>) {
         let bucket = &mut self.buckets[0];
 
         bucket.replace(Node {
-            peer: peer.to_owned(),
+            peer,
             networks,
             last_seen: get_current_stamp(),
         });
@@ -158,8 +158,8 @@ mod tests {
             p2p_node_id,
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
         ));
-        buckets.insert_into_bucket(&p2p_peer, HashSet::new());
-        buckets.insert_into_bucket(&p2p_duplicate_peer, HashSet::new());
+        buckets.insert_into_bucket(p2p_peer, HashSet::new());
+        buckets.insert_into_bucket(p2p_duplicate_peer, HashSet::new());
         assert_eq!(buckets.buckets.len(), 1);
     }
 }
