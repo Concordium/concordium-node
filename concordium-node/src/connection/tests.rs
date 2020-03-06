@@ -47,7 +47,6 @@ fn basic_connectivity() {
             vec![],
             NetworkId::from(NID),
             Arc::from(&[PacketType::Block as u8][..]), // an empty Block packet
-        )
-        .unwrap()
+        );
     }
 }
