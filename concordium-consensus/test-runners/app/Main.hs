@@ -13,8 +13,6 @@ import System.IO
 import Data.Serialize
 import Control.Exception
 import System.Directory
-import Data.ByteString(ByteString)
-import qualified Data.ByteString.Char8 as BS8
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -140,9 +138,14 @@ genesisState genData = Example.initialState
                        -- (genesisMintPerSlot genData)
 
 
-type TreeConfig = DiskTreeDiskBlockWithLogConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> ByteString -> IO TreeConfig
-makeGlobalStateConfig rt genData = return . DTDBWLConfig rt genData (genesisState genData)
+-- type TreeConfig = DiskTreeDiskBlockWithLogConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> ByteString -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return . DTDBWLConfig rt genData (genesisState genData)
+
+type TreeConfig = DiskTreeDiskBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+
 
 -- type TreeConfig = MemoryTreeDiskBlockConfig
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -173,8 +176,8 @@ main = do
         logTransferFile <- openFile (transferLogPrefix ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
-        let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
-        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen dbConnString
+        -- let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen -- dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler (Just logT)
