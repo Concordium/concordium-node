@@ -148,7 +148,7 @@ impl Connection {
         token: Token,
         remote_peer: RemotePeer,
         is_initiator: bool,
-    ) -> Arc<Self> {
+    ) -> Self {
         let curr_stamp = get_current_stamp();
 
         let low_level = RwLock::new(ConnectionLowLevel::new(
@@ -171,7 +171,7 @@ impl Connection {
             bytes_sent:        Default::default(),
         };
 
-        Arc::new(Self {
+        Self {
             handler: Arc::clone(handler),
             token,
             remote_peer,
@@ -179,7 +179,7 @@ impl Connection {
             remote_end_networks: Default::default(),
             stats,
             pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
-        })
+        }
     }
 
     /// Get the connection's latest latency value.

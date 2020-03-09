@@ -84,7 +84,7 @@ pub struct NodeConfig {
 }
 
 /// The collection of connections to peer nodes.
-pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
+pub type Connections = HashMap<Token, Connection, BuildNoHashHasher<usize>>;
 
 /// Intercepts changes to connections and provides change notifiers.
 pub struct ConnChanges {
@@ -373,8 +373,10 @@ impl P2PNode {
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
     #[inline]
-    pub fn register_conn_change(&self, change: ConnChange) -> Fallible<()> {
-        self.connection_handler.conn_changes.notifier.try_send(change).map_err(|e| e.into())
+    pub fn register_conn_change(&self, change: ConnChange) {
+        if self.connection_handler.conn_changes.notifier.try_send(change).is_err() {
+            warn!("Connection change queue full; change request will be delayed");
+        }
     }
 
     /// Activate the network dump feature.
@@ -509,8 +511,6 @@ pub fn spawn(node: &Arc<P2PNode>) {
         };
         let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
 
-        let mut connections = Vec::with_capacity(8);
-
         loop {
             // check for new events or wait
             if let Err(e) = self_clone
@@ -534,9 +534,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
                 process_conn_change(&self_clone, conn_change)
             }
 
-            pool.install(|| {
-                self_clone.process_network_events(&events, &deduplication_queues, &mut connections)
-            });
+            pool.install(|| self_clone.process_network_events(&events, &deduplication_queues));
 
             // Run periodic tasks
             let now = Instant::now();

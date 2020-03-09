@@ -49,7 +49,8 @@ impl Connection {
             }
             NetworkPayload::NetworkResponse(NetworkResponse::PeerList(peers), ..) => {
                 debug!("Got a PeerList response from peer {}", peer_id);
-                self.handler.register_conn_change(ConnChange::NewPeers(peers))
+                self.handler.register_conn_change(ConnChange::NewPeers(peers));
+                Ok(())
             }
             NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 debug!("Got a JoinNetwork request from peer {}", peer_id);
