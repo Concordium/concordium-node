@@ -57,7 +57,7 @@ data FinalizationCommittee = FinalizationCommittee {
     parties :: !(Vector PartyInfo),
     totalWeight :: !VoterPower,
     corruptWeight :: !VoterPower
-}
+} deriving (Eq, Show)
 
 committeeMaxParty :: FinalizationCommittee -> Party
 committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)

@@ -23,6 +23,7 @@ import Concordium.Crypto.SHA256
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.Block as B
@@ -64,6 +65,9 @@ import Test.Hspec
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
+
+finalizationParameters :: FinalizationParameters
+finalizationParameters = FinalizationParameters 2 1000
 
 type Trs = HM.HashMap TransactionHash (Transaction, Slot)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
@@ -174,20 +178,18 @@ invariantSkovData TS.SkovData{..} = do
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
 
-lastFinalizationBP :: TS.SkovData BState.BlockState -> BS.BasicBlockPointer BState.BlockState
-lastFinalizationBP TS.SkovData{..} = let (_ Seq.:|> (_, lfb)) = _finalizationList
-                                     in bpLastFinalized lfb
-bakersForBlock :: BS.BasicBlockPointer BState.BlockState -> Bakers
-bakersForBlock = _birkCurrentBakers . BState._blockBirkParameters . BS._bpState
-
 invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> Either String ()
 invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
         checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
-        -- The baker should be a member of the finalization committee if the baker's stake exceeds the stake fraction of the total baker stake
-        -- TODO (MR) check that _finsCommittee is equal to filterFinalizationBakers finComSize bakers or something like that
+        let prevState  = BS._bpState lfb
+            prevBakers = _birkCurrentBakers $ BState._blockBirkParameters prevState
+            prevGTU    = _totalGTU $ BState._blockBank prevState
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee finalizationParameters prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
+        when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
+        -- The baker should be a member of the finalization committee if the baker's stake exceeds 0.1% of the total stake
         when bakerInFinCommittee $ do
             when (null _finsCurrentRound) $ Left "No current finalization round"
             invariantSkovFinalizationForFinMember s lfr lfb
@@ -308,6 +310,8 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
 myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
 
+-- TODO (MR) increase number of bakers and create transactions that will make it likely that fin committee changes
+
 runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest steps g states es
         | steps <= 0 = return $ label ("fin length: " ++ show (maximum $ (\s -> s ^. _4 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
@@ -388,9 +392,8 @@ initialiseStates n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i (mateuszAmount * 4))) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters 2 1000
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
+            gen = GenesisData 0 1 bps bakerAccounts [] finalizationParameters dummyCryptographicParameters dummyIdentityProviders 10
         res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
