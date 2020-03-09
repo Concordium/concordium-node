@@ -108,14 +108,16 @@ pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) {
     source.register_conn_change(ConnChange::NewPeers(vec![target.self_peer]));
 }
 
-/// Waits until handshake between 2 nodes has concluded.
+/// Waits until all handshakes with other nodes have concluded.
 pub fn await_handshakes(node: &P2PNode) {
     loop {
-        if lock_or_die!(node.conn_candidates()).is_empty() {
+        if lock_or_die!(node.conn_candidates()).is_empty()
+            && !read_or_die!(node.connections()).is_empty()
+        {
             return;
         }
 
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
