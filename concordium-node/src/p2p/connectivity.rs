@@ -500,7 +500,7 @@ fn is_valid_broadcast_target(
 
     conn.remote_peer.peer_type != PeerType::Bootstrapper
         && !peers_to_skip.contains(&peer_id)
-        && read_or_die!(conn.remote_end_networks).contains(&network_id)
+        && conn.remote_end_networks.contains(&network_id)
 }
 
 /// Send a direct packet with `msg` contents to the specified peer.

@@ -119,7 +119,7 @@ pub struct Connection {
     /// Low-level connection objects.
     pub low_level: ConnectionLowLevel,
     /// The list of networks the connection belongs to.
-    pub remote_end_networks: Arc<RwLock<Networks>>,
+    pub remote_end_networks: Networks,
     pub stats: ConnectionStats,
     /// The queue of messages to be sent to the connection.
     pub pending_messages: PriorityQueue<Arc<[u8]>, PendingPriority>,
@@ -338,8 +338,8 @@ impl Connection {
     }
 
     /// Register connection's remote end networks.
-    pub fn populate_remote_end_networks(&self, peer: P2PPeer, networks: &Networks) {
-        write_or_die!(self.remote_end_networks).extend(networks.iter());
+    pub fn populate_remote_end_networks(&mut self, peer: P2PPeer, networks: &Networks) {
+        self.remote_end_networks.extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
             write_or_die!(self.handler.buckets()).insert_into_bucket(peer, networks.to_owned());
@@ -347,24 +347,26 @@ impl Connection {
     }
 
     /// Add a single network to the connection's remote end networks.
-    pub fn add_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
-        let curr_networks = &mut write_or_die!(self.remote_end_networks);
-        ensure!(curr_networks.len() < MAX_PEER_NETWORKS, "refusing to add any more networks");
+    pub fn add_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
+        ensure!(
+            self.remote_end_networks.len() < MAX_PEER_NETWORKS,
+            "refusing to add any more networks"
+        );
 
-        curr_networks.insert(network);
-
+        self.remote_end_networks.insert(network);
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets()).update_network_ids(peer, curr_networks.to_owned());
+        write_or_die!(self.handler.buckets())
+            .update_network_ids(peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
     /// Remove a network from the connection's remote end networks.
-    pub fn remove_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
-        write_or_die!(self.remote_end_networks).remove(&network);
+    pub fn remove_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
+        self.remote_end_networks.remove(&network);
 
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
         write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, read_or_die!(self.remote_end_networks).to_owned());
+            .update_network_ids(peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
