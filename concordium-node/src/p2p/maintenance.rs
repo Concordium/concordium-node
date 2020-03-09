@@ -584,7 +584,6 @@ pub fn spawn(node: &Arc<P2PNode>) {
 }
 
 /// Process a major change to a connection.
-#[inline]
 fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
     match conn_change {
         ConnChange::NewConn(addr) => {

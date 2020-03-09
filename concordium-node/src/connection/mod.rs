@@ -463,6 +463,34 @@ impl Connection {
             Ok(())
         }
     }
+
+    /// Processes a queue with pending messages, writing them to the socket.
+    #[inline]
+    pub fn send_pending_messages(&mut self) -> Fallible<()> {
+        while let Some((msg, _)) = self.pending_messages.pop() {
+            trace!(
+                "Attempting to send {} to {}",
+                ByteSize(msg.len() as u64).to_string_as(true),
+                self
+            );
+
+            if let Err(err) = self.low_level.write_to_socket(msg.clone()) {
+                bail!("Can't send a raw network request: {}", err);
+            } else {
+                self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+                self.handler.stats.pkt_sent_inc();
+                self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+                self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+
+                #[cfg(feature = "network_dump")]
+                {
+                    self.send_to_dump(msg, false);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for Connection {
@@ -491,28 +519,4 @@ fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> 
         trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
-}
-
-/// Processes a queue with pending messages, writing them to the socket.
-#[inline]
-pub fn send_pending_messages(conn: &mut Connection) -> Fallible<()> {
-    while let Some((msg, _)) = conn.pending_messages.pop() {
-        trace!("Attempting to send {} to {}", ByteSize(msg.len() as u64).to_string_as(true), conn);
-
-        if let Err(err) = conn.low_level.write_to_socket(msg.clone()) {
-            bail!("Can't send a raw network request: {}", err);
-        } else {
-            conn.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
-            conn.handler.stats.pkt_sent_inc();
-            conn.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-            conn.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
-
-            #[cfg(feature = "network_dump")]
-            {
-                conn.send_to_dump(msg, false);
-            }
-        }
-    }
-
-    Ok(())
 }
