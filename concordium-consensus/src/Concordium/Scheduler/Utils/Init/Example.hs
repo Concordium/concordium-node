@@ -114,20 +114,22 @@ initialState :: BirkParameters
              -> [Account]
              -> [Types.IpInfo]
              -> Int
+             -> Amount
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n =
+initialState birkParams cryptoParams bakerAccounts ips n mateuszAmount =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        initialAmount = 2 ^ (62 :: Int)
         customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
-                          & (accountAmount .~ initialAmount)
+                          & (accountAmount .~ mateuszAmount)
                           . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential mateuszAccount dummyMaxExpiryTime))]
+        allAccounts = customAccounts ++ bakerAccounts
         initAccount = foldl (flip Acc.putAccountWithRegIds)
                             Acc.emptyAccounts
-                            (customAccounts ++ bakerAccounts)
+                            allAccounts
+        initialAmount = sum (_accountAmount <$> allAccounts)
         gs = BlockState.emptyBlockState birkParams cryptoParams &
                (BlockState.blockIdentityProviders .~ Types.IdentityProviders (Map.fromList (map (\r -> (Types.ipIdentity r, r)) ips))) .
                (BlockState.blockAccounts .~ initAccount) .

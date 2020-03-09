@@ -12,8 +12,6 @@ import Data.Word
 import qualified Data.Serialize as S
 import Data.Serialize.Put
 import Data.Serialize.Get
-import Data.Function (on)
-import Data.List (sortBy)
 import Data.Maybe
 import Control.Monad
 import Data.ByteString(ByteString)
@@ -65,9 +63,7 @@ committeeMaxParty :: FinalizationCommittee -> Party
 committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
 -- |Create a finalization committee by selecting only the bakers whose stake exceeds
--- a certain fraction of the total baker stake. The fraction is taken from the FinalizationParameters.
--- The committee will include at most N bakers among the above who hold the biggest stake,
--- where N is the maximum finalization-committee size specified in the FinalizationParameters.
+-- a certain fraction of the total stake. The fraction is taken from the FinalizationParameters.
 makeFinalizationCommittee :: FinalizationParameters -> Amount -> Bakers -> FinalizationCommittee
 makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = FinalizationCommittee {..}
     where
@@ -77,11 +73,11 @@ makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = Finaliza
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
 
--- |Filter out the n top bakers prioritized by stake whose stake exceeds the stake fraction of all bakers.
+-- |Filter out the bakers whose stake exceeds the total stake fraction.
 filterFinalizationBakers :: FinalizationCommitteeSize -> Bakers -> Amount -> [BakerInfo]
-filterFinalizationBakers n bakers totalGTU = take (fromIntegral n) $ sortBy (flip compare `on` _bakerStake) bakerWithHighStake
-  where bakerWithHighStake = [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalGTU `div` 1000]
-        bakerInfos = Map.elems $ _bakerMap bakers
+filterFinalizationBakers maxSize bakers totalGTU =
+        [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalGTU `div` fromIntegral maxSize]
+        where bakerInfos = Map.elems $ _bakerMap bakers
 
 bakerInfoToVoterInfo :: BakerInfo -> VoterInfo
 bakerInfoToVoterInfo (BakerInfo vrfk vvk vblsk (Amount stake) _) = VoterInfo vvk vrfk (VoterPower stake) vblsk

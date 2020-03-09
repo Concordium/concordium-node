@@ -26,6 +26,7 @@ import Concordium.GlobalState.SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
+import Concordium.Types (Amount(..))
 import Concordium.Types.HashableTo
 
 import Concordium.Logger
@@ -89,15 +90,13 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            -- setting stake fraction to 0 and finalization-committee size to maxBound
-            -- so that every genesis baker stays in the finalization committee for this test
-            fps = FinalizationParameters 2 maxBound
+            fps = FinalizationParameters 2 1000
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
         res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config

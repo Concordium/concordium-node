@@ -367,32 +367,34 @@ initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
 makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
-makeBaker bid lot = resize 0x20000000 $ do
+makeBaker bid initAmount = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- genBlockKeyPair
         blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
-        let account = makeBakerAccount bid
-        return (BakerInfo epk spk blspk lot (_accountAddress account), BakerIdentity sk ek blssk, account)
+        let account = makeBakerAccount bid initAmount
+        return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account)
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+mateuszAmount :: Amount
+mateuszAmount = Amount (2 ^ (40 :: Int))
+
 initialiseStates :: Int -> PropertyM IO States
 initialiseStates n = do
         let bns = [0..fromIntegral n - 1]
-        bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
-        -- TODO (MR) test different fin committee sizes
+        bis <- mapM (\i -> (i,) <$> pick (makeBaker i (mateuszAmount * 4))) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters 2 maxBound
+            fps = FinalizationParameters 2 1000
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
         res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts mateuszAmount))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config

@@ -205,6 +205,7 @@ genesisState genData = Example.initialState
                        (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
                        (genesisIdentityProviders genData)
                        2
+                       (Amount (2 ^ (62 :: Int)))
                        -- (genesisMintPerSlot genData)
 
 main :: IO ()

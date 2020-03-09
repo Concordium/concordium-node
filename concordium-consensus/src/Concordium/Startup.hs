@@ -42,12 +42,12 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 blspk = Bls.derivePublicKey blssk
                 accAddress = _accountAddress account
                 stake = _accountAmount account
-                account = makeBakerAccount bid
+                account = makeBakerAccount bid 1000000000000
 
 -- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
-makeBakerAccount :: BakerId -> Account
-makeBakerAccount bid =
-    acct {_accountAmount = 1000000000000,
+makeBakerAccount :: BakerId -> Amount -> Account
+makeBakerAccount bid amount =
+    acct {_accountAmount = amount,
           _accountStakeDelegate = Just bid,
           _accountCredentials = credentialList}
   where
