@@ -315,6 +315,11 @@ genesisState genData = Basic.initialState
                        (genesisIdentityProviders genData)
                        (genesisMintPerSlot genData)
 
+-- |Default value for early block threshold.
+-- Set to 30 seconds.
+defaultEarlyBlockThreshold :: Timestamp
+defaultEarlyBlockThreshold = 30
+
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
@@ -339,7 +344,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                         connString
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
@@ -351,7 +356,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler Nothing -- logT
@@ -392,7 +397,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                         connString
                     finconfig = NoFinalization
@@ -403,7 +408,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                     finconfig = NoFinalization
                     hconfig = HookLogHandler Nothing
@@ -434,6 +439,7 @@ startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> startSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> startSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -441,6 +447,7 @@ stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> stopSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> stopSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to stop baker thread, but consensus was started without baker credentials"
 
 {- | Result values for receive functions.
@@ -470,6 +477,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -485,6 +494,7 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
+toReceiveResult ResultEarlyBlock = 11
 
 
 -- |Handle receipt of a block.

@@ -210,9 +210,10 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
-        transfer_log_enabled: u8,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
+        database_connection_url: *const u8,
+        database_connection_url_len: i64,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         max_block_size: u64,
@@ -221,9 +222,10 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
-        transfer_log_enabled: u8,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
+        database_connection_url: *const u8,
+        database_connection_url_len: i64,
     ) -> *mut consensus_runner;
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
@@ -327,11 +329,11 @@ extern "C" {
 
 pub fn get_consensus_ptr(
     max_block_size: u64,
-    enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &PathBuf,
+    database_connection_url: &str,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
@@ -355,9 +357,10 @@ pub fn get_consensus_ptr(
                     catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
-                    if enable_transfer_logging { 1 } else { 0 },
                     appdata_buf.as_ptr() as *const u8,
                     appdata_buf.len() as i64,
+                    database_connection_url.as_ptr() as *const u8,
+                    database_connection_url.len() as i64,
                 )
             }
         }
@@ -372,9 +375,10 @@ pub fn get_consensus_ptr(
                         catchup_status_callback,
                         maximum_log_level as u8,
                         on_log_emited,
-                        if enable_transfer_logging { 1 } else { 0 },
                         appdata_buf.as_ptr() as *const u8,
                         appdata_buf.len() as i64,
+                        database_connection_url.as_ptr() as *const u8,
+                        database_connection_url.len() as i64,
                     )
                 }
             }
