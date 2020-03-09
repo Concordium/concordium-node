@@ -1,7 +1,7 @@
 //! Incoming network message handing.
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, PeerType},
+    common::{get_current_stamp, p2p_peer::PeerStats, P2PNodeId, PeerType},
     configuration::{COMPATIBLE_CLIENT_VERSIONS, MAX_PEER_NETWORKS},
     connection::{ConnChange, Connection},
     network::{
@@ -22,11 +22,12 @@ impl Connection {
         &mut self,
         msg: NetworkMessage,
         bytes: Arc<[u8]>,
+        conn_stats: &[PeerStats],
     ) -> Fallible<()> {
         // the handshake should be the first incoming network message
         let peer_id = match msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
-                return self.handle_handshake_req(handshake);
+                return self.handle_handshake_req(handshake, conn_stats);
             }
             _ => self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?,
         };
@@ -46,7 +47,7 @@ impl Connection {
             }
             NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(networks), ..) => {
                 debug!("Got a GetPeers request from peer {}", peer_id);
-                self.send_peer_list_resp(networks)
+                self.send_peer_list_resp(networks, conn_stats)
             }
             NetworkPayload::NetworkResponse(NetworkResponse::PeerList(peers), ..) => {
                 debug!("Got a PeerList response from peer {}", peer_id);
@@ -76,7 +77,11 @@ impl Connection {
         }
     }
 
-    fn handle_handshake_req(&mut self, handshake: Handshake) -> Fallible<()> {
+    fn handle_handshake_req(
+        &mut self,
+        handshake: Handshake,
+        conn_stats: &[PeerStats],
+    ) -> Fallible<()> {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
@@ -98,7 +103,7 @@ impl Connection {
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
-            self.send_peer_list_resp(handshake.networks)?;
+            self.send_peer_list_resp(handshake.networks, conn_stats)?;
         }
 
         Ok(())

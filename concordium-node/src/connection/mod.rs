@@ -18,7 +18,11 @@ use twox_hash::XxHash64;
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
 use crate::{
-    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerType, RemotePeer},
+    common::{
+        get_current_stamp,
+        p2p_peer::{P2PPeer, PeerStats},
+        P2PNodeId, PeerType, RemotePeer,
+    },
     configuration::MAX_PEER_NETWORKS,
     connection::low_level::ReadResult,
     netmsg,
@@ -263,10 +267,16 @@ impl Connection {
     /// Keeps reading from the socket as long as there is data to be read
     /// and the operation is not blocking.
     #[inline]
-    pub fn read_stream(&mut self, dedup_queues: &DeduplicationQueues) -> Fallible<()> {
+    pub fn read_stream(
+        &mut self,
+        dedup_queues: &DeduplicationQueues,
+        conn_stats: &[PeerStats],
+    ) -> Fallible<()> {
         loop {
             match self.low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), dedup_queues)?,
+                ReadResult::Complete(msg) => {
+                    self.process_message(Arc::from(msg), dedup_queues, conn_stats)?
+                }
                 ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
             }
         }
@@ -277,6 +287,7 @@ impl Connection {
         &mut self,
         bytes: Arc<[u8]>,
         deduplication_queues: &DeduplicationQueues,
+        conn_stats: &[PeerStats],
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
@@ -303,7 +314,7 @@ impl Connection {
         }
 
         // process the incoming message
-        self.handle_incoming_message(message, bytes)
+        self.handle_incoming_message(message, bytes, conn_stats)
     }
 
     /// Concludes the connection's handshake process.
@@ -405,7 +416,11 @@ impl Connection {
     }
 
     /// Send a response to a request for peers to the connection.
-    pub fn send_peer_list_resp(&mut self, nets: Networks) -> Fallible<()> {
+    pub fn send_peer_list_resp(
+        &mut self,
+        nets: Networks,
+        conn_stats: &[PeerStats],
+    ) -> Fallible<()> {
         let requestor =
             self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
@@ -432,9 +447,7 @@ impl Connection {
                 }
             }
             PeerType::Node => {
-                let nodes = self
-                    .handler
-                    .get_peer_stats(Some(PeerType::Node))
+                let nodes = conn_stats
                     .iter()
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
                     .map(|stat| {

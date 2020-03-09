@@ -217,7 +217,8 @@ impl P2PNode {
         events: &Events,
         deduplication_queues: &DeduplicationQueues,
     ) {
-        // collect tokens to remove and ips to soft ban, if any
+        let conn_stats = self.get_peer_stats(Some(PeerType::Node));
+
         lock_or_die!(self.conn_candidates())
             .par_iter_mut()
             .map(|(_, conn)| conn)
@@ -239,7 +240,7 @@ impl P2PNode {
                     .iter()
                     .any(|event| event.token() == conn.token && event.readiness().is_readable())
                 {
-                    if let Err(e) = conn.read_stream(deduplication_queues) {
+                    if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
                         error!("{}", e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
