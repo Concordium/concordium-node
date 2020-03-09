@@ -18,7 +18,7 @@ use twox_hash::XxHash64;
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
 use crate::{
-    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerType, RemotePeer},
     configuration::MAX_PEER_NETWORKS,
     connection::low_level::ReadResult,
     netmsg,
@@ -207,20 +207,6 @@ impl Connection {
 
     /// Obtain the type of the peer associated with the connection.
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
-
-    /// Obtain the peer stats of the connection.
-    #[inline]
-    pub fn remote_peer_stats(&self) -> Fallible<PeerStats> {
-        Ok(PeerStats::new(
-            self.remote_id()
-                .ok_or_else(|| format_err!("Attempted to get the stats of a pre-handshake peer!"))?
-                .as_raw(),
-            self.remote_addr(),
-            self.remote_peer_external_port(),
-            self.remote_peer_type(),
-            &self.stats,
-        ))
-    }
 
     /// Obtain the remote address of the connection.
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr }

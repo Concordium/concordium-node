@@ -17,7 +17,15 @@ impl P2PNode {
         read_or_die!(self.connections())
             .values()
             .filter(|conn| peer_type.is_none() || peer_type == Some(conn.remote_peer_type()))
-            .filter_map(|conn| conn.remote_peer_stats().ok())
+            .map(|conn| {
+                PeerStats::new(
+                    conn.remote_id().unwrap().as_raw(), // safe - always available post-handshake
+                    conn.remote_addr(),
+                    conn.remote_peer_external_port(),
+                    conn.remote_peer_type(),
+                    &conn.stats,
+                )
+            })
             .collect()
     }
 
