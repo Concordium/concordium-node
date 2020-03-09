@@ -21,7 +21,11 @@ use std::{
 
 impl Connection {
     /// Processes a network message based on its type.
-    pub fn handle_incoming_message(&self, msg: NetworkMessage, bytes: Arc<[u8]>) -> Fallible<()> {
+    pub fn handle_incoming_message(
+        &mut self,
+        msg: NetworkMessage,
+        bytes: Arc<[u8]>,
+    ) -> Fallible<()> {
         // the handshake should be the first incoming network message
         let peer_id = match msg.payload {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
@@ -75,7 +79,7 @@ impl Connection {
         }
     }
 
-    fn handle_handshake_req(&self, handshake: Handshake) -> Fallible<()> {
+    fn handle_handshake_req(&mut self, handshake: Handshake) -> Fallible<()> {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {

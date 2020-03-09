@@ -6,7 +6,7 @@ use rand::{
     seq::{index::sample, IteratorRandom},
     Rng,
 };
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use semver::Version;
 
 use crate::{
@@ -26,10 +26,7 @@ use crate::{
 use std::{
     cmp, io,
     net::SocketAddr,
-    sync::{
-        atomic::{AtomicU16, Ordering},
-        Arc,
-    },
+    sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
 
@@ -92,7 +89,8 @@ impl P2PNode {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
 
-        for conn in read_or_die!(self.connections()).values().filter(|conn| conn_filter(conn)) {
+        for conn in write_or_die!(self.connections()).values_mut().filter(|conn| conn_filter(conn))
+        {
             conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
             sent_messages += 1;
         }
@@ -104,7 +102,7 @@ impl P2PNode {
     pub fn measure_connection_latencies(&self) {
         debug!("Measuring connection latencies");
 
-        for conn in read_or_die!(self.connections()).values() {
+        for conn in write_or_die!(self.connections()).values_mut() {
             // don't send pings to unresponsive connections so
             // that the latency calculation is not off
             if conn.last_seen() > conn.get_last_ping_sent() {
@@ -223,14 +221,12 @@ impl P2PNode {
     ) {
         // collect tokens to remove and ips to soft ban, if any
         lock_or_die!(self.conn_candidates())
-            .par_iter()
+            .par_iter_mut()
             .map(|(_, conn)| conn)
-            .chain(read_or_die!(self.connections()).par_iter().map(|(_, conn)| conn))
+            .chain(write_or_die!(self.connections()).par_iter_mut().map(|(_, conn)| conn))
             .for_each(|conn| {
-                let mut low_level = write_or_die!(conn.low_level);
-
-                if let Err(e) = send_pending_messages(conn, &mut low_level, &conn.pending_messages)
-                    .and_then(|_| low_level.flush_socket())
+                if let Err(e) =
+                    send_pending_messages(conn).and_then(|_| conn.low_level.flush_socket())
                 {
                     error!("{}", e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
@@ -245,7 +241,7 @@ impl P2PNode {
                     .iter()
                     .any(|event| event.token() == conn.token && event.readiness().is_readable())
                 {
-                    if let Err(e) = conn.read_stream(&mut low_level, deduplication_queues) {
+                    if let Err(e) = conn.read_stream(deduplication_queues) {
                         error!("{}", e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
@@ -317,7 +313,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let remote_peer = RemotePeer {
         id: Default::default(),
         addr,
-        peer_external_port: AtomicU16::new(addr.port()),
+        peer_external_port: addr.port(),
         peer_type: PeerType::Node,
     };
 
@@ -399,7 +395,7 @@ pub fn connect(
             let remote_peer = RemotePeer {
                 id: Default::default(),
                 addr: peer_addr,
-                peer_external_port: AtomicU16::new(peer_addr.port()),
+                peer_external_port: peer_addr.port(),
                 peer_type,
             };
 
@@ -407,8 +403,8 @@ pub fn connect(
             conn.register(&node.poll)?;
             candidates_lock.insert(conn.token, conn);
 
-            if let Some(ref conn) = candidates_lock.get(&token) {
-                write_or_die!(conn.low_level).send_handshake_message_a()?;
+            if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
+                conn.low_level.send_handshake_message_a()?;
             }
 
             Ok(())
@@ -500,7 +496,7 @@ fn is_valid_broadcast_target(
     peers_to_skip: &[P2PNodeId],
     network_id: NetworkId,
 ) -> bool {
-    let peer_id = read_or_die!(conn.remote_peer.id).unwrap(); // safe, post-handshake
+    let peer_id = conn.remote_peer.id.unwrap(); // safe, post-handshake
 
     conn.remote_peer.peer_type != PeerType::Bootstrapper
         && !peers_to_skip.contains(&peer_id)
