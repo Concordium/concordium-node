@@ -939,24 +939,19 @@ mod tests {
     #[tokio::test]
     async fn test_peer_list() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
-        let req = || {
-            req_with_auth!(
-                proto::PeersRequest {
-                    include_bootstrappers: false,
-                },
-                TOKEN
-            )
-        };
-        let rcv = client.peer_list(req()).await.unwrap();
-        let rcv = rcv.get_ref();
-        assert!(rcv.peer.to_vec().is_empty());
-        assert_eq!(rcv.peer_type, "Node");
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
-        let rcv = client.peer_list(req()).await.unwrap().get_ref().peer.clone();
+        let req = req_with_auth!(
+            proto::PeersRequest {
+                include_bootstrappers: false,
+            },
+            TOKEN
+        );
+        let rcv = client.peer_list(req).await.unwrap().get_ref().peer.clone();
+        assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();
         assert_eq!(
