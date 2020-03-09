@@ -1,6 +1,6 @@
 //! Node connection handling.
 
-use failure::{Error, Fallible};
+use failure::Fallible;
 use mio::{net::TcpStream, Events, Token};
 use rand::{
     seq::{index::sample, IteratorRandom},
@@ -12,7 +12,9 @@ use semver::Version;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{send_pending_messages, Connection, DeduplicationQueues, MessageSendingPriority},
+    connection::{
+        send_pending_messages, ConnChange, Connection, DeduplicationQueues, MessageSendingPriority,
+    },
     netmsg,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
@@ -23,7 +25,8 @@ use crate::{
 
 use std::{
     cmp::{self, Reverse},
-    net::{IpAddr, SocketAddr},
+    io,
+    net::SocketAddr,
     sync::{
         atomic::{AtomicU16, Ordering},
         Arc,
@@ -119,6 +122,17 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
+    /// Shut down connection with the given poll token.
+    pub fn remove_connection(&self, token: Token) -> Option<Arc<Connection>> {
+        let removed_conn = write_or_die!(self.connections()).remove(&token);
+
+        if removed_conn.is_some() {
+            self.bump_last_peer_update();
+        }
+
+        removed_conn
+    }
+
     /// Shut down connections with the given poll tokens.
     pub fn remove_connections(&self, tokens: &[Token]) -> bool {
         let connections = &mut write_or_die!(self.connections());
@@ -208,45 +222,47 @@ impl P2PNode {
         &self,
         events: &Events,
         deduplication_queues: &DeduplicationQueues,
-        connections: &mut Vec<(Token, Arc<Connection>)>,
-    ) -> (Vec<Token>, Vec<(IpAddr, Error)>) {
+        connections: &mut Vec<Arc<Connection>>,
+    ) {
         connections.clear();
         // FIXME: it would be cool if we were able to remove this intermediate vector
-        for (token, conn) in lock_or_die!(self.conn_candidates())
-            .iter()
-            .chain(read_or_die!(self.connections()).iter())
+        for conn in lock_or_die!(self.conn_candidates())
+            .values()
+            .chain(read_or_die!(self.connections()).values())
         {
-            connections.push((*token, Arc::clone(&conn)));
+            connections.push(Arc::clone(&conn));
         }
 
         // collect tokens to remove and ips to soft ban, if any
-        connections
-            .par_iter()
-            .filter_map(|(token, conn)| {
-                let mut low_level = write_or_die!(conn.low_level);
+        connections.par_iter().for_each(|conn| {
+            let mut low_level = write_or_die!(conn.low_level);
 
-                if let Err(e) = send_pending_messages(conn, &mut low_level, &conn.pending_messages)
-                    .and_then(|_| low_level.flush_socket())
-                {
-                    error!("{}", e);
-                    return Some((*token, (conn.remote_addr().ip(), e)));
-                }
-
-                if events
-                    .iter()
-                    .any(|event| event.token() == *token && event.readiness().is_readable())
-                {
-                    if let Err(e) = conn.read_stream(&mut low_level, deduplication_queues) {
-                        error!("{}", e);
-                        Some((*token, (conn.remote_addr().ip(), e)))
-                    } else {
-                        None
-                    }
+            if let Err(e) = send_pending_messages(conn, &mut low_level, &conn.pending_messages)
+                .and_then(|_| low_level.flush_socket())
+            {
+                error!("{}", e);
+                if let Ok(_io_err) = e.downcast::<io::Error>() {
+                    self.register_conn_change(ConnChange::Removal(conn.token));
                 } else {
-                    None
+                    self.register_conn_change(ConnChange::Expulsion(conn.token));
                 }
-            })
-            .unzip()
+                return;
+            }
+
+            if events
+                .iter()
+                .any(|event| event.token() == conn.token && event.readiness().is_readable())
+            {
+                if let Err(e) = conn.read_stream(&mut low_level, deduplication_queues) {
+                    error!("{}", e);
+                    if let Ok(_io_err) = e.downcast::<io::Error>() {
+                        self.register_conn_change(ConnChange::Removal(conn.token));
+                    } else {
+                        self.register_conn_change(ConnChange::Expulsion(conn.token));
+                    }
+                }
+            }
+        })
     }
 
     /// Creates a "high-level" handshake request to be sent to new peers.

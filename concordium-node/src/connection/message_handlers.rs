@@ -3,12 +3,12 @@
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{COMPATIBLE_CLIENT_VERSIONS, MAX_PEER_NETWORKS},
-    connection::Connection,
+    connection::{ConnChange, Connection},
     network::{
         Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
         PacketDestination,
     },
-    p2p::{bans::BanId, connectivity::connect},
+    p2p::bans::BanId,
     plugins::consensus::*,
 };
 
@@ -43,13 +43,13 @@ impl Connection {
                 trace!("Got a Pong from peer {}", peer_id);
                 self.handle_pong()
             }
-            NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(ref networks), ..) => {
+            NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(networks), ..) => {
                 debug!("Got a GetPeers request from peer {}", peer_id);
                 self.send_peer_list_resp(networks)
             }
-            NetworkPayload::NetworkResponse(NetworkResponse::PeerList(ref peers), ..) => {
+            NetworkPayload::NetworkResponse(NetworkResponse::PeerList(peers), ..) => {
                 debug!("Got a PeerList response from peer {}", peer_id);
-                self.handle_peer_list_resp(peers)
+                self.handler.register_conn_change(ConnChange::NewPeers(peers))
             }
             NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
                 debug!("Got a JoinNetwork request from peer {}", peer_id);
@@ -98,7 +98,7 @@ impl Connection {
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
-            self.send_peer_list_resp(&handshake.networks)?;
+            self.send_peer_list_resp(handshake.networks)?;
         }
 
         Ok(())
@@ -112,32 +112,6 @@ impl Connection {
 
         if curr_time >= ping_time {
             self.set_last_latency(curr_time - ping_time);
-        }
-
-        Ok(())
-    }
-
-    fn handle_peer_list_resp(&self, peers: &[P2PPeer]) -> Fallible<()> {
-        let mut new_peers = 0;
-        let current_peers = self.handler.get_peer_stats(Some(PeerType::Node));
-
-        let curr_peer_count = current_peers.len();
-
-        let applicable_candidates = peers.iter().filter(|candidate| {
-            !current_peers
-                .iter()
-                .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
-        });
-
-        for peer in applicable_candidates {
-            trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
-            if connect(&self.handler, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
-                new_peers += 1;
-            }
-
-            if new_peers + curr_peer_count >= self.handler.config.desired_nodes_count as usize {
-                break;
-            }
         }
 
         Ok(())

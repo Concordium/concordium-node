@@ -94,6 +94,18 @@ pub struct ConnectionStats {
 
 type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
 
+/// Specifies the type of change to be applied to the list of connections.
+pub enum ConnChange {
+    /// To be soft-banned and removed from the list of connections.
+    Expulsion(Token),
+    /// Prospect peers to possibly connect to.
+    NewPeers(Vec<P2PPeer>),
+    /// Promotion to post-handshake.
+    Promotion(Token),
+    /// To be removed from the list of connections.
+    Removal(Token),
+}
+
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
@@ -314,9 +326,6 @@ impl Connection {
 
     /// Concludes the connection's handshake process.
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) {
-        if let Some(conn) = lock_or_die!(self.handler.conn_candidates()).remove(&self.token) {
-            write_or_die!(self.handler.connections()).insert(conn.token, conn);
-        }
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.handler.stats.peers_inc();
@@ -324,6 +333,7 @@ impl Connection {
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
+        self.handler.register_conn_change(ConnChange::Promotion(self.token));
     }
 
     /// Queues a message to be sent to the connection.
@@ -406,7 +416,7 @@ impl Connection {
     }
 
     /// Send a response to a request for peers to the connection.
-    pub fn send_peer_list_resp(&self, nets: &Networks) -> Fallible<()> {
+    pub fn send_peer_list_resp(&self, nets: Networks) -> Fallible<()> {
         let requestor =
             self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
@@ -414,7 +424,7 @@ impl Connection {
             PeerType::Bootstrapper => {
                 let get_100_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
                     Ok(safe_read!(self.handler.buckets())?
-                        .get_random_nodes(&requestor, 100, nets, partition))
+                        .get_random_nodes(&requestor, 100, &nets, partition))
                 };
                 let random_nodes = match self.handler.config.partition_network_for_time {
                     Some(time) if (self.handler.get_uptime() as usize) < time => {

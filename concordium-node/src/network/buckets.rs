@@ -70,7 +70,7 @@ impl Buckets {
     }
 
     /// Returns all the nodes in buckets.
-    pub fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &Networks) -> Vec<P2PPeer> {
+    fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &Networks) -> Vec<P2PPeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.peer_type == PeerType::Node

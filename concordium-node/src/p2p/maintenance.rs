@@ -1,6 +1,7 @@
 //! Node maintenance methods.
 
 use chrono::prelude::*;
+use crossbeam_channel::{self, Receiver, Sender};
 use failure::Fallible;
 #[cfg(not(target_os = "windows"))]
 use get_if_addrs;
@@ -17,7 +18,7 @@ use crate::plugins::beta::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
-    connection::{Connection, DeduplicationQueues},
+    connection::{ConnChange, Connection, DeduplicationQueues},
     network::{Buckets, NetworkId, Networks},
     p2p::{
         bans::BanId,
@@ -28,12 +29,10 @@ use crate::{
     utils,
 };
 use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
-#[cfg(feature = "network_dump")]
-use crossbeam_channel::{self, Sender};
 
 use std::{
     collections::HashMap,
-    io, mem,
+    mem,
     net::{
         IpAddr::{self, V4, V6},
         Ipv4Addr, SocketAddr,
@@ -87,6 +86,12 @@ pub struct NodeConfig {
 /// The collection of connections to peer nodes.
 pub type Connections = HashMap<Token, Arc<Connection>, BuildNoHashHasher<usize>>;
 
+/// Intercepts changes to connections and provides change notifiers.
+pub struct ConnChanges {
+    changes:  Receiver<ConnChange>,
+    notifier: Sender<ConnChange>,
+}
+
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
     pub socket_server: TcpListener,
@@ -96,6 +101,7 @@ pub struct ConnectionHandler {
     pub log_dumper: RwLock<Option<Sender<DumpItem>>>,
     pub conn_candidates: Mutex<Connections>,
     pub connections: RwLock<Connections>,
+    pub conn_changes: ConnChanges,
     pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
     pub networks: RwLock<Networks>,
     pub last_bootstrap: AtomicU64,
@@ -107,6 +113,11 @@ pub struct ConnectionHandler {
 impl ConnectionHandler {
     fn new(conf: &Config, socket_server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
+        let (sndr, rcvr) = crossbeam_channel::bounded(conf.connection.desired_nodes as usize);
+        let conn_changes = ConnChanges {
+            changes:  rcvr,
+            notifier: sndr,
+        };
 
         ConnectionHandler {
             socket_server,
@@ -116,6 +127,7 @@ impl ConnectionHandler {
             log_dumper: Default::default(),
             conn_candidates: Default::default(),
             connections: Default::default(),
+            conn_changes,
             soft_bans: Default::default(),
             networks: RwLock::new(networks),
             last_bootstrap: Default::default(),
@@ -358,6 +370,13 @@ impl P2PNode {
     #[inline]
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
 
+    /// Notify the node handler that a connection needs to undergo a major
+    /// change.
+    #[inline]
+    pub fn register_conn_change(&self, change: ConnChange) -> Fallible<()> {
+        self.connection_handler.conn_changes.notifier.try_send(change).map_err(|e| e.into())
+    }
+
     /// Activate the network dump feature.
     #[cfg(feature = "network_dump")]
     pub fn activate_dump(&self, path: &str, raw: bool) -> Fallible<()> {
@@ -511,29 +530,16 @@ pub fn spawn(node: &Arc<P2PNode>) {
                 None
             };
 
-            let (bad_tokens, bad_ips) = pool.install(|| {
+            for conn_change in self_clone.connection_handler.conn_changes.changes.try_iter() {
+                process_conn_change(&self_clone, conn_change)
+            }
+
+            pool.install(|| {
                 self_clone.process_network_events(&events, &deduplication_queues, &mut connections)
             });
 
-            let now = Instant::now();
-
-            if !bad_tokens.is_empty() {
-                let mut soft_bans = write_or_die!(self_clone.connection_handler.soft_bans);
-                for (ip, e) in bad_ips.into_iter() {
-                    if let Ok(_io_err) = e.downcast::<io::Error>() {
-                        // potentially ban on IO errors we consider fatal
-                    } else {
-                        warn!("Soft-banning {:?} due to a breach of protocol", ip);
-                        soft_bans.insert(
-                            BanId::Ip(ip),
-                            Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
-                        );
-                    }
-                }
-                self_clone.remove_connections(&bad_tokens);
-            }
-
             // Run periodic tasks
+            let now = Instant::now();
             if now.duration_since(log_time)
                 >= Duration::from_secs(self_clone.config.housekeeping_interval)
             {
@@ -577,6 +583,54 @@ pub fn spawn(node: &Arc<P2PNode>) {
 
     // Register info about thread into P2PNode.
     write_or_die!(node.threads).push(poll_thread);
+}
+
+/// Process a major change to a connection.
+#[inline]
+fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
+    match conn_change {
+        ConnChange::Promotion(token) => {
+            if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
+                write_or_die!(node.connections()).insert(conn.token, conn);
+            }
+        }
+        ConnChange::NewPeers(peers) => {
+            let mut new_peers = 0;
+            let current_peers = node.get_peer_stats(Some(PeerType::Node));
+
+            let curr_peer_count = current_peers.len();
+
+            let applicable_candidates = peers.iter().filter(|candidate| {
+                !current_peers
+                    .iter()
+                    .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
+            });
+
+            for peer in applicable_candidates {
+                trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
+                if connect(node, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
+                    new_peers += 1;
+                }
+
+                if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
+                    break;
+                }
+            }
+        }
+        ConnChange::Expulsion(token) => {
+            if let Some(conn) = node.remove_connection(token) {
+                let ip = conn.remote_addr().ip();
+                warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                write_or_die!(node.connection_handler.soft_bans).insert(
+                    BanId::Ip(ip),
+                    Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
+                );
+            }
+        }
+        ConnChange::Removal(token) => {
+            node.remove_connection(token);
+        }
+    }
 }
 
 /// Try to bootstrap the node based on the addresses in the config.
