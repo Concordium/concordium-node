@@ -212,7 +212,7 @@ impl Connection {
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr }
 
     /// Obtain the external port of the connection.
-    pub fn remote_peer_external_port(&self) -> u16 { self.remote_peer.peer_external_port }
+    pub fn remote_peer_external_port(&self) -> u16 { self.remote_peer.external_port }
 
     /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
@@ -309,7 +309,7 @@ impl Connection {
     /// Concludes the connection's handshake process.
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16, nets: &Networks) {
         self.remote_peer.id = Some(id);
-        self.remote_peer.peer_external_port = peer_port;
+        self.remote_peer.external_port = peer_port;
         self.handler.stats.peers_inc();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();

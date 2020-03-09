@@ -313,7 +313,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let remote_peer = RemotePeer {
         id: Default::default(),
         addr,
-        peer_external_port: addr.port(),
+        external_port: addr.port(),
         peer_type: PeerType::Node,
     };
 
@@ -395,7 +395,7 @@ pub fn connect(
             let remote_peer = RemotePeer {
                 id: Default::default(),
                 addr: peer_addr,
-                peer_external_port: peer_addr.port(),
+                external_port: peer_addr.port(),
                 peer_type,
             };
 

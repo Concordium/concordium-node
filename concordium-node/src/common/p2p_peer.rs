@@ -73,10 +73,10 @@ impl Display for P2PPeer {
 /// Defines a remote node in the network.
 #[derive(Debug)]
 pub struct RemotePeer {
-    pub id:                 Option<P2PNodeId>,
-    pub addr:               SocketAddr,
-    pub peer_external_port: u16,
-    pub peer_type:          PeerType,
+    pub id:            Option<P2PNodeId>,
+    pub addr:          SocketAddr,
+    pub external_port: u16,
+    pub peer_type:     PeerType,
 }
 
 impl RemotePeer {
@@ -95,19 +95,8 @@ impl RemotePeer {
     }
 
     /// Gets the external socket address of a remote peer.
-    pub fn peer_external_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.addr.ip(), self.peer_external_port)
-    }
-}
-
-impl From<P2PPeer> for RemotePeer {
-    fn from(peer: P2PPeer) -> Self {
-        Self {
-            id:                 Some(peer.id),
-            addr:               peer.addr,
-            peer_external_port: peer.addr.port(),
-            peer_type:          peer.peer_type,
-        }
+    pub fn external_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.addr.ip(), self.external_port)
     }
 }
 
