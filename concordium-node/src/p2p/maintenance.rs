@@ -587,6 +587,11 @@ pub fn spawn(node: &Arc<P2PNode>) {
 #[inline]
 fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
     match conn_change {
+        ConnChange::NewConn(addr) => {
+            if let Err(e) = connect(node, PeerType::Node, addr, None) {
+                error!("Can't connect to the desired address: {}", e);
+            }
+        }
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
                 write_or_die!(node.connections()).insert(conn.token, conn);

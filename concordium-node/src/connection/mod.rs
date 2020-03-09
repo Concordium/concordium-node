@@ -98,6 +98,8 @@ type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
 pub enum ConnChange {
     /// To be soft-banned and removed from the list of connections.
     Expulsion(Token),
+    /// Prospect node address to attempt to connect to.
+    NewConn(SocketAddr),
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
     /// Promotion to post-handshake.
@@ -326,6 +328,7 @@ impl Connection {
 
     /// Concludes the connection's handshake process.
     pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) {
+        self.handler.register_conn_change(ConnChange::Promotion(self.token));
         *write_or_die!(self.remote_peer.id) = Some(id);
         self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
         self.handler.stats.peers_inc();
@@ -333,7 +336,6 @@ impl Connection {
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
-        self.handler.register_conn_change(ConnChange::Promotion(self.token));
     }
 
     /// Queues a message to be sent to the connection.

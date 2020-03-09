@@ -8,9 +8,10 @@ use structopt::StructOpt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
+    connection::ConnChange,
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, PacketDestination},
-    p2p::{connectivity, maintenance::spawn, P2PNode},
+    p2p::{maintenance::spawn, P2PNode},
     stats_export_service::StatsExportService,
 };
 use concordium_common::PacketType;
@@ -103,21 +104,18 @@ pub fn make_node_and_sync(
 }
 
 /// Connects `source` and `target` nodes
-pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) -> Fallible<()> {
-    connectivity::connect(source, target.self_peer.peer_type, target.internal_addr(), None)
+pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) {
+    source.register_conn_change(ConnChange::NewPeers(vec![target.self_peer]));
 }
 
 /// Waits until handshake between 2 nodes has concluded.
-pub fn await_handshake(node1: &P2PNode, node2: &P2PNode) {
+pub fn await_handshakes(node: &P2PNode) {
     loop {
-        if read_or_die!(node1.connections())
-            .values()
-            .any(|conn| conn.remote_id() == Some(node2.id()))
-        {
+        if lock_or_die!(node.conn_candidates()).is_empty() {
             return;
         }
 
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(100));
     }
 }
 

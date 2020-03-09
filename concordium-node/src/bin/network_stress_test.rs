@@ -37,7 +37,7 @@ fn main() -> Fallible<()> {
     // create 2 nodes and connect them as peers
     let node_1 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
     let node_2 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-    connect(&node_1, &node_2)?;
+    connect(&node_1, &node_2);
 
     // send fuzzed packets from node 2
     let node_2_ref = Arc::clone(&node_2);
@@ -70,9 +70,9 @@ fn main() -> Fallible<()> {
             let faultyboi =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
             if i % 2 == 0 {
-                connect(&node_1_ref, &faultyboi).unwrap();
+                connect(&node_1_ref, &faultyboi);
             } else {
-                connect(&node_2_ref, &faultyboi).unwrap();
+                connect(&node_2_ref, &faultyboi);
             }
             faultybois.push(faultyboi);
         }
