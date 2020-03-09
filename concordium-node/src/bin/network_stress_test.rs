@@ -64,24 +64,24 @@ fn main() -> Fallible<()> {
     let node_1_ref = Arc::clone(&node_1);
     let node_2_ref = Arc::clone(&node_2);
     thread::spawn(move || {
-        let mut faultybois = vec![];
+        let mut faulty_nodes = vec![];
 
         for i in 0..5 {
-            let faultyboi =
+            let faulty_node =
                 make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
             if i % 2 == 0 {
-                connect(&node_1_ref, &faultyboi);
+                connect(&node_1_ref, &faulty_node);
             } else {
-                connect(&node_2_ref, &faultyboi);
+                connect(&node_2_ref, &faulty_node);
             }
-            faultybois.push(faultyboi);
+            faulty_nodes.push(faulty_node);
         }
         thread::sleep(Duration::from_secs(5));
 
-        for faultyboi in faultybois {
-            send_zeroes(&faultyboi);
+        for faulty_node in faulty_nodes {
+            send_zeroes(&faulty_node);
             thread::sleep(Duration::from_secs(1));
-            faultyboi.close_and_join().unwrap();
+            faulty_node.close_and_join().unwrap();
         }
     });
 
