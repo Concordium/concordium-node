@@ -1,7 +1,7 @@
 //! Incoming network message handing.
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
+    common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::{COMPATIBLE_CLIENT_VERSIONS, MAX_PEER_NETWORKS},
     connection::{ConnChange, Connection},
     network::{
@@ -14,10 +14,7 @@ use crate::{
 
 use failure::Fallible;
 
-use std::{
-    net::SocketAddr,
-    sync::{atomic::Ordering, Arc},
-};
+use std::sync::{atomic::Ordering, Arc};
 
 impl Connection {
     /// Processes a network message based on its type.
@@ -92,14 +89,12 @@ impl Connection {
             bail!("Rejecting handshake: too many networks");
         }
 
-        self.promote_to_post_handshake(handshake.remote_id, handshake.remote_port);
-
-        let remote_peer = P2PPeer::from((
-            self.remote_peer.peer_type,
+        self.promote_to_post_handshake(
             handshake.remote_id,
-            SocketAddr::new(self.remote_peer.addr.ip(), handshake.remote_port),
-        ));
-        self.populate_remote_end_networks(remote_peer, &handshake.networks);
+            handshake.remote_port,
+            &handshake.networks,
+        );
+        self.handler.register_conn_change(ConnChange::Promotion(self.token));
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");

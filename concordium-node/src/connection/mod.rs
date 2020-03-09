@@ -307,15 +307,20 @@ impl Connection {
     }
 
     /// Concludes the connection's handshake process.
-    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16) {
+    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16, nets: &Networks) {
         self.remote_peer.id = Some(id);
         self.remote_peer.peer_external_port = peer_port;
         self.handler.stats.peers_inc();
-        self.handler.bump_last_peer_update();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
-        self.handler.register_conn_change(ConnChange::Promotion(self.token));
+        let remote_peer = P2PPeer::from((
+            self.remote_peer.peer_type,
+            id,
+            SocketAddr::new(self.remote_peer.addr.ip(), peer_port),
+        ));
+        self.populate_remote_end_networks(remote_peer, nets);
+        self.handler.bump_last_peer_update();
     }
 
     /// Queues a message to be sent to the connection.
