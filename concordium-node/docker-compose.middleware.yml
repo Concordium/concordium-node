@@ -1,23 +1,13 @@
 version: '3'
 services:
-    elasticsearch:
-        image: elasticsearch:7.3.2
+    postgresql:
+        image: postgres:latest
         environment:
-            - discovery.type=single-node
+          POSTGRES_PASSWORD: concordium
+          POSTGRES_USER: concordium
+          POSTGRES_DB: concordium
         ports:
-            - "9200:9200"
-            - "9300:9300"
-        healthcheck:
-            test: ["CMD", "curl","-s" ,"-f", "http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=50s"]
-            interval: 30s
-            timeout: 10s
-            retries: 5
-    kibana:
-        image: kibana:7.3.2
-        ports:
-            - "5601:5601"
-        depends_on:
-            - elasticsearch
+            - "5432:5432"
     bootstrapper:
         image: concordium/dev-client:latest
         environment:
@@ -27,6 +17,22 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
+        depends_on:
+            - collector_backend
+            - baker_id_gen
+    collector_backend:
+        image: concordium/dev-client:latest
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=info
+            - MODE=local_collector_backend
+            - COLLECTOR_BACKEND_PORT=10000
+            - COLLECTOR_BACKEND_HOST=0.0.0.0
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh
+        ports:
+            - "12000:10000"
     baker_id_gen:
         image: concordium/dev-client:latest
         entrypoint:
@@ -34,9 +40,8 @@ services:
     baker:
         image: concordium/dev-client:latest
         depends_on:
-            - baker_id_gen
             - bootstrapper
-            - kibana
+            - postgresql
         entrypoint:
             - /start.sh
         environment:
@@ -49,8 +54,27 @@ services:
             - MODE=local_basic
             - DATA_DIR=/var/lib/concordium/data
             - RPC_SERVER_ADDR=0.0.0.0
-            - ELASTIC_SEARCH_LOGGING=1
+            - TRANSACTION_OUTCOME_LOGGING=1
+            - TRANSACTION_OUTCOME_LOGGING_HOST=postgresql
+            - TRANSACTION_OUTCOME_LOGGING_PORT=5432
+            - TRANSACTION_OUTCOME_LOGGING_NAME=concordium
+            - TRANSACTION_OUTCOME_LOGGING_USERNAME=concordium
+            - TRANSACTION_OUTCOME_LOGGING_PASSWORD=concordium
             - EXTRA_ARGS=${EXTRA_ARGS}
-            - ES_SLEEP=${ES_SLEEP}
+            - DB_SLEEP=${DB_SLEEP}
         ports:
             - "11100-11500:10000"
+    collector:
+        image: concordium/dev-client:latest
+        depends_on:
+            - baker
+        environment:
+            - RUST_BACKTRACE=1
+            - RUST_LOG=info
+            - MODE=local_collector
+            - NUM_BAKERS=${NUM_BAKERS}
+            - COLLECTOR_SLEEP=${COLLECTOR_SLEEP}
+            - COLLECTOR_URL=http://collector_backend:10000/nodes/post
+            - EXTRA_ARGS=${EXTRA_ARGS}
+        entrypoint:
+            - /start.sh

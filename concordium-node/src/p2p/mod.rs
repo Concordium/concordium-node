@@ -1,9 +1,11 @@
+//! Central node object handling.
+
 pub mod bans;
 pub mod connectivity;
 pub mod maintenance;
 pub mod peers;
 
-pub use self::maintenance::{Connections, Networks, P2PNode};
+pub use self::maintenance::{Connections, P2PNode};
 
 #[cfg(test)]
 mod tests {
@@ -64,15 +66,6 @@ mod tests {
         node.unban_node(to_ban2)?;
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_node_self_ref() -> Fallible<()> {
-        let node = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-
-        assert!(std::ptr::eq(&*node, &*node.self_ref.as_ref().unwrap().as_ref()));
 
         Ok(())
     }

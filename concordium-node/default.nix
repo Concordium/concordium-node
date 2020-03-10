@@ -18,7 +18,7 @@ let
   });
   nixpkgs = import <nixpkgs> { overlays = [ moz_overlay pkgs_overlay ]; };
   rustStableChannel =
-    (nixpkgs.rustChannelOf { channel = "1.40.0"; }).rust.override {
+    (nixpkgs.rustChannelOf { channel = "1.41.0"; }).rust.override {
       extensions =
         [ "rust-src" "rls-preview" "clippy-preview" "rustfmt-preview" ];
     };
@@ -32,7 +32,7 @@ let
 
 in rustPlatform.buildRustPackage rec {
   name = "concordium-p2p-client-${version}";
-  version = "0.2.0.0";
+  version = "0.2.1.0";
   src = ./.;
   RUST_BACKTRACE = 1;
   hardeningDisable = [ "all" ];
@@ -47,6 +47,7 @@ in rustPlatform.buildRustPackage rec {
     unbound
     gcc
     flatbuffers
+    postgresql
   ];
   cargoSha256 = "1lay053m3vk6lzzm9iac6bmnic0qn9xsi9775hv31a1pcf5m7pa0";
   meta = with pkgs.stdenv.lib; {

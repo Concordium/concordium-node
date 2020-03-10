@@ -236,13 +236,16 @@ testnet_copy_baker_data() {
   fi
   baker_count=$1; shift
   (
+    GENESIS_DATA_VERSION=$(cat ${CONCORDIUM_P2P_DIR}/scripts/GENESIS_DATA_VERSION)
+    GENESIS_FILE_NAME="${baker_count}-bakers-${GENESIS_DATA_VERSION}.tar.gz" 
+    GENESIS_FILE_URL="https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/${GENESIS_FILE_NAME}"
     rm -rf $HOME/.local/share/ConcordiumP2P &&
     mkdir -p $HOME/.local/share/ConcordiumP2P &&
-    cd $HOME/.local/share/ConcordiumP2P &&
-    cp $CONCORDIUM_P2P_DIR/genesis-data/$baker_count-bakers.tar.gz . &&
-    tar xzf $baker_count-bakers.tar.gz &&
+    cd $HOME/.local/share/ConcordiumP2P  &&
+    curl -s $GENESIS_FILE_URL > $GENESIS_FILE_NAME &&
+    tar xzf $GENESIS_FILE_NAME &&
     mv genesis_data/* . &&
     rmdir genesis_data &&
-    rm $baker_count-bakers.tar.gz
+    rm $GENESIS_FILE_NAME
   )
 }

@@ -9,7 +9,7 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt-get update && apt-get install -y unbound
+RUN apt-get update && apt-get install -y unbound libpq-dev
 COPY --from=wrapper /build-project/BUILD_TYPE/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=wrapper /build-project/start.sh /start.sh
 

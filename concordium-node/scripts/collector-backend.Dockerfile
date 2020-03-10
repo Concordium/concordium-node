@@ -9,7 +9,7 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt-get update && apt-get install -y unbound ca-certificates
+RUN apt-get update && apt-get install -y unbound ca-certificates libpq-dev
 COPY --from=wrapper /build-project/BUILD_TYPE/node-collector-backend /node-collector-backend
 COPY --from=wrapper /build-project/start.sh /start.sh
 

@@ -1,23 +1,22 @@
-#[cfg(feature = "network_dump")]
-use crate::common::P2PNodeId;
+//! Handles the `network_dump` feature.
+
+cfg_if! {
+    if #[cfg(feature = "network_dump")] {
+        use crate::common::P2PNodeId;
+        use crate::configuration::APP_INFO;
+        use app_dirs2::{get_app_root, AppDataType};
+        use crossbeam_channel::{self, Receiver};
+        use failure::Fallible;
+        use std::io::Write;
+    }
+}
+use chrono::prelude::{DateTime, Utc};
+
 use crate::network::NetworkMessage;
 
-#[cfg(feature = "network_dump")]
-use crate::configuration::APP_INFO;
-#[cfg(feature = "network_dump")]
-use app_dirs2::{get_app_root, AppDataType};
-use chrono::prelude::{DateTime, Utc};
-#[cfg(feature = "network_dump")]
-use crossbeam_channel;
-#[cfg(feature = "network_dump")]
-use crossbeam_channel::Receiver;
-#[cfg(feature = "network_dump")]
-use failure::Fallible;
-#[cfg(feature = "network_dump")]
-use std::io::Write;
+use std::{fmt, net::IpAddr, sync::Arc};
 
-use std::{net::IpAddr, sync::Arc};
-
+/// A structure containing network data to be dumped to the disk.
 pub struct DumpItem {
     timestamp:   DateTime<Utc>,
     inbound:     bool,
@@ -26,24 +25,21 @@ pub struct DumpItem {
 }
 
 impl DumpItem {
-    pub fn new(
-        timestamp: DateTime<Utc>,
-        inbound: bool,
-        remote_addr: IpAddr,
-        msg: Arc<[u8]>,
-    ) -> Self {
+    /// Creates a new dump item object.
+    pub fn new(inbound: bool, remote_addr: IpAddr, msg: Arc<[u8]>) -> Self {
         DumpItem {
-            timestamp,
+            timestamp: Utc::now(),
             inbound,
             remote_addr,
             msg,
         }
     }
+}
 
-    pub fn into_pretty_dump(self) -> String {
-        let msg = NetworkMessage::deserialize(&self.msg).expect("Can't dump network data!");
-
-        format!(
+impl fmt::Display for DumpItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
             "{} - {} - {} - {:?} - {:?}",
             self.timestamp,
             if self.inbound {
@@ -53,11 +49,14 @@ impl DumpItem {
             },
             self.remote_addr,
             self.msg,
-            msg
+            NetworkMessage::deserialize(&self.msg)
+                .map(|m| format!("{:?}", m))
+                .unwrap_or_else(|_| "couldn't deserialize".to_string())
         )
     }
 }
 
+/// Creates the thread responsible for intercepting and dumping network data.
 #[cfg(feature = "network_dump")]
 pub fn create_dump_thread(
     ip: IpAddr,
@@ -142,7 +141,7 @@ pub fn create_dump_thread(
 
                 // Pretty dump
                 if let Some(ref mut pd) = pretty_dump {
-                    pd.write_fmt(format_args!("{}\n\n", msg.into_pretty_dump())).map_err(|e| {
+                    pd.write_fmt(format_args!("{}\n\n", msg)).map_err(|e| {
                         error!("Aborting dump due to error: {}", e);
                         e
                     })?;

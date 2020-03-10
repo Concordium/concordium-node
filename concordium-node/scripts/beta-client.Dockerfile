@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.7 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -23,7 +23,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     cd genesis_data && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.7 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and simple-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
@@ -50,13 +50,13 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
 # Middleware and simple-client is now built
 
 # Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.5 as oak-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.7 as oak-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
-RUN git checkout cdb7eb0c08dac417e05e08714d5bb686e13e30c4
+RUN git checkout d3253ddac357069422b87a9201ee19860dd8fedd
 RUN --mount=type=ssh ci/dynamic-deps.sh 
 ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 RUN stack build --copy-bins --ghc-options -j4
@@ -85,7 +85,7 @@ ENV NODE_URL=localhost:10000
 ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
 ENV GRPC_HOST=localhost:10000
 ENV DISTRIBUTION_CLIENT=true
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 postgresql-server-dev-11
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh

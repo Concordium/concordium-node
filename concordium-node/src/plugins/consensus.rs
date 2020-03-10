@@ -1,59 +1,53 @@
-pub const PAYLOAD_TYPE_LENGTH: u64 = 2;
-pub const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
-pub const FILE_NAME_CRYPTO_PROV_DATA: &str = "crypto_providers.json";
-pub const FILE_NAME_ID_PROV_DATA: &str = "identity_providers.json";
-pub const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
-pub const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
-
-use byteorder::ReadBytesExt;
-use failure::Fallible;
+//! Consensus layer handling.
 
 use crossbeam_channel::TrySendError;
-use std::{
-    convert::TryFrom,
-    fs::OpenOptions,
-    io::Read,
-    mem,
-    sync::{Arc, RwLock},
-};
-
-use concordium_common::{
-    serial::Endianness,
-    ConsensusFfiResponse,
-    PacketType::{self, *},
-    QueueMsg,
-};
-
-use consensus_rust::{
-    consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
-    ffi,
-};
-
-use globalstate_rust::{
-    catch_up::{PeerList, PeerState, PeerStatus},
-    common::sha256,
-    tree::{
-        messaging::{ConsensusMessage, DistributionMode, MessageType},
-        GlobalState,
-    },
-};
+use failure::Fallible;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId},
     configuration::{self, MAX_CATCH_UP_TIME},
+    connection::ConnChange,
+    find_conn_by_id,
     network::NetworkId,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
 };
+use concordium_common::{
+    ConsensusFfiResponse,
+    PacketType::{self, *},
+    QueueMsg,
+};
+use consensus_rust::{
+    catch_up::{PeerList, PeerState, PeerStatus},
+    consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
+    ffi,
+    messaging::{ConsensusMessage, DistributionMode, MessageType},
+};
+use crypto_common::Deserial;
 
+use std::{
+    convert::TryFrom,
+    fs::OpenOptions,
+    io::{Cursor, Read},
+    mem,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
+
+const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
+const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
+const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
+
+/// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
     conf: &configuration::BakerConfig,
-    gsptr: GlobalState,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     max_logging_level: consensus::ConsensusLogLevel,
+    appdata_dir: &PathBuf,
+    database_connection_url: &str,
 ) -> Fallible<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -63,22 +57,23 @@ pub fn start_consensus_layer(
         conf.time_profiling,
         conf.backtraces_profiling,
         conf.gc_logging.clone(),
-        conf.profiling_sampling_interval,
+        &conf.profiling_sampling_interval,
     );
     #[cfg(not(feature = "profiling"))]
     ffi::start_haskell();
 
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
-        conf.scheduler_outcome_logging,
         genesis_data,
         private_data,
         conf.baker_id,
-        gsptr,
         max_logging_level,
+        appdata_dir,
+        database_connection_url,
     )
 }
 
+/// Obtain the path to the file containing baker private data.
 pub fn get_baker_private_data_json_file(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
@@ -99,6 +94,7 @@ pub fn get_baker_private_data_json_file(
     }
 }
 
+/// Obtains the genesis data and baker's private data.
 pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
@@ -142,20 +138,19 @@ pub fn get_baker_data(
         None
     };
 
-    debug!("Obtained genesis data {:?}", sha256(&[&[0u8; 8], genesis_data.as_slice()].concat()));
     Ok((genesis_data, private_data))
 }
 
-/// Handles packets coming from other peers
+/// Handles packets coming from other peers.
 pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<P2PNodeId>,
     peer_id: P2PNodeId,
-    msg: Arc<[u8]>,
+    msg: Vec<u8>,
     is_broadcast: bool,
 ) -> Fallible<()> {
-    ensure!(msg.len() >= 2, "Packet payload can't be smaller than 2 bytes");
-    let consensus_type = (&msg[..2]).read_u16::<Endianness>()?;
+    ensure!(!msg.is_empty(), "Packet payload can't be empty");
+    let consensus_type = u8::deserial(&mut Cursor::new(&msg[..1]))?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
@@ -167,8 +162,9 @@ pub fn handle_pkt_out(
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id.0, distribution_mode),
         packet_type,
-        msg,
+        Arc::from(msg),
         dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
+        None,
     );
 
     match if packet_type == PacketType::Transaction {
@@ -202,21 +198,41 @@ pub fn handle_pkt_out(
     Ok(())
 }
 
+/// Routes a self-made consensus message to the right peers.
 pub fn handle_consensus_outbound_msg(
     node: &P2PNode,
     network_id: NetworkId,
-    request: ConsensusMessage,
+    message: ConsensusMessage,
+    peers_lock: &RwLock<PeerList>,
 ) -> Fallible<()> {
-    send_consensus_msg_to_net(
-        node,
-        request.dont_relay_to(),
-        node.self_peer.id,
-        request.target_peer().map(P2PNodeId),
-        network_id,
-        (request.payload, request.variant),
-    )
+    if let Some(status) = message.omit_status {
+        for peer in read_or_die!(peers_lock)
+            .peers
+            .iter()
+            .filter(|(_, &state)| state.status != status)
+            .map(|(&id, _)| id)
+        {
+            send_consensus_msg_to_net(
+                node,
+                Vec::new(),
+                Some(P2PNodeId(peer)),
+                network_id,
+                (message.payload.clone(), message.variant),
+            );
+        }
+    } else {
+        send_consensus_msg_to_net(
+            node,
+            message.dont_relay_to(),
+            message.target_peer().map(P2PNodeId),
+            network_id,
+            (message.payload, message.variant),
+        );
+    }
+    Ok(())
 }
 
+/// Processes a consensus message from the network.
 pub fn handle_consensus_inbound_msg(
     node: &P2PNode,
     network_id: NetworkId,
@@ -224,44 +240,58 @@ pub fn handle_consensus_inbound_msg(
     request: ConsensusMessage,
     peers_lock: &RwLock<PeerList>,
 ) -> Fallible<()> {
+    // If the drop_rebroadcast_probability parameter is set, do not
+    // rebroadcast the packet to the network with the given chance.
+    let drop_message = match node.config.drop_rebroadcast_probability {
+        Some(probability) => {
+            use rand::distributions::{Bernoulli, Distribution};
+            if Bernoulli::new(probability)?.sample(&mut rand::thread_rng()) {
+                trace!("Will not rebroadcast this packet");
+                true
+            } else {
+                false
+            }
+        }
+        _ => false,
+    };
+
     let source = P2PNodeId(request.source_peer());
 
     if node.config.no_rebroadcast_consensus_validation {
-        if request.distribution_mode() == DistributionMode::Broadcast {
+        if !drop_message && request.distribution_mode() == DistributionMode::Broadcast {
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
-                source,
                 None,
                 network_id,
                 (request.payload.clone(), request.variant),
-            )?;
+            );
         }
 
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(peers_lock, &request, consensus_result);
+        update_peer_states(node, network_id, peers_lock, &request, consensus_result);
     } else {
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(peers_lock, &request, consensus_result);
+        update_peer_states(node, network_id, peers_lock, &request, consensus_result);
 
         // rebroadcast incoming broadcasts if applicable
-        if request.distribution_mode() == DistributionMode::Broadcast
+        if !drop_message
+            && request.distribution_mode() == DistributionMode::Broadcast
             && consensus_result.is_rebroadcastable()
         {
             send_consensus_msg_to_net(
                 &node,
                 request.dont_relay_to(),
-                source,
                 None,
                 network_id,
                 (request.payload, request.variant),
-            )?;
+            );
         }
     }
 
@@ -272,12 +302,12 @@ fn send_msg_to_consensus(
     node: &P2PNode,
     source_id: P2PNodeId,
     consensus: &ConsensusContainer,
-    request: &ConsensusMessage,
+    message: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
+    let payload = &message.payload[1..]; // non-empty, already checked
     let raw_id = source_id.as_raw();
-    let payload = &request.payload[2..];
 
-    let consensus_response = match request.variant {
+    let consensus_response = match message.variant {
         Block => consensus.send_block(payload),
         Transaction => consensus.send_transaction(payload),
         FinalizationMessage => consensus.send_finalization(payload),
@@ -288,9 +318,9 @@ fn send_msg_to_consensus(
     };
 
     if consensus_response.is_acceptable() {
-        info!("Processed a {} from {}", request.variant, source_id);
+        info!("Processed a {} from {}", message.variant, source_id);
     } else {
-        debug!("Couldn't process a {} due to error code {:?}", request, consensus_response,);
+        debug!("Couldn't process a {} due to error code {:?}", message, consensus_response,);
     }
 
     Ok(consensus_response)
@@ -299,22 +329,20 @@ fn send_msg_to_consensus(
 fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
-    source_id: P2PNodeId,
     target_id: Option<P2PNodeId>,
     network_id: NetworkId,
     (payload, msg_desc): (Arc<[u8]>, PacketType),
-) -> Fallible<()> {
-    let result = if target_id.is_some() {
-        send_direct_message(node, source_id, target_id, network_id, payload)
+) {
+    if let Some(target_id) = target_id {
+        send_direct_message(node, target_id, network_id, payload);
     } else {
         send_broadcast_message(
             node,
-            source_id,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
             payload,
-        )
-    };
+        );
+    }
 
     let target_desc = if let Some(id) = target_id {
         format!("direct message to peer {}", id)
@@ -322,11 +350,7 @@ fn send_consensus_msg_to_net(
         "broadcast".to_string()
     };
 
-    match result {
-        Ok(_) => info!("Sent a {} containing a {}", target_desc, msg_desc),
-        Err(_) => error!("Couldn't send a {} containing a {}!", target_desc, msg_desc,),
-    }
-    Ok(())
+    info!("Sent a {} containing a {}", target_desc, msg_desc);
 }
 
 fn send_catch_up_status(
@@ -335,7 +359,7 @@ fn send_catch_up_status(
     consensus: &ConsensusContainer,
     peers_lock: &RwLock<PeerList>,
     target: PeerId,
-) -> Fallible<()> {
+) {
     debug!("Global state: I'm catching up with peer {:016x}", target);
 
     let peers = &mut write_or_die!(peers_lock);
@@ -347,13 +371,13 @@ fn send_catch_up_status(
     send_consensus_msg_to_net(
         node,
         vec![],
-        node.self_peer.id,
         Some(P2PNodeId(target)),
         network_id,
         (consensus.get_catch_up_status(), PacketType::CatchUpStatus),
-    )
+    );
 }
 
+/// Updates the peer list upon changes to the list of peer nodes.
 pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
     debug!("The peers have changed; updating the catch-up peer list");
 
@@ -377,12 +401,13 @@ pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
     }
 }
 
+/// Check whether the peers require catching up.
 pub fn check_peer_states(
     node: &P2PNode,
     network_id: NetworkId,
     consensus: &ConsensusContainer,
     peers_lock: &RwLock<PeerList>,
-) -> Fallible<()> {
+) {
     use PeerStatus::*;
 
     // take advantage of the priority queue ordering
@@ -395,29 +420,29 @@ pub fn check_peer_states(
                 // there are peers that are catching up
                 if get_current_stamp() > read_or_die!(peers_lock).catch_up_stamp + MAX_CATCH_UP_TIME
                 {
-                    debug!("Global state: peer {:016x} took too long to catch up", id);
+                    debug!("Peer {:016x} took too long to catch up; dropping", id);
                     if let Some(token) =
-                        node.find_connection_by_id(P2PNodeId(id)).map(|conn| conn.token)
+                        find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token)
                     {
-                        node.remove_connection(token);
+                        node.register_conn_change(ConnChange::Removal(token));
                     }
                 }
             }
             Pending => {
                 // send a catch-up message to the first Pending peer
-                debug!("Global state: I need to catch up with peer {:016x}", id);
-                send_catch_up_status(node, network_id, consensus, &peers_lock, id)?;
+                debug!("I need to catch up with peer {:016x}", id);
+                send_catch_up_status(node, network_id, consensus, &peers_lock, id);
             }
             UpToDate => {
-                consensus.start_baker();
+                // do nothing
             }
         }
     }
-
-    Ok(())
 }
 
 fn update_peer_states(
+    node: &P2PNode,
+    network_id: NetworkId,
     peers_lock: &RwLock<PeerList>,
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
@@ -449,6 +474,22 @@ fn update_peer_states(
 
                 for up_to_date_peer in up_to_date_peers {
                     peers.peers.change_priority(&up_to_date_peer, PeerState::new(Pending));
+                }
+
+                // relay rebroadcastable direct messages to non-pending peers, but originator
+                for non_pending_peer in peers
+                    .peers
+                    .iter()
+                    .filter(|(&id, &state)| id != source_peer && state.status != Pending)
+                    .map(|(&id, _)| id)
+                {
+                    send_consensus_msg_to_net(
+                        node,
+                        Vec::new(),
+                        Some(P2PNodeId(non_pending_peer)),
+                        network_id,
+                        (request.payload.clone(), request.variant),
+                    );
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {

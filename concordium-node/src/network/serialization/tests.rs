@@ -1,6 +1,10 @@
+use semver::Version;
+
 use crate::{
-    common::{p2p_peer::P2PPeer, P2PNodeId, PeerType},
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkRequest, NetworkResponse},
+    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerType},
+    network::{
+        Handshake, NetworkId, NetworkMessage, NetworkPayload, NetworkRequest, NetworkResponse,
+    },
     p2p::bans::BanId,
     test_utils::create_random_packet,
 };
@@ -14,10 +18,10 @@ macro_rules! test_s11n {
     ($name:ident, $payload:expr) => {
         #[test]
         fn $name() {
-            let mut msg = NetworkMessage {
-                timestamp1: None,
-                timestamp2: None,
-                payload:    $payload,
+            let msg = NetworkMessage {
+                created:  get_current_stamp(),
+                received: None,
+                payload:  $payload,
             };
             let mut buffer = Cursor::new(Vec::new());
 
@@ -28,58 +32,55 @@ macro_rules! test_s11n {
     };
 }
 
-test_s11n!(s11n_req_ping, NetworkMessagePayload::NetworkRequest(NetworkRequest::Ping));
+test_s11n!(s11n_req_ping, NetworkPayload::NetworkRequest(NetworkRequest::Ping));
 test_s11n!(
     s11n_req_get_peers,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::GetPeers(
+    NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(
         [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
     ))
 );
 test_s11n!(
     s11n_req_handshake,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::Handshake(
-        P2PNodeId(77),
-        1234,
-        [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
-        Vec::new(),
-    ))
+    NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
+        remote_id:   P2PNodeId(77),
+        remote_port: 1234,
+        networks:    [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
+        version:     Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+        proof:       Vec::new(),
+    }))
 );
 test_s11n!(
     s11n_req_ban_id,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::NodeId(P2PNodeId(1337))))
+    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::NodeId(P2PNodeId(1337))))
 );
 test_s11n!(
     s11n_req_unban_id,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::UnbanNode(BanId::NodeId(P2PNodeId(
-        1337
-    ))))
+    NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(BanId::NodeId(P2PNodeId(1337))))
 );
 test_s11n!(
     s11n_req_ban_ip_v4,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
-        4, 3, 2, 1
-    ])),))
+    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([4, 3, 2, 1])),))
 );
 test_s11n!(
     s11n_req_ban_ip_v6,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
+    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
         1, 2, 3, 4, 5, 6, 7, 8
     ])),))
 );
 test_s11n!(
     s11n_req_join_net,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::JoinNetwork(NetworkId::from(1337),))
+    NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(NetworkId::from(1337),))
 );
 test_s11n!(
     s11n_req_leave_net,
-    NetworkMessagePayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
+    NetworkPayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
 );
 
-test_s11n!(s11n_resp_pong, NetworkMessagePayload::NetworkResponse(NetworkResponse::Pong));
+test_s11n!(s11n_resp_pong, NetworkPayload::NetworkResponse(NetworkResponse::Pong));
 
 test_s11n!(
     s11n_resp_peer_list,
-    NetworkMessagePayload::NetworkResponse(NetworkResponse::PeerList(
+    NetworkPayload::NetworkResponse(NetworkResponse::PeerList(
         [
             P2PPeer {
                 id:        P2PNodeId(1234567890123),
@@ -100,7 +101,7 @@ test_s11n!(
 
 #[test]
 fn s11n_packet() {
-    let mut msg = create_random_packet(8);
+    let msg = create_random_packet(8);
     let mut buffer = Cursor::new(Vec::new());
 
     msg.serialize(&mut buffer).unwrap();

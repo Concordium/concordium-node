@@ -20,6 +20,7 @@ table Handshake {
     nodeId: uint64;
     port: uint16;
     networkIds: [uint16];
+    version: [uint8];
     zk: [uint8];
 }
 
@@ -77,11 +78,11 @@ table NetworkResponse {
 
 // network message
 
-union NetworkMessagePayload { NetworkPacket, NetworkRequest, NetworkResponse }
+union NetworkPayload { NetworkPacket, NetworkRequest, NetworkResponse }
 
 table NetworkMessage {
     timestamp: uint64;
-    payload: NetworkMessagePayload;
+    payload: NetworkPayload;
 }
 
 file_identifier "CP2P";

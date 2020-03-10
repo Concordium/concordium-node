@@ -1,21 +1,11 @@
 #![recursion_limit = "1024"]
-#![allow(bare_trait_objects)] // until grpc updates to Rust 2018
 
 #[macro_use]
 extern crate log;
-#[cfg(not(target_os = "windows"))]
-extern crate get_if_addrs;
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
 
-cfg_if! {
-    if #[cfg(feature = "elastic_logging")] {
-        #[macro_use]
-        extern crate elastic_derive;
-    }
-}
+#[cfg(feature = "elastic_logging")]
+#[macro_use]
+extern crate elastic_derive;
 
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
@@ -23,21 +13,17 @@ cfg_if! {
         extern crate prometheus;
         #[macro_use]
         extern crate gotham_derive;
-        extern crate hyper;
-        extern crate mime;
     }
 }
 
 #[macro_use]
 extern crate cfg_if;
-#[cfg(target_os = "windows")]
-extern crate ipconfig;
 
 #[macro_use]
 extern crate failure;
 
-#[macro_use]
 #[cfg(all(test, not(feature = "s11n_capnp")))]
+#[macro_use]
 extern crate quickcheck;
 
 #[macro_use]
@@ -47,21 +33,10 @@ extern crate concordium_common;
 #[macro_use]
 extern crate serde_derive;
 
-#[cfg(feature = "s11n_serde_cbor")]
-extern crate serde_cbor;
-
-#[cfg(feature = "s11n_capnp")]
-extern crate capnp;
-
-#[cfg(feature = "s11n_fbs")]
-extern crate flatbuffers;
-
+/// Client's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Client's name.
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
-const DEFAULT_DNS_PUBLIC_KEY: &str =
-    "58C4FD93586B92A76BA89141667B1C205349C6C38CC8AB2F6613F7483EBFDAA3";
-const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
-pub fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
 pub mod common;
 pub mod configuration;
@@ -71,10 +46,9 @@ pub mod network;
 pub mod p2p;
 pub mod plugins;
 
+#[cfg(feature = "network_dump")]
 pub mod dumper;
-pub mod proto;
 pub mod rpc;
-pub mod stats_engine;
 pub mod stats_export_service;
 pub mod utils;
 

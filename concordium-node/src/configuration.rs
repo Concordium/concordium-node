@@ -1,3 +1,5 @@
+//! The client's parameters and constants used by other modules.
+
 use app_dirs2::*;
 use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
@@ -8,35 +10,53 @@ use std::{
 };
 use structopt::StructOpt;
 
+/// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
     name:   "ConcordiumP2P",
     author: "Concordium",
 };
 
+/// A list of peer client versions applicable for connections.
+// it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
+// so that it is impossible to omit manual inspection upon future updates
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.1", "0.2.0"];
+
+/// The maximum size of objects accepted from the network.
+pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
+
 const APP_PREFERENCES_MAIN: &str = "main.config";
-pub const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
+const APP_PREFERENCES_KEY_VERSION: &str = "VERSION";
+/// Used for a persistent node id setup.
 pub const APP_PREFERENCES_PERSISTED_NODE_ID: &str = "PERSISTED_NODE_ID";
 
-// maximum time allowed for a peer to catch up with in milliseconds
+/// Maximum time allowed for a peer to catch up with, in milliseconds.
 pub const MAX_CATCH_UP_TIME: u64 = 300_000;
 
-// queue depths
-pub const RPC_QUEUE_DEPTH: usize = 1024 * 32;
-pub const EVENT_LOG_QUEUE_DEPTH: usize = 100;
+// dump queue depths
+#[cfg(feature = "network_dump")]
 pub const DUMP_QUEUE_DEPTH: usize = 100;
+#[cfg(feature = "network_dump")]
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
 // connection-related consts
-pub const MAX_FAILED_PACKETS_ALLOWED: u32 = 50;
+/// Maximum time (in ms) a node's connection can remain unreachable.
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
+/// Maximum time (in ms) a bootstrapper can hold an inactive connection to a
+/// node.
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
+/// Maximum time (in ms) a node can hold an inactive connection to a peer.
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
+/// Maximum time (in ms) a connection can be kept without concluding a
+/// handshake.
 pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
+/// Maximum time (in s) a soft ban is in force.
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
+/// Maximum number of networks a peer can share
+pub const MAX_PEER_NETWORKS: usize = 20;
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
-/// Flags related to Prometheus
+/// Parameters related to Prometheus.
 pub struct PrometheusConfig {
     #[structopt(
         long = "prometheus-listen-addr",
@@ -82,30 +102,8 @@ pub struct PrometheusConfig {
     pub prometheus_push_interval: u64,
 }
 
-#[cfg(feature = "benchmark")]
 #[derive(StructOpt, Debug)]
-/// Flags related to TPS (only used in Cli)
-pub struct TpsConfig {
-    #[structopt(long = "enable-tps-test-recv", help = "Enable TPS test recv")]
-    pub enable_tps_test: bool,
-    #[structopt(long = "tps-test-recv-id", help = "Receiver of TPS test")]
-    pub tps_test_recv_id: Option<String>,
-    #[structopt(
-        long = "tps-stats-save-amount",
-        help = "Amount of stats to save for TPS statistics",
-        default_value = "10000"
-    )]
-    pub tps_stats_save_amount: u64,
-    #[structopt(
-        long = "tps-message-count",
-        help = "Amount of messages to be sent and received",
-        default_value = "1000"
-    )]
-    pub tps_message_count: u64,
-}
-
-#[derive(StructOpt, Debug)]
-/// Flags related to Baking (only used in Cli)
+/// Parameters related to Baking (only used in cli).
 pub struct BakerConfig {
     #[structopt(long = "baker-id", help = "Baker ID")]
     pub baker_id: Option<u64>,
@@ -132,11 +130,9 @@ pub struct BakerConfig {
         help = "Profile sampling interval in seconds",
         default_value = "0.1"
     )]
-    pub profiling_sampling_interval: f64,
+    pub profiling_sampling_interval: String,
     #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
-    #[structopt(long = "persist-global-state", help = "Persist the the global state store")]
-    pub persist_global_state: bool,
     #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",
@@ -151,7 +147,7 @@ pub struct BakerConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Flags related to the RPC (onl`y used in Cli)
+/// Parameters related to the RPC (onl`y used in cli).
 pub struct RpcCliConfig {
     #[structopt(long = "no-rpc-server", help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
@@ -172,7 +168,7 @@ pub struct RpcCliConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Flags related to connection matters
+/// Parameters related to connections.
 pub struct ConnectionConfig {
     #[structopt(
         long = "desired-nodes",
@@ -180,12 +176,6 @@ pub struct ConnectionConfig {
         default_value = "7"
     )]
     pub desired_nodes: u16,
-    #[structopt(
-        long = "max-resend-attempts",
-        help = "Maximum number of times a packet is attempted to be resent",
-        default_value = "5"
-    )]
-    pub max_resend_attempts: u8,
     #[structopt(long = "max-allowed-nodes", help = "Maximum nodes to allow a connection to")]
     pub max_allowed_nodes: Option<u16>,
     #[structopt(
@@ -209,11 +199,6 @@ pub struct ConnectionConfig {
         default_value = "bootstrap.p2p.concordium.com"
     )]
     pub bootstrap_server: String,
-    #[structopt(
-        long = "global-state-catch-up-requests",
-        help = "Should global state produce catch-up requests"
-    )]
-    pub global_state_catch_up_requests: bool,
     #[structopt(
         long = "connect-to",
         short = "c",
@@ -297,10 +282,8 @@ pub struct ConnectionConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Common configuration for the three modes
+/// Parameters pertaining to basic setup.
 pub struct CommonConfig {
-    #[structopt(long = "external-ip", help = "Own external IP")]
-    pub external_ip: Option<String>,
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
     #[structopt(
@@ -356,6 +339,7 @@ pub struct CommonConfig {
     pub bucket_cleanup_interval: u64,
 }
 
+/// Client's parameters.
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
@@ -368,9 +352,6 @@ pub struct CliConfig {
     pub poll_interval: u64,
     #[structopt(flatten)]
     pub baker: BakerConfig,
-    #[cfg(feature = "benchmark")]
-    #[structopt(flatten)]
-    pub tps: TpsConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
     #[cfg(feature = "elastic_logging")]
@@ -397,8 +378,64 @@ pub struct CliConfig {
         help = "Disable consensus controlling whether to rebroadcast or not"
     )]
     pub no_rebroadcast_consensus_validation: bool,
+    #[structopt(
+        long = "drop-rebroadcast-probability",
+        help = "Drop a message from being rebroadcasted by a certain probability"
+    )]
+    pub drop_rebroadcast_probability: Option<f64>,
+    #[structopt(
+        long = "breakage-type",
+        help = "Break for test purposes; spam - send duplicate messages / fuzz - mangle messages \
+                [fuzz|spam]"
+    )]
+    pub breakage_type: Option<String>,
+    #[structopt(
+        long = "breakage-target",
+        help = "Used together with breakage-type; 0/1/2/3/4/99 - blocks/txs/fin msgs/fin \
+                recs/catch-up msgs/everything [0|1|2|3|4|99]"
+    )]
+    pub breakage_target: Option<u8>,
+    #[structopt(
+        long = "breakage-level",
+        help = "Used together with breakage-type; either the number of spammed duplicates or \
+                mangled bytes"
+    )]
+    pub breakage_level: Option<usize>,
+    #[structopt(long = "transaction-outcome-logging", help = "Enable transaction outcome logging")]
+    pub transaction_outcome_logging: bool,
+    #[structopt(
+        long = "transaction-outcome-logging-database-name",
+        help = "Transaction outcome logging database name",
+        default_value = "concordium"
+    )]
+    pub transaction_outcome_logging_database_name: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-host",
+        help = "Transaction outcome logging database host",
+        default_value = "127.0.0.1"
+    )]
+    pub transaction_outcome_logging_database_host: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-username",
+        help = "Transaction outcome logging database username",
+        default_value = "concordium"
+    )]
+    pub transaction_outcome_logging_database_username: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-password",
+        help = "Transaction outcome logging database password",
+        default_value = "concordium"
+    )]
+    pub transaction_outcome_logging_database_password: String,
+    #[structopt(
+        long = "transaction-outcome-logging-database-port",
+        help = "Transaction outcome logging database port",
+        default_value = "5432"
+    )]
+    pub transaction_outcome_logging_database_port: u16,
 }
 
+/// Parameters applicable to a bootstrapper.
 #[derive(StructOpt, Debug)]
 #[structopt(name = "BootstrapperNode")]
 pub struct BootstrapperConfig {
@@ -421,8 +458,14 @@ pub struct BootstrapperConfig {
         default_value = "7200000"
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
+    #[structopt(
+        long = "partition-network-for-time",
+        help = "Partition the network for a set amount of time since startup (in ms)"
+    )]
+    pub partition_network_for_time: Option<usize>,
 }
 
+/// The main configuration object.
 #[derive(StructOpt, Debug)]
 pub struct Config {
     #[structopt(flatten)]
@@ -454,8 +497,8 @@ impl Config {
     }
 }
 
+/// Verifies the validity of the configuration.
 pub fn parse_config() -> Fallible<Config> {
-    use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
     let conf = Config::from_args();
 
     ensure!(
@@ -503,9 +546,28 @@ pub fn parse_config() -> Fallible<Config> {
         "Socket read size must be greater or equal to the write size"
     );
 
+    ensure!(
+        conf.cli.breakage_type.is_some()
+            && conf.cli.breakage_target.is_some()
+            && conf.cli.breakage_level.is_some()
+            || conf.cli.breakage_type.is_none()
+                && conf.cli.breakage_target.is_none()
+                && conf.cli.breakage_level.is_none(),
+        "The 3 breakage options (breakage-type, breakage-target, breakage-level) must be enabled \
+         or disabled together"
+    );
+
+    if let Some(ref breakage_type) = conf.cli.breakage_type {
+        ensure!(["spam", "fuzz"].contains(&breakage_type.as_str()), "Unsupported breakage-type");
+        if let Some(breakage_target) = conf.cli.breakage_target {
+            ensure!([0, 1, 2, 3, 4, 99].contains(&breakage_target), "Unsupported breakage-target");
+        }
+    }
+
     Ok(conf)
 }
 
+/// Handles the configuration data.
 #[derive(Debug)]
 pub struct AppPreferences {
     preferences_map:     PreferencesMap<String>,
@@ -514,6 +576,7 @@ pub struct AppPreferences {
 }
 
 impl AppPreferences {
+    /// Creates an `AppPreferences` object.
     pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
         let mut new_prefs = match OpenOptions::new().read(true).write(true).open(&file_path) {
@@ -575,6 +638,7 @@ impl AppPreferences {
         }
     }
 
+    /// Add a piece of config to the config map.
     pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
         match value {
             Some(val) => self.preferences_map.insert(key.to_string(), val),
@@ -599,10 +663,13 @@ impl AppPreferences {
         }
     }
 
+    /// Get a piece of config from the config map.
     pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
 
+    /// Returns the path to the application directory.
     pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
 
+    /// Returns the path to the config directory.
     pub fn get_user_config_dir(&self) -> PathBuf {
         Self::calculate_config_path(&self.override_config_dir)
     }

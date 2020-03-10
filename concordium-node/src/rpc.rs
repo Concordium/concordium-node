@@ -1,1246 +1,734 @@
-#[cfg(feature = "benchmark")]
-use crate::utils;
+//! An implementation of an RPC server and functions handling all available gRPC
+//! calls.
+
 use crate::{
     common::{P2PNodeId, PeerType},
     configuration,
-    failure::{Error, Fallible},
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacketType},
-    p2p::{
-        bans::BanId,
-        connectivity::{send_broadcast_message, send_direct_message},
-        P2PNode,
-    },
-    proto::*,
+    connection::ConnChange,
+    failure::Fallible,
+    network::NetworkId,
+    p2p::{bans::BanId, P2PNode},
 };
 
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::WriteBytesExt;
 use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
-use consensus_rust::consensus::{ConsensusContainer, CALLBACK_QUEUE};
-use futures::future::Future;
-use globalstate_rust::tree::messaging::{ConsensusMessage, MessageType};
-use grpcio::{self, Environment, ServerBuilder};
+use consensus_rust::{
+    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    messaging::{ConsensusMessage, MessageType},
+};
+use tonic::{transport::Server, Code, Request, Response, Status};
 
-use crossbeam_channel;
 use std::{
+    fs,
     io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
-    sync::{atomic::Ordering, Arc, Mutex},
+    sync::{atomic::Ordering, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
 
+tonic::include_proto!("concordium");
+use p2p_server::*;
+
+/// The object used to initiate a gRPC server.
+#[derive(Clone)]
 pub struct RpcServerImpl {
     node: Arc<P2PNode>,
-    listen_port: u16,
-    listen_addr: String,
+    listen_addr: SocketAddr,
     access_token: String,
     baker_private_data_json_file: Option<String>,
+    // this field is optional only for test purposes
     consensus: Option<ConsensusContainer>,
-    server: Arc<Mutex<Option<grpcio::Server>>>,
-    receiver: Option<crossbeam_channel::Receiver<NetworkMessage>>,
-}
-
-// a trick implementation so we can have a lockless Receiver
-impl Clone for RpcServerImpl {
-    fn clone(&self) -> Self {
-        RpcServerImpl {
-            node: Arc::clone(&self.node),
-            listen_port: self.listen_port,
-            listen_addr: self.listen_addr.clone(),
-            access_token: self.access_token.clone(),
-            baker_private_data_json_file: self.baker_private_data_json_file.clone(),
-            consensus: self.consensus.clone(),
-            server: self.server.clone(),
-            receiver: None,
-        }
-    }
 }
 
 impl RpcServerImpl {
+    /// Creates a new RPC server object.
     pub fn new(
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
-        subscription_queue_out: crossbeam_channel::Receiver<NetworkMessage>,
         baker_private_data_json_file: Option<String>,
-    ) -> Self {
-        RpcServerImpl {
+    ) -> Fallible<Self> {
+        let listen_addr =
+            SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
+
+        Ok(RpcServerImpl {
             node: Arc::clone(&node),
-            listen_addr: conf.rpc_server_addr.clone(),
-            listen_port: conf.rpc_server_port,
+            listen_addr,
             access_token: conf.rpc_server_token.clone(),
             baker_private_data_json_file,
             consensus,
-            server: Default::default(),
-            receiver: Some(subscription_queue_out),
-        }
+        })
     }
 
-    #[inline]
-    pub fn set_server(&mut self, server: grpcio::Server) -> Fallible<()> {
-        let mut srv = safe_lock!(self.server)?;
-        *srv = Some(server);
-        Ok(())
-    }
-
-    pub fn start_server(&mut self) -> Fallible<()> {
+    /// Starts the gRPC server.
+    pub async fn start_server(&mut self) -> Fallible<()> {
         let self_clone = self.clone();
-        let env = Arc::new(Environment::new(1));
-        let (listen_addr, listen_port) = (self_clone.listen_addr.clone(), self_clone.listen_port);
-        let service = create_p2_p(self_clone);
-        info!("RPC started on {}:{}", listen_addr, listen_port);
-        let mut server = ServerBuilder::new(env)
-            .register_service(service)
-            .bind(listen_addr, listen_port)
-            .build()
-            .map_err(Error::from)?;
+        let server = Server::builder().add_service(P2pServer::new(self_clone));
 
-        server.start();
-        self.set_server(server)?;
-
-        Ok(())
-    }
-
-    #[inline]
-    pub fn stop_server(&mut self) -> Fallible<()> {
-        if let Some(ref mut srv) = *safe_lock!(self.server)? {
-            srv.shutdown().wait().map_err(Error::from)?;
-        }
-        Ok(())
-    }
-
-    fn send_message_with_error(&self, req: &SendMessageRequest) -> Fallible<SuccessResponse> {
-        let mut r: SuccessResponse = SuccessResponse::new();
-
-        if req.has_message() && req.has_broadcast() {
-            // TODO avoid double-copy
-            let msg = Arc::from(req.get_message().get_value());
-            let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-
-            if req.has_node_id() && !req.get_broadcast().get_value() && req.has_network_id() {
-                let id = P2PNodeId::from_str(&req.get_node_id().get_value().to_string())?;
-
-                trace!("Sending direct message to: {}", id);
-                r.set_value(
-                    send_direct_message(
-                        &self.node,
-                        self.node.self_peer.id,
-                        Some(id),
-                        network_id,
-                        msg,
-                    )
-                    .map_err(|e| error!("{}", e))
-                    .is_ok(),
-                );
-            } else if req.get_broadcast().get_value() {
-                trace!("Sending broadcast message");
-                r.set_value(
-                    send_broadcast_message(
-                        &self.node,
-                        self.node.self_peer.id,
-                        vec![],
-                        network_id,
-                        msg,
-                    )
-                    .map_err(|e| error!("{}", e))
-                    .is_ok(),
-                );
-            }
-        } else {
-            r.set_value(false);
-        }
-        Ok(r)
-    }
-
-    fn receive_network_msg(&self) -> Option<NetworkMessage> {
-        self.receiver.as_ref().unwrap().try_recv().ok()
+        server.serve(self.listen_addr).await.map_err(|e| e.into())
     }
 }
 
 macro_rules! authenticate {
-    ($ctx:expr, $req:expr, $sink:expr, $access_token:expr, $inner:block) => {
-        match $ctx.request_headers().iter().find(|&val| val.0 == "authentication") {
-            Some(val) => {
-                match String::from_utf8(val.1.to_vec()) {
-                    Ok(at) => {
-                        if at == $access_token {
-                            $inner
-                        } else {
-                            let f = $sink
-                                .fail(::grpcio::RpcStatus::new(
-                                    ::grpcio::RpcStatusCode::Unauthenticated,
-                                    Some("Missing or incorrect token provided".to_string()),
-                                ))
-                                .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                            $ctx.spawn(f);
-                        }
-                    }
-                    Err(e) => {
-                        let f = $sink
-                            .fail(::grpcio::RpcStatus::new(
-                                ::grpcio::RpcStatusCode::InvalidArgument,
-                                Some(e.to_string()),
-                            ))
-                            .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                        $ctx.spawn(f);
-                    }
-                };
+    ($req:expr, $access_token:expr) => {
+        if let Some(val) = $req.metadata().get("authentication") {
+            match std::str::from_utf8(val.as_bytes()) {
+                Ok(at) if at == $access_token => {}
+                _ => {
+                    error!("failed to reply to {:?}: invalid authentication token", $req);
+                    return Err(Status::new(Code::Unauthenticated, "invalid authentication token"));
+                }
             }
-            _ => {
-                let f = $sink
-                    .fail(::grpcio::RpcStatus::new(
-                        ::grpcio::RpcStatusCode::Unauthenticated,
-                        Some("Missing or incorrect token provided".to_string()),
+        } else {
+            error!("failed to reply to {:?}: missing authentication token", $req);
+            return Err(Status::new(Code::Unauthenticated, "missing authentication token"));
+        }
+    };
+}
+
+macro_rules! call_consensus {
+    ($self:ident, $req_name:expr, $resp_type:ident, $consensus_call:expr) => {
+        if let Some(ref container) = $self.consensus {
+            if !container.consensus.load(Ordering::Relaxed).is_null() {
+                Ok(Response::new($resp_type {
+                    value: $consensus_call(container),
+                }))
+            } else {
+                warn!("Can't respond to a {} request due to uninitialized Consensus", $req_name);
+                Err(Status::new(Code::Internal, "The consensus layer has not been initialized!"))
+            }
+        } else {
+            error!("Consensus container not supplied; is this a gRPC unit test?");
+            Err(Status::new(Code::FailedPrecondition, "The consensus container is missing!"))
+        }
+    };
+}
+
+/// Enhances a request with an authentication token.
+#[macro_export]
+macro_rules! req_with_auth {
+    ($req:expr, $token:expr) => {{
+        let mut req = Request::new($req);
+        req.metadata_mut().insert("authentication", MetadataValue::from_str($token).unwrap());
+        req
+    }};
+}
+
+#[tonic::async_trait]
+impl P2p for RpcServerImpl {
+    async fn peer_connect(
+        &self,
+        req: Request<PeerConnectRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let req = req.get_ref();
+
+        let ip = if let Some(ref ip) = req.ip {
+            IpAddr::from_str(ip)
+                .map_err(|_| Status::new(Code::InvalidArgument, "Invalid IP address"))
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Missing IP address"))
+        }?;
+        let port = if let Some(port) = req.port {
+            port as u16
+        } else {
+            return Err(Status::new(Code::InvalidArgument, "Missing port"));
+        };
+        let addr = SocketAddr::new(ip, port);
+        self.node.register_conn_change(ConnChange::NewConn(addr));
+        Ok(Response::new(BoolResponse {
+            value: true,
+        }))
+    }
+
+    async fn peer_version(&self, req: Request<Empty>) -> Result<Response<StringResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let resp = StringResponse {
+            value: crate::VERSION.to_owned(),
+        };
+        Ok(Response::new(resp))
+    }
+
+    async fn peer_uptime(
+        &self,
+        req: Request<Empty>,
+    ) -> Result<tonic::Response<NumberResponse>, Status> {
+        authenticate!(req, self.access_token);
+        Ok(Response::new(NumberResponse {
+            value: self.node.get_uptime() as u64,
+        }))
+    }
+
+    async fn peer_total_received(
+        &self,
+        req: Request<Empty>,
+    ) -> Result<Response<NumberResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let value = self.node.connection_handler.total_received.load(Ordering::Relaxed);
+        Ok(Response::new(NumberResponse {
+            value,
+        }))
+    }
+
+    async fn peer_total_sent(
+        &self,
+        req: Request<Empty>,
+    ) -> Result<Response<NumberResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let value = self.node.connection_handler.total_sent.load(Ordering::Relaxed);
+        Ok(Response::new(NumberResponse {
+            value,
+        }))
+    }
+
+    async fn send_transaction(
+        &self,
+        req: Request<SendTransactionRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        if let Some(ref consensus) = self.consensus {
+            let req = req.get_ref();
+            let transaction = &req.payload;
+            let consensus_result = consensus.send_transaction(transaction);
+
+            let result = if consensus_result == ConsensusFfiResponse::Success {
+                let mut payload = Vec::with_capacity(1 + transaction.len());
+                payload.write_u8(PacketType::Transaction as u8)?;
+                payload.write_all(&transaction)?;
+
+                CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
+                    MessageType::Outbound(None),
+                    PacketType::Transaction,
+                    Arc::from(payload),
+                    vec![],
+                    None,
+                ))
+            } else {
+                Ok(())
+            };
+            match (result, consensus_result) {
+                (Ok(_), ConsensusFfiResponse::Success) => Ok(Response::new(BoolResponse {
+                    value: true,
+                })),
+                (Err(e), ConsensusFfiResponse::Success) => {
+                    warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
+                    Err(Status::new(
+                        Code::Internal,
+                        format!("Couldn't put a transaction in the outbound queue due to {:?}", e),
                     ))
-                    .map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-                $ctx.spawn(f);
+                }
+                (_, e) => {
+                    warn!("Consensus didn't accept a transaction via RPC due to {:?}", e);
+                    Err(Status::new(
+                        Code::Internal,
+                        format!("Consensus didn't accept a transaction via RPC due to {:?}", e),
+                    ))
+                }
+            }
+        } else {
+            warn!("Can't respond to a SendTransaction request due to stopped Consensus");
+            Err(Status::new(Code::Internal, "Consensus container is not initialized!"))
+        }
+    }
+
+    async fn join_network(
+        &self,
+        req: Request<NetworkChangeRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let req = req.get_ref();
+        if let Some(id) = req.network_id {
+            if id > 0 && id < 100_000 {
+                info!("Attempting to join network {}", id);
+                let network_id = NetworkId::from(id as u16);
+                self.node.send_joinnetwork(network_id);
+                Ok(Response::new(BoolResponse {
+                    value: true,
+                }))
+            } else {
+                Err(Status::new(Code::InvalidArgument, "Invalid network id"))
+            }
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Missing network id"))
+        }
+    }
+
+    async fn leave_network(
+        &self,
+        req: Request<NetworkChangeRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let req = req.get_ref();
+        if let Some(id) = req.network_id {
+            if id > 0 && id < 100_000 {
+                info!("Attempting to leave network {}", id);
+                let network_id = NetworkId::from(id as u16);
+                self.node.send_leavenetwork(network_id);
+                Ok(Response::new(BoolResponse {
+                    value: true,
+                }))
+            } else {
+                Err(Status::new(Code::InvalidArgument, "Invalid network id"))
+            }
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Missing network id"))
+        }
+    }
+
+    async fn peer_stats(
+        &self,
+        req: Request<PeersRequest>,
+    ) -> Result<Response<PeerStatsResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let peer_stats = self.node.get_peer_stats(None);
+        let peerstats = peer_stats
+            .into_iter()
+            .filter(|peer| match peer.peer_type {
+                PeerType::Node => true,
+                PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
+            })
+            .map(|peer| peer_stats_response::PeerStats {
+                node_id:          format!("{:0>16x}", peer.id),
+                packets_sent:     peer.sent,
+                packets_received: peer.received,
+                valid_latency:    peer.valid_latency,
+                measured_latency: peer.measured_latency,
+            })
+            .collect();
+
+        Ok(Response::new(PeerStatsResponse {
+            peerstats,
+            avg_bps_in: self.node.stats.get_avg_bps_in(),
+            avg_bps_out: self.node.stats.get_avg_bps_out(),
+        }))
+    }
+
+    async fn peer_list(
+        &self,
+        req: Request<PeersRequest>,
+    ) -> Result<Response<PeerListResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let list = self
+            .node
+            .get_peer_stats(None)
+            .iter()
+            .filter(|peer| match peer.peer_type {
+                PeerType::Node => true,
+                PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
+            })
+            .map(|peer| PeerElement {
+                node_id: Some(format!("{:0>16x}", peer.id)),
+                ip:      Some(peer.addr.ip().to_string()),
+                port:    Some(peer.addr.port() as u32),
+            })
+            .collect();
+
+        Ok(Response::new(PeerListResponse {
+            peer_type: self.node.peer_type().to_string(),
+            peer:      list,
+        }))
+    }
+
+    async fn node_info(&self, req: Request<Empty>) -> Result<Response<NodeInfoResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let node_id = Some(self.node.id().to_string());
+        let peer_type = self.node.peer_type().to_string();
+        let current_localtime =
+            SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
+        let beta_username = {
+            #[cfg(feature = "beta")]
+            {
+                Some(self.node.config.beta_username.clone())
+            }
+            #[cfg(not(feature = "beta"))]
+            {
+                None
             }
         };
-    };
-}
-
-macro_rules! successful_json_response {
-    ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            let res = $inner_match(consensus);
-            let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
-            r.set_json_value(res.to_owned());
-            let f =
-                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-            $ctx.spawn(f);
-        }
-    };
-}
-
-macro_rules! successful_bool_response {
-    ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            let res = $inner_match(consensus);
-            let mut r: SuccessResponse = SuccessResponse::new();
-            r.set_value(res.to_owned());
-            let f =
-                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-            $ctx.spawn(f);
-        }
-    };
-}
-
-macro_rules! successful_byte_response {
-    ($self:ident, $ctx:ident, $req:ident, $sink:ident, $inner_match:expr) => {
-        if let Some(ref consensus) = $self.consensus {
-            let res = $inner_match(consensus);
-            let mut r: SuccessfulBytePayloadResponse = SuccessfulBytePayloadResponse::new();
-            r.set_payload(res);
-            let f =
-                $sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", $req, e));
-            $ctx.spawn(f);
-        }
-    };
-}
-
-impl P2P for RpcServerImpl {
-    fn peer_connect(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: PeerConnectRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            let f = if req.has_ip() && req.has_port() {
-                let ip = IpAddr::from_str(req.get_ip().get_value()).unwrap_or_else(|_| {
-                    panic!(
-                        "incorrect IP in peer connect request, current value: {:?}",
-                        req.get_ip().get_value()
-                    )
-                });
-                let port = req.get_port().get_value() as u16;
-                let addr = SocketAddr::new(ip, port);
-                r.set_value(self.node.connect(PeerType::Node, addr, None).is_ok());
-                sink.success(r)
-            } else {
-                r.set_value(false);
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
+        Ok(Response::new(match self.consensus {
+            Some(ref consensus) => NodeInfoResponse {
+                node_id,
+                current_localtime,
+                peer_type,
+                consensus_baker_running: consensus.is_baking(),
+                consensus_running: true,
+                consensus_type: consensus.consensus_type.to_string(),
+                consensus_baker_committee: consensus.in_baking_committee()
+                    == ConsensusIsInCommitteeResponse::ActiveInCommittee,
+                consensus_finalizer_committee: consensus.in_finalization_committee(),
+                beta_username,
+            },
+            None => NodeInfoResponse {
+                node_id,
+                current_localtime,
+                peer_type,
+                consensus_baker_running: false,
+                consensus_running: false,
+                consensus_type: "Inactive".to_owned(),
+                consensus_baker_committee: false,
+                consensus_finalizer_committee: false,
+                beta_username,
+            },
+        }))
     }
 
-    fn peer_version(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<StringResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: StringResponse = StringResponse::new();
-            r.set_value(crate::VERSION.to_owned());
-            let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
+    async fn ban_node(&self, req: Request<PeerElement>) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let req = req.get_ref();
+        let banned_node = match (&req.node_id, &req.ip) {
+            (Some(node_id), None) => {
+                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+            }
+            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
+            _ => None,
+        };
 
-    fn peer_uptime(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<NumberResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: NumberResponse = NumberResponse::new();
-            let f = {
-                let uptime = self.node.get_uptime() as u64;
-                r.set_value(uptime);
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn peer_total_received(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<NumberResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(self.node.total_received.load(Ordering::Relaxed));
-            let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn peer_total_sent(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<NumberResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: NumberResponse = NumberResponse::new();
-            r.set_value(self.node.total_sent.load(Ordering::Relaxed));
-            let f = sink.success(r).map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn send_message(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: SendMessageRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = match self.send_message_with_error(&req) {
-                Ok(r) => sink.success(r),
-                Err(e) => sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::InvalidArgument,
-                    Some(e.name().expect("Unwrapping of an error name failed").to_string()),
-                )),
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn send_transaction(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: SendTransactionRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            match self.consensus {
-                Some(ref consensus) => {
-                    let transaction = req.get_payload();
-                    let consensus_result = consensus.send_transaction(&transaction);
-
-                    let gs_result = if consensus_result == ConsensusFfiResponse::Success {
-                        let mut payload = Vec::with_capacity(2 + transaction.len());
-                        payload.write_u16::<BigEndian>(PacketType::Transaction as u16).unwrap(); // safe
-                        payload.write_all(&transaction).unwrap(); // also infallible
-
-                        CALLBACK_QUEUE.send_out_message(ConsensusMessage::new(
-                            MessageType::Outbound(None),
-                            PacketType::Transaction,
-                            Arc::from(payload),
-                            vec![],
-                        ))
-                    } else {
-                        Ok(())
-                    };
-                    match (gs_result, consensus_result) {
-                        (Ok(_), ConsensusFfiResponse::Success) => {
-                            let mut r: SuccessResponse = SuccessResponse::new();
-                            r.set_value(true);
-                            let f = sink
-                                .success(r)
-                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            ctx.spawn(f);
-                        }
-                        (Err(e), ConsensusFfiResponse::Success) => {
-                            let f = sink
-                                .fail(::grpcio::RpcStatus::new(
-                                    ::grpcio::RpcStatusCode::Internal,
-                                    Some(format!(
-                                        "Got non-success response while trying to put transaction \
-                                         into outbound queue {:?}",
-                                        e
-                                    )),
-                                ))
-                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            error!("Couldn't put transaction into outbound queue due to {:?}", e);
-                            ctx.spawn(f);
-                        }
-                        (_, e) => {
-                            let f = sink
-                                .fail(::grpcio::RpcStatus::new(
-                                    ::grpcio::RpcStatusCode::Internal,
-                                    Some(format!(
-                                        "Got non-success response from FFI interface {:?}",
-                                        e
-                                    )),
-                                ))
-                                .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                            error!("Consensus didn't accept transaction via gRPC due to {:?}", e);
-                            ctx.spawn(f);
-                        }
-                    }
-                }
-                _ => {
-                    let f = sink
-                        .fail(::grpcio::RpcStatus::new(
-                            ::grpcio::RpcStatusCode::Internal,
-                            Some(String::from("Consensus container is not initialized!")),
-                        ))
-                        .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-                    ctx.spawn(f);
+        if let Some(to_ban) = banned_node {
+            match self.node.ban_node(to_ban) {
+                Ok(_) => Ok(Response::new(BoolResponse {
+                    value: true,
+                })),
+                Err(e) => {
+                    warn!("couldn't fulfill a BanNode request: {}", e);
+                    Err(Status::new(
+                        Code::Aborted,
+                        format!("couldn't fulfill a BanNode request: {}", e),
+                    ))
                 }
             }
-        });
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Missing IP or address to ban"))
+        }
     }
 
-    fn join_network(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: NetworkChangeRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            let f = if req.has_network_id()
-                && req.get_network_id().get_value() > 0
-                && req.get_network_id().get_value() < 100_000
-            {
-                info!("Attempting to join network {}", req.get_network_id().get_value());
-                let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-                self.node.send_joinnetwork(network_id);
-                r.set_value(true);
-                sink.success(r)
-            } else {
-                r.set_value(false);
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
+    async fn unban_node(
+        &self,
+        req: Request<PeerElement>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let req = req.get_ref();
+        let banned_node = match (&req.node_id, &req.ip) {
+            (Some(node_id), None) => {
+                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+            }
+            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
+            _ => None,
+        };
 
-    fn leave_network(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: NetworkChangeRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-            let f = if req.has_network_id()
-                && req.get_network_id().get_value() > 0
-                && req.get_network_id().get_value() < 100_000
-            {
-                info!("Attempting to leave network {}", req.get_network_id().get_value());
-                let network_id = NetworkId::from(req.get_network_id().get_value() as u16);
-                self.node.send_leavenetwork(network_id);
-                r.set_value(true);
-                sink.success(r)
-            } else {
-                r.set_value(false);
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn peer_stats(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: PeersRequest,
-        sink: ::grpcio::UnarySink<PeerStatsResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let peer_stats = self.node.get_peer_stats(None);
-
-            let f = {
-                let data = peer_stats
-                    .iter()
-                    .filter(|peer| match peer.peer_type {
-                        PeerType::Node => true,
-                        PeerType::Bootstrapper => req.get_include_bootstrappers(),
-                    })
-                    .map(|peer| {
-                        let mut peer_resp = PeerStatsResponse_PeerStats::new();
-                        peer_resp.set_node_id(format!("{:0>16x}", peer.id));
-                        peer_resp.set_packets_sent(peer.sent);
-                        peer_resp.set_packets_received(peer.received);
-                        peer_resp.set_valid_latency(peer.valid_latency);
-
-                        let latency = peer.measured_latency;
-                        peer_resp.set_measured_latency(latency);
-
-                        peer_resp
-                    })
-                    .collect();
-                let mut resp = PeerStatsResponse::new();
-                resp.set_peerstats(::protobuf::RepeatedField::from_vec(data));
-
-                let avg_bps_in = self.node.stats.get_avg_bps_in();
-                let avg_bps_out = self.node.stats.get_avg_bps_out();
-                resp.set_avg_bps_in(avg_bps_in);
-                resp.set_avg_bps_out(avg_bps_out);
-
-                sink.success(resp)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn peer_list(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: PeersRequest,
-        sink: ::grpcio::UnarySink<PeerListResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let peer_type = self.node.peer_type();
-                let data = self
-                    .node
-                    .get_peer_stats(None)
-                    .iter()
-                    .filter(|peer| match peer.peer_type {
-                        PeerType::Node => true,
-                        PeerType::Bootstrapper => req.get_include_bootstrappers(),
-                    })
-                    .map(|peer| {
-                        let mut peer_resp = PeerElement::new();
-                        let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                        node_id.set_value(format!("{:0>16x}", peer.id));
-                        peer_resp.set_node_id(node_id);
-                        let mut ip = ::protobuf::well_known_types::StringValue::new();
-                        ip.set_value(peer.addr.ip().to_string());
-                        peer_resp.set_ip(ip);
-                        let mut port = ::protobuf::well_known_types::UInt32Value::new();
-                        port.set_value(peer.addr.port().into());
-                        peer_resp.set_port(port);
-                        peer_resp
-                    })
-                    .collect();
-                let mut resp = PeerListResponse::new();
-                let peer_type = match &format!("{:?}", peer_type)[..] {
-                    "Node" => "Node",
-                    "Bootstrapper" => "Bootstrapper",
-                    _ => panic!(),
-                };
-                resp.set_peer_type(peer_type.to_string());
-                resp.set_peer(::protobuf::RepeatedField::from_vec(data));
-                sink.success(resp)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn node_info(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<NodeInfoResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut resp = NodeInfoResponse::new();
-            let mut node_id = ::protobuf::well_known_types::StringValue::new();
-            let f = {
-                let (id, peer_type) = (self.node.id(), self.node.peer_type());
-                node_id.set_value(id.to_string());
-                resp.set_node_id(node_id);
-                let curtime = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("Time went backwards")
-                    .as_secs();
-                resp.set_current_localtime(curtime);
-                resp.set_peer_type(peer_type.to_string());
-                #[cfg(feature = "beta")]
-                {
-                    let mut beta_username = ::protobuf::well_known_types::StringValue::new();
-                    beta_username.set_value(self.node.config.beta_username.clone());
-                    resp.set_beta_username(beta_username);
-                }
-                match self.consensus {
-                    Some(ref consensus) => {
-                        resp.set_consensus_baker_running(consensus.is_baking());
-                        resp.set_consensus_running(true);
-                        resp.set_consensus_type(consensus.consensus_type.to_string());
-                        resp.set_consensus_baker_committee(
-                            consensus.in_baking_committee()
-                                == ConsensusIsInCommitteeResponse::ActiveInCommittee,
-                        );
-                        resp.set_consensus_finalizer_committee(
-                            consensus.in_finalization_committee(),
-                        );
-                    }
-                    None => {
-                        resp.set_consensus_baker_running(false);
-                        resp.set_consensus_running(false);
-                        resp.set_consensus_type("Inactive".to_owned());
-                        resp.set_consensus_baker_committee(false);
-                        resp.set_consensus_finalizer_committee(false);
-                    }
-                }
-                sink.success(resp)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn subscription_start(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                self.node.rpc_subscription_start();
-                let mut r: SuccessResponse = SuccessResponse::new();
-                r.set_value(true);
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn subscription_stop(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let mut r: SuccessResponse = SuccessResponse::new();
-                r.set_value(self.node.rpc_subscription_stop());
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn subscription_poll(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<P2PNetworkMessage>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: P2PNetworkMessage = P2PNetworkMessage::new();
-
-            let f = {
-                if let Some(network_msg) = self.receive_network_msg() {
-                    if let NetworkMessagePayload::NetworkPacket(ref packet) = network_msg.payload {
-                        let msg = packet.message.to_vec();
-
-                        match packet.packet_type {
-                            NetworkPacketType::DirectMessage(..) => {
-                                let mut i_msg = MessageDirect::new();
-                                i_msg.set_data(msg);
-                                r.set_message_direct(i_msg);
-                            }
-                            NetworkPacketType::BroadcastedMessage(..) => {
-                                let mut i_msg = MessageBroadcast::new();
-                                i_msg.set_data(msg);
-                                r.set_message_broadcast(i_msg);
-                            }
-                        };
-
-                        r.set_network_id(u32::from(packet.network_id.id));
-                    }
-                } else {
-                    r.set_message_none(MessageNone::new());
-                }
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn ban_node(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: PeerElement,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-
-            let banned_node = if req.has_node_id() && !req.has_ip() {
-                P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
-                    .ok()
-                    .map(BanId::NodeId)
-            } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::Ip)
-            } else {
-                None
-            };
-
-            let f = if let Some(to_ban) = banned_node {
-                match self.node.ban_node(to_ban) {
-                    Ok(_) => {
-                        if !self.node.config.no_trust_bans {
-                            self.node.send_ban(to_ban);
-                        }
-                        r.set_value(true);
-                    }
-                    Err(e) => {
-                        error!("{}", e);
-                        r.set_value(false);
-                    }
-                }
-
-                sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::InvalidArgument,
-                    Some("Missing banned IP or address".to_string()),
-                ))
-            };
-
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn unban_node(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: PeerElement,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: SuccessResponse = SuccessResponse::new();
-
-            let banned_node = if req.has_node_id() && !req.has_ip() {
-                P2PNodeId::from_str(&req.get_node_id().get_value().to_string())
-                    .ok()
-                    .map(BanId::NodeId)
-            } else if req.has_ip() && !req.has_node_id() {
-                IpAddr::from_str(&req.get_ip().get_value().to_string()).ok().map(BanId::Ip)
-            } else {
-                None
-            };
-
-            let f = if let Some(to_unban) = banned_node {
-                match self.node.unban_node(to_unban) {
-                    Ok(_) => {
-                        if !self.node.config.no_trust_bans {
-                            self.node.send_unban(to_unban);
-                        }
-                        r.set_value(true);
-                    }
-                    Err(e) => {
-                        error!("{}", e);
-                        r.set_value(false);
-                    }
-                }
-
-                sink.success(r)
-            } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::InvalidArgument,
-                    Some("Missing banned ID or address".to_string()),
-                ))
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn get_consensus_status(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_consensus_status()
-            });
-        });
-    }
-
-    fn start_baker(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_bool_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.start_baker()
-            });
-        });
-    }
-
-    fn stop_baker(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_bool_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.stop_baker()
-            });
-        });
-    }
-
-    fn get_branches(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_branches()
-            });
-        });
-    }
-
-    fn get_block_info(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_block_info(&req.get_block_hash())
-            });
-        });
-    }
-
-    fn get_ancestors(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHashAndAmount,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_ancestors(&req.get_block_hash(), req.get_amount())
-            });
-        });
-    }
-
-    fn get_account_list(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_account_list(&req.get_block_hash())
-            });
-        });
-    }
-
-    fn get_instances(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_instances(&req.get_block_hash())
-            });
-        });
-    }
-
-    fn get_account_info(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: GetAddressInfoRequest,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_account_info(&req.get_block_hash(), &req.get_address())
-            });
-        });
-    }
-
-    fn get_instance_info(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: GetAddressInfoRequest,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_instance_info(&req.get_block_hash(), &req.get_address())
-            });
-        });
-    }
-
-    fn get_reward_status(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_reward_status(&req.get_block_hash())
-            });
-        });
-    }
-
-    fn get_baker_private_data(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        use std::fs;
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = if let Some(file) = &self.baker_private_data_json_file {
-                if let Ok(data) = fs::read_to_string(file) {
-                    let mut r: SuccessfulJsonPayloadResponse = SuccessfulJsonPayloadResponse::new();
-                    r.set_json_value(data);
-                    sink.success(r)
-                } else {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::FailedPrecondition,
-                        Some("Could not read baker private data file".to_string()),
+        if let Some(to_unban) = banned_node {
+            match self.node.unban_node(to_unban) {
+                Ok(_) => Ok(Response::new(BoolResponse {
+                    value: true,
+                })),
+                Err(e) => {
+                    warn!("couldn't fulfill an UnbanNode request: {}", e);
+                    Err(Status::new(
+                        Code::Aborted,
+                        format!("couldn't fulfill a UnbanNode request: {}", e),
                     ))
                 }
+            }
+        } else {
+            Err(Status::new(Code::InvalidArgument, "Missing IP or address to unban"))
+        }
+    }
+
+    async fn get_consensus_status(
+        &self,
+        req: Request<Empty>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetConsensusStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_consensus_status()
+        })
+    }
+
+    async fn start_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "StartBaker", BoolResponse, |cc: &ConsensusContainer| {
+            cc.start_baker()
+        })
+    }
+
+    async fn stop_baker(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "StopBaker", BoolResponse, |cc: &ConsensusContainer| {
+            cc.stop_baker()
+        })
+    }
+
+    async fn get_branches(&self, req: Request<Empty>) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBranches", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_branches()
+        })
+    }
+
+    async fn get_block_info(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBlockInfo", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_block_info(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_ancestors(
+        &self,
+        req: Request<BlockHashAndAmount>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetAncestors", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_ancestors(&req.get_ref().block_hash, req.get_ref().amount)
+        })
+    }
+
+    async fn get_account_list(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetAccountList", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_account_list(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_instances(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetInstances", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_instances(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_account_info(
+        &self,
+        req: Request<GetAddressInfoRequest>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetAccountInfo", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_account_info(&req.get_ref().block_hash, &req.get_ref().address)
+        })
+    }
+
+    async fn get_instance_info(
+        &self,
+        req: Request<GetAddressInfoRequest>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetInstanceInfo", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_instance_info(&req.get_ref().block_hash, &req.get_ref().address)
+        })
+    }
+
+    async fn get_reward_status(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_reward_status(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_baker_private_data(
+        &self,
+        req: Request<Empty>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        if let Some(file) = &self.baker_private_data_json_file {
+            if let Ok(data) = fs::read_to_string(file) {
+                Ok(Response::new(JsonResponse {
+                    value: data,
+                }))
             } else {
-                sink.fail(grpcio::RpcStatus::new(
-                    grpcio::RpcStatusCode::FailedPrecondition,
-                    Some("Running in passive consensus mode".to_string()),
+                Err(Status::new(
+                    Code::FailedPrecondition,
+                    "Can't fulfill the request: could not read the baker private data file",
                 ))
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn get_birk_parameters(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_birk_parameters(&req.get_block_hash())
-            });
-        });
-    }
-
-    fn get_module_list(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: BlockHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_module_list(&req.get_block_hash())
-            });
-        });
-    }
-
-    fn get_module_source(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: GetModuleSourceRequest,
-        sink: ::grpcio::UnarySink<SuccessfulBytePayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_byte_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.get_module_source(&req.get_block_hash(), &req.get_module_ref())
-            });
-        });
-    }
-
-    fn get_banned_peers(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<PeerListResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let mut r: PeerListResponse = PeerListResponse::new();
-            let f = {
-                r.set_peer(::protobuf::RepeatedField::from_vec(
-                    if let Ok(banlist) = self.node.get_banlist() {
-                        banlist
-                            .into_iter()
-                            .map(|banned_node| {
-                                let mut pe = PeerElement::new();
-                                let mut node_id = ::protobuf::well_known_types::StringValue::new();
-                                node_id.set_value(match banned_node {
-                                    BanId::NodeId(id) => id.to_string(),
-                                    _ => "*".to_owned(),
-                                });
-                                pe.set_node_id(node_id);
-                                let mut ip = ::protobuf::well_known_types::StringValue::new();
-                                ip.set_value(match banned_node {
-                                    BanId::Ip(addr) => addr.to_string(),
-                                    _ => "*".to_owned(),
-                                });
-                                pe.set_ip(ip);
-                                pe
-                            })
-                            .collect::<Vec<PeerElement>>()
-                    } else {
-                        error!("Can't load the banlist");
-                        Vec::new()
-                    },
-                ));
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn shutdown(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let mut r: SuccessResponse = SuccessResponse::new();
-                r.set_value(self.node.close());
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    #[cfg(feature = "benchmark")]
-    fn tps_test(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: TpsRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let (network_id, id, dir) =
-                    (NetworkId::from(req.network_id as u16), req.id.clone(), req.directory.clone());
-                let _node_list = self.node.get_peer_stats(None);
-                if !_node_list.into_iter().any(|s| P2PNodeId(s.id).to_string() == id) {
-                    sink.fail(grpcio::RpcStatus::new(
-                        grpcio::RpcStatusCode::FailedPrecondition,
-                        Some("I don't have the required peers!".to_string()),
-                    ))
-                } else {
-                    let test_messages = utils::get_tps_test_messages(Some(dir));
-                    let mut r: SuccessResponse = SuccessResponse::new();
-                    let result = !(test_messages.into_iter().map(|message| {
-                        let out_bytes_len = message.len();
-                        let to_send = P2PNodeId::from_str(&id).ok();
-                        match send_direct_message(
-                            &self.node,
-                            self.node.self_peer.id,
-                            to_send,
-                            network_id,
-                            Arc::from(message),
-                        ) {
-                            Ok(_) => {
-                                info!("Sent TPS test bytes of len {}", out_bytes_len);
-                                Ok(())
-                            }
-                            Err(_) => {
-                                error!("Couldn't send TPS test message!");
-                                Err(())
-                            }
-                        }
-                    }))
-                    .any(|res| res.is_err());
-                    r.set_value(result);
-                    sink.success(r)
-                }
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    #[cfg(not(feature = "benchmark"))]
-    fn tps_test(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: TpsRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        let f = sink
-            .fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::Unavailable,
-                Some("Feature not activated".to_string()),
+            }
+        } else {
+            Err(Status::new(
+                Code::FailedPrecondition,
+                "Can't fulfill the request: running in passive consensus mode",
             ))
-            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+        }
+    }
+
+    async fn get_birk_parameters(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBirkParameters", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_birk_parameters(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_module_list(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetModuleList", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_module_list(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_transaction_status(
+        &self,
+        req: Request<TransactionHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetTransactionStatus", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_transaction_status(&req.get_ref().transaction_hash)
+        })
+    }
+
+    async fn get_transaction_status_in_block(
+        &self,
+        req: Request<GetTransactionStatusInBlockRequest>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(
+            self,
+            "GetTransactionStatusInBlock",
+            JsonResponse,
+            |cc: &ConsensusContainer| {
+                cc.get_transaction_status_in_block(
+                    &req.get_ref().transaction_hash,
+                    &req.get_ref().block_hash,
+                )
+            }
+        )
+    }
+
+    async fn get_account_non_finalized_transactions(
+        &self,
+        req: Request<AccountAddress>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(
+            self,
+            "GetAccountNonFinalizedTransactions",
+            JsonResponse,
+            |cc: &ConsensusContainer| {
+                cc.get_account_non_finalized_transactions(&req.get_ref().account_address)
+            }
+        )
+    }
+
+    async fn get_block_summary(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBlockSummary", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_block_summary(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_module_source(
+        &self,
+        req: Request<GetModuleSourceRequest>,
+    ) -> Result<Response<BytesResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetModuleSource", BytesResponse, |cc: &ConsensusContainer| {
+            cc.get_module_source(&req.get_ref().block_hash, &req.get_ref().module_ref)
+        })
+    }
+
+    async fn get_banned_peers(
+        &self,
+        req: Request<Empty>,
+    ) -> Result<Response<PeerListResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let peer = if let Ok(banlist) = self.node.get_banlist() {
+            banlist
+                .into_iter()
+                .map(|banned_node| {
+                    let node_id = Some(match banned_node {
+                        BanId::NodeId(id) => id.to_string(),
+                        _ => "*".to_owned(),
+                    });
+                    let ip = Some(match banned_node {
+                        BanId::Ip(addr) => addr.to_string(),
+                        _ => "*".to_owned(),
+                    });
+
+                    PeerElement {
+                        node_id,
+                        ip,
+                        port: None,
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            warn!("Can't load the banlist in response to a GetBannedPeers request");
+            Vec::new()
+        };
+
+        Ok(Response::new(PeerListResponse {
+            peer,
+            peer_type: "Node".to_owned(),
+        }))
+    }
+
+    async fn shutdown(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        Ok(Response::new(BoolResponse {
+            value: self.node.close(),
+        }))
     }
 
     #[cfg(not(feature = "network_dump"))]
-    fn dump_start(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: DumpRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        let f = sink
-            .fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::Unavailable,
-                Some("Feature not activated".to_string()),
-            ))
-            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+    async fn dump_start(
+        &self,
+        _req: Request<DumpRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        warn!("DumpStart RPC request received, but the \"network_dump\" feature is not active");
+        Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
 
     #[cfg(feature = "network_dump")]
-    fn dump_start(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: DumpRequest,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let mut r = SuccessResponse::new();
-                let file_path = req.get_file().to_owned();
-                if self
-                    .node
-                    .activate_dump(
-                        if file_path.is_empty() {
-                            "dump"
-                        } else {
-                            &file_path
-                        },
-                        req.get_raw(),
-                    )
-                    .is_ok()
-                {
-                    r.set_value(true);
+    async fn dump_start(
+        &self,
+        req: Request<DumpRequest>,
+    ) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        let file_path = req.get_ref().file.to_owned();
+        let result = self
+            .node
+            .activate_dump(
+                if file_path.is_empty() {
+                    "dump"
                 } else {
-                    r.set_value(false);
-                }
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
+                    &file_path
+                },
+                req.get_ref().raw,
+            )
+            .is_ok();
+        Ok(Response::new(BoolResponse {
+            value: result,
+        }))
     }
 
     #[cfg(not(feature = "network_dump"))]
-    fn dump_stop(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        let f = sink
-            .fail(grpcio::RpcStatus::new(
-                grpcio::RpcStatusCode::Unavailable,
-                Some("Feature not activated".to_string()),
-            ))
-            .map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-        ctx.spawn(f);
+    async fn dump_stop(&self, _req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        warn!("DumpStop RPC request received, but the \"network_dump\" feature is not active");
+        Err(Status::new(Code::Unavailable, "Feature \"network_dump\" is not active"))
     }
 
     #[cfg(feature = "network_dump")]
-    fn dump_stop(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccessResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let mut r = SuccessResponse::new();
-                r.set_value(self.node.stop_dump().is_ok());
-
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn get_skov_stats(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: Empty,
-        sink: ::grpcio::UnarySink<SuccesfulStructResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            let f = {
-                let mut r: SuccesfulStructResponse = SuccesfulStructResponse::new();
-                let mut s = GRPCSkovStats::new();
-                let stat_values = self.node.stats.get_gs_stats();
-                s.set_gs_block_receipt(stat_values.0 as u32);
-                s.set_gs_block_entry(stat_values.1 as u32);
-                s.set_gs_block_query(stat_values.2 as u32);
-                s.set_gs_finalization_receipt(stat_values.3 as u32);
-                s.set_gs_finalization_entry(stat_values.4 as u32);
-                s.set_gs_finalization_query(stat_values.5 as u32);
-                r.set_gs_stats(s);
-                sink.success(r)
-            };
-            let f = f.map_err(move |e| error!("failed to reply {:?}: {:?}", req, e));
-            ctx.spawn(f);
-        });
-    }
-
-    fn hook_transaction(
-        &mut self,
-        ctx: ::grpcio::RpcContext<'_>,
-        req: TransactionHash,
-        sink: ::grpcio::UnarySink<SuccessfulJsonPayloadResponse>,
-    ) {
-        authenticate!(ctx, req, sink, self.access_token, {
-            successful_json_response!(self, ctx, req, sink, |consensus: &ConsensusContainer| {
-                consensus.hook_transaction(&req.get_transaction_hash())
-            });
-        });
+    async fn dump_stop(&self, req: Request<Empty>) -> Result<Response<BoolResponse>, Status> {
+        authenticate!(req, self.access_token);
+        Ok(Response::new(BoolResponse {
+            value: self.node.stop_dump().is_ok(),
+        }))
     }
 }
 
@@ -1248,194 +736,142 @@ impl P2P for RpcServerImpl {
 mod tests {
     use crate::{
         common::{P2PNodeId, PeerType},
-        configuration,
-        p2p::connectivity::send_broadcast_message,
-        proto::concordium_p2p_rpc_grpc::P2PClient,
+        p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
-            await_handshake, connect, get_test_config, make_node_and_sync,
-            make_node_and_sync_with_rpc, next_available_port, setup_logger,
+            await_handshakes, connect, get_test_config, make_node_and_sync, next_available_port,
         },
     };
     use chrono::prelude::Utc;
     use failure::Fallible;
-    use grpcio::{ChannelBuilder, EnvBuilder};
+    use tonic::{metadata::MetadataValue, transport::channel::Channel, Code, Request};
+
+    pub mod proto {
+        tonic::include_proto!("concordium");
+    }
+    use proto::p2p_client::P2pClient;
+
     use std::sync::Arc;
 
-    // Same as create_node_rpc_call_option but also outputs the Message receiver
-    fn create_node_rpc_call_option_waiter(
-        nt: PeerType,
-    ) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
-        let conf = configuration::parse_config().expect("Can't parse the config file!");
-        let app_prefs = configuration::AppPreferences::new(
-            conf.common.config_dir.to_owned(),
-            conf.common.data_dir.to_owned(),
-        );
+    const TOKEN: &str = "rpcadmin";
 
-        let (node, _, rpc_rx) = make_node_and_sync_with_rpc(
-            next_available_port(),
-            vec![100],
-            nt,
-            app_prefs.get_user_app_dir(),
-        )
-        .unwrap();
+    // The intended use is for spawning nodes for testing gRPC api.
+    async fn create_test_rpc_node(nt: PeerType) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
+        let node = make_node_and_sync(next_available_port(), vec![100], nt).unwrap();
 
         let rpc_port = next_available_port();
         let mut config = get_test_config(8888, vec![100]);
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
-        config.cli.rpc.rpc_server_token = "rpcadmin".to_owned();
-        let mut rpc_server = RpcServerImpl::new(node, None, &config.cli.rpc, rpc_rx, None);
-        rpc_server.start_server().expect("rpc");
+        config.cli.rpc.rpc_server_token = TOKEN.to_owned();
+        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, None)?;
+        tokio::spawn(async move { rpc_server.start_server().await });
+        tokio::task::yield_now().await;
 
-        let env = Arc::new(EnvBuilder::new().build());
-        let ch = ChannelBuilder::new(env).connect(&format!("127.0.0.1:{}", rpc_port));
+        let addr: &'static str =
+            Box::leak(format!("http://127.0.0.1:{}", rpc_port).into_boxed_str());
+        let channel = Channel::from_static(addr).connect().await?;
+        let client = proto::p2p_client::P2pClient::new(channel);
 
-        let client = P2PClient::new(ch);
-
-        let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
-        req_meta_builder.add_str("Authentication", "rpcadmin").unwrap();
-        let meta_data = req_meta_builder.build();
-
-        let call_options = ::grpcio::CallOption::default().headers(meta_data);
-
-        (client, rpc_server, call_options)
+        Ok((client, node))
     }
 
-    // Creates P2PClient, RpcServImpl and CallOption instances.
-    // The intended use is for spawning nodes for testing gRPC api.
-    // The port number is safe as it uses a AtomicUsize for respecting the order.
-    fn create_node_rpc_call_option(nt: PeerType) -> (P2PClient, RpcServerImpl, grpcio::CallOption) {
-        create_node_rpc_call_option_waiter(nt)
-    }
+    #[tokio::test]
+    async fn test_grpc_noauth() -> Fallible<()> {
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
-    #[test]
-    pub fn test_grpc_noauth() -> Fallible<()> {
-        let (client, _, _) = create_node_rpc_call_option(PeerType::Node);
-        match client.peer_version(&crate::proto::Empty::new()) {
-            Err(::grpcio::Error::RpcFailure(ref x)) => {
-                assert_eq!(x.status, grpcio::RpcStatusCode::Unauthenticated)
-            }
+        match client.peer_version(req_with_auth!(proto::Empty {}, "derp")).await {
+            Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
             _ => panic!("Wrong rejection"),
-        }
+        };
 
         Ok(())
     }
 
-    /// Ignore this test for now, because `conn.async_send` only enqueues the
-    /// send request. That new request will be processed inside poll-event.
-    #[ignore]
-    #[test]
-    fn test_peer_connect() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let mut ip = protobuf::well_known_types::StringValue::new();
-        ip.set_value("127.0.0.1".to_owned());
-        let mut port_pb = protobuf::well_known_types::Int32Value::new();
-        port_pb.set_value(1);
-        let mut pcr = crate::proto::PeerConnectRequest::new();
-        pcr.set_ip(ip.clone());
-        pcr.set_port(port_pb);
-        // test it can not connect to inexistent peer
-        assert!(!client.peer_connect_opt(&pcr, callopts.clone()).unwrap().get_value());
-
-        let port = next_available_port();
-
-        let mut port_pb = protobuf::well_known_types::Int32Value::new();
-        port_pb.set_value(port as i32);
-        let mut pcr = crate::proto::PeerConnectRequest::new();
-        pcr.set_ip(ip);
-        pcr.set_port(port_pb);
-
-        // test it can connect to existing peer
-        assert!(client.peer_connect_opt(&pcr, callopts).unwrap().get_value());
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_peer_version() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
+    #[tokio::test]
+    async fn test_peer_version() -> Fallible<()> {
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert_eq!(
-            client.peer_version_opt(&emp, callopts).unwrap().get_value(),
+            client
+                .peer_version(req_with_auth!(proto::Empty {}, TOKEN))
+                .await
+                .unwrap()
+                .get_ref()
+                .value,
             crate::VERSION.to_owned()
         );
         Ok(())
     }
 
-    #[test]
-    fn test_peer_uptime() -> Fallible<()> {
+    #[tokio::test]
+    async fn test_peer_uptime() -> Fallible<()> {
         let t0 = Utc::now().timestamp_millis() as u64;
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let emp = crate::proto::Empty::new();
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
+
+        let req = || req_with_auth!(proto::Empty {}, TOKEN);
+
         let t1 = Utc::now().timestamp_millis() as u64;
-        let nt1 = client.peer_uptime_opt(&emp.clone(), callopts.clone())?.get_value();
+        let nt1 = client.peer_uptime(req()).await.unwrap().get_ref().value;
         let t2 = Utc::now().timestamp_millis() as u64;
-        let nt2 = client.peer_uptime_opt(&emp, callopts)?.get_value();
+        let nt2 = client.peer_uptime(req()).await.unwrap().get_ref().value;
         let t3 = Utc::now().timestamp_millis() as u64;
-        // t0 - n0 - t1 - n1 - t2 - n2 - t3
-        // nt{n} := n{n} - n0
         assert!(nt1 <= (t2 - t0));
         assert!((nt2 - nt1) <= (t3 - t1));
         assert!(nt2 <= (t3 - t0));
         Ok(())
     }
 
-    #[test]
-    fn test_peer_total_received() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_total_received() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let emp = crate::proto::Empty::new();
-        let _rcv = client.peer_total_received_opt(&emp, callopts)?.get_value();
+        connect(&node2, &node);
+        await_handshakes(&node);
+        await_handshakes(&node2);
+        let _rcv = client
+            .peer_total_received(req_with_auth!(proto::Empty {}, TOKEN))
+            .await
+            .unwrap()
+            .get_ref()
+            .value;
         Ok(())
     }
 
-    #[test]
-    fn test_peer_total_sent() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_total_sent() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let emp = crate::proto::Empty::new();
-        let _snt = client.peer_total_sent_opt(&emp, callopts)?.get_value();
+        connect(&node2, &node);
+        await_handshakes(&node);
+        await_handshakes(&node2);
+        let _sent = client
+            .peer_total_sent(req_with_auth!(proto::Empty {}, TOKEN))
+            .await
+            .unwrap()
+            .get_ref()
+            .value;
         Ok(())
     }
 
-    #[test]
-    #[ignore]
-    fn test_send_message() -> Fallible<()> {
-        setup_logger();
-
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_connect() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut message = protobuf::well_known_types::BytesValue::new();
-        message.set_value(b"Hey".to_vec());
-        let mut node_id = protobuf::well_known_types::StringValue::new();
-        node_id.set_value(node2.id().to_string());
-        let mut network_id = protobuf::well_known_types::Int32Value::new();
-        network_id.set_value(100);
-        let mut broadcast = protobuf::well_known_types::BoolValue::new();
-        broadcast.set_value(true);
-        let mut smr = crate::proto::SendMessageRequest::new();
-        // smr.set_node_id(node_id);
-        smr.set_network_id(network_id);
-        smr.set_message(message);
-        smr.set_broadcast(broadcast);
-        client.send_message_opt(&smr, callopts)?;
-        // assert_eq!(
-        // &*await_broadcast_message(&wt1).unwrap().remaining_bytes()?,
-        // b"Hey"
-        // );
+        let _sent = client
+            .peer_connect(req_with_auth!(
+                proto::PeerConnectRequest {
+                    ip:   Some(node2.internal_addr().ip().to_string()),
+                    port: Some(node2.internal_addr().port() as i32),
+                },
+                TOKEN
+            ))
+            .await
+            .unwrap();
+        await_handshakes(&node);
+        await_handshakes(&node2);
         Ok(())
     }
 
@@ -1443,164 +879,113 @@ mod tests {
     // rather that a unit test. The corresponding flow test is in
     // `tests/consensus-tests.rs`
 
-    #[test]
-    fn test_join_network() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_join_network() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut net = protobuf::well_known_types::Int32Value::new();
-        net.set_value(10);
-        let mut ncr = crate::proto::NetworkChangeRequest::new();
-        ncr.set_network_id(net);
-        assert!(client.join_network_opt(&ncr, callopts)?.get_value());
+        connect(&node2, &node);
+        await_handshakes(&node);
+        await_handshakes(&node2);
+        let ncr = req_with_auth!(
+            proto::NetworkChangeRequest {
+                network_id: Some(10),
+            },
+            TOKEN
+        );
+        assert!(client.join_network(ncr).await.unwrap().get_ref().value);
         Ok(())
     }
 
-    #[test]
-    fn test_leave_network() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_leave_network() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut net = protobuf::well_known_types::Int32Value::new();
-        net.set_value(100);
-        let mut ncr = crate::proto::NetworkChangeRequest::new();
-        ncr.set_network_id(net);
-        assert!(client.leave_network_opt(&ncr, callopts)?.get_value());
+        connect(&node2, &node);
+        await_handshakes(&node);
+        await_handshakes(&node2);
+        let ncr = req_with_auth!(
+            proto::NetworkChangeRequest {
+                network_id: Some(100),
+            },
+            TOKEN
+        );
+        assert!(client.leave_network(ncr).await.unwrap().get_ref().value);
         Ok(())
     }
 
-    #[test]
-    fn test_peer_stats() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
+    #[tokio::test]
+    async fn test_peer_stats() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client.peer_stats_opt(&req, callopts)?.get_peerstats().to_vec();
+        connect(&node2, &node);
+        await_handshakes(&node);
+        await_handshakes(&node2);
+        let req = req_with_auth!(
+            proto::PeersRequest {
+                include_bootstrappers: false,
+            },
+            TOKEN
+        );
+        let rcv = client.peer_stats(req).await.unwrap().get_ref().peerstats.clone();
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         assert_eq!(rcv[0].node_id, node2.id().to_string());
         Ok(())
     }
 
-    #[test]
-    fn test_peer_list() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client.peer_list_opt(&req.clone(), callopts.clone())?;
-        assert!(rcv.get_peer().to_vec().is_empty());
-        assert_eq!(rcv.get_peer_type(), "Node");
+    #[tokio::test]
+    async fn test_peer_list() -> Fallible<()> {
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let req = crate::proto::PeersRequest::new();
-        let rcv = client.peer_list_opt(&req, callopts)?.get_peer().to_vec();
+        connect(&node2, &node);
+        await_handshakes(&node);
+        await_handshakes(&node2);
+        let req = req_with_auth!(
+            proto::PeersRequest {
+                include_bootstrappers: false,
+            },
+            TOKEN
+        );
+        let rcv = client.peer_list(req).await.unwrap().get_ref().peer.clone();
+        assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();
         assert_eq!(
-            P2PNodeId(u64::from_str_radix(elem.node_id.unwrap().get_value(), 16).unwrap())
-                .to_string(),
+            P2PNodeId(u64::from_str_radix(&elem.node_id.unwrap(), 16).unwrap()).to_string(),
             node2.id().to_string()
         );
-        assert_eq!(elem.ip.unwrap().get_value(), node2.internal_addr().ip().to_string());
+        assert_eq!(elem.ip.unwrap(), node2.internal_addr().ip().to_string());
         Ok(())
     }
 
-    #[test]
-    pub fn test_grpc_peer_list_node_type() -> Fallible<()> {
-        let types = [PeerType::Node, PeerType::Bootstrapper];
-        types
-            .into_iter()
-            .map(|m| grpc_peer_list_node_type_str(*m))
-            .collect::<Fallible<Vec<()>>>()?;
-
+    #[tokio::test]
+    async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
+        let (mut client, _) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
+        let req = req_with_auth!(
+            proto::PeersRequest {
+                include_bootstrappers: true,
+            },
+            TOKEN
+        );
+        let reply = client.peer_list(req).await.unwrap();
+        assert_eq!(reply.get_ref().peer_type, PeerType::Bootstrapper.to_string());
         Ok(())
     }
 
-    fn grpc_peer_list_node_type_str(peer_type: PeerType) -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(peer_type);
-        let reply =
-            client.peer_list_opt(&crate::proto::PeersRequest::new(), callopts).expect("rpc");
-        assert_eq!(reply.peer_type, peer_type.to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn test_node_info() -> Fallible<()> {
+    #[tokio::test]
+    async fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let reply = client.node_info_opt(&crate::proto::Empty::new(), callopts).expect("rpc");
+        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let reply = client.node_info(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap();
+        let reply = reply.get_ref();
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
         assert_eq!(reply.peer_type, "Node");
-        assert_eq!(reply.node_id.unwrap().get_value(), rpc_serv.node.id().to_string());
-        Ok(())
-    }
-
-    #[test]
-    fn test_subscription_start() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        assert!(client
-            .subscription_start_opt(&crate::proto::Empty::new(), callopts)
-            .unwrap()
-            .get_value());
-        Ok(())
-    }
-
-    #[test]
-    fn test_subscription_stop() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        // assert!(!client
-        // .subscription_stop_opt(&crate::proto::Empty::new(), callopts.clone())
-        // .unwrap()
-        // .get_value());
-        client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone()).unwrap();
-        assert!(client
-            .subscription_stop_opt(&crate::proto::Empty::new(), callopts)
-            .unwrap()
-            .get_value());
-        Ok(())
-    }
-
-    #[test]
-    #[ignore] // TODO: decide how to handle this one
-    fn test_subscription_poll() -> Fallible<()> {
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option_waiter(PeerType::Node);
-        let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        client.subscription_start_opt(&crate::proto::Empty::new(), callopts.clone())?;
-        send_broadcast_message(
-            &node2,
-            node2.self_peer.id,
-            vec![],
-            crate::network::NetworkId::from(100),
-            Arc::from(&b"Hey"[..]),
-        )?;
-        // await_broadcast_message(&wt1).expect("Message sender disconnected");
-        let ans = client.subscription_poll_opt(&crate::proto::Empty::new(), callopts.clone())?;
-        if let crate::proto::P2PNetworkMessage_oneof_payload::message_broadcast(b) =
-            ans.payload.expect(
-                "Received empty message from the rpc subscription when expecting a broadcast \
-                 message",
-            )
-        {
-            assert_eq!(b.data, b"Hey");
-        } else {
-            bail!("Wrong message received");
-        }
+        assert_eq!(reply.node_id.as_ref().unwrap(), &node.id().to_string());
         Ok(())
     }
 
@@ -1620,61 +1005,12 @@ mod tests {
     // - Get last final account info
     // - Get last final instance info
 
-    #[test]
-    fn test_shutdown() -> Fallible<()> {
-        let (client, _, callopts) = create_node_rpc_call_option(PeerType::Node);
-        assert!(client
-            .shutdown_opt(&crate::proto::Empty::new(), callopts)
-            .expect("rpc")
-            .get_value());
+    #[tokio::test]
+    async fn test_shutdown() -> Fallible<()> {
+        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        assert!(
+            client.shutdown(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value
+        );
         Ok(())
-    }
-
-    #[test]
-    #[cfg(feature = "benchmark")]
-    #[ignore] // TODO: decide how to handle this one
-    fn test_tps_tests() -> Fallible<()> {
-        let data = "Hey";
-        std::fs::create_dir_all("/tmp/blobs")?;
-        std::fs::write("/tmp/blobs/test", data)?;
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut req = crate::proto::TpsRequest::new();
-        req.set_network_id(100);
-        req.set_id(node2.id().to_string());
-        req.set_directory("/tmp/blobs".to_string());
-        client.tps_test_opt(&req, callopts)?;
-        // assert_eq!(&await_direct_message(&wt2)?.remaining_bytes()?[..], b"Hey");
-        Ok(())
-    }
-
-    #[test]
-    #[cfg(not(feature = "benchmark"))]
-    fn test_tps_tests() -> Fallible<()> {
-        let data = "Hey";
-        std::fs::create_dir_all("/tmp/blobs")?;
-        std::fs::write("/tmp/blobs/test", data)?;
-        let (client, rpc_serv, callopts) = create_node_rpc_call_option(PeerType::Node);
-        let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
-        connect(&node2, &rpc_serv.node)?;
-        await_handshake(&node2)?;
-        await_handshake(&rpc_serv.node)?;
-        let mut req = crate::proto::TpsRequest::new();
-        req.set_network_id(100);
-        req.set_id(node2.id().to_string());
-        req.set_directory("/tmp/blobs".to_string());
-        if let Err(grpcio::Error::RpcFailure(s)) = client.tps_test_opt(&req, callopts) {
-            if grpcio::RpcStatusCode::Unavailable == s.status
-                && s.details.unwrap() == "Feature not activated"
-            {
-                return Ok(());
-            }
-        }
-        bail!("grpc: TPS test should have been deactivated but doesn't answer with the propererror")
     }
 }

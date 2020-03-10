@@ -3,21 +3,21 @@ set -e
 
 if [ "$#" -lt 1 ]
 then
-  echo "Usage: ./build-testnet-develop-release.sh [debug|release] [default|no-rgs] [profiling=[true|false]]"
+  echo "Usage: ./build-testnet-develop-release.sh [debug|release] [default] [profiling=[true|false]]"
   exit 1
 fi
 
 BUILD_TYPE=$1
 
 CONSENSUS_TYPE=""
-if [ ! -z "$2" ]; then 
+if [ ! -z "$2" ]; then
   CONSENSUS_TYPE="$2"
 else
   CONSENSUS_TYPE="default"
 fi
 
 CONSENSUS_PROFILING="false"
-if [[ ! -z "$3" && "$3" == "true" ]]; then 
+if [[ ! -z "$3" && "$3" == "true" ]]; then
   CONSENSUS_PROFILING="true"
 fi
 

@@ -1,8 +1,8 @@
 [package]
 name = "p2p_client"
-version = "0.2.0"
+version = "0.2.1"
 description = "Concordium P2P Client"
-authors = ["Concordium AG <info@concordium.com>"]
+authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
 publish = false
 build = "build.rs"
@@ -18,34 +18,30 @@ s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
-instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "tokio"]
-benchmark = []
+instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 network_dump = []
 static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
-collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper" ]
+collector = [ "reqwest", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
-rgs = [ "consensus-rust/rgs" ]
 
 [profile.release]
 codegen-units = 1
-#panic = 'abort'
 
 [dependencies]
 # Internal dependencies
-globalstate-rust = { path = "deps/internal/consensus/globalstate-mockup/globalstate-rust" }
 consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
 concordium-dns = { package = "concordium-dns", path = "deps/internal/concordium-dns" }
-concordium_crypto_ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
-concordium_crypto_eddsa_ed25519 = { package = "eddsa_ed25519", path = "deps/internal/consensus/crypto/rust-src/eddsa_ed25519" }
+ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
 concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
+crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common" }
 
 # External dependencies
-parking_lot = "^0.9"
-structopt = "0.2"
-rand = "^0.6"
-hacl-star = "^0.1.0"
+parking_lot = "0.10"
+structopt = "0.3"
+rand = "0.7"
+hacl-star = { git = "https://github.com/quininer/rust-hacl-star", rev = "3680bccbf75e86276a9a00bcfa3b40460ac26073" }
 mio = "^0.6.19"
 log = "0.4"
 env_logger = "0.7"
@@ -53,76 +49,69 @@ byteorder = "^1.3.2"
 preferences = "^1.1.0"
 app_dirs2 = "^2.0"
 chrono = "0.4"
-failure = "^0.1.5"
+failure = "0.1.7"
 cfg-if = "0.1"
-tempfile = "^3.0.7"
-base64 = "^0.10.1"
-rkv = "^0.9"
+base64 = "0.11"
+rkv = "0.10"
 circular-queue = "^0.2"
 digest = "0.8.0"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
 nohash-hasher = "^0.1"
-priority-queue = "^0.6.0"
+priority-queue = "0.7"
 rayon = "^1.2.0"
 noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
+semver = { version = "0.9", features = ["serde"] }
 
 # gRPC dependencies
-protobuf = "2.10.0"
-futures = "0.1"
+tonic = "0.1"
+prost = "0.6"
+tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
 # Feature-gated dependencies
-gotham = { version = "0.4", optional = true }
+gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c92bc45ceee6a0ed33e8aef4c", optional = true }
 gotham_derive = { version = "0.4", optional = true }
-hyper = { version = "0.12", optional = true }
-reqwest = { version = "^0.9", default-features = false, optional = true }
+http = { version = "0.2", optional = true }
+hyper = { version = "0.13", optional = true }
+reqwest = { version = "0.10", default-features = false, optional = true, features = ["stream", "json", "blocking"] }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
 flatc-rust = { version = "^0.1", optional = true }
+futures = { version = "0.3", optional = true }
 serde = { version = "1.0", features = ["rc"], optional = true }
 serde_derive = { version = "1.0", optional = true }
-capnp = { version = "^0.9", optional = true }
-serde_cbor = { version = "0.9.0", optional = true }
+capnp = { version = "0.12", optional = true }
+serde_cbor = { version = "0.11", optional = true }
 rmp-serde = { version = "0.14.0", optional = true }
 elastic = { version = "0.21.0-pre.5", features = [ "default-tls" ], optional = true }
 elastic_derive = { version = "0.21.0-pre.5", optional = true }
 serde_json = { version = "1", optional = true }
 num_cpus = { version = "1.10.0", optional = true }
-tokio = { version = "0.1.19", optional = true }
-jsonwebtoken = { version = "6", optional = true }
+jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.7.0", default-features = false, features = [ "gen", "push", "protobuf" ], optional = true }
 
 [target.'cfg(windows)'.dependencies]
-ipconfig = { version = "^0.1.9" }
+ipconfig = { version = "0.2" }
 
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
-grpciounix = { package = "grpcio", path = "deps/external/grpc-rs", version = "0.4.4", default-features = false, features = [
-  "protobuf-codec"
-] }
-uuid = { version = "0.7", default-features = false, optional = true }
+uuid = { version = "0.8", default-features = false, optional = true }
 
 [build-dependencies]
-protoc-grpcio = "1.1.0"
-capnpc = { version = "^0.9", optional = true }
+tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
+capnpc = { version = "0.12", optional = true }
 flatc-rust = "^0.1"
 
 [dev-dependencies]
 criterion = "0.3"
 quickcheck = "^0.9"
+futures = "0.3"
+itertools = "0.8"
 
 [lib]
 path = "src/lib.rs"
 name = "p2p_client"
-
-[[bin]]
-path = "src/bin/block_dump_reader.rs"
-name = "read_block_dump"
-
-[[bin]]
-path = "src/bin/transaction_reader.rs"
-name = "read_transaction"
 
 [[bin]]
 path = "src/bin/cli.rs"
@@ -151,8 +140,8 @@ path = "src/bin/collector_backend.rs"
 required-features = [ "collector" ]
 
 [[bin]]
-name = "tnst"
-path = "src/bin/two_node_stress_test.rs"
+name = "network_stress_test"
+path = "src/bin/network_stress_test.rs"
 
 [[bench]]
 name = "p2p_lib_benchmark"

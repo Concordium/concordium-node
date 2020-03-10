@@ -1,23 +1,25 @@
-use byteorder::WriteBytesExt;
+//! Test utilities.
+
 use chrono::{offset::Utc, DateTime};
 use failure::Fallible;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use structopt::StructOpt;
 
 use crate::{
-    common::{P2PNodeId, PeerType},
+    common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
-    network::{NetworkId, NetworkMessage, NetworkMessagePayload, NetworkPacket, NetworkPacketType},
-    p2p::P2PNode,
-    stats_export_service::{StatsExportService, StatsServiceMode},
+    connection::ConnChange,
+    netmsg,
+    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, PacketDestination},
+    p2p::{maintenance::spawn, P2PNode},
+    stats_export_service::StatsExportService,
 };
-use concordium_common::{serial::Endianness, PacketType};
+use concordium_common::PacketType;
+use crypto_common::Serial;
 
-use crossbeam_channel::{self, Receiver};
 use std::{
     io::Write,
     net::TcpListener,
-    path::PathBuf,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc, Once,
@@ -32,7 +34,7 @@ static PORT_START_NODE: u16 = 8888;
 
 const TESTCONFIG: &[&str] = &[];
 
-/// It returns the next available port
+/// Returns the next available port.
 pub fn next_available_port() -> u16 {
     let mut available_port = None;
 
@@ -45,6 +47,7 @@ pub fn next_available_port() -> u16 {
     available_port.unwrap()
 }
 
+/// Produces a config object for test purposes.
 pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     let mut config = Config::from_iter(TESTCONFIG.iter()).add_options(
         Some("127.0.0.1".to_owned()),
@@ -58,7 +61,7 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     config
 }
 
-/// It initializes the global logger with an `env_logger`, but just once.
+/// Initializes the global logger with an `env_logger` - just once.
 pub fn setup_logger() {
     // @note It adds thread ID to each message.
     INIT.call_once(|| {
@@ -81,89 +84,61 @@ pub fn setup_logger() {
     });
 }
 
-/// It creates a pair of `P2PNode` and a `Receiver` which can be used to
-/// wait for specific messages.
-/// Using this approach protocol tests will be easier and cleaner.
+/// Creates a `P2PNode` for test purposes
 pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
 ) -> Fallible<Arc<P2PNode>> {
-    let (rpc_tx, _rpc_rx) = crossbeam_channel::bounded(64);
-
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
     config.cli.no_network = true;
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
 
-    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, None);
+    let stats = Arc::new(StatsExportService::new().unwrap());
+    let node = P2PNode::new(None, &config, node_type, stats, None);
 
-    node.spawn();
+    spawn(&node);
     Ok(node)
 }
 
-pub fn make_node_and_sync_with_rpc(
-    port: u16,
-    networks: Vec<u16>,
-    node_type: PeerType,
-    data_dir_path: PathBuf,
-) -> Fallible<(Arc<P2PNode>, Receiver<NetworkMessage>, Receiver<NetworkMessage>)> {
-    let (_, msg_wait_rx) = crossbeam_channel::bounded(64);
-    let (rpc_tx, rpc_rx) = crossbeam_channel::bounded(64);
-
-    // locally-run tests and benches can be polled with a much greater frequency
-    let mut config = get_test_config(port, networks);
-    config.cli.no_network = true;
-    config.cli.poll_interval = 1;
-    config.connection.housekeeping_interval = 10;
-
-    let stats = StatsExportService::new(StatsServiceMode::NodeMode).unwrap();
-    let node = P2PNode::new(None, &config, None, node_type, stats, rpc_tx, Some(data_dir_path));
-
-    node.spawn();
-    Ok((node, msg_wait_rx, rpc_rx))
-}
-
 /// Connects `source` and `target` nodes
-pub fn connect(source: &P2PNode, target: &P2PNode) -> Fallible<()> {
-    source.connect(target.self_peer.peer_type, target.internal_addr(), None)
+pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) {
+    source.register_conn_change(ConnChange::NewPeers(vec![target.self_peer]));
 }
 
-pub fn await_handshake(node: &P2PNode) -> Fallible<()> {
+/// Waits until all handshakes with other nodes have concluded.
+pub fn await_handshakes(node: &P2PNode) {
     loop {
-        if let Some(conn) = read_or_die!(node.connections()).values().next() {
-            if conn.is_post_handshake() {
-                break;
-            }
+        if lock_or_die!(node.conn_candidates()).is_empty()
+            && !read_or_die!(node.connections()).is_empty()
+        {
+            return;
         }
 
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(10));
     }
-
-    Ok(())
 }
 
+/// Creates a vector of given size containing random bytes.
 pub fn generate_random_data(size: usize) -> Vec<u8> {
     thread_rng().sample_iter(&Alphanumeric).take(size).map(|c| c as u32 as u8).collect()
 }
 
 fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
-    let mut buffer = Vec::with_capacity(2 + size);
-    buffer.write_u16::<Endianness>(PacketType::Block as u16)?;
+    let mut buffer = Vec::with_capacity(1 + size);
+    (PacketType::Block as u8).serial(&mut buffer);
     buffer.write_all(&generate_random_data(size))?;
     Ok(buffer)
 }
 
+/// Produces a network message containing a packet that simulates a block of
+/// given size.
 pub fn create_random_packet(size: usize) -> NetworkMessage {
-    NetworkMessage {
-        timestamp1: Some(thread_rng().gen()),
-        timestamp2: None,
-        payload:    NetworkMessagePayload::NetworkPacket(NetworkPacket {
-            packet_type: NetworkPacketType::DirectMessage(P2PNodeId::default()),
-            network_id:  NetworkId::from(thread_rng().gen::<u16>()),
-            message:     Arc::from(generate_fake_block(size).unwrap()),
-        }),
-    }
+    netmsg!(NetworkPacket, NetworkPacket {
+        destination: PacketDestination::Direct(P2PNodeId::default()),
+        network_id:  NetworkId::from(thread_rng().gen::<u16>()),
+        message:     generate_fake_block(size).unwrap(),
+    })
 }

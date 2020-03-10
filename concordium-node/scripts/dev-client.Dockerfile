@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.7 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as build
 
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
@@ -40,7 +40,7 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt-get update && apt-get install -y unbound curl
+RUN apt-get update && apt-get install -y unbound curl postgresql-server-dev-11
 
 COPY --from=build /build-project/baker_id_generator /baker_id_generator
 COPY --from=build /build-project/start.sh /start.sh
