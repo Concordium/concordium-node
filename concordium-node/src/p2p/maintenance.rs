@@ -544,6 +544,10 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
             if now.duration_since(log_time)
                 >= Duration::from_secs(node.config.housekeeping_interval)
             {
+                if cfg!(test) && read_or_die!(node.connections()).is_empty() {
+                    panic!("the test timed out: no valid connections available");
+                }
+
                 // Check the termination switch
                 if node.is_terminated.load(Ordering::Relaxed) {
                     break;
