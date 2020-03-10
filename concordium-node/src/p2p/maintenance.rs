@@ -500,24 +500,22 @@ impl P2PNode {
 }
 
 /// Spawn the node's poll thread.
-pub fn spawn(node: &Arc<P2PNode>, mut poll: Poll) {
-    let self_clone = Arc::clone(node);
-    let poll_thread = spawn_or_die!("Poll thread", {
+pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
+    let node = Arc::clone(node_ref);
+    let poll_thread = spawn_or_die!("Poll thread", move || {
         let mut events = Events::with_capacity(10);
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
 
-        let deduplication_queues = DeduplicationQueues::new(
-            self_clone.config.dedup_size_long,
-            self_clone.config.dedup_size_short,
-        );
+        let deduplication_queues =
+            DeduplicationQueues::new(node.config.dedup_size_long, node.config.dedup_size_short);
 
-        let num_socket_threads = match self_clone.self_peer.peer_type {
+        let num_socket_threads = match node.self_peer.peer_type {
             PeerType::Bootstrapper => 1,
-            PeerType::Node => self_clone.config.thread_pool_size,
+            PeerType::Node => node.config.thread_pool_size,
         };
         let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
-        let poll_interval = Duration::from_millis(self_clone.config.poll_interval);
+        let poll_interval = Duration::from_millis(node.config.poll_interval);
 
         loop {
             // check for new events or wait
@@ -530,52 +528,52 @@ pub fn spawn(node: &Arc<P2PNode>, mut poll: Poll) {
             // check for new connections
             let _new_conn = if events.iter().any(|event| event.token() == SELF_TOKEN) {
                 debug!("Got a new connection!");
-                accept(&self_clone).map_err(|e| error!("{}", e)).ok()
+                accept(&node).map_err(|e| error!("{}", e)).ok()
             } else {
                 None
             };
 
-            for conn_change in self_clone.connection_handler.conn_changes.changes.try_iter() {
-                process_conn_change(&self_clone, conn_change)
+            for conn_change in node.connection_handler.conn_changes.changes.try_iter() {
+                process_conn_change(&node, conn_change)
             }
 
-            pool.install(|| self_clone.process_network_events(&events, &deduplication_queues));
+            pool.install(|| node.process_network_events(&events, &deduplication_queues));
 
             // Run periodic tasks
             let now = Instant::now();
             if now.duration_since(log_time)
-                >= Duration::from_secs(self_clone.config.housekeeping_interval)
+                >= Duration::from_secs(node.config.housekeeping_interval)
             {
                 // Check the termination switch
-                if self_clone.is_terminated.load(Ordering::Relaxed) {
+                if node.is_terminated.load(Ordering::Relaxed) {
                     break;
                 }
 
-                connection_housekeeping(&self_clone);
-                if self_clone.peer_type() != PeerType::Bootstrapper {
-                    self_clone.measure_connection_latencies();
+                connection_housekeeping(&node);
+                if node.peer_type() != PeerType::Bootstrapper {
+                    node.measure_connection_latencies();
                 }
 
-                let peer_stat_list = self_clone.get_peer_stats(Some(PeerType::Node));
-                check_peers(&self_clone, &peer_stat_list);
-                self_clone.measure_throughput(&peer_stat_list);
+                let peer_stat_list = node.get_peer_stats(Some(PeerType::Node));
+                check_peers(&node, &peer_stat_list);
+                node.measure_throughput(&peer_stat_list);
 
                 log_time = now;
             }
 
-            if self_clone.is_bucket_cleanup_enabled()
+            if node.is_bucket_cleanup_enabled()
                 && now.duration_since(last_buckets_cleaned)
-                    >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
+                    >= Duration::from_millis(node.config.bucket_cleanup_interval)
             {
-                write_or_die!(self_clone.buckets())
-                    .clean_buckets(self_clone.config.timeout_bucket_entry_period);
+                write_or_die!(node.buckets())
+                    .clean_buckets(node.config.timeout_bucket_entry_period);
                 last_buckets_cleaned = now;
             }
         }
     });
 
     // Register info about thread into P2PNode.
-    write_or_die!(node.threads).push(poll_thread);
+    write_or_die!(node_ref.threads).push(poll_thread);
 }
 
 /// Process a major change to a connection.
