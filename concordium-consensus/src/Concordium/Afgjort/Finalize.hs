@@ -56,9 +56,9 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
 import Concordium.GlobalState.Classes(GlobalStateTypes(..))
 import Concordium.Kontrol
 import Concordium.Afgjort.Types

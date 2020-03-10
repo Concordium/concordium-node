@@ -5,7 +5,8 @@ import Data.Functor
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.TreeState
 import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters

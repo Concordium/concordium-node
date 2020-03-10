@@ -6,6 +6,7 @@ import Data.Time
 import Data.Time.Clock.POSIX
 
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.BlockPointer (bpArriveTime, bpTransactionCount)
 import Concordium.GlobalState.Statistics
 
 import Concordium.Skov.Monad
@@ -34,17 +35,17 @@ updateArriveStatistics bp = do
         curTime = bpArriveTime bp
         updateLatency s = do
             slotTime <- getSlotTime (blockSlot bp)
-            let 
+            let
                 oldEMA = s ^. blockArriveLatencyEMA
                 delta = realToFrac (diffUTCTime curTime slotTime) - oldEMA
             return $
                 s & (blockArriveLatencyEMA .~ oldEMA + emaWeight * delta)
                   & (blockArriveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
-        updatePeriod s = 
+        updatePeriod s =
             case s ^. blockLastArrive of
                 Nothing -> s & blockLastArrive ?~ curTime
-                Just lastBTime -> 
-                    let 
+                Just lastBTime ->
+                    let
                         blockTime = realToFrac (diffUTCTime curTime lastBTime)
                         oldEMA = fromMaybe blockTime (s ^. blockArrivePeriodEMA)
                         delta = blockTime - oldEMA
@@ -85,7 +86,7 @@ updateReceiveStatistics pb = do
             return $
                 s & (blockReceiveLatencyEMA .~ oldEMA + emaWeight * delta)
                   & (blockReceiveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
-        updatePeriod s = 
+        updatePeriod s =
             case s ^. blockLastReceived of
                 Nothing -> s & blockLastReceived ?~ blockReceiveTime pb
                 Just lastBTime ->
@@ -99,7 +100,7 @@ updateReceiveStatistics pb = do
                           & (blockReceivePeriodEMA ?~ oldEMA + emaWeight * delta)
                           & (blockReceivePeriodEMVar ?~ (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
--- | Called when a block has been finalized to update the statistics.        
+-- | Called when a block has been finalized to update the statistics.
 updateFinalizationStatistics :: (TreeStateMonad m, LoggerMonad m, TimeMonad m) => m ()
 updateFinalizationStatistics = do
         s0 <- getConsensusStatistics

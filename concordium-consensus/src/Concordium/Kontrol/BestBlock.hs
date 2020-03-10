@@ -13,11 +13,12 @@ import Control.Exception (assert)
 
 import Concordium.Types
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
-import Concordium.GlobalState.TreeState(BlockPointer, BlockPointerData(..), Branches)
+import Concordium.GlobalState.TreeState(Branches, BlockPointer)
 
 blockLuck :: (SkovQueryMonad m, BlockPointerMonad m) => BlockPointer m -> m BlockLuck
 blockLuck block = case blockFields block of

@@ -30,6 +30,7 @@ import Data.Aeson(Value(Null))
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
+import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
@@ -38,10 +39,10 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.Block as BasicBlock
+import qualified Concordium.GlobalState.Persistent.Block as PersistentBlock
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
@@ -238,14 +239,11 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
-broadcastCallback :: (BlockData (TS.BlockPointer (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
-                                                        (SkovConfig gs finconf hconf)
-                                                        (LoggerT IO))))
-                  => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
+broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
-            let blockbs = runPut (putBlock block)
+            let blockbs = runPut $ blockBody block >> put (blockSignature block)
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -300,7 +298,7 @@ consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunn
 runWithConsensus :: ConsensusRunner -> (forall h f gs.
                                         (TS.TreeStateMonad (SkovT h (SkovConfig gs f HookLogHandler) LogIO),
                                         TS.PendingBlock
-                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ BasicBlock.PendingBlock
+                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ PersistentBlock.PersistentPendingBlock
                                         ) => SkovT h (SkovConfig gs f HookLogHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
@@ -439,7 +437,6 @@ startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> startSyncRunner bakerSyncRunner
-        BakerRunnerWithLog{..} -> startSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -447,7 +444,6 @@ stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> stopSyncRunner bakerSyncRunner
-        BakerRunnerWithLog{..} -> stopSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to stop baker thread, but consensus was started without baker credentials"
 
 {- | Result values for receive functions.
@@ -477,8 +473,6 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
-|    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
-+-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -494,7 +488,6 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
-toReceiveResult ResultEarlyBlock = 11
 
 
 -- |Handle receipt of a block.
@@ -914,7 +907,7 @@ getTransactionStatusInBlock cptr trcstr bhcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLInfo "Received transaction status request."
-    withTransactionHash trcstr (logm External LLDebug) $ \txHash -> 
+    withTransactionHash trcstr (logm External LLDebug) $ \txHash ->
       withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
         status <- runConsensusQuery c (Get.getTransactionStatusInBlock txHash blockHash)
         logm External LLTrace $ "Replying with: " ++ show status
@@ -1008,8 +1001,9 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             let
+                toMsg :: Either FinalizationRecord BroadcastableBlock -> (MessageType, BS.ByteString)
                 toMsg (Left finRec) = (MTFinalizationRecord, encode finRec)
-                toMsg (Right block) = (MTBlock, runPut $ putBlock block)
+                toMsg (Right block) = (MTBlock, runPut $ blockBody block >> put (blockSignature block))
             runConsensusQuery c (\z -> Get.handleCatchUpStatus z cus <&> fmap (first (fmap $ \(l, rcus) -> (toMsg <$> l, rcus)))) >>= \case
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do

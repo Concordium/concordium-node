@@ -17,14 +17,15 @@ import Control.Monad.State.Class
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Classes
 import qualified Concordium.GlobalState.TreeState as TS
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.Block
+import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
@@ -73,7 +74,7 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
     Nothing -> return Null
     Just AT.Received{} ->
       return $ object ["status" .= String "received"]
-    Just AT.Finalized{..} -> 
+    Just AT.Finalized{..} ->
       withBlockStateJSON tsBlockHash $ \bs -> do
         outcome <- BS.getTransactionOutcome bs tsFinResult
         return $ object ["status" .= String "finalized",
@@ -355,5 +356,5 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
 getCatchUpStatus sRef isRequest = runStateQuery sRef $ CU.getCatchUpStatus isRequest
 
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
+handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord BroadcastableBlock], CU.CatchUpStatus), Bool))
 handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus

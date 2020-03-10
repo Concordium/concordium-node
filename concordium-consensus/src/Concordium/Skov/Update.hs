@@ -1,5 +1,6 @@
 {-# LANGUAGE
     ScopedTypeVariables,
+    TypeFamilies,
     ViewPatterns #-}
 module Concordium.Skov.Update where
 
@@ -14,7 +15,11 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.Basic.Block (BasicPendingBlock)
+import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
+import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Parameters
@@ -42,7 +47,7 @@ isAncestorOf b1 b2 = case compare (bpHeight b1) (bpHeight b2) of
           isAncestorOf b1 parent
 
 -- |Update the focus block, together with the pending transaction table.
-updateFocusBlockTo :: (TreeStateMonad m) => BlockPointer m -> m ()
+updateFocusBlockTo :: (Convert Transaction (BlockTransactionType (BlockPointer m)) m, TreeStateMonad m) => BlockPointer m -> m ()
 updateFocusBlockTo newBB = do
         oldBB <- getFocusBlock
         pts <- getPendingTransactions
@@ -50,20 +55,24 @@ updateFocusBlockTo newBB = do
         putPendingTransactions upts
         putFocusBlock newBB
     where
-        updatePTs :: (BlockPointerMonad m) => BlockPointer m -> BlockPointer m -> [BlockPointer m] -> PendingTransactionTable -> m PendingTransactionTable
+        updatePTs :: (Convert Transaction (BlockTransactionType (BlockPointer m)) m, BlockPointerMonad m) => BlockPointer m -> BlockPointer m -> [BlockPointer m] -> PendingTransactionTable -> m PendingTransactionTable
         updatePTs oBB nBB forw pts = case compare (bpHeight oBB) (bpHeight nBB) of
                 LT -> do
                   parent <- (bpParent nBB)
                   updatePTs oBB parent (nBB : forw) pts
                 EQ -> if oBB == nBB then
-                            return $ foldl (flip (forwardPTT . blockTransactions)) pts forw
+                            foldlM (\p f-> do
+                                       txs <- mapM toMemoryRepr $ blockTransactions f
+                                       return $ forwardPTT txs p) pts forw
                         else do
                             parent1 <- (bpParent oBB)
                             parent2 <- (bpParent nBB)
-                            updatePTs parent1 parent2 (nBB : forw) (reversePTT (blockTransactions oBB) pts)
+                            txs <- mapM toMemoryRepr (blockTransactions oBB)
+                            updatePTs parent1 parent2 (nBB : forw) (reversePTT txs pts)
                 GT -> do
                   parent <- bpParent oBB
-                  updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
+                  txs <- mapM toMemoryRepr (blockTransactions oBB)
+                  updatePTs parent nBB forw (reversePTT txs pts)
 
 -- |A monad implementing 'OnSkov' provides functions for responding to
 -- a block being added to the tree, and a finalization record being verified.
@@ -85,7 +94,7 @@ class OnSkov m where
 
 -- |Log transfers in the given block using the 'logTransfer' method of the
 -- 'OnSkov' class.
-logTransfers :: (BlockPointerMonad m, OnSkov m, LoggerMonad m, BlockStateQuery m) => BlockPointer m -> m ()
+logTransfers :: (Convert Transaction (BlockTransactionType (BlockPointer m)) m, BlockPointerMonad m, OnSkov m, LoggerMonad m, BlockStateQuery m) => BlockPointer m -> m ()
 logTransfers bp = logTransfer >>= \case
   Nothing -> return ()
   Just logger -> do
@@ -102,7 +111,9 @@ logTransfers bp = logTransfer >>= \case
               Just outcome ->
                 mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields outcome)
 
-        zipWithM_ note (blockTransactions bp) [0..]
+        zipWithM_ (\x y -> do
+                     x' <- toMemoryRepr x
+                     note x' y) (blockTransactions bp) [0..]
         special <- getSpecialOutcomes state
         mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason) special
 
@@ -139,10 +150,7 @@ purgePending = do
 -- and simply tries to add all blocks with last finalized blocks no higher
 -- than the newly finalized blocks.  At this point, we can determined for
 -- certain if such a block has a valid last-finalized block.
-processAwaitingLastFinalized :: (HasCallStack,
-                                 TreeStateMonad m,
-                                 SkovMonad m,
-                                 OnSkov m) => m ()
+processAwaitingLastFinalized :: (BlockDataMonad (PendingBlock m) m, HasCallStack, TreeStateMonad m, SkovMonad m, OnSkov m) => m ()
 processAwaitingLastFinalized = do
         lastFinHeight <- getLastFinalizedHeight
         takeAwaitingLastFinalizedUntil lastFinHeight >>= \case
@@ -157,10 +165,7 @@ processAwaitingLastFinalized = do
 -- If finalization is sucessful, then progress finalization.
 -- If not, any remaining finalization records at the current next finalization index
 -- will be valid proofs, but their blocks have not yet arrived.
-processFinalizationPool :: forall m. (HasCallStack,
-                                      TreeStateMonad m,
-                                      SkovMonad m,
-                                      OnSkov m) => (FinalizationRecord -> Bool) -> m ()
+processFinalizationPool :: forall m. (BlockDataMonad (PendingBlock m) m, HasCallStack, TreeStateMonad m, SkovMonad m, OnSkov m) => (FinalizationRecord -> Bool) -> m ()
 processFinalizationPool checkPending = do
         nextFinIx <- getNextFinalizationIndex
         frs <- getFinalizationPoolAtIndex nextFinIx
@@ -284,8 +289,7 @@ processFinalizationPool checkPending = do
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
-addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, OnSkov m)
-         => PendingBlock m -> m UpdateResult
+addBlock :: forall m. (BlockDataMonad (PendingBlock m) m, HasCallStack, TreeStateMonad m, SkovMonad m, OnSkov m) => PendingBlock m -> m UpdateResult
 addBlock block = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
@@ -359,18 +363,20 @@ addBlock block = do
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
                                                 lotteryPower
-                                                (blockProof block)) $
-                                    -- The block nonce
-                                    check (verifyBlockNonce
+                                                (blockProof block)) $ do
+                                     -- The block nonce
+                                     check (verifyBlockNonce
                                                 (_birkLeadershipElectionNonce bps)
                                                 (blockSlot block)
                                                 _bakerElectionVerifyKey
-                                                (blockNonce block)) $
-                                    -- And the block signature
-                                    check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
-                                        let ts = blockTransactions block
+                                                (blockNonce block)) $ do
+                                      -- And the block signature
+                                      b <- verifyBlockSignature _bakerSignatureVerifyKey block
+                                      check b $ do
+                                        let
                                         -- possibly add the block nonce in the seed state
                                             bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) _birkSeedState}
+                                        ts <- mapM toMemoryRepr $ blockTransactions block
                                         slotTime <- getSlotTimestamp (blockSlot block)
                                         executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                             Left err -> do
@@ -438,12 +444,11 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
-doStoreBlock :: (TreeStateMonad m,
-                 SkovMonad m,
-                 OnSkov m) => PendingBlock m -> m UpdateResult
+doStoreBlock :: (Convert Transaction (BlockTransactionType (PendingBlock m)) m, BlockDataMonad (PendingBlock m) m, TreeStateMonad m, SkovMonad m, OnSkov m, PendingBlock m ~ GB.PendingBlock (BlockTransactionType (BlockPointer m))) => BasicPendingBlock -> m UpdateResult
 {-# INLINE doStoreBlock #-}
-doStoreBlock = \pb -> do
+doStoreBlock pb@GB.PendingBlock{..} = do
     let cbp = getHash pb
+        BakedBlock{..} = pbBlock
     oldBlock <- getBlockStatus cbp
     case oldBlock of
         Nothing -> do
@@ -455,9 +460,10 @@ doStoreBlock = \pb -> do
                 blockArriveDead cbp
                 return ResultInvalid
               Just newTransactions -> do
-                newPb <- updateBlockTransactions newTransactions pb
-                updateReceiveStatistics newPb
-                addBlock newPb
+                let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
+--                newPb <- updateBlockTransactions newTransactions pb
+                updateReceiveStatistics block1
+                addBlock block1
         Just _ -> return ResultDuplicate
 
 -- |Store a block that is baked by this node in the tree.  The block
@@ -475,9 +481,7 @@ doStoreBakedBlock = \pb parent lastFin result -> do
         return bp
 
 -- |Add a new finalization record to the finalization pool.
-doFinalizeBlock :: (TreeStateMonad m,
-                    SkovMonad m,
-                    OnSkov m) => FinalizationRecord -> m UpdateResult
+doFinalizeBlock :: (BlockDataMonad (PendingBlock m) m, TreeStateMonad m, SkovMonad m, OnSkov m) => FinalizationRecord -> m UpdateResult
 {-# INLINE doFinalizeBlock #-}
 doFinalizeBlock = \finRec -> do
     let thisFinIx = finalizationIndex finRec
@@ -526,7 +530,7 @@ doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
-doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction, UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe (BlockTransactionType (BlockPointer m)), UpdateResult)
 doReceiveTransactionInternal tr slot =
         addCommitTransaction tr slot >>= \case
           Added tx -> do
@@ -539,7 +543,7 @@ doReceiveTransactionInternal tr slot =
               -- the focus block, then we do not need to add it to the
               -- pending transactions.  Otherwise, we do.
               when (nextNonce <= transactionNonce tr) $
-                  putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
+                  putPendingTransactions $! extendPendingTransactionTable nextNonce tr ptrs
               return (Just tx, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)

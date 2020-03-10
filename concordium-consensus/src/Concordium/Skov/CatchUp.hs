@@ -14,7 +14,9 @@ import Data.Foldable
 import Control.Monad
 
 import Concordium.Types
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.Block (BroadcastableBlock)
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 
@@ -98,8 +100,8 @@ getCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
-handleCatchUp peerCUS = runExceptT $ do
+handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord BroadcastableBlock], CatchUpStatus), Bool))
+handleCatchUp peerCUS = toBroadcastable =<< (runExceptT $ do
         lfb <- lift lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
             -- Our last finalized height is below the peer's last finalized height
@@ -205,4 +207,14 @@ handleCatchUp peerCUS = runExceptT $ do
                 return (Just (merge frs outBlocks2, myCUS), catchUpWithPeer)
             else
                 -- No response required
-                return (Nothing, catchUpWithPeer)
+                return (Nothing, catchUpWithPeer))
+   where
+      toBroadcastable :: (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool)) ->
+                        m (Either String (Maybe ([Either FinalizationRecord BroadcastableBlock], CatchUpStatus), Bool))
+      toBroadcastable (Right ((Just (ets, s), b))) = do
+               nets :: [Either FinalizationRecord BroadcastableBlock] <- forM ets $ \case
+                             Left c -> return $ Left c
+                             Right bb -> Right <$> toBroadcastableBlock bb
+               return $ Right ((Just (nets, s), b))
+      toBroadcastable (Right ((Nothing, b))) = return (Right ((Nothing, b)))
+      toBroadcastable (Left s) = return $ Left s

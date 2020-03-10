@@ -20,12 +20,13 @@ import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block
+import Concordium.GlobalState.Block hiding (PendingBlock)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
@@ -64,8 +65,7 @@ instance FromJSON BakerIdentity where
 
 processTransactions
     :: (TreeStateMonad m,
-        SkovMonad m
-        )
+        SkovMonad m)
     => Slot
     -> BirkParameters
     -> BlockPointer m
@@ -84,7 +84,7 @@ processTransactions slot ss bh finalizedP bid = do
 
 -- Reestablish
 maintainTransactions ::
-  TreeStateMonad m
+  (TreeStateMonad m)
   => BlockPointer m
   -> FilteredTransactions Transaction
   -> m ()
@@ -92,7 +92,9 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     let bh = getHash bp
     let slot = blockSlot bp
-    zipWithM_ (commitTransaction slot bh . fst) ftAdded [0..]
+    zipWithM_ (\tx i -> do
+                  tx' <- fromMemoryRepr (fst tx)
+                  commitTransaction slot bh tx' i) ftAdded [0..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
@@ -111,7 +113,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             Just acc -> return $ acc ^. accountNonce
     -- construct a new pending transaction table adding back some failed transactions.
     let purgeFailed cpt tx = do
-          b <- purgeTransaction tx
+          b <- purgeTransaction =<< fromMemoryRepr tx
           if b then return cpt  -- if the transaction was purged don't put it back into the pending table
           else do
             -- but otherwise do
@@ -131,7 +133,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             -- live block then we must not purge it to maintain the invariant
             -- that all transactions in live blocks exist in the transaction
             -- table.
-            b <- purgeTransaction tx
+            b <- purgeTransaction =<< fromMemoryRepr tx
             if b then return cpt
             else do
               nonce <- nextNonceFor (transactionSender tx)
@@ -143,10 +145,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions newpt'
 
 
-bakeForSlot :: (BlockPointerMonad m,
-                SkovMonad m,
-                TreeStateMonad m,
-                MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
+bakeForSlot :: (Convert Transaction (BlockTransactionType (PendingBlock m)) m, BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
@@ -162,7 +161,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    let transactions = map fst (ftAdded filteredTxs)
+    transactions <- mapM (fromMemoryRepr . fst) (ftAdded filteredTxs)
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime
     newbp <- storeBakedBlock pb
                          bb
