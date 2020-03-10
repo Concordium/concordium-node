@@ -551,7 +551,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
                     self_clone.measure_connection_latencies();
                 }
 
-                let peer_stat_list = self_clone.get_peer_stats(None);
+                let peer_stat_list = self_clone.get_peer_stats(Some(PeerType::Node));
                 check_peers(&self_clone, &peer_stat_list);
                 self_clone.measure_throughput(&peer_stat_list);
                 debug!(

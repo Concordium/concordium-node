@@ -100,17 +100,8 @@ impl P2PNode {
 /// config.
 pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
     trace!("Checking if any more peers are needed");
-    if node.peer_type() != PeerType::Bootstrapper
-        && !node.config.no_net
-        && node.config.desired_nodes_count
-            > peer_stat_list.iter().filter(|peer| peer.peer_type != PeerType::Bootstrapper).count()
-                as u16
-    {
+    if !node.config.no_net && node.config.desired_nodes_count > peer_stat_list.len() as u16 {
         if peer_stat_list.is_empty() {
-            info!("Sending out GetPeers to any bootstrappers we may still be connected to");
-            {
-                node.send_get_peers();
-            }
             if !node.config.no_bootstrap_dns {
                 info!("No peers at all - retrying bootstrapping");
                 attempt_bootstrap(node);
@@ -121,7 +112,7 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
                 );
             }
         } else {
-            info!("Not enough peers, sending GetPeers requests");
+            info!("Not enough peers - sending GetPeers requests");
             node.send_get_peers();
         }
     }
