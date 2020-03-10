@@ -88,8 +88,8 @@ pub type Connections = HashMap<Token, Connection, BuildNoHashHasher<usize>>;
 
 /// Intercepts changes to connections and provides change notifiers.
 pub struct ConnChanges {
-    changes:  Receiver<ConnChange>,
-    notifier: Sender<ConnChange>,
+    pub changes: Receiver<ConnChange>,
+    notifier:    Sender<ConnChange>,
 }
 
 /// The set of objects related to node's connections.

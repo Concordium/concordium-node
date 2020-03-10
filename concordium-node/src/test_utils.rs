@@ -111,7 +111,7 @@ pub fn connect(source: &Arc<P2PNode>, target: &P2PNode) {
 /// Waits until all handshakes with other nodes have concluded.
 pub fn await_handshakes(node: &P2PNode) {
     loop {
-        if lock_or_die!(node.conn_candidates()).is_empty()
+        if node.connection_handler.conn_changes.changes.is_empty()
             && !read_or_die!(node.connections()).is_empty()
         {
             return;
