@@ -40,7 +40,7 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let node = P2PNode::new(
+    let (node, poll) = P2PNode::new(
         Some(id),
         &conf,
         PeerType::Bootstrapper,
@@ -53,7 +53,7 @@ fn main() -> Result<(), Error> {
 
     info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
-    spawn(&node);
+    spawn(&node, poll);
 
     node.join().expect("Node thread panicked!");
 

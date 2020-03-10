@@ -11,7 +11,7 @@ use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
-use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpStream, Token};
 use priority_queue::PriorityQueue;
 use twox_hash::XxHash64;
 
@@ -220,18 +220,6 @@ impl Connection {
 
     /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
-
-    /// It registers the connection's socket for read and write ops using *edge*
-    /// notifications.
-    #[inline]
-    pub fn register(&self, poll: &Poll) -> Fallible<()> {
-        into_err!(poll.register(
-            &self.low_level.socket,
-            self.token,
-            Ready::readable() | Ready::writable(),
-            PollOpt::edge()
-        ))
-    }
 
     #[inline]
     fn is_packet_duplicate(

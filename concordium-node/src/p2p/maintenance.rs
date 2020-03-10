@@ -7,7 +7,7 @@ use failure::Fallible;
 use get_if_addrs;
 #[cfg(target_os = "windows")]
 use ipconfig;
-use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rkv::{Manager, Rkv};
 
@@ -165,8 +165,8 @@ pub struct P2PNode {
     pub self_peer: P2PPeer,
     /// Holds the handles to threads spawned by the node.
     pub threads: RwLock<Vec<JoinHandle<()>>>,
-    /// The handle to the poll for the connection event loop.
-    pub poll: Poll,
+    /// The handle to the poll registry.
+    pub poll_registry: Registry,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
     pub network_dumper: NetworkDumper,
@@ -181,14 +181,14 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    /// Creates a new node.
+    /// Creates a new node and its Poll.
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         data_dir_path: Option<PathBuf>,
-    ) -> Arc<Self> {
+    ) -> (Arc<Self>, Poll) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
                 warn!("Supplied listen address coulnd't be parsed");
@@ -228,14 +228,12 @@ impl P2PNode {
 
         info!("My Node ID is {}", id);
 
-        let poll = Poll::new().unwrap_or_else(|err| panic!("Couldn't create poll {:?}", err));
-
-        let server =
-            TcpListener::bind(&addr).unwrap_or_else(|_| panic!("Couldn't listen on port!"));
-
-        if poll.register(&server, SELF_TOKEN, Ready::readable(), PollOpt::level()).is_err() {
-            panic!("Couldn't register server with poll!")
-        };
+        let poll = Poll::new().expect("Couldn't create poll");
+        let mut server = TcpListener::bind(addr).expect("Couldn't listen on port");
+        let poll_registry = poll.registry().try_clone().expect("Can't clone the poll registry");
+        poll_registry
+            .register(&mut server, SELF_TOKEN, Interest::READABLE)
+            .expect("Couldn't register server with poll!");
 
         let own_peer_port = if let Some(own_port) = conf.common.external_port {
             own_port
@@ -321,7 +319,7 @@ impl P2PNode {
             .unwrap();
 
         let node = Arc::new(P2PNode {
-            poll,
+            poll_registry,
             start_time: Utc::now(),
             threads: Default::default(),
             config,
@@ -336,7 +334,7 @@ impl P2PNode {
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
-        node
+        (node, poll)
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
@@ -369,6 +367,15 @@ impl P2PNode {
     /// A convenience method for accessing the collection of  node's buckets.
     #[inline]
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
+
+    /// It registers a connection's socket with the poll.
+    pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
+        into_err!(self.poll_registry.register(
+            &mut conn.low_level.socket,
+            conn.token,
+            Interest::READABLE
+        ))
+    }
 
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
@@ -493,7 +500,7 @@ impl P2PNode {
 }
 
 /// Spawn the node's poll thread.
-pub fn spawn(node: &Arc<P2PNode>) {
+pub fn spawn(node: &Arc<P2PNode>, mut poll: Poll) {
     let self_clone = Arc::clone(node);
     let poll_thread = spawn_or_die!("Poll thread", {
         let mut events = Events::with_capacity(10);
@@ -510,13 +517,11 @@ pub fn spawn(node: &Arc<P2PNode>) {
             PeerType::Node => self_clone.config.thread_pool_size,
         };
         let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
+        let poll_interval = Duration::from_millis(self_clone.config.poll_interval);
 
         loop {
             // check for new events or wait
-            if let Err(e) = self_clone
-                .poll
-                .poll(&mut events, Some(Duration::from_millis(self_clone.config.poll_interval)))
-            {
+            if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);
                 continue;
             }

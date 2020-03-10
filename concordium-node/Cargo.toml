@@ -42,7 +42,7 @@ parking_lot = "0.10"
 structopt = "0.3"
 rand = "0.7"
 hacl-star = { git = "https://github.com/quininer/rust-hacl-star", rev = "3680bccbf75e86276a9a00bcfa3b40460ac26073" }
-mio = "^0.6.19"
+mio = { version = "0.7", features = ["os-poll", "tcp"] }
 log = "0.4"
 env_logger = "0.7"
 byteorder = "^1.3.2"
@@ -97,6 +97,7 @@ ipconfig = { version = "0.2" }
 [target.'cfg(unix)'.dependencies]
 get_if_addrs = { version = "0.5" }
 uuid = { version = "0.8", default-features = false, optional = true }
+libc = "0.2"
 
 [build-dependencies]
 tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
