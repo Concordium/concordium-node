@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications #-}
 {-# LANGUAGE DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
@@ -8,6 +8,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HashSet
 import qualified Data.Set as Set
 import qualified Data.List as List
+import Data.Maybe
 
 import Control.Monad
 import Control.Monad.Writer.Class(MonadWriter)
@@ -148,7 +149,7 @@ executeFrom :: forall m .
   -> BlockPointer m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> BirkParameters
-  -> [Transaction] -- ^Transactions on this block.
+  -> [BlockItem] -- ^Transactions on this block.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
 executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps txs =
   let cm = let blockHeight = bpHeight blockParent + 1
@@ -167,7 +168,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
-    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+    (res, finState) <- runBSM (Sch.runTransactions @BlockItem @Transaction txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     let usedEnergy = finState ^. schedulerEnergyUsed
     let bshandle2 = finState ^. schedulerBlockState
     case res of
@@ -219,8 +220,12 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
 
+    let credentialHashes = HashSet.toList (pt ^. pttDeployCredential)
+    -- NB: catMaybes is safe, but invariants should ensure that it is a no-op.
+    orderedCredentials <- List.sortOn cdiwmArrivalTime . catMaybes <$> mapM getCredential credentialHashes
+
     -- now we get transactions for each of the pending accounts.
-    txs <- forM (HM.toList pt) $ \(acc, (l, _)) -> do
+    txs <- forM (HM.toList (pt ^. pttWithSender)) $ \(acc, (l, _)) -> do
       accTxs <- getAccountNonFinalized acc l
       -- now find for each account the least arrival time of a transaction
       let txsList = concatMap (Set.toList . snd) accTxs
@@ -237,8 +242,12 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
+    let grouped = GroupedTransactions{
+          perAccountTransactions = orderedTxs,
+          credentialDeployments = orderedCredentials
+          }
     (ft@Sch.FilteredTransactions{..}, finState) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) grouped) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     let usedEnergy = finState ^. schedulerEnergyUsed
@@ -249,5 +258,5 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     bshandleFinal <- freezeBlockState bshandle4
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
-                                           _finalState = bshandleFinal,
-                                           _transactionLog = finState ^. accountTransactionLog})
+                                _finalState = bshandleFinal,
+                                _transactionLog = finState ^. accountTransactionLog})

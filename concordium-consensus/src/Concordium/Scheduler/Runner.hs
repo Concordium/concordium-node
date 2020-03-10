@@ -19,7 +19,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
 import Concordium.Types.Execution(Proof)
-import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
@@ -52,8 +51,6 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.Update amnt addr msg))
     (TJSON meta (Transfer to amnt) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
-    (TJSON meta (DeployCredential c) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
     (TJSON meta AddBaker{..} keys) ->
       let abElectionVerifyKey = bvfkey
           abSignatureVerifyKey = bsigvfkey
@@ -93,13 +90,15 @@ processTransactions = mapM transactionHelper
 processUngroupedTransactions :: (MonadFail m, MonadIO m) =>
                        [TransactionJSON] ->
                        Context Core.UA m (Types.GroupedTransactions Types.BareTransaction)
-processUngroupedTransactions = (fmap . fmap) (:[]) . processTransactions
+processUngroupedTransactions inpt = do
+  txs <- processTransactions inpt
+  return (Types.fromTransactions (map (:[]) txs))
 
 -- |For testing purposes: process transactions in the groups in which they came
 processGroupedTransactions :: (MonadFail m, MonadIO m) =>
                               [[TransactionJSON]] ->
                               Context Core.UA m (Types.GroupedTransactions Types.BareTransaction)
-processGroupedTransactions = mapM processTransactions
+processGroupedTransactions = fmap Types.fromTransactions . mapM processTransactions
 
 data PayloadJSON = DeployModule { moduleName :: Text }
                  | InitContract { amount :: Amount
@@ -114,7 +113,6 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | Transfer { toaddress :: Address
                             , amount :: Amount
                             }
-                 | DeployCredential {cdi :: CredentialDeploymentInformation}
                  -- FIXME: These should be updated to support more than one keypair for the account.
                  -- Need to demonstrate knowledge of all the relevant keys.
                  | AddBaker {
