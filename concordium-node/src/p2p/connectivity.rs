@@ -421,7 +421,7 @@ pub fn connect(
 }
 
 /// Perform a round of connection maintenance, e.g. removing inactive ones.
-pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
+pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     debug!("Running connection housekeeping");
 
     let curr_stamp = get_current_stamp();
@@ -484,8 +484,6 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> Fallible<()> {
     {
         attempt_bootstrap(node);
     }
-
-    Ok(())
 }
 
 /// A connetion is applicable for a broadcast if it is not in the exclusion

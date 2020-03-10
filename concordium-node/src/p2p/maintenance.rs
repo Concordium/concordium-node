@@ -546,9 +546,7 @@ pub fn spawn(node: &Arc<P2PNode>) {
                     break;
                 }
 
-                if let Err(e) = connection_housekeeping(&self_clone) {
-                    error!("Issue with connection cleanups: {:?}", e);
-                }
+                connection_housekeeping(&self_clone);
                 if self_clone.peer_type() != PeerType::Bootstrapper {
                     self_clone.measure_connection_latencies();
                 }
