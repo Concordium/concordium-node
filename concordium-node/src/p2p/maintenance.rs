@@ -583,7 +583,10 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         }
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
-                write_or_die!(node.connections()).insert(conn.token, conn);
+                let mut conns = write_or_die!(node.connections());
+                if !conns.values().any(|c| c.remote_id() == conn.remote_id()) {
+                    conns.insert(conn.token, conn);
+                }
             }
         }
         ConnChange::NewPeers(peers) => {
