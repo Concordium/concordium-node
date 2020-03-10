@@ -875,7 +875,7 @@ runTransactions = go []
               tlNotifyAccountEffect fp summary
               go ((t, summary):valid) ts
             (Just (TxInvalid reason), _) -> return (Left (Just reason))
-            (Nothing, _) -> return (Left Nothing)
+            (Nothing, _) -> return (Left Nothing) -- maximum block energy exceeded
           
           go valid [] = return (Right (reverse valid))
 

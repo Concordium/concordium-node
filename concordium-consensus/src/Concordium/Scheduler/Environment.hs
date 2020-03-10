@@ -431,6 +431,8 @@ data WithDepositContext = WithDepositContext{
   -- ^Hash of the top-level transaction.
   _wtcTransactionHeader :: !TransactionHeader,
   -- ^Header of the transaction we are running.
+  _wtcTransactionCheckHeaderCost :: !Energy,
+  -- ^Cost to be charged for checking the transaction header.
   _wtcCurrentlyUsedBlockEnergy :: !Energy,
   -- ^Energy currently used by the block.
   _wtcTransactionIndex :: !TransactionIndex
@@ -448,7 +450,7 @@ makeLenses ''WithDepositContext
 --
 --   * The account exists in the account database.
 --   * The deposited amount exists in the public account value.
---   * The deposited amount is __at least__ Cost.checkHeader (i.e., minimum transaction cost).
+--   * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
   SchedulerMonad m
   => WithDepositContext
@@ -468,12 +470,14 @@ withDeposit wtc comp k = do
   -- - here is safe due to precondition that currently used energy is less than the maximum block energy
   let beLeft = maxEnergy - wtc ^. wtcCurrentlyUsedBlockEnergy
   -- we assume we have already checked the header, so we have a bit less left over
-  let energy = totalEnergyToUse - Cost.checkHeader
+  let energy = totalEnergyToUse - wtc ^. wtcTransactionCheckHeaderCost
   -- record how much we have deposited. This cannot be touched during execution.
   depositedAmount <- energyToGtu totalEnergyToUse
   (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy beLeft
   case res of
+    -- Failure: maximum block energy exceeded
     Left Nothing -> return Nothing
+    -- Failure: transaction fails (out of energy or actual failure by transaction logic)
     Left (Just reason) -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
@@ -488,8 +492,9 @@ withDeposit wtc comp k = do
         tsIndex = wtc ^. wtcTransactionIndex,
         ..
         }
+    -- Computation successful
     Right a -> do
-      -- in this case we invoke the continuation
+      -- In this case we invoke the continuation, which should charge for the used energy.
       (tsResult, tsCost, tsEnergyCost) <- k ls a
       return $! Just $! TransactionSummary{
         tsSender = thSender txHeader,
