@@ -24,7 +24,8 @@ import Control.Monad.Reader.Class
 import Control.Monad.Writer.Class
 import Data.Functor.Identity
 
-import Concordium.GlobalState.Block
+import qualified Concordium.GlobalState.Block as B
+import qualified Concordium.GlobalState.BlockPointer as B
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where
@@ -68,7 +69,7 @@ class BlockStateTypes (m :: * -> *) where
 
 -- |The basic types associated with a monad providing an
 -- implementation of the global state.
-class (BlockStateTypes m, BlockPendingData (PendingBlock m), BlockPointerData (BlockPointer m)) => GlobalStateTypes m where
+class (BlockStateTypes m, B.BlockPendingData (PendingBlock m), B.BlockPointerData (BlockPointer m)) => GlobalStateTypes m where
     type PendingBlock m :: *
     type BlockPointer m :: *
 

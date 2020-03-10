@@ -1,17 +1,13 @@
-{-# LANGUAGE MultiParamTypeClasses, RecordWildCards, TypeFamilies, FlexibleContexts, TypeSynonymInstances, FunctionalDependencies #-}
-
+{-# LANGUAGE MultiParamTypeClasses, RecordWildCards, TypeFamilies, FlexibleContexts, TypeSynonymInstances, FunctionalDependencies, DerivingVia, ScopedTypeVariables, FlexibleInstances, UndecidableInstances #-}
 module Concordium.GlobalState.Block where
 
-import Data.Hashable (Hashable, hashWithSalt, hash)
 import Data.Time
 import Data.Serialize
 
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
-
+import Concordium.GlobalState.Parameters
 
 -- * Block type classes
 
@@ -33,96 +29,207 @@ class BlockMetadata d where
 -- @BlockFieldType b@ is an instance of 'BlockMetadata'.
 type family BlockFieldType (b :: *) :: *
 
--- |The 'BlockData' class provides an interface for the data associated
+-- |The type of the transactions in the block.
+--
+-- The block datatypes are parametrized by a type variable @t@ that indicates
+-- its Transaction type. By default given a Type @Block... t@, its
+-- @BlockTransactionType@ is automatically defined as @t@.
+--
+-- As GlobalStateTypes provides the block types associated with a given monad
+-- @m@, we can get the TransactionType associated with that monad using the expression
+-- @BlockTransactionType (BlockPointer m)@.
+type family BlockTransactionType (b :: *) :: *
+
+-- |The 'BlockData' class provides an interface for the pure data associated
 -- with a block.
-class BlockMetadata (BlockFieldType b) => BlockData b where
+class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |The slot number of the block (0 for genesis block)
     blockSlot :: b -> Slot
     -- |The fields of a block, if it was baked; @Nothing@ for the genesis block.
     blockFields :: b -> Maybe (BlockFieldType b)
-    -- |The list of transactions in the block (empty for genesis block)
-    blockTransactions :: b -> [Transaction]
-    -- |Determine if the block is signed by the given key
-    -- (always 'True' for genesis block)
-    verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
-    -- |Serialize the block.
-    putBlock :: b -> Put
+    -- |The transactions in a block in the variant they are currently stored in the block.
+    blockTransactions :: b -> [BlockTransactionType b]
+    blockSignature :: b -> Maybe BlockSignature
+    -- |Provides a pure serialization of the block.
+    --
+    -- This means that if some IO is needed for serializing the block (as
+    -- in the case of the Persistent blocks), it will not be done and we
+    -- would just serialize the hashes of the transactions. This is useful in order
+    -- to get the serialized version of the block that we want to write into the disk.
+    blockBody :: b -> Put
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
     blockReceiveTime :: b -> UTCTime
 
--- |Serialize the body of a baked (non-genesis) block.
--- The block must be a baked block since its type is an
--- instance of 'BlockMetadata'; its slot number must
--- therefore be non-zero.
-blockBody :: (BlockMetadata b, BlockData b) => b -> Put
-{-# INLINE blockBody #-}
-blockBody b = do
+-- * Block types
+
+-- |The fields of a baked block.
+data BlockFields = BlockFields {
+    -- |The 'BlockHash' of the parent block
+    bfBlockPointer :: !BlockHash,
+    -- |The identity of the block baker
+    bfBlockBaker :: !BakerId,
+    -- |The proof that the baker was entitled to bake this block
+    bfBlockProof :: !BlockProof,
+    -- |The block nonce
+    bfBlockNonce :: !BlockNonce,
+    -- |The 'BlockHash' of the last finalized block when the block was baked
+    bfBlockLastFinalized :: !BlockHash
+} deriving (Show)
+
+instance BlockMetadata BlockFields where
+    blockPointer = bfBlockPointer
+    {-# INLINE blockPointer #-}
+    blockBaker = bfBlockBaker
+    {-# INLINE blockBaker #-}
+    blockProof = bfBlockProof
+    {-# INLINE blockProof #-}
+    blockNonce = bfBlockNonce
+    {-# INLINE blockNonce #-}
+    blockLastFinalized = bfBlockLastFinalized
+    {-# INLINE blockLastFinalized #-}
+
+-- |A baked (i.e. non-genesis) block.
+--
+-- The type parameter @t@ is the type of the transaction
+-- in the block.
+--
+-- All instances of this type will implement automatically:
+--
+-- * BlockFieldType & BlockTransactionType
+-- * BlockMetadata
+-- * BlockData
+data BakedBlock t = BakedBlock {
+    -- |Slot number (must be >0)
+    bbSlot :: !Slot,
+    -- |Block fields
+    bbFields :: !BlockFields,
+    -- |Block transactions
+    bbTransactions :: ![t],
+    -- |Block signature
+    bbSignature :: BlockSignature
+} deriving (Show)
+
+type instance BlockFieldType (BakedBlock t) = BlockFields
+type instance BlockTransactionType (BakedBlock t) = t
+
+type BroadcastableBlock = BakedBlock Transaction
+
+instance BlockMetadata (BakedBlock t) where
+    blockPointer = bfBlockPointer . bbFields
+    {-# INLINE blockPointer #-}
+    blockBaker = bfBlockBaker . bbFields
+    {-# INLINE blockBaker #-}
+    blockProof = bfBlockProof . bbFields
+    {-# INLINE blockProof #-}
+    blockNonce = bfBlockNonce . bbFields
+    {-# INLINE blockNonce #-}
+    blockLastFinalized = bfBlockLastFinalized . bbFields
+    {-# INLINE blockLastFinalized #-}
+
+instance (Serialize t) => BlockData (BakedBlock t) where
+    blockSlot = bbSlot
+    {-# INLINE blockSlot #-}
+    blockFields = Just . bbFields
+    {-# INLINE blockFields #-}
+    blockTransactions = bbTransactions
+    blockSignature = Just . bbSignature
+    blockBody b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        put (map trBareTransaction $ blockTransactions b)
+        putListOf put $ blockTransactions b
 
+-- |Representation of a block
+--
+-- All instances of this type will implement automatically:
+--
+-- * BlockFieldType & BlockTransactionType
+-- * BlockData
+data Block t
+    = GenesisBlock !GenesisData
+    -- ^A genesis block
+    | NormalBlock !(BakedBlock t)
+    -- ^A baked (i.e. non-genesis) block
+    deriving (Show)
 
-class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
-    -- |Hash of the block
-    bpHash :: bp -> BlockHash
-    -- |Height of the block in the tree
-    bpHeight :: bp -> BlockHeight
-    -- |Time at which the block was first received
-    bpReceiveTime :: bp -> UTCTime
-    -- |Time at which the block was first considered part of the tree (validated)
-    bpArriveTime :: bp -> UTCTime
-    -- |Number of transactions in a block
-    bpTransactionCount :: bp -> Int
-    -- |Energy cost of all transactions in the block.
-    bpTransactionsEnergyCost :: bp -> Energy
-    -- |Size of the transaction data in bytes.
-    bpTransactionsSize :: bp -> Int
+type instance BlockFieldType (Block t) = BlockFieldType (BakedBlock t)
+type instance BlockTransactionType (Block t) = t
 
+instance (Serialize t) => BlockData (Block t) where
+    blockSlot GenesisBlock{} = 0
+    blockSlot (NormalBlock bb) = blockSlot bb
 
--- |Block pointer data. The minimal data that should be the same among all
--- block pointer instantiations.
-data BasicBlockPointerData = BasicBlockPointerData {
-    -- |Hash of the block
-    _bpHash :: !BlockHash,
-    -- |Height of the block in the tree
-    _bpHeight :: !BlockHeight,
-    -- |Time at which the block was first received
-    _bpReceiveTime :: !UTCTime,
-    -- |Time at which the block was first considered part of the tree (validated)
-    _bpArriveTime :: !UTCTime,
-    -- |Number of transactions in a block
-    _bpTransactionCount :: !Int,
-    -- |Energy cost of all transactions in the block.
-    _bpTransactionsEnergyCost :: !Energy,
-    -- |Size of the transaction data in bytes.
-    _bpTransactionsSize :: !Int
+    blockFields GenesisBlock{} = Nothing
+    blockFields (NormalBlock bb) = blockFields bb
+
+    blockTransactions GenesisBlock{} = []
+    blockTransactions (NormalBlock bb) = blockTransactions bb
+
+    blockSignature GenesisBlock{} = Nothing
+    blockSignature (NormalBlock bb) = blockSignature bb
+
+    blockBody (GenesisBlock gd) = put genesisSlot >> put gd
+    blockBody (NormalBlock bb) = blockBody bb
+
+    {-# INLINE blockSlot #-}
+    {-# INLINE blockFields #-}
+    {-# INLINE blockTransactions #-}
+    {-# INLINE blockBody #-}
+
+-- |A baked block, pre-hashed with its arrival time.
+--
+-- All instances of this type will implement automatically:
+--
+-- * BlockFieldType & BlockTransactionType
+-- * BlockMetadata
+-- * BlockData
+-- * BlockPendingData
+-- * HashableTo BlockHash
+data PendingBlock t = PendingBlock {
+    pbHash :: !BlockHash,
+    pbBlock :: !(BakedBlock t),
+    pbReceiveTime :: !UTCTime
 }
 
-instance Eq BasicBlockPointerData where
-    {-# INLINE (==) #-}
-    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
+type instance BlockFieldType (PendingBlock t) = BlockFieldType (BakedBlock t)
+type instance BlockTransactionType (PendingBlock t) = t
 
-instance Ord BasicBlockPointerData where
-    {-# INLINE compare #-}
-    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
+instance Eq (PendingBlock t) where
+    pb1 == pb2 = pbHash pb1 == pbHash pb2
 
-instance Hashable BasicBlockPointerData where
-    {-# INLINE hashWithSalt #-}
-    hashWithSalt s = hashWithSalt s . _bpHash
-    {-# INLINE hash #-}
-    hash = hash . _bpHash
+instance Show (PendingBlock t) where
+    show pb = show (pbHash pb) ++ " (" ++ show (blockBaker $ bbFields $ pbBlock pb) ++ ")"
 
-instance Show BasicBlockPointerData where
-    show = show . _bpHash
+instance BlockMetadata (PendingBlock t) where
+    blockPointer = bfBlockPointer . bbFields . pbBlock
+    {-# INLINE blockPointer #-}
+    blockBaker = bfBlockBaker . bbFields . pbBlock
+    {-# INLINE blockBaker #-}
+    blockProof = bfBlockProof . bbFields . pbBlock
+    {-# INLINE blockProof #-}
+    blockNonce = bfBlockNonce . bbFields . pbBlock
+    {-# INLINE blockNonce #-}
+    blockLastFinalized = bfBlockLastFinalized . bbFields . pbBlock
+    {-# INLINE blockLastFinalized #-}
 
-instance HashableTo Hash.Hash BasicBlockPointerData where
-    {-# INLINE getHash #-}
-    getHash = _bpHash
+instance (Serialize t) => BlockData (PendingBlock t) where
+    blockSlot = blockSlot . pbBlock
+    blockFields = blockFields . pbBlock
+    blockTransactions = blockTransactions . pbBlock
+    blockSignature = blockSignature . pbBlock
+    blockBody = blockBody . pbBlock
+    {-# INLINE blockSlot #-}
+    {-# INLINE blockFields #-}
+    {-# INLINE blockTransactions #-}
+    {-# INLINE blockBody #-}
 
+instance (Serialize t) => BlockPendingData (PendingBlock t) where
+    blockReceiveTime = pbReceiveTime
 
+instance HashableTo BlockHash (PendingBlock t) where
+  getHash = pbHash
