@@ -5,8 +5,9 @@ import Lens.Micro.Platform
 import Data.List as List
 import Data.Foldable
 import Control.Monad.State
-import Control.Exception
+import Control.Exception.Assert.Sugar
 import Data.Serialize (runGet)
+import Data.Functor.Identity
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -14,31 +15,32 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
-import Concordium.Types
-import Concordium.Types.HashableTo
-import qualified Concordium.GlobalState.Classes as GS
-import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Block
-import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.GlobalState.BlockState as BS
-import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
-import Concordium.Types.Transactions
-import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.AccountTransactionIndex
-
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
+import Concordium.GlobalState.Basic.TransactionTable
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer
+import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Classes as GS
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
+import qualified Concordium.GlobalState.TreeState as TS
+import Concordium.Types
+import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
+import Concordium.GlobalState.AccountTransactionIndex
 
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
+    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) BasicPendingBlock)),
     -- |Map of (possibly) pending blocks by hash
-    _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
+    _possiblyPendingTable :: !(HM.HashMap BlockHash [BasicPendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
-    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
+    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight BasicPendingBlock),
     -- |List of finalization records with the blocks that they finalize, starting from genesis
     _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
     -- |Pending finalization records by finalization index
@@ -90,7 +92,7 @@ initialSkovData rp gd genState =
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-        gb = makeGenesisBlockPointer gd genState
+        gb = makeGenesisBasicBlockPointer gd genState
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a non-persistent tree state.
 -- The underlying Monad must provide instances for:
@@ -108,16 +110,20 @@ newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
 
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
-  
+
 
 instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
+    type PendingBlock (PureTreeStateMonad bs m) = BasicPendingBlock
     type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
+
+instance (Monad m) => Convert Transaction Transaction (PureTreeStateMonad bs m) where
+  toMemoryRepr = return
+  fromMemoryRepr = return
 
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
-    bpParent = return . _bpParent
-    bpLastFinalized = return . _bpLastFinalized
+    bpParent = return . runIdentity . _bpParent
+    bpLastFinalized = return . runIdentity . _bpLastFinalized
 
 instance ATITypes (PureTreeStateMonad bs m) where
   type ATIStorage (PureTreeStateMonad bs m) = ()
@@ -127,7 +133,9 @@ instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    makePendingBlock key slot parent bid pf n lastFin trs time = do
+      signed <- signBlock key slot parent bid pf n lastFin trs
+      return $ makePendingBlock signed time
     importPendingBlock blockBS rectime =
         case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
@@ -254,9 +262,10 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
       transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
-    lookupTransaction th = use (transactionTable . ttHashMap . at th)
+    lookupTransaction th =
+       use (transactionTable . ttHashMap . at th) >>= maybe (return Nothing) (return . Just . (^. _2))
 
-    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
+    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = trs}}
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats

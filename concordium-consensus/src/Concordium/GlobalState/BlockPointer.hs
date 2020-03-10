@@ -1,42 +1,138 @@
-{-# LANGUAGE StandaloneDeriving, DerivingVia, DefaultSignatures, TypeFamilies #-}
--- |This module defines a type class `BlockPointerMonad` that abstracts the access to the parent
--- and last finalized block from a given block pointer.
--- These values might require to read the disk if the Tree State uses the persistent version so
--- the implementation would need to make use of the underlying database.
+{-# LANGUAGE StandaloneDeriving, DerivingVia, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
 module Concordium.GlobalState.BlockPointer where
 
-import Control.Monad.Trans.Class
-import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.Except
+import Data.Hashable
+import Concordium.Types.HashableTo
+import Data.Serialize
+import Concordium.GlobalState.Block
+import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Types
+import Data.Time.Clock
 
-import Concordium.GlobalState.Classes
-import Concordium.GlobalState.AccountTransactionIndex
+class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
+    -- |Hash of the block
+    bpHash :: bp -> BlockHash
+    -- |Height of the block in the tree
+    bpHeight :: bp -> BlockHeight
+    -- |Time at which the block was first received
+    bpReceiveTime :: bp -> UTCTime
+    -- |Time at which the block was first considered part of the tree (validated)
+    bpArriveTime :: bp -> UTCTime
+    -- |Number of transactions in a block
+    bpTransactionCount :: bp -> Int
+    -- |Energy cost of all transactions in the block.
+    bpTransactionsEnergyCost :: bp -> Energy
+    -- |Size of the transaction data in bytes.
+    bpTransactionsSize :: bp -> Int
 
-class (Monad m, GlobalStateTypes m, ATITypes m) => BlockPointerMonad m where
-    -- |Get the 'BlockState' of a 'BlockPointer'.
-    blockState :: BlockPointer m -> m (BlockState m)
+-- |Block pointer data. The minimal data that should be the same among all
+-- block pointer instantiations.
+data BasicBlockPointerData = BasicBlockPointerData {
+    -- |Hash of the block
+    _bpHash :: !BlockHash,
+    -- |Height of the block in the tree
+    _bpHeight :: !BlockHeight,
+    -- |Time at which the block was first received
+    _bpReceiveTime :: !UTCTime,
+    -- |Time at which the block was first considered part of the tree (validated)
+    _bpArriveTime :: !UTCTime,
+    -- |Number of transactions in a block
+    _bpTransactionCount :: !Int,
+    -- |Energy cost of all transactions in the block.
+    _bpTransactionsEnergyCost :: !Energy,
+    -- |Size of the transaction data in bytes.
+    _bpTransactionsSize :: !Int
+}
 
-    -- |Get the parent block of a 'BlockPointer'
-    bpParent :: BlockPointer m -> m (BlockPointer m)
+instance Eq BasicBlockPointerData where
+    {-# INLINE (==) #-}
+    bp1 == bp2 = _bpHash bp1 == _bpHash bp2
 
-    -- |Get the last finalized block of a 'BlockPointer'
-    bpLastFinalized :: BlockPointer m -> m (BlockPointer m)
+instance Ord BasicBlockPointerData where
+    {-# INLINE compare #-}
+    compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
 
-    -- |Get the block transaction affect.
-    bpTransactionAffectSummaries :: BlockPointer m -> m (ATIStorage m)
-    default bpTransactionAffectSummaries :: ATIStorage m ~ () => BlockPointer m -> m (ATIStorage m)
-    bpTransactionAffectSummaries = \_ -> return ()
-    {-# INLINE bpTransactionAffectSummaries #-}
+-- FIXME javier: This is re-hashing the block hash!!
+instance Hashable BasicBlockPointerData where
+    {-# INLINE hashWithSalt #-}
+    hashWithSalt s = hashWithSalt s . _bpHash
+    {-# INLINE hash #-}
+    hash = hash . _bpHash
 
-instance (Monad (t m), MonadTrans t, BlockPointerMonad m) => BlockPointerMonad (MGSTrans t m) where
-  {-# INLINE blockState #-}
-  blockState = lift . blockState
-  {-# INLINE bpParent #-}
-  bpParent = lift . bpParent
-  {-# INLINE bpLastFinalized #-}
-  bpLastFinalized = lift . bpLastFinalized
-  {-# INLINE bpTransactionAffectSummaries #-}
-  bpTransactionAffectSummaries = lift . bpTransactionAffectSummaries
+instance Show BasicBlockPointerData where
+    show = show . _bpHash
 
-deriving via (MGSTrans MaybeT m) instance BlockPointerMonad m => BlockPointerMonad (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance BlockPointerMonad m => BlockPointerMonad (ExceptT e m)
+instance HashableTo Hash.Hash BasicBlockPointerData where
+    {-# INLINE getHash #-}
+    getHash = _bpHash
+
+-- |The type of a block pointer that was added to the tree and is
+-- linked to the blockstate and its parent and last finalized blocks.
+--
+-- @t@ stands for the transaction type, @s@ stands for the blockstate
+-- type and @p@ stands for the type of the pointers.
+--
+-- An in-memory implementation should use `p ~ Identity` to make it
+-- work as a normal reference. A disk implementation might consider
+-- using `p ~ Weak` to get pointers that don't retain the parent
+-- and last finalized blocks. The type @p (BlockPointer t p s)@ will
+-- used inside the `BlockPointerMonad` to resolve the actual blocks.
+--
+-- All instances of this type will implement automatically:
+--
+-- * BlockFieldType & BlockTransactionType
+-- * BlockData
+-- * BlockPointerData
+-- * HashableTo BlockHash
+data BlockPointer ati t (p :: * -> *) s = BlockPointer {
+    -- |Information about the block, e.g., height, transactions, ...
+    _bpInfo :: !BasicBlockPointerData,
+    -- |Pointer to the parent (circular reference for genesis block)
+    _bpParent :: p (BlockPointer ati t p s),
+    -- |Pointer to the last finalized block (circular for genesis)
+    _bpLastFinalized :: p (BlockPointer ati t p s),
+      -- |The block itself
+    _bpBlock :: !(Block t),
+      -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
+    _bpState :: !s,
+    _bpATI :: !ati
+}
+
+type instance BlockFieldType (BlockPointer ati t p s) = BlockFields
+type instance BlockTransactionType (BlockPointer ati t p s) = t
+
+instance Eq (BlockPointer ati t p s) where
+    bp1 == bp2 = _bpInfo bp1 == _bpInfo bp2
+
+instance Ord (BlockPointer ati t p s) where
+    compare bp1 bp2 = compare (_bpInfo bp1) (_bpInfo bp2)
+
+instance Hashable (BlockPointer ati t p s) where
+    hashWithSalt s = hashWithSalt s . _bpInfo
+    hash = hash . _bpInfo
+
+instance Show (BlockPointer ati t p s) where
+    show = show . _bpInfo
+
+instance HashableTo Hash.Hash (BlockPointer ati t p s) where
+    getHash = getHash . _bpInfo
+
+instance (Serialize t) => BlockData (BlockPointer ati t p s) where
+    blockSlot = blockSlot . _bpBlock
+    blockFields = blockFields . _bpBlock
+    blockTransactions = blockTransactions . _bpBlock
+    blockSignature = blockSignature . _bpBlock
+    blockBody = blockBody . _bpBlock
+    {-# INLINE blockSlot #-}
+    {-# INLINE blockFields #-}
+    {-# INLINE blockTransactions #-}
+    {-# INLINE blockBody #-}
+
+instance (Serialize t) => BlockPointerData (BlockPointer ati t p s) where
+    bpHash = _bpHash . _bpInfo
+    bpHeight = _bpHeight . _bpInfo
+    bpReceiveTime = _bpReceiveTime . _bpInfo
+    bpArriveTime = _bpArriveTime . _bpInfo
+    bpTransactionCount = _bpTransactionCount . _bpInfo
+    bpTransactionsEnergyCost = _bpTransactionsEnergyCost . _bpInfo
+    bpTransactionsSize = _bpTransactionsSize . _bpInfo

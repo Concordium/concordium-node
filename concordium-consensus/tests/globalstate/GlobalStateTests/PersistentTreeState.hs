@@ -1,4 +1,4 @@
-{-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
+{-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 module GlobalStateTests.PersistentTreeState where
@@ -9,7 +9,8 @@ import Concordium.GlobalState.Classes
 import Concordium.Crypto.BlsSignature
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Persistent.LMDB
@@ -19,12 +20,14 @@ import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
-import Control.Monad.RWS.Strict hiding (state)
+import Concordium.Types
+import Control.Exception
+import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Time.Clock.POSIX
 import Control.Monad.Identity
 import Data.Proxy
 import Test.Hspec
-import Control.Exception
+import Control.Exception.Assert.Sugar
 import Lens.Micro.Platform
 import Data.Maybe
 import Database.LMDB.Simple
@@ -35,76 +38,22 @@ import Data.ByteString (ByteString)
 import System.FilePath ((</>))
 import System.Random
 
-newtype RSTI c s m a = RSTI {runRSTI :: RWST (Identity c) () (Identity s) m a}
-  deriving(Functor, Applicative, Monad, MonadIO, MonadReader (Identity c), MonadState (Identity s))
+type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g IO)
 
-newtype MyTreeStateMonad c g s a = MyTreeStateMonad { runMTSM :: RWST c () s IO a }
-  deriving (Functor, Applicative, Monad, MonadIO, MonadState s)
+type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState)
+type Test = TestM ()
 
-type GlobalStateIO c g s = GlobalStateM NoLogContext c (Identity c) g (Identity g) (RSTI c s IO)
-type BlockStateIO c g s = BlockStateM c (Identity c) g (Identity g) (RSTI c s IO)
+instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
+  globalStateContext = id
 
-instance ATITypes (MyTreeStateMonad c g s) where
-  type ATIStorage (MyTreeStateMonad c g s) = ()
-
-instance PerAccountDBOperations (MyTreeStateMonad c g s) where
-  -- default instance
-
-instance ATITypes (RSTI c s m) where
-  type ATIStorage (RSTI c s m) = ()
-
-instance Monad m => PerAccountDBOperations (RSTI c s m) where
-  -- default instance
-
-deriving via (GlobalStateIO c g s)
-  instance BlockStateTypes (MyTreeStateMonad c g s)
-
-deriving via (GlobalStateIO c g s)
-  instance (BlockStateQuery (BlockStateIO c g s)) =>
-    BlockStateQuery (MyTreeStateMonad c g s)
-
-deriving via (GlobalStateIO c g s)
-  instance (BlockStateOperations (BlockStateIO c g s)) =>
-    BlockStateOperations (MyTreeStateMonad c g s)
-
-deriving via (GlobalStateIO c g s)
-  instance (BlockStateStorage (BlockStateIO c g s)) =>
-    BlockStateStorage (MyTreeStateMonad c g s)
-
-deriving via (GlobalStateIO c g s)
-  instance (GlobalStateTypes (GlobalStateIO c g s)) =>
-    GlobalStateTypes (MyTreeStateMonad c g s)
-
-deriving via (GlobalStateIO c g s)
-  instance (BlockPointerMonad (GlobalStateIO c g s)) =>
-    BlockPointerMonad (MyTreeStateMonad c g s)
+instance HasGlobalState (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState) where
+  globalState = id
 
 deriving via (PersistentTreeStateMonad
               ()
               PBS.PersistentBlockState
-              (MyTreeStateMonad
-               PBS.PersistentBlockStateContext
-               (SkovPersistentData () PBS.PersistentBlockState)
-               (SkovPersistentData () PBS.PersistentBlockState)))
-  instance (MonadState
-            (SkovPersistentData () PBS.PersistentBlockState)
-            (MyTreeStateMonad
-             PBS.PersistentBlockStateContext
-             (SkovPersistentData () PBS.PersistentBlockState)
-             (SkovPersistentData () PBS.PersistentBlockState))) =>
-    LMDBStoreMonad (MyTreeStateMonad
-                    PBS.PersistentBlockStateContext
-                    (SkovPersistentData () PBS.PersistentBlockState)
-                    (SkovPersistentData () PBS.PersistentBlockState))
-
-deriving via (GlobalStateIO c g s)
-  instance (TreeStateMonad (GlobalStateIO c g s),
-            ATIStorage (GlobalStateIO c g s) ~ (),
-            BlockStateStorage (BlockStateIO c g s)) =>
-    TreeStateMonad (MyTreeStateMonad c g s)
-
-type TestM = MyTreeStateMonad PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState)
-type Test = TestM ()
+              TestM)
+  instance LMDBStoreMonad TestM
 
 createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
 createGlobalState dbDir = do
@@ -127,8 +76,10 @@ specifyWithGS s dbDir f = specify s $
                       (createGlobalState dbDir)
                       destroyGlobalState
                       (\(c, d) -> do
-                          (ret, _, _) <- runRWST (runMTSM f) c d
+                          (ret, _, _) <- runRWST (runGlobalStateM $ f) c d
                           return ret)
+
+useI f = (^. f) <$> runIdentity <$> RWS.get
 
 testFinalizeABlock :: Test
 testFinalizeABlock = do
@@ -154,15 +105,15 @@ testFinalizeABlock = do
     fr `shouldBe` frec
 
   --- The database should now contain 2 items, check them
-  env <- use (db . storeEnv)
+  env <-  use (db . storeEnv)
   dbB <- use (db . blockStore)
   sB <- liftIO $ transaction env $ (size dbB :: Transaction ReadWrite Int)
   liftIO $ sB `shouldBe` 2
   dbF <- use (db . finalizationRecordStore)
   sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
   liftIO $ sF `shouldBe` 2
-  blocksBytes <-  liftIO $ transaction env $ (elems dbB :: Transaction ReadWrite [ByteString])
-  blocks <- mapM (constructBlock . Just) blocksBytes
+  blocksBytes <-  liftIO $ transaction env $ (toList dbB :: Transaction ReadWrite [(BlockHash, ByteString)])
+  blocks <- mapM (\(bh, bs) -> constructBlock (Just bs) bh) blocksBytes
   frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
   mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [blockPtr, genesisBlock])) (catMaybes blocks)
   mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [frec, genesisFr])) frecs
@@ -195,8 +146,8 @@ testFinalizeABlock = do
   dbF <- use (db . finalizationRecordStore)
   sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
   liftIO $ sF `shouldBe` 3
-  blocksBytes <-  liftIO $ transaction env $ (elems dbB :: Transaction ReadWrite [ByteString])
-  blocks <- mapM (constructBlock . Just) blocksBytes
+  blocksBytes <-  liftIO $ transaction env $ (toList dbB :: Transaction ReadWrite [(BlockHash, ByteString)])
+  blocks <- mapM (\(bh, bs) -> constructBlock (Just bs) bh) blocksBytes
   frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
   mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [blockPtr2, blockPtr, genesisBlock])) (catMaybes blocks)
   mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [frec2, frec, genesisFr])) frecs
