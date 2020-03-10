@@ -32,7 +32,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.Types.Transactions
+import Concordium.Types.Transactions hiding (BlockItem'(..))
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Data.Maybe
@@ -472,8 +472,6 @@ data TransferReason =
   CredentialDeployment {
     -- |Id of the top-level transaction.
     trcdId :: !TransactionHash,
-    -- |Which account sent the transaction.
-    trcdSource :: !AccountAddress,
     -- |To which account was the credential deployed.
     trcdAccount :: !AccountAddress,
     -- |Credential registration ID.values which were deployed deployed.
@@ -503,8 +501,9 @@ data TransferReason =
 resultToReasons :: (BlockMetadata bp) => bp -> TransactionSummary -> [TransferReason]
 resultToReasons bp TransactionSummary{..} =
   case tsResult of
-       TxReject{} -> [ExecutionCost tsHash tsSender tsCost baker]
-       TxSuccess{..} -> mapMaybe extractReason vrEvents ++ [ExecutionCost tsHash tsSender tsCost baker]
+       TxReject{} | Just sender <- tsSender -> [ExecutionCost tsHash sender tsCost baker]
+                  | otherwise -> []
+       TxSuccess{..} -> mapMaybe extractReason vrEvents ++ [ExecutionCost tsHash (fromJust tsSender) tsCost baker | isJust tsSender]
   where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
           Just (DirectTransfer tsHash source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
@@ -518,7 +517,7 @@ resultToReasons bp TransactionSummary{..} =
         extractReason (Updated target (AddressContract source) amount _) =
           Just (ContractToContractTransfer tsHash source amount target)
         extractReason (CredentialDeployed regid address) =
-          Just (CredentialDeployment tsHash tsSender address regid)
+          Just (CredentialDeployment tsHash address regid)
         extractReason _ = Nothing
         
         baker = blockBaker bp

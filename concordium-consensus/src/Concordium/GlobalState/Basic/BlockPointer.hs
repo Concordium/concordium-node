@@ -88,7 +88,8 @@ makeBasicBlockPointer pb _bpParent _bpLastFinalized _bpState _bpArriveTime _bpTr
                     ..}
     where
         bf = bbFields $ pbBlock pb
-        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
+        (_bpTransactionCount, _bpTransactionsSize) =
+          List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.blockItemSize tx + csize)) (0, 0) (blockTransactions pb)
 
 
 makeGenesisBlockPointer :: GenesisData -> s -> BasicBlockPointer s

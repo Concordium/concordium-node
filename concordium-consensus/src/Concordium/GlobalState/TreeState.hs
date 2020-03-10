@@ -27,7 +27,7 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.Types.Transactions
+import Concordium.Types.Transactions as Transactions
 import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockState
@@ -57,9 +57,9 @@ type Branches m = Seq.Seq [BlockPointer m]
 -- |Result of trying to add a transaction to the transaction table.
 data AddTransactionResult =
   -- |Transaction is a duplicate of the given transaction.
-  Duplicate !Transaction |
+  Duplicate !BlockItem |
   -- |The transaction was newly added.
-  Added !Transaction |
+  Added !BlockItem |
   -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
   -- The transaction is not added to the table.
   ObsoleteNonce
@@ -90,7 +90,7 @@ class (Eq (BlockPointer m),
         -> BlockProof       -- ^Block proof
         -> BlockNonce       -- ^Block nonce
         -> BlockHash        -- ^Hash of last finalized block
-        -> [Transaction]    -- ^List of transactions
+        -> [BlockItem]      -- ^List of transactions
         -> UTCTime          -- ^Block receive time
         -> m (PendingBlock m)
     -- |Create a 'PendingBlock' from the raw block data.
@@ -238,6 +238,13 @@ class (Eq (BlockPointer m),
     -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
     -- with that nonce.
     getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set Transaction)]
+
+    getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
+    getCredential th = 
+      lookupTransaction th >>= \case
+        Just (Transactions.CredentialDeployment c, _) -> return (Just c)
+        _ -> return Nothing
+
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
@@ -247,27 +254,27 @@ class (Eq (BlockPointer m),
     -- A return value of @True@ indicates that the transaction was added (and not already
     -- present).  A return value of @False@ indicates that the transaction was not added,
     -- either because it was already present or the nonce has already been finalized.
-    addTransaction :: Transaction -> m Bool
+    addTransaction :: BlockItem -> m Bool
     addTransaction tr = process <$> addCommitTransaction tr 0
       where process (Added _) = True
             process _ = False
     -- |Finalize a list of transactions on a given block. Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
-    finalizeTransactions :: BlockHash -> Slot -> [Transaction] -> m ()
+    finalizeTransactions :: BlockHash -> Slot -> [BlockItem] -> m ()
     -- |Mark a transaction as committed on a block with the given slot number,
     -- as well as add any additional outcomes for the given block (outcomes are given
     -- as the index of the transaction in the given block).
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
-    commitTransaction :: Slot -> BlockHash -> Transaction -> TransactionIndex -> m ()
+    commitTransaction :: Slot -> BlockHash -> BlockItem -> TransactionIndex -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
     -- for the given slot number. By default the transaction is created in the 'Received' state,
     -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
     -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
     -- when constructing a block.
-    addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
+    addCommitTransaction :: BlockItem -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
@@ -275,15 +282,15 @@ class (Eq (BlockPointer m),
     purgeTransaction :: Transaction -> m Bool
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
-    markDeadTransaction :: BlockHash -> Transaction -> m ()
+    markDeadTransaction :: BlockHash -> BlockItem -> m ()
     -- |Lookup a transaction by its hash.  As well as the transaction, return its current
     -- status as indicated in the transaction table.
-    lookupTransaction :: TransactionHash -> m (Maybe (Transaction, TransactionStatus))
+    lookupTransaction :: TransactionHash -> m (Maybe (BlockItem, TransactionStatus))
     -- |Replace the transactions in a pending block with an identical set of
     -- transactions.  (If the transactions are not identical, the hash will
     -- not be correct.)  This is intended for de-duplicating transactions.
     -- Ideally, this should be handled better.
-    updateBlockTransactions :: [Transaction] -> PendingBlock m -> m (PendingBlock m)
+    updateBlockTransactions :: [BlockItem] -> PendingBlock m -> m (PendingBlock m)
 
     -- * Operations on statistics
     -- |Get the current consensus statistics.

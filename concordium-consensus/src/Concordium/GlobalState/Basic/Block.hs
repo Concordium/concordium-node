@@ -17,7 +17,7 @@ import Concordium.GlobalState.Block
 -- * Block implementations
 
 -- |A list of transactions.
-newtype BlockTransactions = BlockTransactions {transactionList :: [Transaction]} deriving (Show)
+newtype BlockTransactions = BlockTransactions {transactionList :: [BlockItem]} deriving (Show)
 
 -- |The fields of a baked block.
 data BlockFields = BlockFields {
@@ -95,7 +95,7 @@ signBlock ::
     -> BlockProof       -- ^Block proof
     -> BlockNonce       -- ^Block nonce
     -> BlockHash        -- ^Hash of last finalized block
-    -> [Transaction]    -- ^List of transactions
+    -> [BlockItem]    -- ^List of transactions
     -> BakedBlock
 signBlock key slot parent baker proof bnonce lastFin transactions
     | slot == 0 = error "Only the genesis block may have slot 0"
@@ -152,7 +152,7 @@ getBlock arrivalTime = do
     bfBlockProof <- get
     bfBlockNonce <- get
     bfBlockLastFinalized <- get
-    bbTransactions <- BlockTransactions <$> getListOf (getUnverifiedTransaction arrivalTime)
+    bbTransactions <- BlockTransactions <$> getListOf (getBlockItem arrivalTime)
     bbSignature <- get
     return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
