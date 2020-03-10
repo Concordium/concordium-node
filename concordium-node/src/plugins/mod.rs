@@ -1,3 +1,5 @@
+//! Client plugins.
+
 #[cfg(feature = "beta")]
 pub mod beta;
 pub mod consensus;

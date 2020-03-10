@@ -1,71 +1,47 @@
+//! Peer handling.
+
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerStats, PeerType},
     connection::Connection,
-    network::{NetworkMessage, NetworkMessagePayload, NetworkRequest},
-    p2p::P2PNode,
+    netmsg,
+    network::{NetworkMessage, NetworkPayload, NetworkRequest},
+    p2p::{maintenance::attempt_bootstrap, P2PNode},
 };
 
-use std::sync::atomic::Ordering;
+use std::sync::{atomic::Ordering, Arc};
 
 impl P2PNode {
+    /// Obtain the list of statistics from all the peers, optionally of a
+    /// specific peer type.
     pub fn get_peer_stats(&self, peer_type: Option<PeerType>) -> Vec<PeerStats> {
         read_or_die!(self.connections())
             .values()
-            .filter(|conn| conn.is_post_handshake())
             .filter(|conn| peer_type.is_none() || peer_type == Some(conn.remote_peer_type()))
-            .filter_map(|conn| conn.remote_peer_stats().ok())
+            .map(|conn| {
+                PeerStats::new(
+                    conn.remote_id().unwrap().as_raw(), // safe - always available post-handshake
+                    conn.remote_addr(),
+                    conn.remote_peer_external_port(),
+                    conn.remote_peer_type(),
+                    &conn.stats,
+                )
+            })
             .collect()
     }
 
-    /// This function is called periodically to print information about current
-    /// nodes.
+    /// Prints information about all the peers.
     pub fn print_stats(&self, peer_stat_list: &[PeerStats]) {
-        trace!("Printing out stats");
-        debug!("I currently have {}/{} peers", peer_stat_list.len(), self.config.max_allowed_nodes);
-
-        // Print nodes
-        if self.config.print_peers {
-            for (i, peer) in peer_stat_list.iter().enumerate() {
-                trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
-            }
+        for (i, peer) in peer_stat_list.iter().enumerate() {
+            trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
         }
     }
 
-    pub fn check_peers(&self, peer_stat_list: &[PeerStats]) {
-        trace!("Checking for needed peers");
-        if self.peer_type() != PeerType::Bootstrapper
-            && !self.config.no_net
-            && self.config.desired_nodes_count
-                > peer_stat_list
-                    .iter()
-                    .filter(|peer| peer.peer_type != PeerType::Bootstrapper)
-                    .count() as u16
-        {
-            if peer_stat_list.is_empty() {
-                info!("Sending out GetPeers to any bootstrappers we may still be connected to");
-                {
-                    self.send_get_peers();
-                }
-                if !self.config.no_bootstrap_dns {
-                    info!("No peers at all - retrying bootstrapping");
-                    self.attempt_bootstrap();
-                } else {
-                    info!(
-                        "No nodes at all - Not retrying bootstrapping using DNS since \
-                         --no-bootstrap is specified"
-                    );
-                }
-            } else {
-                info!("Not enough peers, sending GetPeers requests");
-                self.send_get_peers();
-            }
-        }
-    }
-
+    /// Obtain the node ids of all the node peers.
     pub fn get_node_peer_ids(&self) -> Vec<u64> {
         self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.id).collect()
     }
 
+    /// Measures the node's average byte throughput.
     pub fn measure_throughput(&self, peer_stats: &[PeerStats]) -> (u64, u64) {
         let prev_bytes_received = self.stats.get_bytes_received();
         let prev_bytes_sent = self.stats.get_bytes_sent();
@@ -94,11 +70,7 @@ impl P2PNode {
     fn send_get_peers(&self) {
         if let Ok(nids) = safe_read!(self.networks()) {
             let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let mut message = NetworkMessage {
-                timestamp1: None,
-                timestamp2: None,
-                payload:    NetworkMessagePayload::NetworkRequest(request),
-            };
+            let message = netmsg!(NetworkRequest, request);
             let filter = |_: &Connection| true;
 
             if let Err(e) = {
@@ -106,18 +78,47 @@ impl P2PNode {
                 message
                     .serialize(&mut buf)
                     .map(|_| buf)
-                    .and_then(|buf| self.send_over_all_connections(buf, &filter))
+                    .map(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
             }
         }
     }
 
+    /// Update the timestamp of the last peer update.
     pub fn bump_last_peer_update(&self) {
         self.connection_handler.last_peer_update.store(get_current_stamp(), Ordering::SeqCst)
     }
 
+    /// Obtain the timestamp of the last peer update.
     pub fn last_peer_update(&self) -> u64 {
         self.connection_handler.last_peer_update.load(Ordering::SeqCst)
+    }
+}
+
+/// Checks whether we need any more peers, based on the `desired_nodes_count`
+/// config.
+pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
+    debug!("I currently have {}/{} peers", peer_stat_list.len(), node.config.max_allowed_nodes);
+
+    if node.config.print_peers {
+        node.print_stats(&peer_stat_list);
+    }
+
+    if !node.config.no_net && peer_stat_list.len() < node.config.desired_nodes_count as usize {
+        if peer_stat_list.is_empty() {
+            if !node.config.no_bootstrap_dns {
+                info!("No peers at all - retrying bootstrapping");
+                attempt_bootstrap(node);
+            } else {
+                info!(
+                    "No nodes at all - Not retrying bootstrapping using DNS since --no-bootstrap \
+                     is specified"
+                );
+            }
+        } else {
+            info!("Not enough peers - sending GetPeers requests");
+            node.send_get_peers();
+        }
     }
 }

@@ -1,36 +1,33 @@
 #![recursion_limit = "1024"]
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
 
-// Explicitly defining allocator to avoid future reintroduction of jemalloc
+// Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::{
-    spawn_or_die,
-    QueueMsg::{self, Relay},
-};
+use concordium_common::{spawn_or_die, QueueMsg};
 use consensus_rust::{
     consensus::{
         ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
         CONSENSUS_QUEUE_DEPTH_OUT_HI,
     },
     ffi,
+    messaging::ConsensusMessage,
 };
-use globalstate_rust::tree::{messaging::ConsensusMessage, GlobalState};
 use p2p_client::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration as config,
-    network::{NetworkId, NetworkMessage},
-    p2p::*,
+    network::NetworkId,
+    p2p::{
+        connectivity::connect,
+        maintenance::{attempt_bootstrap, spawn},
+        *,
+    },
     plugins::{self, consensus::*},
     rpc::RpcServerImpl,
-    stats_export_service::{instantiate_stats_export_engine, StatsExportService, StatsServiceMode},
+    stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
 use parking_lot::Mutex as ParkingMutex;
@@ -46,11 +43,13 @@ use std::{
 
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
+#[cfg(feature = "instrumentation")]
+use std::net::SocketAddr;
 
-fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
     if conf.common.print_config {
-        // Print out the configuration
         info!("{:?}", conf);
     }
 
@@ -62,35 +61,37 @@ fn main() -> Fallible<()> {
         }
     }
 
-    // Instantiate stats export engine
-    let stats_export_service =
-        instantiate_stats_export_engine(&conf, StatsServiceMode::NodeMode).unwrap();
+    let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     info!("Debugging enabled: {}", conf.common.debug);
 
-    let (subscription_queue_in, subscription_queue_out) =
-        crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
+    // The P2PNode thread
+    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
-    // Thread #1: instantiate the P2PNode
-    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service, subscription_queue_in);
+    #[cfg(feature = "instrumentation")]
+    {
+        let stats = node.stats.clone();
+        let pla =
+            conf.prometheus.prometheus_listen_addr.parse().expect("Invalid Prometheus address");
+        let plp = conf.prometheus.prometheus_listen_port;
+        tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
+    }
 
     for resolver in &node.config.dns_resolvers {
         debug!("Using resolver: {}", resolver);
     }
 
     #[cfg(feature = "instrumentation")]
-    // Thread #2 (optional): the push gateway to Prometheus
+    // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    // Start the P2PNode
-    //
-    // Thread #2 (#3): P2P event loop
-    node.spawn();
+    // The P2P node event loop thread
+    spawn(&node);
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
     let data_dir_path = app_prefs.get_user_app_dir();
-    let (gen_data, prov_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
+    let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
         .expect("Can't get genesis data or private data. Aborting");
     let gs_kvs_handle = Manager::singleton()
         .write()
@@ -102,14 +103,23 @@ fn main() -> Fallible<()> {
         error!("Can't set up the desired RKV map size: {}", e);
     }
 
-    let global_state =
-        GlobalState::new(&gen_data, gs_kvs_handle, conf.cli.baker.persist_global_state);
+    let consensus_database_url = if conf.cli.transaction_outcome_logging {
+        format!(
+            "host={} port={} user={} dbname={} password={}",
+            conf.cli.transaction_outcome_logging_database_host,
+            conf.cli.transaction_outcome_logging_database_port,
+            conf.cli.transaction_outcome_logging_database_username,
+            conf.cli.transaction_outcome_logging_database_name,
+            conf.cli.transaction_outcome_logging_database_password
+        )
+    } else {
+        String::new()
+    };
 
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
-        global_state,
         gen_data,
-        prov_data,
+        priv_data,
         if conf.common.trace {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
@@ -119,29 +129,14 @@ fn main() -> Fallible<()> {
         } else {
             ConsensusLogLevel::Warning
         },
+        &data_dir_path,
+        &consensus_database_url,
     )?;
-
-    // Start the RPC server
-    let mut rpc_serv = if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(
-            node.clone(),
-            Some(consensus.clone()),
-            &conf.cli.rpc,
-            subscription_queue_out,
-            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
-        );
-        serv.start_server()?;
-        Some(serv)
-    } else {
-        None
-    };
 
     // Start the transaction logging thread
     setup_transfer_log_thread(&conf.cli);
 
-    // Connect outgoing messages to be forwarded into the baker and RPC streams.
-    //
-    // Thread #3 (#4): read P2PNode output
+    // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
     info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
@@ -151,23 +146,31 @@ fn main() -> Fallible<()> {
         establish_connections(&conf, &node);
     }
 
+    // Start the RPC server
+    if !conf.cli.rpc.no_rpc_server {
+        let mut serv = RpcServerImpl::new(
+            node.clone(),
+            Some(consensus.clone()),
+            &conf.cli.rpc,
+            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
+        )
+        .expect("Can't create the RPC server");
+        tokio::spawn(async move {
+            serv.start_server().await.expect("Can't start the RPC server");
+        });
+        info!("RPC server started");
+    };
+
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
 
     // Shut down the consensus layer
-
     consensus.stop();
     ffi::stop_haskell();
 
     // Wait for the consensus queue threads to stop
-
     for consensus_queue_thread in consensus_queue_threads {
         consensus_queue_thread.join().expect("A consensus queue thread panicked");
-    }
-
-    // Close the RPC server if present
-    if let Some(ref mut serv) = rpc_serv {
-        serv.stop_server()?;
     }
 
     info!("P2PNode gracefully closed.");
@@ -178,8 +181,7 @@ fn main() -> Fallible<()> {
 fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
-    stats_export_service: StatsExportService,
-    subscription_queue_in: crossbeam_channel::Sender<NetworkMessage>,
+    stats_export_service: Arc<StatsExportService>,
 ) -> Arc<P2PNode> {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
@@ -219,47 +221,25 @@ fn instantiate_node(
 
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    // Start the thread reading P2PEvents from P2PNode
-    let event_sender = if conf.common.debug {
-        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
-        let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(Relay(msg)) = receiver.recv() {
-                info!("{}", msg);
-            }
-        });
-
-        Some(sender)
-    } else {
-        None
-    };
-
-    P2PNode::new(
-        node_id,
-        &conf,
-        event_sender,
-        PeerType::Node,
-        stats_export_service,
-        subscription_queue_in,
-        Some(data_dir_path),
-    )
+    P2PNode::new(node_id, &conf, PeerType::Node, stats_export_service, Some(data_dir_path))
 }
 
-fn establish_connections(conf: &config::Config, node: &P2PNode) {
+fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {
     info!("Starting the P2P layer");
     connect_to_config_nodes(&conf.connection, node);
     if !conf.connection.no_bootstrap_dns {
-        node.attempt_bootstrap();
+        attempt_bootstrap(node);
     }
 }
 
-fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &P2PNode) {
+fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>) {
     for connect_to in &conf.connect_to {
         match utils::parse_host_port(&connect_to, &node.config.dns_resolvers, conf.dnssec_disabled)
         {
             Ok(addrs) => {
                 for addr in addrs {
                     info!("Connecting to peer {}", &connect_to);
-                    node.connect(PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
+                    connect(node, PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
                 }
             }
             Err(err) => error!("Can't parse data for node to connect to {}", err),
@@ -280,11 +260,6 @@ fn start_consensus_message_threads(
     let peers_ref = Arc::clone(&peers);
     let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("Peers status notifier thread for consensus", {
-        // don't do anything until the peer number is within the desired range
-        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
-            thread::sleep(Duration::from_secs(1));
-        }
-
         let peer_stats_notifier_control_queue_receiver =
             CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
         let mut last_peer_list_update = 0;
@@ -294,9 +269,7 @@ fn start_consensus_message_threads(
                 last_peer_list_update = get_current_stamp();
             }
 
-            if let Err(e) = check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref) {
-                error!("Couldn't update the catch-up peer list: {}", e);
-            }
+            check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref);
 
             if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
                 if let QueueMsg::Stop = msg {
@@ -310,12 +283,8 @@ fn start_consensus_message_threads(
 
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
+    let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("Process inbound consensus requests", {
-        // don't do anything until the peer number is within the desired range
-        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
-            thread::sleep(Duration::from_secs(1));
-        }
-
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
@@ -334,12 +303,18 @@ fn start_consensus_message_threads(
             node_ref.stats.set_inbound_high_priority_consensus_size(
                 consensus_receiver_high_priority.len() as i64,
             );
-            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
+                        handle_consensus_inbound_msg(
+                            &node_ref,
+                            nid,
+                            &consensus_ref,
+                            msg,
+                            &peers_ref,
+                        )
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -353,7 +328,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
+                    handle_consensus_inbound_msg(&node_ref, nid, &consensus_ref, msg, &peers_ref)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -367,12 +342,8 @@ fn start_consensus_message_threads(
     }));
 
     let node_ref = Arc::clone(node);
+    let peers_ref = Arc::clone(&peers);
     threads.push(spawn_or_die!("Process outbound consensus requests", {
-        // don't do anything until the peer number is within the desired range
-        while node_ref.get_node_peer_ids().len() > node_ref.config.max_allowed_nodes as usize {
-            thread::sleep(Duration::from_secs(1));
-        }
-
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
@@ -391,12 +362,12 @@ fn start_consensus_message_threads(
             node_ref.stats.set_outbound_high_priority_consensus_size(
                 consensus_receiver_high_priority.len() as i64,
             );
-            // instead of using `try_iter()` we specifically only loop over the max amounts
+            // instead of using `try_iter()` we specifically only loop over the max numbers
             // possible to ever be in the queue
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                        handle_consensus_outbound_msg(&node_ref, nid, msg)
+                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -410,7 +381,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                    handle_consensus_outbound_msg(&node_ref, nid, msg)
+                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -422,6 +393,9 @@ fn start_consensus_message_threads(
             }
         }
     }));
+
+    // start baking
+    consensus.start_baker();
 
     threads
 }

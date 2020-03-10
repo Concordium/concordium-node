@@ -21,7 +21,7 @@ macro_rules! bench_s11n {
             let mut group = c.benchmark_group($name);
 
             for &size in &[256, 1024, 4096, 64 * 1024, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024] {
-                let mut msg = create_random_packet(size);
+                let msg = create_random_packet(size);
                 let mut buffer = Cursor::new(Vec::with_capacity(size));
 
                 group.throughput(Throughput::Bytes(size as u64));

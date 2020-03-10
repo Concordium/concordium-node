@@ -4,7 +4,7 @@ set -e
 
 if [ "$#" -lt 2 ]
 then
-  echo "Usage: ./build-docker-compose-image.sh VERSION_TAG [default|rgs]"
+  echo "Usage: ./build-docker-compose-image.sh VERSION_TAG [default]"
   exit 1
 fi
 

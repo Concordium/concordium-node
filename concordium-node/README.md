@@ -5,13 +5,14 @@
 This repository relies on git submodules for internal component dependencies, so do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
 
 ## Dependencies to build the project
-* Rust (stable 1.37+, and stable 1.39.0 (4560ea788 2019-11-04) for using static libraries)
+* Rust (stable 1.37+, and stable 1.41.0 (5e1a79984 2020-01-27) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
 * flatc >= 1.11.0
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
+* PostGreSQL >= 10
 
 ### Optional dependencies
 * Stack (and GHC-8.6.5, if not building using static libraries)
@@ -23,14 +24,12 @@ This repository relies on git submodules for internal component dependencies, so
 * s11n_serde_msgpack - enables serialization using [rmp-serde](https://crates.io/crates/rmp-serde) (only used in benches)
 * s11n_capnp - enables serialization using [Cap'n'Proto](https://crates.io/crates/capnp) (only used in benches)
 * instrumentation - enables stats data exporting to [prometheus](https://crates.io/crates/prometheus)
-* benchmark - enables the TPS testing
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries in GIT LFS (Linux only)
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
 * elastic_logging - enable ability to log transaction events to elastic search
 * collector - enables the build of the node-collector and backend
 * beta - enables special beta only features like client username/password validation
-* rgs - use consensus with rust global state implementation (this must match the proper static libraries if compiled against them)
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).
@@ -48,6 +47,12 @@ $> cargo run -- --debug
 ## Running all tests
 ```bash
 $> cargo test --all
+```
+
+## Obtaining documentation
+The output is placed in `target/doc` by default.
+```bash
+$> cargo doc
 ```
 
 ## Nix
@@ -90,36 +95,30 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up 
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
 
-## Elastic search in local development mode
+## PostGreSQL in local development mode
+The PostGreSQL instance is exposed on port 5432/tcp and the username is `concordium`, password: `concordium`, and database name is `concordium`.
+
 ### Running the local development version from the stable master branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml up --scale baker=5 --force-recreate
+```
+
+Remember to clean out PostGreSQL data between runs using
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
 ```
 
 ### Running the local development version from the unstable develop branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
-$> ELASTIC_SEARCH_LOGGING=1 NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
 ```
 
-### Delay baker startup if Elastic Search starts too slowly
-If Elastic Search starts too slowly the baker enabled for logging to it can be delayed by using the variable `ES_SLEEP`
-
-### Using persistent local Elastic Search setup with Kibana
-To run a pair of elastic search with kibana for local development do the following
+Remember to clean out PostGreSQL data between runs using
 ```bash
-$> docker network create elasticsearch
-$> docker run -d --name elasticsearch --net elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" elasticsearch:7.3.2
-$> docker run -d --name kibana --net elasticsearch -p 5601:5601 kibana:7.3.2
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
 ```
 
-
-To delete the docker setup run
-```bash
-$> docker stop kibana
-$> docker rm kibana
-$> docker stop elasticsearch
-$> docker rm elasticsearch
-$> docker network rm elasticsearch
-```
+### Delay baker startup if PostGreSQL starts too slowly
+If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP`

@@ -1,3 +1,5 @@
+//! Miscellaneous utilities.
+
 use concordium_dns::dns;
 
 use crate::{self as p2p_client, configuration as config};
@@ -9,15 +11,18 @@ use failure::Fallible;
 use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use log::LevelFilter;
 use rand::rngs::OsRng;
-#[cfg(feature = "benchmark")]
-use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
-    io::Cursor,
+    io::{Cursor, Write},
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
 };
+
+const DEFAULT_DNS_PUBLIC_KEY: &str =
+    "58C4FD93586B92A76BA89141667B1C205349C6C38CC8AB2F6613F7483EBFDAA3";
+const ENV_DNS_PUBLIC_KEY: Option<&str> = option_env!("CORCORDIUM_PUBLIC_DNS_KEY");
+fn get_dns_public_key() -> &'static str { ENV_DNS_PUBLIC_KEY.unwrap_or(DEFAULT_DNS_PUBLIC_KEY) }
 
 fn serialize_ip(ip: IpAddr) -> String {
     match ip {
@@ -77,6 +82,10 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     let mut log_builder = Builder::from_env(env);
     if no_log_timestamp {
         log_builder.format_timestamp(None);
+    } else {
+        log_builder.format(|buf, record| {
+            writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
+        });
     }
     log_builder.filter(Some(&"tokio_reactor"), LevelFilter::Error);
     log_builder.filter(Some(&"hyper"), LevelFilter::Error);
@@ -224,7 +233,7 @@ pub fn get_bootstrap_nodes(
             return Err("No valid resolvers given");
         }
         match dns::resolve_dns_txt_record(bootstrap_server, &resolver_addresses, dnssec_fail) {
-            Ok(res) => read_peers_from_dns_entries(res, super::get_dns_public_key()),
+            Ok(res) => read_peers_from_dns_entries(res, get_dns_public_key()),
             Err(_) => Err("Error looking up bootstrap nodes"),
         }
     }
@@ -462,24 +471,7 @@ fn read_peers_from_dns_entries(
     }
 }
 
-pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng::new().unwrap()).0).0 }
-
-#[cfg(feature = "benchmark")]
-pub fn get_tps_test_messages(path: Option<String>) -> Vec<Vec<u8>> {
-    let mut ret = Vec::new();
-
-    if let Some(ref _path) = path {
-        info!("Trying path to find TPS test messages: {}", _path);
-        if let Ok(files) = fs::read_dir(_path) {
-            for file in files.filter_map(Result::ok).filter(|f| !f.path().is_dir()) {
-                let data = fs::read(file.path()).expect("Unable to read file!");
-                ret.push(data);
-            }
-        }
-    }
-
-    ret
-}
+pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng).0).0 }
 
 pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {
     // Get config and app preferences

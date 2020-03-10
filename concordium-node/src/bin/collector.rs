@@ -1,16 +1,7 @@
 #![recursion_limit = "1024"]
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
-use concordium_common::spawn_or_die;
 use env_logger::Env;
 use failure::Fallible;
-use grpcio::{ChannelBuilder, EnvBuilder};
-use p2p_client::{
-    common::collector_utils::NodeInfo, proto::concordium_p2p_rpc_grpc::P2PClient,
-    utils::setup_logger_env,
-};
+use p2p_client::{common::collector_utils::NodeInfo, req_with_auth, utils::setup_logger_env};
 use rmp_serde;
 use serde_json::Value;
 use std::{
@@ -19,23 +10,25 @@ use std::{
     fmt,
     process::exit,
     str::FromStr,
-    sync::{
-        atomic::{AtomicUsize, Ordering as AtomicOrdering},
-        Arc,
-    },
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
     thread,
     time::Duration,
 };
 use structopt::StructOpt;
+use tonic::{metadata::MetadataValue, transport::channel::Channel, Request};
 #[macro_use]
 extern crate log;
 
-// Explicitly defining allocator to avoid future reintroduction of jemalloc
+pub mod proto {
+    tonic::include_proto!("concordium");
+}
+
+// Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct NodeName(Vec<String>);
 
 impl FromStr for NodeName {
@@ -64,7 +57,7 @@ struct ConfigCli {
     #[structopt(
         long = "grpc-host",
         help = "gRPC host to collect from",
-        default_value = "127.0.0.1:10000"
+        default_value = "http://127.0.0.1:10000"
     )]
     pub grpc_hosts: Vec<String>,
     #[structopt(long = "node-name", help = "Node name")]
@@ -103,7 +96,8 @@ struct ConfigCli {
     pub max_grpc_failures_allowed: u64,
 }
 
-pub fn main() -> Fallible<()> {
+#[tokio::main]
+async fn main() {
     let conf = ConfigCli::from_args();
 
     // Prepare the logger
@@ -124,7 +118,7 @@ pub fn main() -> Fallible<()> {
     info!("Starting up {}-node-collector version {}!", p2p_client::APPNAME, p2p_client::VERSION);
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
-        error!("Amount of node-names and grpc-hosts must be equal!");
+        error!("The number of node-names and grpc-hosts must be equal!");
         exit(1);
     }
 
@@ -133,118 +127,106 @@ pub fn main() -> Fallible<()> {
         thread::sleep(Duration::from_millis(conf.artificial_start_delay));
     }
 
+    let atomic_counter: AtomicUsize = Default::default();
     #[allow(unreachable_code)]
-    let main_thread = spawn_or_die!("Main loop", {
-        let atomic_counter: AtomicUsize = Default::default();
-        loop {
-            let grpc_failure_count = atomic_counter.load(AtomicOrdering::Relaxed);
-            trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
-            conf.node_names.iter().zip(conf.grpc_hosts.iter()).for_each(
-                |(node_name, grpc_host)| {
-                    trace!("Processing node {}/{}", node_name, grpc_host);
-                    if let Ok(node_info) =
-                        collect_data(&node_name, &grpc_host, &conf.grpc_auth_token)
-                    {
-                        trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
-                        if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
-                            let client = reqwest::Client::new();
-                            if let Err(e) = client.post(&conf.collector_url).body(msgpack).send() {
-                                error!("Could not post to dashboard server due to error {}", e);
-                            }
-                        }
-                    } else {
-                        let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
-                        error!(
-                            "gRPC failed for {}, sleeping for {} ms",
-                            &grpc_host, conf.collector_interval
-                        );
+    loop {
+        let grpc_failure_count = atomic_counter.load(AtomicOrdering::Relaxed);
+        trace!("Failure count is {}/{}", grpc_failure_count, conf.max_grpc_failures_allowed);
+        for (node_name, grpc_host) in conf.node_names.iter().zip(conf.grpc_hosts.iter()) {
+            trace!("Processing node {}/{}", node_name, grpc_host);
+            match collect_data(node_name.clone(), grpc_host.to_owned(), &conf.grpc_auth_token).await
+            {
+                Ok(node_info) => {
+                    trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
+                    if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
+                        let client = reqwest::Client::new();
+                        let _ = client.post(&conf.collector_url).body(msgpack).send().await;
                     }
+                }
+                Err(e) => {
+                    let _ = atomic_counter.fetch_add(1, AtomicOrdering::SeqCst);
+                    error!(
+                        "gRPC failed with \"{}\" for {}, sleeping for {} ms",
+                        e, &grpc_host, conf.collector_interval
+                    );
+                }
+            }
 
-                    if grpc_failure_count + 1 >= conf.max_grpc_failures_allowed as usize {
-                        error!("Too many gRPC failures, exiting!");
-                        exit(1);
-                    }
-                },
-            );
-            trace!("Sleeping for {} ms", conf.collector_interval);
-            thread::sleep(Duration::from_millis(conf.collector_interval));
+            if grpc_failure_count + 1 >= conf.max_grpc_failures_allowed as usize {
+                error!("Too many gRPC failures, exiting!");
+                exit(1);
+            }
         }
-    });
-    main_thread.join().expect("Main thread panicked");
-    Ok(())
+        trace!("Sleeping for {} ms", conf.collector_interval);
+        thread::sleep(Duration::from_millis(conf.collector_interval));
+    }
 }
 
-fn collect_data(
-    node_name: &NodeName,
-    grpc_host: &str,
+#[allow(clippy::cognitive_complexity)]
+async fn collect_data<'a>(
+    node_name: NodeName,
+    grpc_host: String,
     grpc_auth_token: &str,
 ) -> Fallible<NodeInfo> {
-    trace!(
+    info!(
         "Collecting node information via gRPC from {}/{}/{}",
-        node_name,
-        grpc_host,
-        grpc_auth_token
+        node_name, grpc_host, grpc_auth_token
     );
-    let env = Arc::new(EnvBuilder::new().build());
-    let ch = ChannelBuilder::new(env).connect(grpc_host);
-    let client = P2PClient::new(ch);
 
-    let mut req_meta_builder = ::grpcio::MetadataBuilder::new();
-    req_meta_builder.add_str("Authentication", grpc_auth_token).unwrap();
-    let meta_data = req_meta_builder.build();
-    let call_options = ::grpcio::CallOption::default().headers(meta_data);
+    let channel = Channel::from_shared(grpc_host).unwrap().connect().await?;
+    let mut client = proto::p2p_client::P2pClient::new(channel);
+
+    let empty_req = || req_with_auth!(proto::Empty {}, grpc_auth_token);
 
     trace!("Requesting basic node info via gRPC");
-    let node_info_reply =
-        client.node_info_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
+    let node_info_reply = client.node_info(empty_req()).await?;
 
     trace!("Requesting node uptime info via gRPC");
-    let node_uptime_reply =
-        client.peer_uptime_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
+    let node_uptime_reply = client.peer_uptime(empty_req()).await?;
 
     trace!("Requesting node version info via gRPC");
-    let node_version_reply =
-        client.peer_version_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
+    let node_version_reply = client.peer_version(empty_req()).await?;
 
-    trace!("Requesting consensus statuc info via gRPC");
-    let node_consensus_status_reply =
-        client.get_consensus_status_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
+    trace!("Requesting consensus status info via gRPC");
+    let node_consensus_status_reply = client.get_consensus_status(empty_req()).await?;
 
     trace!("Requesting node peer stats info via gRPC");
-    let node_peer_stats_reply =
-        client.peer_stats_opt(&p2p_client::proto::PeersRequest::new(), call_options.clone())?;
+    let node_peer_stats_reply = client
+        .peer_stats(req_with_auth!(
+            proto::PeersRequest {
+                include_bootstrappers: true,
+            },
+            grpc_auth_token
+        ))
+        .await?;
 
     trace!("Requesting node total sent message count info via gRPC");
-    let node_total_sent_reply =
-        client.peer_total_sent_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
+    let node_total_sent_reply = client.peer_total_sent(empty_req()).await?;
 
     trace!(" Requesting node total received message count via gRPC");
-    let node_total_received_reply =
-        client.peer_total_received_opt(&p2p_client::proto::Empty::new(), call_options.clone())?;
+    let node_total_received_reply = client.peer_total_received(empty_req()).await?;
 
-    let node_id = node_info_reply.get_node_id().get_value().to_owned();
-    let beta_username = if node_info_reply.has_beta_username() {
-        Some(node_info_reply.get_beta_username().get_value().to_owned())
-    } else {
-        None
-    };
-    let peer_type = node_info_reply.get_peer_type().to_owned();
-    let baker_committee = node_info_reply.get_consensus_baker_committee();
-    let finalization_committee = node_info_reply.get_consensus_finalizer_committee();
-    let consensus_running = node_info_reply.get_consensus_running();
-    let uptime = node_uptime_reply.get_value() as f64;
-    let version = node_version_reply.get_value().to_owned();
-    let packets_sent = node_total_sent_reply.get_value() as f64;
-    let packets_received = node_total_received_reply.get_value() as f64;
+    let node_info_reply = node_info_reply.get_ref();
+    let node_id = node_info_reply.node_id.to_owned().unwrap();
+    let beta_username = node_info_reply.beta_username.to_owned();
+    let peer_type = node_info_reply.peer_type.to_owned();
+    let baker_committee = node_info_reply.consensus_baker_committee;
+    let finalization_committee = node_info_reply.consensus_finalizer_committee;
+    let consensus_running = node_info_reply.consensus_running;
+    let uptime = node_uptime_reply.get_ref().value as f64;
+    let version = node_version_reply.get_ref().value.to_owned();
+    let packets_sent = node_total_sent_reply.get_ref().value as f64;
+    let packets_received = node_total_received_reply.get_ref().value as f64;
 
-    let peer_stats = node_peer_stats_reply.get_peerstats();
+    let node_peer_stats_reply = node_peer_stats_reply.get_ref();
+    let peer_stats = &node_peer_stats_reply.peerstats;
     let peers_summed_latency =
-        peer_stats.iter().map(|element| element.get_measured_latency()).sum::<u64>() as f64;
+        peer_stats.iter().map(|element| element.measured_latency).sum::<u64>() as f64;
     let peers_with_valid_latencies_count =
-        peer_stats.iter().filter(|element| element.get_valid_latency()).count();
+        peer_stats.iter().filter(|element| element.valid_latency).count();
 
-    let avg_bps_in = node_peer_stats_reply.get_avg_bps_in();
-    let avg_bps_out = node_peer_stats_reply.get_avg_bps_out();
+    let avg_bps_in = node_peer_stats_reply.avg_bps_in;
+    let avg_bps_out = node_peer_stats_reply.avg_bps_out;
 
     let average_ping = if peers_with_valid_latencies_count > 0 {
         Some(peers_summed_latency / peers_with_valid_latencies_count as f64)
@@ -257,7 +239,7 @@ fn collect_data(
 
     trace!("Parsing consensus JSON status response");
     let json_consensus_value: Value =
-        serde_json::from_str(&node_consensus_status_reply.json_value)?;
+        serde_json::from_str(&node_consensus_status_reply.get_ref().value)?;
 
     let best_block = json_consensus_value["bestBlock"].as_str().unwrap().to_owned();
     let best_block_height = json_consensus_value["bestBlockHeight"].as_f64().unwrap();
@@ -294,13 +276,16 @@ fn collect_data(
 
     let ancestors_since_best_block = if best_block_height > finalized_block_height {
         trace!("Requesting further consensus status via gRPC");
-        let block_and_height_req = &mut p2p_client::proto::BlockHashAndAmount::new();
-        block_and_height_req.set_block_hash(best_block.clone());
-        block_and_height_req.set_amount(best_block_height as u64 - finalized_block_height as u64);
-        let node_ancestors_reply =
-            client.get_ancestors_opt(block_and_height_req, call_options.clone())?;
+        let block_and_height_req = req_with_auth!(
+            proto::BlockHashAndAmount {
+                block_hash: best_block.clone(),
+                amount:     best_block_height as u64 - finalized_block_height as u64,
+            },
+            grpc_auth_token
+        );
+        let node_ancestors_reply = client.get_ancestors(block_and_height_req).await?;
         let json_consensus_ancestors_value: Value =
-            serde_json::from_str(&node_ancestors_reply.json_value)?;
+            serde_json::from_str(&node_ancestors_reply.get_ref().value)?;
         if json_consensus_ancestors_value.is_array() {
             if let Some(ancestors_arr) = json_consensus_ancestors_value.as_array() {
                 Some(
@@ -319,10 +304,16 @@ fn collect_data(
         None
     };
 
-    let block_req = &mut p2p_client::proto::BlockHash::new();
-    block_req.set_block_hash(best_block.clone());
-    let node_block_info_reply = client.get_block_info_opt(block_req, call_options)?;
-    let json_block_info_value: Value = serde_json::from_str(&node_block_info_reply.json_value)?;
+    let block_req = req_with_auth!(
+        proto::BlockHash {
+            block_hash: best_block.clone(),
+        },
+        grpc_auth_token
+    );
+
+    let node_block_info_reply = client.get_block_info(block_req).await?;
+    let json_block_info_value: Value =
+        serde_json::from_str(&node_block_info_reply.get_ref().value)?;
     let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_f64();
     let best_block_transactions_size = json_block_info_value["transactionsSize"].as_f64();
     let best_block_total_amount = json_block_info_value["totalAmount"].as_f64();

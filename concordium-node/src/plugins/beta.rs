@@ -1,5 +1,5 @@
 use jsonwebtoken::dangerous_unsafe_decode;
-use reqwest::Client;
+use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 
 /// The ClientLogin struct holds information about
@@ -84,7 +84,7 @@ pub fn authenticate(token: &str) -> bool {
             error!("Failed to post to authentication server due to {}", s);
         })
         .ok()
-        .and_then(|mut s| {
+        .and_then(|s| {
             s.json::<ClientLoginResponse>()
                 .map_err(|s| {
                     error!("Failed to deserialize response from authentication server {}", s);

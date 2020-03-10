@@ -18,7 +18,7 @@ let
   });
   nixpkgs = import <nixpkgs> { overlays = [ pkgs_overlay moz_overlay ]; };
   rustStableChannel =
-    (nixpkgs.rustChannelOf { channel = "1.40.0"; }).rust.override {
+    (nixpkgs.rustChannelOf { channel = "1.41.0"; }).rust.override {
       extensions =
         [ "rust-src" "rls-preview" "clippy-preview" "rustfmt-preview" ];
     };
@@ -38,8 +38,10 @@ stdenv.mkDerivation {
     gnutar
     capnproto
     flatbuffers
+    postgresql
   ];
   shellHook = ''
     scripts/download-static-libs.sh
   '';
+  PROTOC = "${pkgs.protobuf}/bin/protoc";
 }

@@ -7,12 +7,6 @@
 [submodule "deps/internal/concordium-dns"]
 	path = deps/internal/concordium-dns
 	url = ../rust/concordium-dns.git
-[submodule "deps/external/grpc-rs"]
-	path = deps/external/grpc-rs
-	url = ../rust/external/grpc-rs.git
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
 	url = ../rust/external/noiseexplorer_xx
-[submodule "genesis-data"]
-	path = genesis-data
-	url = ../genesis-data.git

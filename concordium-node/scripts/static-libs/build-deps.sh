@@ -8,7 +8,7 @@ if [ -f "/etc/arch-release" ]; then
     echo "It seems you are running Arch, I will install some things"
     ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
     pacman -Sy
-    pacman -S base-devel python3 wget tar cmake protobuf unbound numactl --needed
+    pacman -S base-devel python3 wget tar cmake protobuf unbound numactl postgresql-libs --needed
 fi
 
 command -v cargo

@@ -8,8 +8,7 @@ use noiseexplorer_xx::{
     types::Keypair,
 };
 
-use super::{Connection, DeduplicationQueues};
-use crate::network::PROTOCOL_MAX_MESSAGE_SIZE;
+use crate::{configuration::PROTOCOL_MAX_MESSAGE_SIZE, p2p::maintenance::P2PNode};
 
 use std::{
     cmp,
@@ -17,7 +16,7 @@ use std::{
     convert::TryInto,
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc, Weak},
     time::Duration,
 };
 
@@ -91,7 +90,7 @@ impl SocketBuffer {
 
 /// A type used to indicate what the result of the current read from the socket
 /// is.
-enum ReadResult {
+pub enum ReadResult {
     /// A single message was fully read.
     Complete(Vec<u8>),
     /// The currently read message is incomplete - further reads are needed.
@@ -102,8 +101,9 @@ enum ReadResult {
 
 /// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
-    /// The reference to the parent `Connection` object.
-    pub conn_ref: Option<Arc<Connection>>,
+    /// A reference to the node.
+    pub handler: Weak<P2PNode>,
+    /// The socket associated with the connection.
     pub socket: TcpStream,
     noise_session: NoiseSession,
     noise_buffer: Box<[u8]>,
@@ -111,6 +111,8 @@ pub struct ConnectionLowLevel {
     incoming_msg: IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
     output_queue: VecDeque<u8>,
+    /// The desired size of a single write to the socket.
+    write_size: usize,
 }
 
 macro_rules! recv_xx_msg {
@@ -142,11 +144,14 @@ macro_rules! send_xx_msg {
 }
 
 impl ConnectionLowLevel {
-    pub fn conn(&self) -> &Connection {
-        &self.conn_ref.as_ref().unwrap() // safe; always available
-    }
-
-    pub fn new(socket: TcpStream, is_initiator: bool, socket_read_size: usize) -> Self {
+    /// Creates a new `ConnectionLowLevel` object.
+    pub fn new(
+        handler: &Arc<P2PNode>,
+        socket: TcpStream,
+        is_initiator: bool,
+        read_size: usize,
+        write_size: usize,
+    ) -> Self {
         if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
             error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
         }
@@ -161,22 +166,23 @@ impl ConnectionLowLevel {
         );
 
         ConnectionLowLevel {
-            conn_ref: None,
+            handler: Arc::downgrade(handler),
             socket,
             noise_session: NoiseSession::init_session(is_initiator, PROLOGUE, Keypair::default()),
             noise_buffer: vec![0u8; NOISE_MAX_MESSAGE_LEN].into_boxed_slice(),
-            socket_buffer: SocketBuffer::new(socket_read_size),
+            socket_buffer: SocketBuffer::new(read_size),
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
+            write_size,
         }
     }
 
     // the XX noise handshake
 
+    /// Immediately sends the XX-A handshake message
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = 16;
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
-        self.conn().set_sent_handshake();
 
         Ok(())
     }
@@ -185,9 +191,8 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].try_into()?;
-        let payload_out = self.conn().produce_handshake_request()?;
+        let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
-        self.conn().set_sent_handshake();
 
         Ok(payload_in)
     }
@@ -197,9 +202,8 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .try_into()?;
-        let payload_out = self.conn().produce_handshake_request()?;
+        let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
-        self.conn().handler().stats.peers_inc();
 
         Ok(payload_in)
     }
@@ -209,7 +213,6 @@ impl ConnectionLowLevel {
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .try_into()?;
-        self.conn().handler().stats.peers_inc();
 
         Ok(payload)
     }
@@ -226,23 +229,9 @@ impl ConnectionLowLevel {
 
     // input
 
-    /// Keeps reading from the socket as long as there is data to be read
-    /// and the operation is not blocking.
-    #[inline]
-    pub fn read_stream(&mut self, dedup_queues: &DeduplicationQueues) -> Fallible<()> {
-        loop {
-            match self.read_from_socket()? {
-                ReadResult::Complete(msg) => {
-                    self.conn().process_message(Arc::from(msg), dedup_queues)?
-                }
-                ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
-            }
-        }
-    }
-
     /// Attempts to read a complete message from the socket.
     #[inline]
-    fn read_from_socket(&mut self) -> Fallible<ReadResult> {
+    pub fn read_from_socket(&mut self) -> Fallible<ReadResult> {
         if self.socket_buffer.is_exhausted() {
             self.socket_buffer.reset();
         }
@@ -289,7 +278,7 @@ impl ConnectionLowLevel {
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
             let expected_size =
-                PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into().unwrap());
+                PayloadSize::from_be_bytes((&self.incoming_msg.size_bytes[..]).try_into()?);
             self.incoming_msg.size_bytes.clear();
 
             if expected_size == 0 {
@@ -346,11 +335,14 @@ impl ConnectionLowLevel {
                     _ => bail!("invalid XX handshake"),
                 }?;
 
-                if !self.noise_session.is_initiator()
-                    && self.noise_session.get_message_count() == 1
-                    && payload != PSK
-                {
-                    bail!("Invalid PSK");
+                if !self.noise_session.is_initiator() {
+                    if self.noise_session.get_message_count() == 1 && payload != PSK {
+                        bail!("Invalid PSK");
+                    } else if self.noise_session.get_message_count() == 2 {
+                        // message C doesn't carry a payload; break the reading loop
+                        self.socket_buffer.reset();
+                        return Ok(ReadResult::Incomplete);
+                    }
                 }
 
                 self.socket_buffer.reset();
@@ -412,15 +404,6 @@ impl ConnectionLowLevel {
     /// Enqueue a message to be written to the socket.
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
-        self.conn().handler().total_sent.fetch_add(1, Ordering::Relaxed);
-        self.conn().stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-        self.conn().stats.bytes_sent.fetch_add(input.len() as u64, Ordering::Relaxed);
-        self.conn().handler().stats.pkt_sent_inc();
-
-        if cfg!(feature = "network_dump") {
-            self.conn().send_to_dump(input.clone(), false);
-        }
-
         self.encrypt_and_enqueue(&input)
     }
 
@@ -523,5 +506,5 @@ impl ConnectionLowLevel {
 
     /// Get the desired socket write size.
     #[inline]
-    fn write_size(&self) -> usize { self.conn().handler().config.socket_write_size }
+    fn write_size(&self) -> usize { self.write_size }
 }

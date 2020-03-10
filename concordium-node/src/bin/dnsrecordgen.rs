@@ -8,12 +8,12 @@ use structopt::StructOpt;
 #[structopt(name = "DNS Record Generator")]
 struct ConfigCli {
     #[structopt(
-        raw(required = "true"),
+        required = true,
         long = "add-peers",
         help = "Peer in format IP:PORT, multiple allowed"
     )]
     peers: Vec<String>,
-    #[structopt(help = "Read private key from file", long = "keyfile", raw(required = "true"))]
+    #[structopt(help = "Read private key from file", long = "keyfile", required = true)]
     keyfile: String,
     #[structopt(long = "record-length", help = "DNS record length", default_value = "250")]
     dns_record_length: usize,

@@ -1,26 +1,17 @@
 #![recursion_limit = "1024"]
-#[cfg(not(target_os = "windows"))]
-extern crate grpciounix as grpcio;
-#[cfg(target_os = "windows")]
-extern crate grpciowin as grpcio;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate concordium_common;
 
-// Explicitly defining allocator to avoid future reintroduction of jemalloc
+// Force the system allocator on every platform
 use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use concordium_common::QueueMsg::Relay;
-use crossbeam_channel;
 use failure::Error;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
-    configuration as config,
-    p2p::*,
-    stats_export_service::{instantiate_stats_export_engine, StatsServiceMode},
+    p2p::{maintenance::spawn, *},
+    stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
 
@@ -33,7 +24,6 @@ fn main() -> Result<(), Error> {
     let data_dir_path = app_prefs.get_user_app_dir();
 
     if conf.common.print_config {
-        // Print out the configuration
         info!("Config {:?}", conf);
     }
 
@@ -41,9 +31,7 @@ fn main() -> Result<(), Error> {
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
 
-    // Instantiate stats export engine
-    let stats_export_service =
-        instantiate_stats_export_engine(&conf, StatsServiceMode::BootstrapperMode).unwrap();
+    let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     info!("Debugging enabled: {}", conf.common.debug);
 
@@ -52,43 +40,20 @@ fn main() -> Result<(), Error> {
         _ => format!("{}", P2PNodeId::default()),
     };
 
-    let (rpc_tx, _) = crossbeam_channel::bounded(config::RPC_QUEUE_DEPTH);
-
-    let node = if conf.common.debug {
-        let (sender, receiver) = crossbeam_channel::bounded(config::EVENT_LOG_QUEUE_DEPTH);
-        let _guard = spawn_or_die!("Log loop", move || loop {
-            if let Ok(Relay(msg)) = receiver.recv() {
-                info!("{}", msg);
-            }
-        });
-        P2PNode::new(
-            Some(id),
-            &conf,
-            Some(sender),
-            PeerType::Bootstrapper,
-            stats_export_service,
-            rpc_tx,
-            Some(data_dir_path),
-        )
-    } else {
-        P2PNode::new(
-            Some(id),
-            &conf,
-            None,
-            PeerType::Bootstrapper,
-            stats_export_service,
-            rpc_tx,
-            Some(data_dir_path),
-        )
-    };
+    let node = P2PNode::new(
+        Some(id),
+        &conf,
+        PeerType::Bootstrapper,
+        stats_export_service,
+        Some(data_dir_path),
+    );
 
     #[cfg(feature = "instrumentation")]
-    // Start push gateway to prometheus
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
-    node.spawn();
+    spawn(&node);
 
     node.join().expect("Node thread panicked!");
 

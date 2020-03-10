@@ -24,7 +24,7 @@ impl NetworkMessage {
         let mut message = capnp::message::Builder::new_default();
 
         let mut builder = message.init_root::<p2p_capnp::network_message::Builder>();
-        write_network_message(&mut builder, self);
+        write_network_message(&mut builder, self)?;
 
         capnp::serialize::write_message(target, &message).map_err(|e| e.into())
     }
@@ -102,9 +102,9 @@ fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<Networ
         p2p_capnp::network_message::Which::Packet(packet) => {
             if let Ok(packet) = load_network_packet(&packet?) {
                 Ok(NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkPacket(packet),
+                    created:  timestamp,
+                    received: Some(get_current_stamp()),
+                    payload:  NetworkMessagePayload::NetworkPacket(packet),
                 })
             } else {
                 Err(capnp::Error::failed("invalid network packet".to_owned()))
@@ -113,9 +113,9 @@ fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<Networ
         p2p_capnp::network_message::Which::Request(request_reader) => {
             if let Ok(request) = load_network_request(&request_reader?) {
                 Ok(NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkRequest(request),
+                    created:  timestamp,
+                    received: Some(get_current_stamp()),
+                    payload:  NetworkMessagePayload::NetworkRequest(request),
                 })
             } else {
                 Err(capnp::Error::failed("invalid network request".to_owned()))
@@ -124,9 +124,9 @@ fn _deserialize<T: BufRead>(input: &mut T, packed: bool) -> capnp::Result<Networ
         p2p_capnp::network_message::Which::Response(response_reader) => {
             if let Ok(response) = load_network_response(&response_reader?) {
                 Ok(NetworkMessage {
-                    timestamp1: Some(timestamp),
-                    timestamp2: Some(get_current_stamp()),
-                    payload:    NetworkMessagePayload::NetworkResponse(response),
+                    created:  timestamp,
+                    received: Some(get_current_stamp()),
+                    payload:  NetworkMessagePayload::NetworkResponse(response),
                 })
             } else {
                 Err(capnp::Error::failed("invalid network response".to_owned()))
@@ -166,7 +166,7 @@ fn write_network_packet(
     builder.set_message(&message);
 
     if cfg!(test) {
-        packet.message.rewind().unwrap();
+        packet.message.rewind()?;
     }
 
     Ok(())
@@ -198,13 +198,13 @@ fn write_network_response(
 fn write_network_message(
     builder: &mut p2p_capnp::network_message::Builder,
     message: &mut NetworkMessage,
-) {
+) -> Fallible<()> {
     builder.set_timestamp(message.timestamp1.unwrap_or(0));
 
     match message.payload {
         NetworkMessagePayload::NetworkPacket(ref mut packet) => {
             let mut packet_builder = builder.reborrow().init_packet();
-            write_network_packet(&mut packet_builder, packet).unwrap(); // FIXME
+            write_network_packet(&mut packet_builder, packet)?;
         }
         NetworkMessagePayload::NetworkRequest(ref request) => {
             let mut request_builder = builder.reborrow().init_request();
@@ -215,6 +215,7 @@ fn write_network_message(
             write_network_response(&mut response_builder, response);
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
