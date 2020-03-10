@@ -6,6 +6,7 @@ use failure::Fallible;
 use crate::{
     common::{get_current_stamp, P2PNodeId},
     configuration::{self, MAX_CATCH_UP_TIME},
+    connection::ConnChange,
     find_conn_by_id,
     network::NetworkId,
     p2p::{
@@ -423,7 +424,7 @@ pub fn check_peer_states(
                     if let Some(token) =
                         find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token)
                     {
-                        node.remove_connections(&[token]);
+                        node.register_conn_change(ConnChange::Removal(token));
                     }
                 }
             }

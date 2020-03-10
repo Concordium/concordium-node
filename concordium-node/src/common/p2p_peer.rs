@@ -6,10 +6,7 @@ use std::{
     fmt::{self, Display},
     hash::{Hash, Hasher},
     net::{IpAddr, SocketAddr},
-    sync::{
-        atomic::{AtomicU16, Ordering as AtomicOrdering},
-        RwLock,
-    },
+    sync::atomic::Ordering as AtomicOrdering,
 };
 
 /// Specifies the type of the node - either a regular `Node` or a
@@ -76,20 +73,20 @@ impl Display for P2PPeer {
 /// Defines a remote node in the network.
 #[derive(Debug)]
 pub struct RemotePeer {
-    pub id:                 RwLock<Option<P2PNodeId>>,
-    pub addr:               SocketAddr,
-    pub peer_external_port: AtomicU16,
-    pub peer_type:          PeerType,
+    pub id:            Option<P2PNodeId>,
+    pub addr:          SocketAddr,
+    pub external_port: u16,
+    pub peer_type:     PeerType,
 }
 
 impl RemotePeer {
     /// Converts a remote peer to a regular peer object, as long as its id is
     /// known.
     pub fn peer(&self) -> Option<P2PPeer> {
-        if let Some(id) = &*read_or_die!(self.id) {
+        if let Some(id) = self.id {
             Some(P2PPeer {
-                id:        *id,
-                addr:      self.addr,
+                id,
+                addr: self.addr,
                 peer_type: self.peer_type,
             })
         } else {
@@ -97,23 +94,9 @@ impl RemotePeer {
         }
     }
 
-    /// Gets the external port of a remote peer.
-    pub fn peer_external_port(&self) -> u16 { self.peer_external_port.load(AtomicOrdering::SeqCst) }
-
     /// Gets the external socket address of a remote peer.
-    pub fn peer_external_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.addr.ip(), self.peer_external_port.load(AtomicOrdering::SeqCst))
-    }
-}
-
-impl From<P2PPeer> for RemotePeer {
-    fn from(peer: P2PPeer) -> Self {
-        Self {
-            id:                 RwLock::new(Some(peer.id)),
-            addr:               peer.addr,
-            peer_external_port: AtomicU16::new(peer.addr.port()),
-            peer_type:          peer.peer_type,
-        }
+    pub fn external_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.addr.ip(), self.external_port)
     }
 }
 

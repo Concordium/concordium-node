@@ -4,7 +4,7 @@ use crate::{
     common::PeerType,
     network::NetworkId,
     p2p::connectivity::send_broadcast_message,
-    test_utils::{await_handshake, connect, make_node_and_sync, next_available_port},
+    test_utils::{await_handshakes, connect, make_node_and_sync, next_available_port},
 };
 use concordium_common::PacketType;
 
@@ -32,12 +32,12 @@ fn basic_connectivity() {
 
     // connect the nodes in a mesh
     for pair in &possible_connections {
-        connect(&nodes[pair[0]], &nodes[pair[1]]).unwrap();
+        connect(&nodes[pair[0]], &nodes[pair[1]]);
     }
 
     // test the handshake (both low- and high-level)
-    for pair in &possible_connections {
-        await_handshake(&nodes[pair[0]], &nodes[pair[1]]);
+    for node in &nodes {
+        await_handshakes(node);
     }
 
     // send a test broadcast from each node

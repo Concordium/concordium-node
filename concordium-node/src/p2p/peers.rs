@@ -16,9 +16,16 @@ impl P2PNode {
     pub fn get_peer_stats(&self, peer_type: Option<PeerType>) -> Vec<PeerStats> {
         read_or_die!(self.connections())
             .values()
-            .filter(|conn| conn.is_post_handshake())
             .filter(|conn| peer_type.is_none() || peer_type == Some(conn.remote_peer_type()))
-            .filter_map(|conn| conn.remote_peer_stats().ok())
+            .map(|conn| {
+                PeerStats::new(
+                    conn.remote_id().unwrap().as_raw(), // safe - always available post-handshake
+                    conn.remote_addr(),
+                    conn.remote_peer_external_port(),
+                    conn.remote_peer_type(),
+                    &conn.stats,
+                )
+            })
             .collect()
     }
 
@@ -92,18 +99,14 @@ impl P2PNode {
 /// Checks whether we need any more peers, based on the `desired_nodes_count`
 /// config.
 pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
-    trace!("Checking if any more peers are needed");
-    if node.peer_type() != PeerType::Bootstrapper
-        && !node.config.no_net
-        && node.config.desired_nodes_count
-            > peer_stat_list.iter().filter(|peer| peer.peer_type != PeerType::Bootstrapper).count()
-                as u16
-    {
+    debug!("I currently have {}/{} peers", peer_stat_list.len(), node.config.max_allowed_nodes);
+
+    if node.config.print_peers {
+        node.print_stats(&peer_stat_list);
+    }
+
+    if !node.config.no_net && peer_stat_list.len() < node.config.desired_nodes_count as usize {
         if peer_stat_list.is_empty() {
-            info!("Sending out GetPeers to any bootstrappers we may still be connected to");
-            {
-                node.send_get_peers();
-            }
             if !node.config.no_bootstrap_dns {
                 info!("No peers at all - retrying bootstrapping");
                 attempt_bootstrap(node);
@@ -114,7 +117,7 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
                 );
             }
         } else {
-            info!("Not enough peers, sending GetPeers requests");
+            info!("Not enough peers - sending GetPeers requests");
             node.send_get_peers();
         }
     }

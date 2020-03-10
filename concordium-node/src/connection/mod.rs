@@ -18,7 +18,11 @@ use twox_hash::XxHash64;
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
 use crate::{
-    common::{get_current_stamp, p2p_peer::P2PPeer, P2PNodeId, PeerStats, PeerType, RemotePeer},
+    common::{
+        get_current_stamp,
+        p2p_peer::{P2PPeer, PeerStats},
+        P2PNodeId, PeerType, RemotePeer,
+    },
     configuration::MAX_PEER_NETWORKS,
     connection::low_level::ReadResult,
     netmsg,
@@ -94,6 +98,20 @@ pub struct ConnectionStats {
 
 type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
 
+/// Specifies the type of change to be applied to the list of connections.
+pub enum ConnChange {
+    /// To be soft-banned and removed from the list of connections.
+    Expulsion(Token),
+    /// Prospect node address to attempt to connect to.
+    NewConn(SocketAddr),
+    /// Prospect peers to possibly connect to.
+    NewPeers(Vec<P2PPeer>),
+    /// Promotion to post-handshake.
+    Promotion(Token),
+    /// To be removed from the list of connections.
+    Removal(Token),
+}
+
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
@@ -103,14 +121,12 @@ pub struct Connection {
     /// The connection's representation as a peer object.
     pub remote_peer: RemotePeer,
     /// Low-level connection objects.
-    pub low_level: RwLock<ConnectionLowLevel>,
+    pub low_level: ConnectionLowLevel,
     /// The list of networks the connection belongs to.
-    pub remote_end_networks: Arc<RwLock<Networks>>,
-    /// Indicates whether the connection's handshake has concluded.
-    pub is_post_handshake: AtomicBool,
+    pub remote_end_networks: Networks,
     pub stats: ConnectionStats,
     /// The queue of messages to be sent to the connection.
-    pub pending_messages: RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
+    pub pending_messages: PriorityQueue<Arc<[u8]>, PendingPriority>,
 }
 
 impl PartialEq for Connection {
@@ -138,16 +154,16 @@ impl Connection {
         token: Token,
         remote_peer: RemotePeer,
         is_initiator: bool,
-    ) -> Arc<Self> {
+    ) -> Self {
         let curr_stamp = get_current_stamp();
 
-        let low_level = RwLock::new(ConnectionLowLevel::new(
+        let low_level = ConnectionLowLevel::new(
             handler,
             socket,
             is_initiator,
             handler.config.socket_read_size,
             handler.config.socket_write_size,
-        ));
+        );
 
         let stats = ConnectionStats {
             created:           get_current_stamp(),
@@ -161,16 +177,15 @@ impl Connection {
             bytes_sent:        Default::default(),
         };
 
-        Arc::new(Self {
+        Self {
             handler: Arc::clone(handler),
             token,
             remote_peer,
             low_level,
             remote_end_networks: Default::default(),
-            is_post_handshake: Default::default(),
             stats,
-            pending_messages: RwLock::new(PriorityQueue::with_capacity(1024)),
-        })
+            pending_messages: PriorityQueue::with_capacity(1024),
+        }
     }
 
     /// Get the connection's latest latency value.
@@ -192,36 +207,16 @@ impl Connection {
     }
 
     /// Obtain the node id related to the connection, if available.
-    pub fn remote_id(&self) -> Option<P2PNodeId> { *read_or_die!(self.remote_peer.id) }
+    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.id }
 
     /// Obtain the type of the peer associated with the connection.
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
-
-    /// Obtain the peer stats of the connection.
-    #[inline]
-    pub fn remote_peer_stats(&self) -> Fallible<PeerStats> {
-        Ok(PeerStats::new(
-            self.remote_id()
-                .ok_or_else(|| format_err!("Attempted to get the stats of a pre-handshake peer!"))?
-                .as_raw(),
-            self.remote_addr(),
-            self.remote_peer_external_port(),
-            self.remote_peer_type(),
-            &self.stats,
-        ))
-    }
 
     /// Obtain the remote address of the connection.
     pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr }
 
     /// Obtain the external port of the connection.
-    pub fn remote_peer_external_port(&self) -> u16 {
-        self.remote_peer.peer_external_port.load(Ordering::Relaxed)
-    }
-
-    /// Check whether the handshake with the connection has concluded.
-    #[inline]
-    pub fn is_post_handshake(&self) -> bool { self.is_post_handshake.load(Ordering::Relaxed) }
+    pub fn remote_peer_external_port(&self) -> u16 { self.remote_peer.external_port }
 
     /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
@@ -231,7 +226,7 @@ impl Connection {
     #[inline]
     pub fn register(&self, poll: &Poll) -> Fallible<()> {
         into_err!(poll.register(
-            &read_or_die!(self.low_level).socket,
+            &self.low_level.socket,
             self.token,
             Ready::readable() | Ready::writable(),
             PollOpt::edge()
@@ -273,13 +268,15 @@ impl Connection {
     /// and the operation is not blocking.
     #[inline]
     pub fn read_stream(
-        &self,
-        low_level: &mut ConnectionLowLevel,
+        &mut self,
         dedup_queues: &DeduplicationQueues,
+        conn_stats: &[PeerStats],
     ) -> Fallible<()> {
         loop {
-            match low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), dedup_queues)?,
+            match self.low_level.read_from_socket()? {
+                ReadResult::Complete(msg) => {
+                    self.process_message(Arc::from(msg), dedup_queues, conn_stats)?
+                }
                 ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
             }
         }
@@ -287,9 +284,10 @@ impl Connection {
 
     #[inline]
     fn process_message(
-        &self,
+        &mut self,
         bytes: Arc<[u8]>,
         deduplication_queues: &DeduplicationQueues,
+        conn_stats: &[PeerStats],
     ) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
@@ -316,22 +314,30 @@ impl Connection {
         }
 
         // process the incoming message
-        self.handle_incoming_message(message, bytes)
+        self.handle_incoming_message(message, bytes, conn_stats)
     }
 
     /// Concludes the connection's handshake process.
-    pub fn promote_to_post_handshake(&self, id: P2PNodeId, peer_port: u16) {
-        *write_or_die!(self.remote_peer.id) = Some(id);
-        self.remote_peer.peer_external_port.store(peer_port, Ordering::SeqCst);
-        self.is_post_handshake.store(true, Ordering::SeqCst);
+    pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16, nets: &Networks) {
+        self.remote_peer.id = Some(id);
+        self.remote_peer.external_port = peer_port;
         self.handler.stats.peers_inc();
+        if self.remote_peer.peer_type == PeerType::Bootstrapper {
+            self.handler.update_last_bootstrap();
+        }
+        let remote_peer = P2PPeer::from((
+            self.remote_peer.peer_type,
+            id,
+            SocketAddr::new(self.remote_peer.addr.ip(), peer_port),
+        ));
+        self.populate_remote_end_networks(remote_peer, nets);
         self.handler.bump_last_peer_update();
     }
 
     /// Queues a message to be sent to the connection.
     #[inline]
-    pub fn async_send(&self, message: Arc<[u8]>, priority: MessageSendingPriority) {
-        write_or_die!(self.pending_messages).push(message, (priority, Reverse(Instant::now())));
+    pub fn async_send(&mut self, message: Arc<[u8]>, priority: MessageSendingPriority) {
+        self.pending_messages.push(message, (priority, Reverse(Instant::now())));
     }
 
     /// Update the timestamp of when the connection was seen last.
@@ -343,8 +349,8 @@ impl Connection {
     }
 
     /// Register connection's remote end networks.
-    pub fn populate_remote_end_networks(&self, peer: P2PPeer, networks: &Networks) {
-        write_or_die!(self.remote_end_networks).extend(networks.iter());
+    pub fn populate_remote_end_networks(&mut self, peer: P2PPeer, networks: &Networks) {
+        self.remote_end_networks.extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
             write_or_die!(self.handler.buckets()).insert_into_bucket(peer, networks.to_owned());
@@ -352,24 +358,26 @@ impl Connection {
     }
 
     /// Add a single network to the connection's remote end networks.
-    pub fn add_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
-        let curr_networks = &mut write_or_die!(self.remote_end_networks);
-        ensure!(curr_networks.len() < MAX_PEER_NETWORKS, "refusing to add any more networks");
+    pub fn add_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
+        ensure!(
+            self.remote_end_networks.len() < MAX_PEER_NETWORKS,
+            "refusing to add any more networks"
+        );
 
-        curr_networks.insert(network);
-
+        self.remote_end_networks.insert(network);
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets()).update_network_ids(peer, curr_networks.to_owned());
+        write_or_die!(self.handler.buckets())
+            .update_network_ids(peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
     /// Remove a network from the connection's remote end networks.
-    pub fn remove_remote_end_network(&self, network: NetworkId) -> Fallible<()> {
-        write_or_die!(self.remote_end_networks).remove(&network);
+    pub fn remove_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
+        self.remote_end_networks.remove(&network);
 
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
         write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, read_or_die!(self.remote_end_networks).to_owned());
+            .update_network_ids(peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
@@ -382,7 +390,7 @@ impl Connection {
     }
 
     /// Send a ping to the connection.
-    pub fn send_ping(&self) -> Fallible<()> {
+    pub fn send_ping(&mut self) -> Fallible<()> {
         trace!("Sending a ping to {}", self);
 
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
@@ -396,7 +404,7 @@ impl Connection {
     }
 
     /// Send a pong to the connection.
-    pub fn send_pong(&self) -> Fallible<()> {
+    pub fn send_pong(&mut self) -> Fallible<()> {
         trace!("Sending a pong to {}", self);
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
@@ -408,7 +416,11 @@ impl Connection {
     }
 
     /// Send a response to a request for peers to the connection.
-    pub fn send_peer_list_resp(&self, nets: &Networks) -> Fallible<()> {
+    pub fn send_peer_list_resp(
+        &mut self,
+        nets: Networks,
+        conn_stats: &[PeerStats],
+    ) -> Fallible<()> {
         let requestor =
             self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
 
@@ -416,7 +428,7 @@ impl Connection {
             PeerType::Bootstrapper => {
                 let get_100_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
                     Ok(safe_read!(self.handler.buckets())?
-                        .get_random_nodes(&requestor, 100, nets, partition))
+                        .get_random_nodes(&requestor, 100, &nets, partition))
                 };
                 let random_nodes = match self.handler.config.partition_network_for_time {
                     Some(time) if (self.handler.get_uptime() as usize) < time => {
@@ -435,9 +447,7 @@ impl Connection {
                 }
             }
             PeerType::Node => {
-                let nodes = self
-                    .handler
-                    .get_peer_stats(Some(PeerType::Node))
+                let nodes = conn_stats
                     .iter()
                     .filter(|stat| P2PNodeId(stat.id) != requestor.id)
                     .map(|stat| {
@@ -466,14 +476,42 @@ impl Connection {
             Ok(())
         }
     }
+
+    /// Processes a queue with pending messages, writing them to the socket.
+    #[inline]
+    pub fn send_pending_messages(&mut self) -> Fallible<()> {
+        while let Some((msg, _)) = self.pending_messages.pop() {
+            trace!(
+                "Attempting to send {} to {}",
+                ByteSize(msg.len() as u64).to_string_as(true),
+                self
+            );
+
+            if let Err(err) = self.low_level.write_to_socket(msg.clone()) {
+                bail!("Can't send a raw network request: {}", err);
+            } else {
+                self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+                self.handler.stats.pkt_sent_inc();
+                self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+                self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+
+                #[cfg(feature = "network_dump")]
+                {
+                    self.send_to_dump(msg, false);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing the connection to {}", self);
 
-        // Report number of peers to stats export engine
-        if self.is_post_handshake() {
+        // update peer stats if it was post-handshake
+        if self.remote_id().is_some() {
             self.handler.stats.peers_dec();
         }
     }
@@ -494,34 +532,4 @@ fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> 
         trace!("Message {:x} is a duplicate", num);
         Ok(true)
     }
-}
-
-/// Processes a queue with pending messages, writing them to the socket.
-#[inline]
-pub fn send_pending_messages(
-    conn: &Connection,
-    low_level: &mut ConnectionLowLevel,
-    pending_messages: &RwLock<PriorityQueue<Arc<[u8]>, PendingPriority>>,
-) -> Fallible<()> {
-    let mut pending_messages = write_or_die!(pending_messages);
-
-    while let Some((msg, _)) = pending_messages.pop() {
-        trace!("Attempting to send {} to {}", ByteSize(msg.len() as u64).to_string_as(true), conn);
-
-        if let Err(err) = low_level.write_to_socket(msg.clone()) {
-            bail!("Can't send a raw network request: {}", err);
-        } else {
-            conn.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
-            conn.handler.stats.pkt_sent_inc();
-            conn.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-            conn.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
-
-            #[cfg(feature = "network_dump")]
-            {
-                conn.send_to_dump(msg, false);
-            }
-        }
-    }
-
-    Ok(())
 }
