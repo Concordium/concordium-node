@@ -99,8 +99,13 @@ impl P2PNode {
 /// Checks whether we need any more peers, based on the `desired_nodes_count`
 /// config.
 pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
-    trace!("Checking if any more peers are needed");
-    if !node.config.no_net && node.config.desired_nodes_count > peer_stat_list.len() as u16 {
+    debug!("I currently have {}/{} peers", peer_stat_list.len(), node.config.max_allowed_nodes);
+
+    if node.config.print_peers {
+        node.print_stats(&peer_stat_list);
+    }
+
+    if !node.config.no_net && peer_stat_list.len() < node.config.desired_nodes_count as usize {
         if peer_stat_list.is_empty() {
             if !node.config.no_bootstrap_dns {
                 info!("No peers at all - retrying bootstrapping");
