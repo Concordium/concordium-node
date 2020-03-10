@@ -290,10 +290,9 @@ impl P2p for RpcServerImpl {
             })
             .map(|peer| peer_stats_response::PeerStats {
                 node_id:          format!("{:0>16x}", peer.id),
-                packets_sent:     peer.sent,
-                packets_received: peer.received,
-                valid_latency:    peer.valid_latency,
-                measured_latency: peer.measured_latency,
+                packets_sent:     peer.msgs_sent,
+                packets_received: peer.msgs_received,
+                latency:          peer.latency,
             })
             .collect();
 
@@ -326,7 +325,7 @@ impl P2p for RpcServerImpl {
 
         Ok(Response::new(PeerListResponse {
             peer_type: self.node.peer_type().to_string(),
-            peer:      list,
+            peers:     list,
         }))
     }
 
@@ -647,7 +646,7 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<Response<PeerListResponse>, Status> {
         authenticate!(req, self.access_token);
-        let peer = if let Ok(banlist) = self.node.get_banlist() {
+        let peers = if let Ok(banlist) = self.node.get_banlist() {
             banlist
                 .into_iter()
                 .map(|banned_node| {
@@ -673,7 +672,7 @@ impl P2p for RpcServerImpl {
         };
 
         Ok(Response::new(PeerListResponse {
-            peer,
+            peers,
             peer_type: "Node".to_owned(),
         }))
     }
@@ -950,7 +949,7 @@ mod tests {
             },
             TOKEN
         );
-        let rcv = client.peer_list(req).await.unwrap().get_ref().peer.clone();
+        let rcv = client.peer_list(req).await.unwrap().get_ref().peers.clone();
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();

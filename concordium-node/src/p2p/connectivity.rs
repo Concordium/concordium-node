@@ -101,9 +101,9 @@ impl P2PNode {
         debug!("Measuring connection latencies");
 
         for conn in write_or_die!(self.connections()).values_mut() {
-            // don't send pings to unresponsive connections so
-            // that the latency calculation is not off
-            if conn.last_seen() > conn.get_last_ping_sent() {
+            if conn.stats.last_pong.load(Ordering::SeqCst)
+                >= conn.stats.last_ping.load(Ordering::SeqCst)
+            {
                 if let Err(e) = conn.send_ping() {
                     error!("Can't send a ping to {}: {}", conn, e);
                 }
@@ -426,7 +426,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
 
     let is_conn_faulty = |conn: &Connection| -> bool {
         if let Some(max_latency) = node.config.max_latency {
-            conn.get_last_latency() >= max_latency
+            conn.get_latency() >= max_latency
         } else {
             false
         }

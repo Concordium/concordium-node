@@ -43,7 +43,7 @@ use std::{
     io::Cursor,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, RwLock,
     },
     time::Instant,
@@ -86,12 +86,11 @@ impl DeduplicationQueues {
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     pub created:           u64,
-    pub last_ping_sent:    AtomicU64,
     pub last_seen:         AtomicU64,
+    pub last_ping:         AtomicU64,
+    pub last_pong:         AtomicU64,
     pub messages_sent:     AtomicU64,
     pub messages_received: AtomicU64,
-    pub valid_latency:     AtomicBool,
-    pub last_latency:      AtomicU64,
     pub bytes_received:    AtomicU64,
     pub bytes_sent:        AtomicU64,
 }
@@ -169,9 +168,8 @@ impl Connection {
             created:           get_current_stamp(),
             messages_received: Default::default(),
             messages_sent:     Default::default(),
-            valid_latency:     Default::default(),
-            last_latency:      Default::default(),
-            last_ping_sent:    AtomicU64::new(curr_stamp),
+            last_ping:         Default::default(),
+            last_pong:         Default::default(),
             last_seen:         AtomicU64::new(curr_stamp),
             bytes_received:    Default::default(),
             bytes_sent:        Default::default(),
@@ -188,22 +186,16 @@ impl Connection {
         }
     }
 
-    /// Get the connection's latest latency value.
-    pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::Relaxed) }
+    /// Obtain the connection's latency.
+    pub fn get_latency(&self) -> u64 {
+        let last_ping = self.stats.last_ping.load(Ordering::SeqCst);
+        let last_pong = self.stats.last_pong.load(Ordering::SeqCst);
 
-    /// Set the connection's latest latency value.
-    pub fn set_last_latency(&self, value: u64) {
-        self.stats.last_latency.store(value, Ordering::Relaxed);
-    }
-
-    /// Get the timestamp of when the latest ping request was sent to the
-    /// connection.
-    pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::Relaxed) }
-
-    /// Set the timestamp of when the latest ping request was sent to the
-    /// connection.
-    fn set_last_ping_sent(&self) {
-        self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
+        if last_ping > 0 && last_pong > 0 && last_pong > last_ping {
+            last_pong - last_ping
+        } else {
+            0
+        }
     }
 
     /// Obtain the node id related to the connection, if available.
@@ -386,7 +378,7 @@ impl Connection {
         ping.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-        self.set_last_ping_sent();
+        self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
 
         Ok(())
     }

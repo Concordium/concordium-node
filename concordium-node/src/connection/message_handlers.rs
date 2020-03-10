@@ -110,15 +110,7 @@ impl Connection {
     }
 
     fn handle_pong(&self) -> Fallible<()> {
-        self.stats.valid_latency.store(true, Ordering::Relaxed);
-
-        let ping_time = self.stats.last_ping_sent.load(Ordering::SeqCst);
-        let curr_time = get_current_stamp();
-
-        if curr_time >= ping_time {
-            self.set_last_latency(curr_time - ping_time);
-        }
-
+        self.stats.last_pong.store(get_current_stamp(), Ordering::SeqCst);
         Ok(())
     }
 
