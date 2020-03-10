@@ -352,25 +352,30 @@ instance (bs ~ GS.BlockState m,
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
-    addCommitTransaction tr slot = do
-            let trHash = getHash tr
-            tt <- use transactionTable
-            case tt ^. ttHashMap . at trHash of
-                Nothing ->
-                  if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                    transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                            & (ttHashMap . at (getHash tr) ?~ (tr, Received slot)))
-                    return (TS.Added tr)
-                  else return TS.ObsoleteNonce
-                Just (tr', results) -> do
-                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
-                  return $ TS.Duplicate tr'
-        where
-            sender = transactionSender tr
-            nonce = transactionNonce tr
+    addCommitTransaction bi slot = do
+      let trHash = getHash bi
+      tt <- use transactionTable
+      case tt ^. ttHashMap . at trHash of
+          Nothing ->
+            case bi of
+              NormalTransaction tr -> do
+                let sender = transactionSender tr
+                    nonce = transactionNonce tr
+                if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
+                  transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
+                                          & (ttHashMap . at trHash ?~ (bi, Received slot)))
+                  return (TS.Added bi)
+                else return TS.ObsoleteNonce
+              CredentialDeployment{..} -> do
+                transactionTable . ttHashMap . at trHash ?= (bi, Received slot)
+                return (TS.Added bi)
+          Just (tr', results) -> do
+            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+            return $ TS.Duplicate tr'
+
     finalizeTransactions bh slot = mapM_ finTrans
         where
-            finTrans tr = do
+            finTrans (NormalTransaction tr) = do
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT)
@@ -388,6 +393,10 @@ instance (bs ~ GS.BlockState m,
                                   _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
+            finTrans CredentialDeployment{..} = do
+              transactionTable . ttHashMap . singular (ix (getHash biCred)) . _2 %= 
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
         transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)

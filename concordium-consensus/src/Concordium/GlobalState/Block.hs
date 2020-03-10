@@ -41,7 +41,7 @@ class BlockMetadata (BlockFieldType b) => BlockData b where
     -- |The fields of a block, if it was baked; @Nothing@ for the genesis block.
     blockFields :: b -> Maybe (BlockFieldType b)
     -- |The list of transactions in the block (empty for genesis block)
-    blockTransactions :: b -> [Transaction]
+    blockTransactions :: b -> [BlockItem]
     -- |Determine if the block is signed by the given key
     -- (always 'True' for genesis block)
     verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
@@ -65,7 +65,8 @@ blockBody b = do
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        put (map trBareTransaction $ blockTransactions b)
+        putWord64be (fromIntegral (length (blockTransactions b)))
+        mapM_ putBlockItem $ blockTransactions b
 
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where

@@ -25,7 +25,6 @@ import qualified Concordium.Types.Transactions as Transactions
 import Control.Exception
 import Data.Hashable (Hashable, hashWithSalt, hash)
 import qualified Data.List as List
-import Data.Maybe
 import Data.Time
 import Data.Time.Clock.POSIX
 import System.Mem.Weak
@@ -96,18 +95,18 @@ makeBlockPointer ::
     -> ati                                -- ^Account index table for this block.
     -> UTCTime                            -- ^Block arrival time
     -> UTCTime                            -- ^Receive time
-    -> Maybe Energy                       -- ^Energy cost of all transactions in the block.
+    -> Energy                       -- ^Energy cost of all transactions in the block.
                                          --  If `Nothing` it will be computed in this function.
     -> PersistentBlockPointer ati s
-makeBlockPointer b _bpHeight _bpParent _bpLastFinalized _bpState _bpATI _bpArriveTime _bpReceiveTime ene =
+makeBlockPointer b _bpHeight _bpParent _bpLastFinalized _bpState _bpATI _bpArriveTime _bpReceiveTime _bpTransactionsEnergyCost =
   PersistentBlockPointer {
     _bpInfo = BasicBlockPointerData{
       _bpHash = getHash b,
       ..},
       _bpBlock = b,
       ..}
- where (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions b)
-       _bpTransactionsEnergyCost = fromMaybe (List.foldl' (\en tx -> Transactions.transactionGasAmount tx + en) 0 (blockTransactions b)) ene
+ where (_bpTransactionCount, _bpTransactionsSize) =
+         List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.blockItemSize tx + csize)) (0, 0) (blockTransactions b)
 
 -- |Creates the genesis block pointer that has circular references to itself.
 makeGenesisBlockPointer :: GenesisData -> s -> ati -> IO (PersistentBlockPointer ati s)
@@ -115,7 +114,7 @@ makeGenesisBlockPointer genData state ati = mdo
   let tm = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
   bp <- mkWeakPtr bp Nothing >>= (\parent ->
          mkWeakPtr bp Nothing >>= (\lfin ->
-           return $ makeBlockPointer (makeGenesisBlock genData) 0 parent lfin state ati tm tm (Just 0)))
+           return $ makeBlockPointer (makeGenesisBlock genData) 0 parent lfin state ati tm tm 0))
   return bp
 
 -- |Creates a Block Pointer using a pending block
@@ -133,7 +132,7 @@ makeBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
   lfinW <- mkWeakPtr lfin Nothing
   return $ assert (getHash parent == blockPointer bf) $
     assert (getHash lfin == blockLastFinalized bf) $
-    makeBlockPointer (NormalBlock (pbBlock pb)) (bpHeight parent + 1) parentW lfinW st ati arr (pbReceiveTime pb) (Just ene)
+    makeBlockPointer (NormalBlock (pbBlock pb)) (bpHeight parent + 1) parentW lfinW st ati arr (pbReceiveTime pb) ene
  where bf = bbFields $ pbBlock pb
 
 -- |Creates a Block Pointer from a Block using a state and a height. This version results into an unlinked Block Pointer and is
@@ -143,7 +142,7 @@ makeBlockPointerFromBlock b s ati bh = do
   parentW <- emptyWeak
   lfinW <- emptyWeak
   tm <- getCurrentTime
-  return $ makeBlockPointer b bh parentW lfinW s ati tm tm Nothing
+  return $ makeBlockPointer b bh parentW lfinW s ati tm tm (error "FIXME: Pending changes from Javier.")
 
 instance BlockPointerData (PersistentBlockPointer ati s) where
     bpHash = _bpHash . _bpInfo
