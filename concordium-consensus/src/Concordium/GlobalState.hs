@@ -140,7 +140,7 @@ deriving via PureBlockStateMonad m
 
 deriving via PureBlockStateMonad m
     instance (Monad m,
-              BlockStateStorage (MB r g s m))
+              BlockStateStorage (PureBlockStateMonad m))
              => BlockStateStorage (MB r g s m)
 
 -- ** Disk implementations
