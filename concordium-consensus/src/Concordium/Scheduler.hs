@@ -72,7 +72,7 @@ checkHeader meta = do
   let cost = Cost.checkHeader (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
   unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
   remainingBlockEnergy <- lift getRemainingEnergy
-  unless (remainingBlockEnergy >= Cost.minimumDeposit) $ throwError Nothing
+  unless (remainingBlockEnergy >= cost) $ throwError Nothing
   macc <- lift (getAccount (transactionSender meta))
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
