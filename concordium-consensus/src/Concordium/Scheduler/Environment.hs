@@ -19,7 +19,6 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
