@@ -138,9 +138,18 @@ async fn main() {
             {
                 Ok(node_info) => {
                     trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
-                    if let Ok(msgpack) = rmp_serde::encode::to_vec(&node_info) {
-                        let client = reqwest::Client::new();
-                        let _ = client.post(&conf.collector_url).body(msgpack).send().await;
+                    match rmp_serde::encode::to_vec(&node_info) {
+                        Ok(msgpack) => {
+                            let client = reqwest::Client::new();
+                            match client.post(&conf.collector_url).body(msgpack).send().await {
+                                Ok(_) => trace!("Payload sent successfully to collector backend"),
+                                Err(e) => error!(
+                                    "Error sending payload to collector backend due to \"{}\"",
+                                    e
+                                ),
+                            }
+                        }
+                        Err(e) => error!("Error serializing data for the backend due to \"{}\"", e),
                     }
                 }
                 Err(e) => {
