@@ -215,7 +215,7 @@ toLogTransferMethod logtCallBackPtr = logTransfer
                     in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
                 BS.CredentialDeployment{..} ->
                   withTxReference trcdId $ \txRef ->
-                    let rest = runPut (put trcdSource <> put trcdAccount <> put trcdCredentialRegId)
+                    let rest = runPut (put trcdAccount <> put trcdCredentialRegId)
                     in unsafeWithBSLen rest $ logit 6 block slot txRef 0
 
 -- |Callback for broadcasting a message to the network.
@@ -580,13 +580,15 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- getTransactionTime
-    toReceiveResult <$> case runGet (getUnverifiedTransaction now) tbs of
+    toReceiveResult <$> case runGet (getBlockItem now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
-            logm External LLTrace $ "Transaction header is: " ++ show (btrHeader (trBareTransaction tr))
+            case tr of
+              NormalTransaction tx -> logm External LLTrace $ "Transaction header is: " ++ show (btrHeader (trBareTransaction tx))
+              CredentialDeployment _ -> logm External LLTrace $ "Received credential."
             case c of
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr

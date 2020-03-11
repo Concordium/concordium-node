@@ -92,7 +92,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
         -> ExecutionResult m  -- ^Result of the execution of the block.
         -> m (BlockPointer m)
     -- |Add a transaction to the transaction table.
-    receiveTransaction :: Transaction -> m UpdateResult
+    receiveTransaction :: BlockItem -> m UpdateResult
     -- |Add a finalization record.  This should (eventually) result
     -- in a block being finalized.
     finalizeBlock :: FinalizationRecord -> m UpdateResult

@@ -199,7 +199,7 @@ syncReceiveBlock syncRunner block = do
         runSkovTransaction syncRunner (storeBlock block)
 
 syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
-    => SyncRunner c -> Transaction -> IO UpdateResult
+    => SyncRunner c -> BlockItem -> IO UpdateResult
 syncReceiveTransaction syncRunner trans = runSkovTransaction syncRunner (receiveTransaction trans)
 
 syncReceiveFinalizationMessage :: (SkovFinalizationConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
@@ -260,7 +260,7 @@ syncPassiveReceiveBlock spr block = do
     else
         runSkovPassive spr (storeBlock block)
 
-syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
+syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> BlockItem -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
 
 syncPassiveReceiveFinalizationRecord :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
@@ -317,7 +317,7 @@ makeAsyncRunner logm bkr config = do
                     msgLoop
                 MsgTransactionReceived transBS -> do
                     now <- getTransactionTime
-                    case runGet (getUnverifiedTransaction now) transBS of
+                    case runGet (getBlockItem now) transBS of
                         Right trans -> void $ syncReceiveTransaction sr trans
                         _ -> return ()
                     msgLoop

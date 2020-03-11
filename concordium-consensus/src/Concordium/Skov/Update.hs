@@ -12,8 +12,9 @@ import GHC.Stack
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Execution
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockState hiding (CredentialDeployment)
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
@@ -85,7 +86,7 @@ class OnSkov m where
 
 -- |Log transfers in the given block using the 'logTransfer' method of the
 -- 'OnSkov' class.
-logTransfers :: (BlockPointerMonad m, OnSkov m, LoggerMonad m, BlockStateQuery m) => BlockPointer m -> m ()
+logTransfers :: forall m . (BlockPointerMonad m, OnSkov m, LoggerMonad m, BlockStateQuery m) => BlockPointer m -> m ()
 logTransfers bp = logTransfer >>= \case
   Nothing -> return ()
   Just logger -> do
@@ -93,12 +94,13 @@ logTransfers bp = logTransfer >>= \case
     case blockFields bp of
       Nothing -> return ()  -- don't do anything for the genesis block
       Just fields -> do
-        let note tx idx = getTransactionOutcome state idx >>= \case
+        let note :: BlockItem -> TransactionIndex -> m ()
+            note tx idx = getTransactionOutcome state idx >>= \case
               Nothing ->
                 logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
                                         show (bpHash bp) ++
                                         " for transaction " ++
-                                        show (trHash tx)
+                                        show (getHash tx :: TransactionHash)
               Just outcome ->
                 mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields outcome)
 
@@ -518,7 +520,7 @@ doFinalizeBlock = \finRec -> do
 --   * 'ResultStale' which indicates that a transaction with the same sender
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
-doReceiveTransaction :: (TreeStateMonad m) => Transaction -> Slot -> m UpdateResult
+doReceiveTransaction :: (TreeStateMonad m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
@@ -526,20 +528,24 @@ doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 -- This function should only be called when a transaction is received as part of a block.
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
-doReceiveTransactionInternal :: (TreeStateMonad m) => Transaction -> Slot -> m (Maybe Transaction, UpdateResult)
+doReceiveTransactionInternal :: (TreeStateMonad m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot =
         addCommitTransaction tr slot >>= \case
-          Added tx -> do
+          Added bi -> do
               ptrs <- getPendingTransactions
-              focus <- getFocusBlock
-              st <- blockState focus
-              macct <- getAccount st $! transactionSender tr
-              let nextNonce = maybe minNonce _accountNonce macct
-              -- If a transaction with this nonce has already been run by
-              -- the focus block, then we do not need to add it to the
-              -- pending transactions.  Otherwise, we do.
-              when (nextNonce <= transactionNonce tr) $
-                  putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
-              return (Just tx, ResultSuccess)
+              case bi of
+                NormalTransaction tx -> do
+                  focus <- getFocusBlock
+                  st <- blockState focus
+                  macct <- getAccount st $! transactionSender tx
+                  let nextNonce = maybe minNonce _accountNonce macct
+                  -- If a transaction with this nonce has already been run by
+                  -- the focus block, then we do not need to add it to the
+                  -- pending transactions.  Otherwise, we do.
+                  when (nextNonce <= transactionNonce tx) $
+                      putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
+                CredentialDeployment cdiwm -> do
+                  putPendingTransactions $! extendPendingTransactionTable' (getHash cdiwm) ptrs
+              return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
