@@ -64,7 +64,7 @@ transactionsInput =
 testChainMeta ::
   PR.Context Core.UA
     IO
-    ([(Types.BareTransaction, Types.ValidResult)],
+    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
      [(Types.BareTransaction, Types.FailureKind)],
      [(Types.ContractAddress, Instance)])
 testChainMeta = do

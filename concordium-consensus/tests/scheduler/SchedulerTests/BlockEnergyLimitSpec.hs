@@ -49,12 +49,6 @@ transactions = [-- valid transaction: energy not over max limit
                       , metadata = makeDummyHeader alesAccount 1 usedTransactionEnergy
                       , keypair = alesKP
                       },
-                -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
-                -- block energy limit
-                TJSON { payload = DeployCredential cdi1
-                      , metadata = makeDummyHeader alesAccount 2 10000
-                      , keypair = alesKP
-                      },
                 -- invalid transaction: although its used energy amount (plus the energy of the
                 -- previously valid transaction) is under the energy limit,
                 -- the stated energy is above the limit, so this transaction cannot be added to the block
@@ -73,12 +67,17 @@ transactions = [-- valid transaction: energy not over max limit
 testMaxBlockEnergy ::
     PR.Context UA
        IO
-       ([(Types.BareTransaction, Types.ValidResult)],
+       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
         [(Types.BareTransaction, Types.FailureKind)],
+        [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
         [Types.BareTransaction],
         [Types.BareTransaction])
 testMaxBlockEnergy = do
-    ts <- processUngroupedTransactions transactions
+    ts' <- processUngroupedTransactions transactions
+    -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
+    -- block energy limit
+    let ts = ts' { Types.credentialDeployments = [Types.fromCDI 0 cdi1] } -- dummy arrival time of 0
+
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             dummySpecialBetaAccounts
@@ -88,25 +87,30 @@ testMaxBlockEnergy = do
     let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
-        Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat ts)
+        Right _ -> return (getResults ftAdded, ftFailed, ftFailedCredentials, ftUnprocessed, concat (Types.perAccountTransactions ts))
 
-checkResult :: ([(Types.BareTransaction, Types.ValidResult)],
+checkResult :: ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
                 [(Types.BareTransaction, Types.FailureKind)],
+                [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
                 [Types.BareTransaction],
                 [Types.BareTransaction]) ->
                Expectation
-checkResult (valid, invalid, unproc, [t1, t2, t3, t4]) =
+checkResult (valid, invalid, invalidCred, unproc, [t1, t2, t3, t4]) =
     validCheck >> invalidCheck >> unprocessedCheck
     where
         validCheck = case valid of
             [(t, Types.TxSuccess{})] ->
-                 assertEqual "The first transaction should be valid:" t1 t
+                 assertEqual "The first transaction should be valid:" (Types.NormalTransaction t1) t
             _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
         invalidCheck = do
             let (invalidTs, failures) = unzip invalid
-            assertEqual "The second and third transactions are invalid:" [t3, t2] invalidTs
-            assertEqual "There are two transactions whose energy exceeds the block energy limit:"
-                (replicate 2 Types.ExceedsMaxBlockEnergy) failures
+            let (invalidCreds, credFailures) = unzip invalidCred
+            assertEqual "The second and third transactions are invalid:" [t3] invalidTs
+            assertEqual "The credential deployment is invalid." [Types.fromCDI 0 cdi1] invalidCreds
+            assertEqual "There is one normal transaction whose energy exceeds the block energy limit:"
+                (replicate 1 Types.ExceedsMaxBlockEnergy) failures
+            assertEqual "There is one credential deployment whose energy exceeds the block energy limit:"
+                (replicate 1 Types.ExceedsMaxBlockEnergy) credFailures
         unprocessedCheck =
             assertEqual "The last transaction does not fit into the block since the block has reached the energy limit"
                 [t4] unproc

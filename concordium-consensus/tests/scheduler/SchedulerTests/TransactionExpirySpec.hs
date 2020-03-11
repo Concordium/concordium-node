@@ -47,10 +47,6 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                         , metadata = makeHeaderWithExpiry alesAccount 1 1000 t
                         , keypair = alesKP
                         }
-                 ,TJSON { payload = DeployCredential cdi1
-                        , metadata = makeHeaderWithExpiry alesAccount 2 10000 t
-                        , keypair = alesKP
-                        }
                  ,TJSON { payload = AddBaker (baker ^. _1 . bakerElectionVerifyKey)
                                              (baker ^. _2)
                                              (baker ^. _1 . bakerSignatureVerifyKey)
@@ -111,7 +107,7 @@ testExpiryTime ::
     Types.TransactionExpiryTime ->
     PR.Context UA
        IO
-       ([(Types.BareTransaction, Types.ValidResult)],
+       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
         [(Types.BareTransaction, Types.FailureKind)],
         [Types.BareTransaction])
 testExpiryTime expiry = do
@@ -130,7 +126,7 @@ testExpiryTime expiry = do
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed)
 
 checkExpiryTimeResult :: Types.TransactionExpiryTime ->
-                         ([(Types.BareTransaction, Types.ValidResult)],
+                         ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
                           [(Types.BareTransaction, Types.FailureKind)],
                           [Types.BareTransaction]) ->
                          Bool

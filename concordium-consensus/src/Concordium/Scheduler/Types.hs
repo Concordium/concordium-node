@@ -49,7 +49,7 @@ dummyChainMeta = ChainMetadata { slotNumber = 0
 -- |Result type when constructing a block.
 data FilteredTransactions msg = FilteredTransactions {
   -- |Transactions which have been added to the block, with results.
-  ftAdded :: [(BlockItem, TransactionSummary)],
+  ftAdded :: [(BlockItem' msg, TransactionSummary)],
   -- |Transactions which failed. No order is guaranteed.
   ftFailed :: [(msg, FailureKind)],
   ftFailedCredentials :: [(CredentialDeploymentWithMeta, FailureKind)],

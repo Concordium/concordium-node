@@ -69,7 +69,7 @@ transactionsInput =
 testFibonacci ::
   PR.Context Core.UA
     IO
-    ([(Types.BareTransaction, Types.ValidResult)],
+    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
      [(Types.BareTransaction, Types.FailureKind)],
      [(Types.ContractAddress, Types.Instance)])
 testFibonacci = do

@@ -94,7 +94,7 @@ transactionsInput =
 testCommCounter ::
   PR.Context Core.UA
     IO
-    ([(Types.BareTransaction, Types.ValidResult)],
+    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
      [(Types.BareTransaction, Types.FailureKind)])
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"

@@ -831,10 +831,10 @@ handleDeployCredential cdi biHash = do
 --     as in the input).
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
-filterTransactions :: (SchedulerMonad m)
+filterTransactions :: (SchedulerMonad m, TransactionData msg)
                    => Integer -- ^Maximum block size in bytes.
-                   -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
-                   -> m (FilteredTransactions Transaction)
+                   -> GroupedTransactions msg -- ^Transactions to make a block out of.
+                   -> m (FilteredTransactions msg)
 filterTransactions maxSize inputTxs = do
   maxEnergy <- getMaxBlockEnergy
   (size, valid, invalidCred, unprocessedCred) <- runCredentials maxEnergy (credentialDeployments inputTxs)

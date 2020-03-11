@@ -83,7 +83,7 @@ transactionsInput =
 testSimpleTransfers ::
   PR.Context Core.UA
     IO
-    ([(Types.BareTransaction, Types.ValidResult)],
+    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
      [(Types.BareTransaction, Types.FailureKind)],
      BlockState)
 testSimpleTransfers = do

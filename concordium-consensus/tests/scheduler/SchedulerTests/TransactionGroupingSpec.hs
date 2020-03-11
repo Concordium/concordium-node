@@ -53,10 +53,10 @@ transactions = [[-- t1: first transaction in group valid
                       , keypair = alesKP
                       }
                 -- t2: second transaction in group invalid: non-sequential nonce
-               ,TJSON { payload = DeployCredential cdi1
-                      , metadata = makeDummyHeader alesAccount 3 10000
-                      , keypair = alesKP
-                      }
+                ,TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+                       , metadata = makeDummyHeader alesAccount 3 1000
+                       , keypair = alesKP
+                       }
                 -- t3: remaining transactions in group invalid (SuccessorOfInvalidTransaction)
                 -- even though they would be valid if they were processed
                ,TJSON { payload = AddBaker (baker ^. _1 . bakerElectionVerifyKey)
@@ -131,7 +131,7 @@ maxEnergy = Types.Energy 20000
 testGrouping ::
     PR.Context UA
        IO
-       ([(Types.BareTransaction, Types.ValidResult)],
+       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
         [(Types.BareTransaction, Types.FailureKind)],
         [Types.BareTransaction],
         [Types.BareTransaction])
@@ -148,9 +148,9 @@ testGrouping = do
     let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
-        Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat ts)
+        Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
 
-checkResult :: ([(Types.BareTransaction, Types.ValidResult)],
+checkResult :: ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
                 [(Types.BareTransaction, Types.FailureKind)],
                 [Types.BareTransaction],
                 [Types.BareTransaction]) ->
@@ -160,7 +160,7 @@ checkResult (valid, invalid, unproc, [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t
     where
         validCheck = do
           let (validTs, validResults) = unzip valid
-          assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid:" [t1, t5, t6, t9, t11] validTs
+          assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid:" (map Types.NormalTransaction [t1, t5, t6, t9, t11]) validTs
           assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid with TxSuccess result:"
             True $ all (\case Types.TxSuccess{} -> True
                               _ -> False) validResults
