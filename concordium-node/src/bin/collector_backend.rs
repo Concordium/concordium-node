@@ -196,8 +196,8 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
     (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
-fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
-    trace!("Processing a nodes beta users info request");
+fn nodes_staging_users_info(state: State) -> (State, JSONStringResponse) {
+    trace!("Processing a nodes staging net users info request");
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
@@ -207,7 +207,7 @@ fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
             if i != 0 {
                 response.extend(b",");
             }
-            serde_json::to_writer(&mut response, &NodeInfoBetaUsers::from(node_info)).unwrap()
+            serde_json::to_writer(&mut response, &NodeInfoStagingNetUsers::from(node_info)).unwrap()
         }
         response.extend(b"]");
     }
@@ -258,8 +258,8 @@ pub fn router(
         route.get("/data/nodesSummary").to(nodes_summary);
         route.get("/nodesBlocksInfo").to(nodes_block_info);
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
-        route.get("/nodesBetaUsers").to(nodes_beta_users_info);
-        route.get("/data/nodesBetaUsers").to(nodes_beta_users_info);
+        route.get("/nodesStagingNetUsers").to(nodes_staging_users_info);
+        route.get("/data/nodesStagingNetUsers").to(nodes_staging_users_info);
         route.post("/nodes/post").to(nodes_post_handler);
         route.post("/post/nodes").to(nodes_post_handler);
     })

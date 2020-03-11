@@ -54,11 +54,11 @@ async fn main() -> Fallible<()> {
         info!("{:?}", conf);
     }
 
-    #[cfg(feature = "beta")]
+    #[cfg(feature = "staging_net")]
     {
         use failure::bail;
-        if !p2p_client::plugins::beta::authenticate(&conf.cli.beta_token) {
-            bail!("Beta client authentication failed");
+        if !p2p_client::plugins::staging_net::authenticate(&conf.cli.staging_net_token) {
+            bail!("Staging network client authentication failed");
         }
     }
 

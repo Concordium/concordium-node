@@ -259,9 +259,9 @@ then
     ARGS="$ARGS --rpc-server-token $RPC_PASSWORD"
 fi
 
-if [ -n "$BETA_TOKEN" ];
+if [ -n "$STAGING_NET_TOKEN" ];
 then
-    ARGS="$ARGS --beta-token $BETA_TOKEN"
+    ARGS="$ARGS --staging-net-token $STAGING_NET_TOKEN"
 fi
 
 if [ -n "$DISTRIBUTION_CLIENT" ];

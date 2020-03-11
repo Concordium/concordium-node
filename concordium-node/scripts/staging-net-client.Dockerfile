@@ -13,7 +13,7 @@ COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh
 # Build P2P client
-RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
+RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
     strip /build-project/target/release/p2p_client-cli && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \
@@ -102,5 +102,5 @@ RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/site
 RUN ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6.1 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
-COPY ./scripts/beta-client.sh /beta-client.sh
-ENTRYPOINT [ "/beta-client.sh" ]
+COPY ./scripts/staging-net-client.sh /staging-net-client.sh
+ENTRYPOINT [ "/staging-net-client.sh" ]

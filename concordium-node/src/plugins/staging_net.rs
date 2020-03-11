@@ -3,7 +3,7 @@ use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 
 /// The ClientLogin struct holds information about
-/// the client needed to start in beta mode
+/// the client needed to start in staging_net mode
 #[derive(Serialize, Deserialize)]
 struct ClientLogin {
     /// A JSON Web Token containing username,
@@ -101,8 +101,8 @@ pub fn authenticate(token: &str) -> bool {
             }
             ClientLoginReturnStatus::WrongVersion => {
                 error!(
-                    "You need to redownload the beta client as the currently installed version is \
-                     not allowed"
+                    "You need to redownload the staging net client as the currently installed \
+                     version is not allowed"
                 );
                 false
             }
