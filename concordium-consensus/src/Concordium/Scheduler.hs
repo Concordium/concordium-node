@@ -60,9 +60,17 @@ existsValidCredential cm acc = do
 --  * the transaction is not expired.
 -- The valid sender means that the sender account has at least one valid credential,
 -- where currently valid means non-expired.
-checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m Account
+--
+-- Before any other checks this checks wheter the amount deposited is enough to cover
+-- the cost that will be charged for checking the header.
+--
+-- Returns the sender account and the cost to be charged for checking the header.
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m (Account, Energy)
 checkHeader meta = do
-  unless (transactionGasAmount meta >= Cost.minimumDeposit) $ throwError (Just DepositInsufficient)
+  -- Before even checking the header we calculate the cost that will be charged to do so
+  -- and check that at least that much energy is deposited.
+  let cost = Cost.checkHeader (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
+  unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
   remainingBlockEnergy <- lift getRemainingEnergy
   unless (remainingBlockEnergy >= Cost.minimumDeposit) $ throwError Nothing
   macc <- lift (getAccount (transactionSender meta))
@@ -86,7 +94,7 @@ checkHeader meta = do
       unless (txnonce == nextNonce) (throwError . Just $ (NonSequentialNonce nextNonce))
       let sigCheck = verifyTransaction (acc ^. accountVerificationKeys) meta
       unless sigCheck (throwError . Just $ IncorrectSignature)
-      return acc
+      return (acc, cost)
 
 -- TODO: When we have policies checking one sensible approach to rewarding
 -- identity providers would be as follows.
@@ -116,7 +124,7 @@ dispatch msg = do
   case validMeta of
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
-    Right senderAccount -> do
+    Right (senderAccount, cost) -> do
       -- at this point the transaction is going to be commited to the block.
       -- It could be that the execution exceeds maximum block energy allowed, but in that case
       -- the whole block state will be removed, and thus this operation will have no effect anyhow.
@@ -134,15 +142,14 @@ dispatch msg = do
       -- account. This is deducted prior to execution and refunded at the end,
       -- if there is any left.
       let psize = payloadSize (transactionPayload msg)
-      -- TODO: Charge a small amount based just on transaction size.
+      -- TODO: Check whether the cost for deserializing the transaction is sufficiently covered
+      -- by the cost for checking the header (which is linear in the transaction size).
 
       tsIndex <- bumpTransactionIndex
       case decodePayload (transactionPayload msg) of
         Left _ -> do
           -- in case of serialization failure we charge the sender for checking
           -- the header and reject the transaction
-          -- FIXME: Add charge based on transaction size.
-          let cost = Cost.checkHeader
           payment <- energyToGtu cost
           chargeExecutionCost (transactionHash msg) senderAccount payment
           return $! Just $! TxValid $! TransactionSummary{
@@ -160,8 +167,9 @@ dispatch msg = do
                 _wtcSenderAccount = senderAccount,
                 _wtcTransactionHash = transactionHash msg,
                 _wtcTransactionHeader = meta,
+                _wtcTransactionCheckHeaderCost = cost,
                 -- NB: We already account for the cost we used here.
-                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + Cost.checkHeader,
+                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + cost,
                 _wtcTransactionIndex = tsIndex,
                 ..}
           res <- case payload of

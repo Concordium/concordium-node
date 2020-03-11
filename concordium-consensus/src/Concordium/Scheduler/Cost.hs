@@ -1,18 +1,32 @@
+{-|
+Definition of cost functions for the different transactions.
+
+* @SPEC: <$DOCS/Transactions#transaction-cost>
+-}
 module Concordium.Scheduler.Cost where
 
 import Concordium.Scheduler.Types
 
 import Control.Exception(assert)
 
--- |The cost to process the header. This cost will be subtracted from the sender
+-- |The cost to process the header.
+-- Processing includes hashing the transaction and checking all signatures against this hash,
+-- so transaction size and number of signatures are parameters of this cost.
+-- This cost also includes a base cost constant for general work to be done for each transaction.
+--
+-- This cost will be subtracted from the sender
 -- account after the header is checked.
-checkHeader :: Energy
-checkHeader = 10
+--
+-- * @SPEC: <$DOCS/Transactions#transaction-cost-header>
+checkHeader
+  :: Int -- ^ The number of bytes of serialized transaction header and payload.
+  -> Int -- ^ The number of signatures the transaction signature contains.
+  -> Energy
+checkHeader size nSig =
+    6
+  + (fromIntegral size) `div` 232
+  + (fromIntegral nSig) * 53
 
--- |Minimal deposit needed in order to start processing the transaction.
--- We should have this since checking the header is non-trivial cost.
-minimumDeposit :: Energy
-minimumDeposit = 10
 
 -- |Cost to deploy the module. Computed from the serialized size of the module.
 deployModule :: Int -> Energy
