@@ -7,6 +7,11 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use failure::Fallible;
+use mio::Poll;
+use parking_lot::Mutex as ParkingMutex;
+use rkv::{Manager, Rkv};
+
 use concordium_common::{spawn_or_die, QueueMsg};
 use consensus_rust::{
     consensus::{
@@ -30,10 +35,6 @@ use p2p_client::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
-use parking_lot::Mutex as ParkingMutex;
-
-use failure::Fallible;
-use rkv::{Manager, Rkv};
 
 use std::{
     sync::Arc,
@@ -66,7 +67,7 @@ async fn main() -> Fallible<()> {
     info!("Debugging enabled: {}", conf.common.debug);
 
     // The P2PNode thread
-    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service);
+    let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
     #[cfg(feature = "instrumentation")]
     {
@@ -86,7 +87,7 @@ async fn main() -> Fallible<()> {
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     // The P2P node event loop thread
-    spawn(&node);
+    spawn(&node, poll);
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -182,7 +183,7 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
-) -> Arc<P2PNode> {
+) -> (Arc<P2PNode>, Poll) {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
             None => {

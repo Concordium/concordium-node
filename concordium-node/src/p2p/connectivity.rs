@@ -236,10 +236,7 @@ impl P2PNode {
                     return;
                 }
 
-                if events
-                    .iter()
-                    .any(|event| event.token() == conn.token && event.readiness().is_readable())
-                {
+                if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
                     if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
                         error!("{}", e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
@@ -316,8 +313,8 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
         peer_type: PeerType::Node,
     };
 
-    let conn = Connection::new(node, socket, token, remote_peer, false);
-    conn.register(&node.poll)?;
+    let mut conn = Connection::new(node, socket, token, remote_peer, false);
+    node.register_conn(&mut conn)?;
     candidates_lock.insert(conn.token, conn);
 
     Ok(token)
@@ -385,7 +382,7 @@ pub fn connect(
         }
     }
 
-    match TcpStream::connect(&peer_addr) {
+    match TcpStream::connect(peer_addr) {
         Ok(socket) => {
             node.stats.conn_received_inc();
 
@@ -398,8 +395,8 @@ pub fn connect(
                 peer_type,
             };
 
-            let conn = Connection::new(node, socket, token, remote_peer, true);
-            conn.register(&node.poll)?;
+            let mut conn = Connection::new(node, socket, token, remote_peer, true);
+            node.register_conn(&mut conn)?;
             candidates_lock.insert(conn.token, conn);
 
             if let Some(ref mut conn) = candidates_lock.get_mut(&token) {

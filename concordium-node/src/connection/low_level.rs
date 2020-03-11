@@ -1,7 +1,7 @@
 use byteorder::{NetworkEndian, WriteBytesExt};
 use bytesize::ByteSize;
 use failure::Fallible;
-use mio::tcp::TcpStream;
+use mio::net::TcpStream;
 use noiseexplorer_xx::{
     consts::{DHLEN, MAC_LENGTH},
     noisesession::NoiseSession,
@@ -17,7 +17,6 @@ use std::{
     io::{Cursor, ErrorKind, Read, Seek, SeekFrom, Write},
     mem,
     sync::{Arc, Weak},
-    time::Duration,
 };
 
 /// The size of the noise message payload.
@@ -152,8 +151,25 @@ impl ConnectionLowLevel {
         read_size: usize,
         write_size: usize,
     ) -> Self {
-        if let Err(e) = socket.set_linger(Some(Duration::from_secs(0))) {
-            error!("Can't set SOLINGER for socket {:?}: {}", socket, e);
+        // FIXME: this is a Unix-only solution; do it in an OS-agnostic manner as
+        // soon as either std or mio introduces TcpStream::set_linger
+        #[cfg(unix)]
+        {
+            use libc as c;
+            use std::os::unix::io::{AsRawFd, RawFd};
+
+            fn setsockopt<T>(fd: RawFd, opt: c::c_int, val: c::c_int, payload: T) {
+                unsafe {
+                    let payload = &payload as *const T as *const c::c_void;
+                    libc::setsockopt(fd, opt, val, payload, mem::size_of::<T>() as c::socklen_t);
+                }
+            }
+
+            // set socket's SO_LINGER to 0
+            setsockopt(socket.as_raw_fd(), c::SOL_SOCKET, c::SO_LINGER, c::linger {
+                l_onoff:  1,
+                l_linger: 0,
+            });
         }
 
         trace!(
