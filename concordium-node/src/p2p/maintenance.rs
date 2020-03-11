@@ -81,6 +81,7 @@ pub struct NodeConfig {
     pub drop_rebroadcast_probability: Option<f64>,
     pub partition_network_for_time: Option<usize>,
     pub breakage: Option<(String, u8, usize)>,
+    pub bootstrapper_peer_list_size: usize,
 }
 
 /// The collection of connections to peer nodes.
@@ -307,6 +308,7 @@ impl P2PNode {
                 _ => None,
             },
             breakage,
+            bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);

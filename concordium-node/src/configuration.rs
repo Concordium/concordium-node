@@ -463,6 +463,12 @@ pub struct BootstrapperConfig {
         help = "Partition the network for a set amount of time since startup (in ms)"
     )]
     pub partition_network_for_time: Option<usize>,
+    #[structopt(
+        long = "peer-list-size",
+        help = "The number of random peers shared by a bootstrapper in a PeerList",
+        default_value = "10"
+    )]
+    pub peer_list_size: usize,
 }
 
 /// The main configuration object.
@@ -555,6 +561,11 @@ pub fn parse_config() -> Fallible<Config> {
                 && conf.cli.breakage_level.is_none(),
         "The 3 breakage options (breakage-type, breakage-target, breakage-level) must be enabled \
          or disabled together"
+    );
+
+    ensure!(
+        conf.bootstrapper.wait_until_minimum_nodes as usize <= conf.bootstrapper.peer_list_size,
+        "wait-until-minimum-nodes must be lower than or equal to peer-list-size"
     );
 
     if let Some(ref breakage_type) = conf.cli.breakage_type {

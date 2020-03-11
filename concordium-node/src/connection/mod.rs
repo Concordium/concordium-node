@@ -406,15 +406,19 @@ impl Connection {
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
-                let get_100_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
-                    Ok(safe_read!(self.handler.buckets())?
-                        .get_random_nodes(&requestor, 100, &nets, partition))
+                let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
+                    Ok(safe_read!(self.handler.buckets())?.get_random_nodes(
+                        &requestor,
+                        self.handler.config.bootstrapper_peer_list_size,
+                        &nets,
+                        partition,
+                    ))
                 };
                 let random_nodes = match self.handler.config.partition_network_for_time {
                     Some(time) if (self.handler.get_uptime() as usize) < time => {
-                        get_100_random_nodes(true)?
+                        get_random_nodes(true)?
                     }
-                    _ => get_100_random_nodes(false)?,
+                    _ => get_random_nodes(false)?,
                 };
 
                 if !random_nodes.is_empty()
