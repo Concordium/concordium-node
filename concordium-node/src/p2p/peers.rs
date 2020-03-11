@@ -105,7 +105,9 @@ pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
         node.print_stats(&peer_stat_list);
     }
 
-    if !node.config.no_net && peer_stat_list.len() < node.config.desired_nodes_count as usize {
+    let node_count = peer_stat_list.iter().filter(|peer| peer.peer_type == PeerType::Node).count();
+
+    if !node.config.no_net && node_count < node.config.desired_nodes_count as usize {
         if peer_stat_list.is_empty() {
             if !node.config.no_bootstrap_dns {
                 info!("No peers at all - retrying bootstrapping");

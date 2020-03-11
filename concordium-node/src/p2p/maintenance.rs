@@ -558,7 +558,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
                     node.measure_connection_latencies();
                 }
 
-                let peer_stat_list = node.get_peer_stats(Some(PeerType::Node));
+                let peer_stat_list = node.get_peer_stats(None);
                 check_peers(&node, &peer_stat_list);
                 node.measure_throughput(&peer_stat_list);
 
