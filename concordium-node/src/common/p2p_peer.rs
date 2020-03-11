@@ -103,16 +103,15 @@ impl RemotePeer {
 /// Contains some statistics related to a peer.
 #[derive(Debug)]
 pub struct PeerStats {
-    pub id:                 u64,
-    pub addr:               SocketAddr,
-    pub peer_external_port: u16,
-    pub peer_type:          PeerType,
-    pub sent:               u64,
-    pub received:           u64,
-    pub valid_latency:      bool,
-    pub measured_latency:   u64,
-    pub bytes_sent:         u64,
-    pub bytes_received:     u64,
+    pub id:             u64,
+    pub addr:           SocketAddr,
+    pub external_port:  u16,
+    pub peer_type:      PeerType,
+    pub latency:        u64,
+    pub msgs_sent:      u64,
+    pub msgs_received:  u64,
+    pub bytes_sent:     u64,
+    pub bytes_received: u64,
 }
 
 impl PeerStats {
@@ -120,19 +119,26 @@ impl PeerStats {
     pub fn new(
         id: u64,
         addr: SocketAddr,
-        peer_external_port: u16,
+        external_port: u16,
         peer_type: PeerType,
         conn_stats: &ConnectionStats,
     ) -> PeerStats {
+        let last_ping = conn_stats.last_ping.load(AtomicOrdering::SeqCst);
+        let last_pong = conn_stats.last_pong.load(AtomicOrdering::SeqCst);
+        let latency = if last_ping > 0 && last_pong > 0 && last_pong > last_ping {
+            last_pong - last_ping
+        } else {
+            0
+        };
+
         PeerStats {
             id,
             addr,
-            peer_external_port,
+            external_port,
             peer_type,
-            sent: conn_stats.messages_sent.load(AtomicOrdering::Relaxed),
-            received: conn_stats.messages_received.load(AtomicOrdering::Relaxed),
-            valid_latency: conn_stats.valid_latency.load(AtomicOrdering::Relaxed),
-            measured_latency: conn_stats.last_latency.load(AtomicOrdering::Relaxed),
+            latency,
+            msgs_sent: conn_stats.messages_sent.load(AtomicOrdering::Relaxed),
+            msgs_received: conn_stats.messages_received.load(AtomicOrdering::Relaxed),
             bytes_sent: conn_stats.bytes_sent.load(AtomicOrdering::Relaxed),
             bytes_received: conn_stats.bytes_received.load(AtomicOrdering::Relaxed),
         }
@@ -140,6 +146,6 @@ impl PeerStats {
 
     /// Gets the external address of the peer.
     pub fn external_address(&self) -> SocketAddr {
-        SocketAddr::new(self.addr.ip(), self.peer_external_port)
+        SocketAddr::new(self.addr.ip(), self.external_port)
     }
 }

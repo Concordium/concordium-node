@@ -220,10 +220,9 @@ async fn collect_data<'a>(
 
     let node_peer_stats_reply = node_peer_stats_reply.get_ref();
     let peer_stats = &node_peer_stats_reply.peerstats;
-    let peers_summed_latency =
-        peer_stats.iter().map(|element| element.measured_latency).sum::<u64>() as f64;
+    let peers_summed_latency = peer_stats.iter().map(|element| element.latency).sum::<u64>() as f64;
     let peers_with_valid_latencies_count =
-        peer_stats.iter().filter(|element| element.valid_latency).count();
+        peer_stats.iter().filter(|element| element.latency > 0).count();
 
     let avg_bps_in = node_peer_stats_reply.avg_bps_in;
     let avg_bps_out = node_peer_stats_reply.avg_bps_out;
