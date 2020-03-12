@@ -50,7 +50,7 @@ impl Connection {
                 self.send_peer_list_resp(networks, conn_stats)
             }
             NetworkPayload::NetworkResponse(NetworkResponse::PeerList(peers), ..) => {
-                debug!("Got a PeerList response from peer {}", peer_id);
+                debug!("Got a PeerList ({} peers) from peer {}", peers.len(), peer_id);
                 self.handler.register_conn_change(ConnChange::NewPeers(peers));
                 Ok(())
             }

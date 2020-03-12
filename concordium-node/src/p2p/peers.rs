@@ -98,27 +98,31 @@ impl P2PNode {
 
 /// Checks whether we need any more peers, based on the `desired_nodes_count`
 /// config.
-pub fn check_peers(node: &Arc<P2PNode>, peer_stat_list: &[PeerStats]) {
-    debug!("I currently have {}/{} peers", peer_stat_list.len(), node.config.max_allowed_nodes);
+pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats]) {
+    debug!("I currently have {}/{} peers", peer_stats.len(), node.config.max_allowed_nodes);
 
     if node.config.print_peers {
-        node.print_stats(&peer_stat_list);
+        node.print_stats(&peer_stats);
     }
 
-    if !node.config.no_net && peer_stat_list.len() < node.config.desired_nodes_count as usize {
-        if peer_stat_list.is_empty() {
-            if !node.config.no_bootstrap_dns {
-                info!("No peers at all - retrying bootstrapping");
-                attempt_bootstrap(node);
+    if node.self_peer.peer_type == PeerType::Node {
+        let node_count = peer_stats.iter().filter(|peer| peer.peer_type == PeerType::Node).count();
+
+        if !node.config.no_net && node_count < node.config.desired_nodes_count as usize {
+            if peer_stats.is_empty() {
+                if !node.config.no_bootstrap_dns {
+                    info!("No peers at all - retrying bootstrapping");
+                    attempt_bootstrap(node);
+                } else {
+                    info!(
+                        "No nodes at all - Not retrying bootstrapping using DNS since \
+                         --no-bootstrap is specified"
+                    );
+                }
             } else {
-                info!(
-                    "No nodes at all - Not retrying bootstrapping using DNS since --no-bootstrap \
-                     is specified"
-                );
+                info!("Not enough peers - sending GetPeers requests");
+                node.send_get_peers();
             }
-        } else {
-            info!("Not enough peers - sending GetPeers requests");
-            node.send_get_peers();
         }
     }
 }

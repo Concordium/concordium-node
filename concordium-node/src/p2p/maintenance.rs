@@ -81,6 +81,7 @@ pub struct NodeConfig {
     pub drop_rebroadcast_probability: Option<f64>,
     pub partition_network_for_time: Option<usize>,
     pub breakage: Option<(String, u8, usize)>,
+    pub bootstrapper_peer_list_size: usize,
 }
 
 /// The collection of connections to peer nodes.
@@ -307,6 +308,7 @@ impl P2PNode {
                 _ => None,
             },
             breakage,
+            bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
@@ -558,7 +560,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
                     node.measure_connection_latencies();
                 }
 
-                let peer_stat_list = node.get_peer_stats(Some(PeerType::Node));
+                let peer_stat_list = node.get_peer_stats(None);
                 check_peers(&node, &peer_stat_list);
                 node.measure_throughput(&peer_stat_list);
 
