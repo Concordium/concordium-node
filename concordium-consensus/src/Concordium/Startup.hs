@@ -52,7 +52,7 @@ makeBakerAccount bid =
           _accountCredentials = credentialList}
   where
     vfKey = SigScheme.correspondingVerifyKey kp
-    credentialList = Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime)
+    credentialList = Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime dummyMaxExpiryTime)
     acct = newAccount (makeSingletonAC vfKey) address
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
