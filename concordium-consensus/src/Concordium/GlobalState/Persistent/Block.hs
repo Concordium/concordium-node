@@ -8,6 +8,7 @@ import Data.Serialize
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
 import Data.Time.Clock
+import Concordium.GlobalState.Basic.Block
 
 type PersistentBakedBlock = BakedBlock PersistentTransaction
 type PersistentBlock = Block PersistentTransaction
@@ -30,7 +31,7 @@ getBlock arrivalTime = do
     bbSignature <- get
     return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
-makePendingBlock :: (Convert Transaction PersistentTransaction m) =>
+makePendingBlock :: (Convert BasicBakedBlock PersistentBakedBlock m) =>
                    PersistentBakedBlock -> UTCTime -> m PersistentPendingBlock
 makePendingBlock pbBlock pbReceiveTime = do
   pbHash <- getHash pbBlock
