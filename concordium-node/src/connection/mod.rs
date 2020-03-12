@@ -407,7 +407,7 @@ impl Connection {
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
                 let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
-                    Ok(safe_read!(self.handler.buckets())?.get_random_nodes(
+                    Ok(read_or_die!(self.handler.buckets()).get_random_nodes(
                         &requestor,
                         self.handler.config.bootstrapper_peer_list_size,
                         &nets,

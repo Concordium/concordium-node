@@ -11,7 +11,7 @@ use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
 extern crate log;
-use concordium_common::{read_or_die, safe_read, safe_write, spawn_or_die, write_or_die};
+use concordium_common::{read_or_die, spawn_or_die, write_or_die};
 use futures::prelude::*;
 use gotham::{
     handler::{HandlerFuture, IntoHandlerError, IntoResponse},

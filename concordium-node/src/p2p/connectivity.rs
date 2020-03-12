@@ -412,7 +412,7 @@ pub fn connect(
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
             }
-            into_err!(Err(e))
+            bail!(e)
         }
     }
 }
