@@ -12,9 +12,7 @@ import Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Classes
 
 -- | Serialize the block by first converting all the transactions to memory transactions
-fullBody :: (Serialize t,
-            Convert Transaction t m) =>
-           BakedBlock t -> m Put
+fullBody :: (ToPut t, Convert Transaction t m) => BakedBlock t -> m Put
 fullBody b = do
   txs :: [Transaction] <- mapM toMemoryRepr (blockTransactions b)
   return $ do
@@ -24,15 +22,15 @@ fullBody b = do
     put (blockProof b)
     put (blockNonce b)
     put (blockLastFinalized b)
-    putListOf put txs
+    putListOf toPut txs
 
-instance (Monad m, Serialize t, Convert Transaction t m) =>
+instance (Monad m, ToPut t, Convert Transaction t m) =>
     HashableTo (m BlockHash) (BakedBlock t) where
   getHash b = do
     putter <- fullBody b
     return $ Hash.hashLazy . runPutLazy $ putter >> put (bbSignature b)
 
-instance (Monad m, Serialize t,
+instance (Monad m, ToPut t,
           Convert Transaction t m) =>
          HashableTo (m BlockHash) (Block t) where
     getHash (GenesisBlock genData) =
@@ -159,7 +157,7 @@ instance BlockMetadata (BakedBlock t) where
     blockLastFinalized = bfBlockLastFinalized . bbFields
     {-# INLINE blockLastFinalized #-}
 
-instance (Serialize t) => BlockData (BakedBlock t) where
+instance (ToPut t) => BlockData (BakedBlock t) where
     blockSlot = bbSlot
     {-# INLINE blockSlot #-}
     blockFields = Just . bbFields
@@ -173,8 +171,7 @@ instance (Serialize t) => BlockData (BakedBlock t) where
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        putListOf put $ blockTransactions b
-
+        putListOf toPut $ blockTransactions b
 
 
 -- |Representation of a block
@@ -193,7 +190,7 @@ data Block t
 type instance BlockFieldType (Block t) = BlockFieldType (BakedBlock t)
 type instance BlockTransactionType (Block t) = t
 
-instance (Serialize t) => BlockData (Block t) where
+instance (ToPut t) => BlockData (Block t) where
     blockSlot GenesisBlock{} = 0
     blockSlot (NormalBlock bb) = blockSlot bb
 
@@ -251,7 +248,7 @@ instance BlockMetadata (PendingBlock t) where
     blockLastFinalized = bfBlockLastFinalized . bbFields . pbBlock
     {-# INLINE blockLastFinalized #-}
 
-instance (Serialize t) => BlockData (PendingBlock t) where
+instance (ToPut t) => BlockData (PendingBlock t) where
     blockSlot = blockSlot . pbBlock
     blockFields = blockFields . pbBlock
     blockTransactions = blockTransactions . pbBlock
@@ -262,7 +259,7 @@ instance (Serialize t) => BlockData (PendingBlock t) where
     {-# INLINE blockTransactions #-}
     {-# INLINE blockBody #-}
 
-instance (Serialize t) => BlockPendingData (PendingBlock t) where
+instance (ToPut t) => BlockPendingData (PendingBlock t) where
     blockReceiveTime = pbReceiveTime
 
 instance HashableTo BlockHash (PendingBlock t) where

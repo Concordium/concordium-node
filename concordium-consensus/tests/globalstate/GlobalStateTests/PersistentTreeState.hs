@@ -83,7 +83,7 @@ useI f = (^. f) <$> runIdentity <$> RWS.get
 
 testFinalizeABlock :: Test
 testFinalizeABlock = do
-  (genesisBlock, genesisFr) :: (BlockPointer TestM, FinalizationRecord) <- getLastFinalized
+  (genesisBlock, genesisFr) :: (BlockPointerType TestM, FinalizationRecord) <- getLastFinalized
   sk <- liftIO $ generateSecretKey
   state <- blockState genesisBlock
   -- Create the block and finrec
@@ -92,7 +92,7 @@ testFinalizeABlock = do
   now <- liftIO $ getCurrentTime
   pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 (bpHash genesisBlock) [] now
   now' <- liftIO $ getCurrentTime
-  blockPtr :: BlockPointer TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
+  blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   markFinalized (bpHash blockPtr) frec
@@ -131,7 +131,7 @@ testFinalizeABlock = do
   now'' <- liftIO $ getCurrentTime
   pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 (bpHash genesisBlock) [] now''
   now''' <- liftIO $ getCurrentTime
-  blockPtr2 :: BlockPointer TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
+  blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0
 
   -- Add the finalization to the tree state
