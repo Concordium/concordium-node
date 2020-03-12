@@ -31,6 +31,8 @@ import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust, isJust)
 import qualified Data.Set as Set
 import qualified Data.PQueue.Prio.Max as Queue
+import Data.Time
+import Data.Time.Clock.POSIX
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -51,7 +53,18 @@ existsValidCredential cm acc = do
     -- the same as the expiry date of the credential.
     -- If the credential is still valid at the beginning of this slot then
     -- we consider it valid. Otherwise we fail the transaction.
-    Just (expiry, _) -> expiry >= slotTime cm
+    Just (expiry, _) -> do
+      let year = toInteger $ ID.year expiry
+      let month = fromIntegral $ ID.month expiry
+      let date = fromGregorianValid year month 1
+      case date of
+        Nothing -> False
+        Just d ->
+          let utctime = UTCTime d 0
+              slottime = fromIntegral $ slotTime cm
+              slotutc = posixSecondsToUTCTime slottime
+          in
+              (utctime >= slotutc)
 
 
 -- |Check that
