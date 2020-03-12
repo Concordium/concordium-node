@@ -68,20 +68,18 @@ impl P2PNode {
     }
 
     fn send_get_peers(&self) {
-        if let Ok(nids) = safe_read!(self.networks()) {
-            let request = NetworkRequest::GetPeers(nids.iter().copied().collect());
-            let message = netmsg!(NetworkRequest, request);
-            let filter = |_: &Connection| true;
+        let request =
+            NetworkRequest::GetPeers(read_or_die!(self.networks()).iter().copied().collect());
+        let message = netmsg!(NetworkRequest, request);
+        let filter = |_: &Connection| true;
 
-            if let Err(e) = {
-                let mut buf = Vec::with_capacity(256);
-                message
-                    .serialize(&mut buf)
-                    .map(|_| buf)
-                    .map(|buf| self.send_over_all_connections(&buf, &filter))
-            } {
-                error!("A network message couldn't be forwarded: {}", e);
-            }
+        let mut buf = Vec::with_capacity(256);
+        if let Err(e) = message
+            .serialize(&mut buf)
+            .map(|_| buf)
+            .map(|buf| self.send_over_all_connections(&buf, &filter))
+        {
+            error!("Can't send a GetPeers request: {}", e);
         }
     }
 
