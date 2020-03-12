@@ -12,32 +12,14 @@ import Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Classes
 
 -- | Serialize the block by first converting all the transactions to memory transactions
-fullBody :: (ToPut t, Convert Transaction t m) => BakedBlock t -> m Put
+fullBody :: forall m t. (Convert (BakedBlock Transaction) (BakedBlock t) m) =>
+           BakedBlock t -> m Put
 fullBody b = do
-  txs :: [Transaction] <- mapM toMemoryRepr (blockTransactions b)
-  return $ do
-    put (blockSlot b)
-    put (blockPointer b)
-    put (blockBaker b)
-    put (blockProof b)
-    put (blockNonce b)
-    put (blockLastFinalized b)
-    putListOf toPut txs
-
-instance (Monad m, ToPut t, Convert Transaction t m) =>
-    HashableTo (m BlockHash) (BakedBlock t) where
-  getHash b = do
-    putter <- fullBody b
-    return $ Hash.hashLazy . runPutLazy $ putter >> put (bbSignature b)
+  bx <- toMemoryRepr b :: m (BakedBlock Transaction)
+  return $ blockBody bx
 
 hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
-
-instance (Monad m, ToPut t,
-          Convert Transaction t m) =>
-         HashableTo (m BlockHash) (Block t) where
-    getHash (GenesisBlock genData) = return $! hashGenesisData genData
-    getHash (NormalBlock bb) = getHash bb
 
 instance HashableTo BlockHash (BakedBlock Transaction) where
     getHash b = Hash.hashLazy . runPutLazy $ blockBody b >> put (bbSignature b)
@@ -45,7 +27,6 @@ instance HashableTo BlockHash (BakedBlock Transaction) where
 instance HashableTo BlockHash (Block Transaction) where
     getHash (GenesisBlock genData) = hashGenesisData genData
     getHash (NormalBlock bb) = getHash bb
-
 
 -- * Block type classes
 
@@ -182,6 +163,19 @@ instance (ToPut t) => BlockData (BakedBlock t) where
         put (blockLastFinalized b)
         putListOf toPut $ blockTransactions b
 
+instance Convert Transaction t m => Convert (BakedBlock Transaction) (BakedBlock t) m where
+  toMemoryRepr BakedBlock{..} = do
+    newTxs <- mapM toMemoryRepr bbTransactions
+    return $ BakedBlock{bbTransactions = newTxs,..}
+  fromMemoryRepr BakedBlock{..} = do
+    newTxs <- mapM fromMemoryRepr bbTransactions
+    return $ BakedBlock{bbTransactions = newTxs,..}
+
+instance (Monad m, Convert (BakedBlock Transaction) (BakedBlock t) m) =>
+    HashableTo (m BlockHash) (BakedBlock t) where
+  getHash b = do
+    bx <- toMemoryRepr b :: m (BakedBlock Transaction)
+    return $ Hash.hashLazy . runPutLazy $ blockBody bx >> put (bbSignature b)
 
 -- |Representation of a block
 --
@@ -220,6 +214,11 @@ instance (ToPut t) => BlockData (Block t) where
     {-# INLINE blockTransactions #-}
     {-# INLINE blockBody #-}
 
+instance (Monad m, Convert (BakedBlock Transaction) (BakedBlock t) m) =>
+         HashableTo (m BlockHash) (Block t) where
+    getHash (GenesisBlock genData) =
+      return $! hashGenesisData genData
+    getHash (NormalBlock bb) = getHash bb
 
 -- |A baked block, pre-hashed with its arrival time.
 --
