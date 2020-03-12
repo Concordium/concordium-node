@@ -297,7 +297,7 @@ consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunn
 
 runWithConsensus :: ConsensusRunner -> (forall h f gs.
                                         (TS.TreeStateMonad (SkovT h (SkovConfig gs f HookLogHandler) LogIO),
-                                        TS.PendingBlock
+                                        TS.PendingBlockType
                                          (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ PersistentBlock.PersistentPendingBlock
                                         ) => SkovT h (SkovConfig gs f HookLogHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
@@ -437,6 +437,7 @@ startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> startSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> startSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -444,6 +445,7 @@ stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> stopSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> stopSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to stop baker thread, but consensus was started without baker credentials"
 
 {- | Result values for receive functions.
@@ -473,6 +475,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -488,6 +492,7 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
+toReceiveResult ResultEarlyBlock = 11
 
 
 -- |Handle receipt of a block.

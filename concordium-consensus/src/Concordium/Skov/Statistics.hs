@@ -14,7 +14,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 
 -- | Called when a block is fully validated (arrives) to update the statistics.
-updateArriveStatistics :: (LoggerMonad m, TreeStateMonad m, SkovQueryMonad m) => BlockPointer m -> m ()
+updateArriveStatistics :: (LoggerMonad m, TreeStateMonad m, SkovQueryMonad m) => BlockPointerType m -> m ()
 updateArriveStatistics bp = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksVerifiedCount +~ 1
@@ -63,7 +63,7 @@ updateArriveStatistics bp = do
                   & (transactionsPerBlockEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block is received to update the statistics.
-updateReceiveStatistics :: (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlock m -> m ()
+updateReceiveStatistics :: (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlockType m -> m ()
 updateReceiveStatistics pb = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksReceivedCount +~ 1

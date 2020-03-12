@@ -130,7 +130,7 @@ newtype SkovT h c m a = SkovT { runSkovT' :: h -> SkovContext c -> StateT (SkovS
 
 -- GlobalStateM using config abstractions
 type SkovTGSM h c m = GlobalStateM (SkovLogContext c) (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)
-type SkovTTBM h c m = TB (SkovGSState c) (SkovGSContext c) (SkovContext c) (SkovState c) (SkovT h c m)
+type SkovTTBM h c m = TreeStateBlockStateM (SkovGSState c) (SkovGSContext c) (SkovContext c) (SkovState c) (SkovT h c m)
 
 runSkovT :: SkovT h c m a -> h -> SkovContext c -> SkovState c -> m (a, SkovState c)
 runSkovT (SkovT a) h c = runStateT (a h c)
@@ -204,7 +204,7 @@ deriving via SkovTGSM h c' m
 
 instance (
         Monad m,
-        HashableTo TransactionHash (BlockTransactionType (BlockPointer (SkovT h c m))),
+        HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovT h c m))),
         BlockStateQuery (SkovT h c m),
         TreeStateMonad (SkovT h c m)
         ) => SkovQueryMonad (SkovT h c m) where
@@ -240,12 +240,12 @@ instance (
         TimeMonad m,
         LoggerMonad m,
         OnSkov (SkovT h c m),
-        HashableTo TransactionHash (BlockTransactionType (BlockPointer (SkovT h c m))),
+        HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovT h c m))),
         BlockStateStorage (SkovT h c m),
         TreeStateMonad (SkovT h c m),
-        PendingBlock (SkovT h c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointer (SkovT h c m))),
-        Convert Transaction (BlockTransactionType (PendingBlock (SkovT h c m))) (SkovT h c m),
-        BlockDataMonad (PendingBlock (SkovT h c m)) (SkovT h c m)
+        PendingBlockType (SkovT h c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointerType (SkovT h c m))),
+        Convert Transaction (BlockTransactionType (PendingBlockType (SkovT h c m))) (SkovT h c m),
+        BlockDataMonad (PendingBlockType (SkovT h c m)) (SkovT h c m)
         ) => SkovMonad (SkovT h c m) where
     {-# INLINE storeBlock #-}
     storeBlock = doStoreBlock
@@ -268,8 +268,8 @@ class FinalizationConfig c where
     initialiseFinalization :: c -> (FCContext c, FCState c)
 
 class (FinalizationConfig c, Monad m, BlockPointerMonad m) => FinalizationConfigHandlers c m | m -> c where
-    finalizationOnBlock :: BlockPointer m -> m ()
-    finalizationOnFinalize :: FinalizationRecord -> BlockPointer m  -> m ()
+    finalizationOnBlock :: BlockPointerType m -> m ()
+    finalizationOnFinalize :: FinalizationRecord -> BlockPointerType m  -> m ()
     proxyFinalizationMessage :: (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
 
 instance (
@@ -382,8 +382,8 @@ class HandlerConfig c where
     initialiseHandler :: c -> (HCContext c, HCState c)
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
-    handleBlock :: (SkovMonad m, TreeStateMonad m) => BlockPointer m -> m ()
-    handleFinalize :: (SkovMonad m, TreeStateMonad m) => FinalizationRecord -> BlockPointer m -> m ()
+    handleBlock :: (SkovMonad m, TreeStateMonad m) => BlockPointerType m -> m ()
+    handleFinalize :: (SkovMonad m, TreeStateMonad m) => FinalizationRecord -> BlockPointerType m -> m ()
 
 
 data NoHandler = NoHandler
@@ -493,14 +493,14 @@ instance (MonadIO m,
 -- using the intermediate monad `M`, we will instead require `C (M)` setting the type variables
 -- to the names provided by `SkovConfiguration` as this will automatically trigger `C (SkovT ...)`.
 
-type B h c m = BlockStateM
+type BlockStateConfigM h c m = BlockStateM
                (SkovGSContext c)
                (SkovContext c)
                (SkovGSState c)
                (SkovState c)
                (SkovT h c m)
 
-type T h c m = TreeStateM
+type TreeStateConfigM h c m = TreeStateM
                (SkovGSState c)
                (BlockStateM
                 (SkovGSContext c)
@@ -511,27 +511,26 @@ type T h c m = TreeStateM
 
 type SkovConfigMonad h c m = (SkovConfiguration c,
         OnSkov (SkovT h c m),
-        BlockStateStorage (B h c m),
-        GlobalStateTypes (T h c m),
-        TreeStateMonad (T h c m),
-        BlockPointerMonad (T h c m),
-        HashableTo TransactionHash (BlockTransactionType (BlockPointer (SkovTTBM h c m))),
-        PendingBlock (SkovT h c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointer (SkovT h c m))),
-        BlockFields ~ BlockFieldType (BlockPointer (SkovTGSM h c m)),
-        PendingBlock (T h c m) ~ PendingBlock (SkovT h c m),
-        BlockPointer (T h c m) ~ BlockPointer (SkovT h c m),
-        BlockDataMonad (PendingBlock (SkovT h c m)) (SkovT h c m),
-        BlockDataMonad (BlockPointer (SkovT h c m)) (SkovT h c m),
-        Convert Transaction (BlockTransactionType (PendingBlock (T h c m))) (T h c m)
+        BlockStateStorage (BlockStateConfigM h c m),
+        GlobalStateTypes (TreeStateConfigM h c m),
+        TreeStateMonad (TreeStateConfigM h c m),
+        BlockPointerMonad (TreeStateConfigM h c m),
+        HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovTTBM h c m))),
+        PendingBlockType (SkovT h c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointerType (SkovT h c m))),
+        BlockFields ~ BlockFieldType (BlockPointerType (SkovTGSM h c m)),
+        PendingBlockType (TreeStateConfigM h c m) ~ PendingBlockType (SkovT h c m),
+        BlockPointerType (TreeStateConfigM h c m) ~ BlockPointerType (SkovT h c m),
+        BlockDataMonad (PendingBlockType (SkovT h c m)) (SkovT h c m),
+        Convert Transaction (BlockTransactionType (PendingBlockType (TreeStateConfigM h c m))) (TreeStateConfigM h c m)
     )
 
 type SkovQueryConfigMonad c m =
-    (HashableTo TransactionHash (BlockTransactionType (BlockPointer (SkovTTBM () c m))),
-     PendingBlock (SkovT () c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointer (SkovT () c m))),
-     BlockFields ~ BlockFieldType (BlockPointer (T () c m)),
+    (HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovTTBM () c m))),
+     PendingBlockType (SkovT () c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointerType (SkovT () c m))),
+     BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM () c m)),
      TreeStateMonad (SkovTGSM () c m),
      BlockPointerMonad (SkovTGSM () c m),
-     BlockStateStorage (B () c m)
+     BlockStateStorage (BlockStateConfigM () c m)
     )
 
 type SkovFinalizationConfigMonad h c m = (

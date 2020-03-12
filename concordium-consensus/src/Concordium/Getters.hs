@@ -16,6 +16,7 @@ import Control.Monad.State.Class
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Classes
+import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
@@ -252,7 +253,7 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
                 "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. Stat.finalizationPeriodEMVar))
             ]
 
-getBlockInfo :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> String -> IO Value
+getBlockInfo :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -290,7 +291,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "executionCost" .= toInteger (reward ^. AT.executionCost)
                             ]
 
-getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
+getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -307,16 +308,16 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
                          a' <- f a
                          go (a:acc) (n-1) a'
 
-getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointer m), HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> IO Value
+getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
-            brs <- branchesFromTop :: m [[BlockPointer m]]
-            brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointer m) [Value])
-            lastFin <- lastFinalizedBlock :: m (BlockPointer m)
+            brs <- branchesFromTop :: m [[BlockPointerType m]]
+            brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointerType m) [Value])
+            lastFin <- lastFinalizedBlock :: m (BlockPointerType m)
             return $ object ["blockHash" .= hsh lastFin, "children" .= Map.findWithDefault [] lastFin brt]
     where
-        up :: Map.Map (BlockPointer m) [Value] -> [BlockPointer m] -> m (Map.Map (BlockPointer m) [Value])
-        up childrenMap = foldrM (\(b :: BlockPointer m) (ma :: Map.Map (BlockPointer m) [Value]) -> do
-                                    parent <- bpParent b :: m (BlockPointer m)
+        up :: Map.Map (BlockPointerType m) [Value] -> [BlockPointerType m] -> m (Map.Map (BlockPointerType m) [Value])
+        up childrenMap = foldrM (\(b :: BlockPointerType m) (ma :: Map.Map (BlockPointerType m) [Value]) -> do
+                                    parent <- bpParent b :: m (BlockPointerType m)
                                     return $ (at parent . non [] %~ (object ["blockHash" .= hsh b, "children" .= (Map.findWithDefault [] b childrenMap :: [Value])] :)) ma) Map.empty
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)

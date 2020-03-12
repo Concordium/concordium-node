@@ -13,7 +13,6 @@ import System.IO
 import Data.Serialize
 import Control.Exception
 import System.Directory
-import qualified Data.ByteString.Char8 as BS8
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -164,7 +163,7 @@ main = do
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
-        let logM src lvl msg = unless (lvl == LLTrace) $ do
+        let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
@@ -187,9 +186,9 @@ main = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
-                    --let stateStr = show gs'
+                    let stateStr = show gs'
 
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ (take 5 (show bh)) ++ "\\l\"]; #" ++ show (map trHash $ blockTransactions block)
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
                     hFlush stdout

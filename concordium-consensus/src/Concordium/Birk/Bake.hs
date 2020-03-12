@@ -68,8 +68,8 @@ processTransactions
         SkovMonad m)
     => Slot
     -> BirkParameters
-    -> BlockPointer m
-    -> BlockPointer m
+    -> BlockPointerType m
+    -> BlockPointerType m
     -> BakerId
     -> m (FilteredTransactions Transaction, ExecutionResult m)
 processTransactions slot ss bh finalizedP bid = do
@@ -85,7 +85,7 @@ processTransactions slot ss bh finalizedP bid = do
 -- Reestablish
 maintainTransactions ::
   (TreeStateMonad m)
-  => BlockPointer m
+  => BlockPointerType m
   -> FilteredTransactions Transaction
   -> m ()
 maintainTransactions bp FilteredTransactions{..} = do
@@ -113,7 +113,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             Just acc -> return $ acc ^. accountNonce
     -- construct a new pending transaction table adding back some failed transactions.
     let purgeFailed cpt tx = do
-          b <- purgeTransaction =<< fromMemoryRepr tx
+          b <- purgeTransaction tx
           if b then return cpt  -- if the transaction was purged don't put it back into the pending table
           else do
             -- but otherwise do
@@ -133,7 +133,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             -- live block then we must not purge it to maintain the invariant
             -- that all transactions in live blocks exist in the transaction
             -- table.
-            b <- purgeTransaction =<< fromMemoryRepr tx
+            b <- purgeTransaction tx
             if b then return cpt
             else do
               nonce <- nextNonceFor (transactionSender tx)
@@ -145,7 +145,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions newpt'
 
 
-bakeForSlot :: (Convert Transaction (BlockTransactionType (PendingBlock m)) m, BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
+bakeForSlot :: (Convert Transaction (BlockTransactionType (PendingBlockType m)) m, BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
