@@ -26,13 +26,11 @@ import Concordium.Types.HashableTo
 import Control.Exception (handleJust)
 import Control.Monad.IO.Class
 import Data.ByteString
-import qualified Data.ByteString.Short as Sh
 import Data.Serialize as S (put, runPut, Put)
 import Database.LMDB.Raw
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
-import Concordium.Crypto.SignatureScheme
 import qualified Data.HashMap.Strict as HM
 
 -- |Values used by the LMDBStoreMonad to manage the database
@@ -112,9 +110,11 @@ lmdbStoreTypeSize (Block (_, v)) = digestSize + 8 + Data.ByteString.length v
 lmdbStoreTypeSize (Finalization (_, v)) = let FinalizationProof (vs, _)  = finalizationProof v in
   -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
   digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
-lmdbStoreTypeSize (Tx (_, t)) = digestSize +
-  sum (Prelude.map (\(_, Signature x) -> 8 + Sh.length x) (T.tsSignature $ T.btrSignature t)) +
-  T.transactionHeaderSize + (fromIntegral . T.thPayloadSize $ T.btrHeader t)
+lmdbStoreTypeSize (Tx (_, t)) =
+  digestSize +
+  T.signatureSize (T.btrSignature t) +
+  T.transactionHeaderSize +
+  (fromIntegral . T.thPayloadSize $ T.btrHeader t)
 lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
   T.Committed _ res -> HM.size res * (digestSize + 8)
   T.Finalized{} -> digestSize + 8
