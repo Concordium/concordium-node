@@ -12,7 +12,6 @@ module Concordium.GlobalState.Persistent.BlockPointer where
 
 import Concordium.GlobalState.Block
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Block
@@ -32,7 +31,7 @@ import Data.Serialize
 type PersistentBlockPointer ati s = BlockPointer ati PersistentTransaction Weak s
 
 -- |Creates a persistent block pointer with the provided block and metadata. Should not be called directly.
-makePersistentBlockPointer :: forall m s ati. (Convert T.Transaction PersistentTransaction m) =>
+makePersistentBlockPointer :: forall m s ati. (Convert (BakedBlock T.Transaction) PersistentBakedBlock m) =>
                              PersistentBlock                    -- ^Pending block
                            -> Maybe BlockHash                    -- ^Precomputed hash of this block. If not provided, it will be computed in-place.
                            -> BlockHeight                        -- ^Height of the block
@@ -85,8 +84,8 @@ makeGenesisPersistentBlockPointer genData _bpState _bpATI = do
       ..}
 
 -- |Converts a Pending Block into a PersistentBlockPointer
-makePersistentBlockPointerFromPendingBlock :: (MonadIO m,
-                                     BlockDataMonad PersistentBlock m) =>
+makePersistentBlockPointerFromPendingBlock :: forall m ati s. (MonadIO m,
+                                     Convert (BakedBlock T.Transaction) PersistentBakedBlock m) =>
                                    PersistentPendingBlock      -- ^Pending block
                                  -> PersistentBlockPointer ati s    -- ^Parent block
                                  -> PersistentBlockPointer ati s    -- ^Last finalized block
@@ -105,7 +104,7 @@ makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
     makePersistentBlockPointer (NormalBlock block) (Just $ getHash pb) (bpHeight parent + 1) parentW lfinW st ati arr (pbReceiveTime pb) Nothing Nothing ene
 
 -- | Create an unlinked persistent block pointer
-makeBlockPointerFromPersistentBlock :: (MonadIO m, Convert T.Transaction PersistentTransaction m) =>
+makeBlockPointerFromPersistentBlock :: (MonadIO m, Convert (BakedBlock T.Transaction) PersistentBakedBlock m) =>
                                       PersistentBlock            -- ^Block deserialized as retrieved from the disk
                                     -> s                         -- ^Block state
                                     -> ati                       -- ^Account index table for this block

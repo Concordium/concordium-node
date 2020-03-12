@@ -101,7 +101,7 @@ deriving via (MGSTrans MaybeT m) instance BlockPointerMonad m => BlockPointerMon
 deriving via (MGSTrans (ExceptT e) m) instance BlockPointerMonad m => BlockPointerMonad (ExceptT e m)
 
 -- |Generate a baked block.
-signBlock :: (Convert Transaction t m, ToPut t) =>
+signBlock :: forall t m. (Convert (BakedBlock Transaction) (BakedBlock t) m) =>
    BakerSignPrivateKey           -- ^Key for signing the new block
     -> Slot                       -- ^Block slot (must be non-zero)
     -> BlockHash                  -- ^Hash of parent block
