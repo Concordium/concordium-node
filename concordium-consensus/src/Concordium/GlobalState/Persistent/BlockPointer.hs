@@ -20,10 +20,11 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.PersistentTransactions
 import qualified Concordium.Types.Transactions as T
-import Control.Exception.Assert.Sugar
+import Control.Exception
 import Control.Monad.IO.Class
 import qualified Data.List as List
 import Data.Time.Clock
+import Concordium.GlobalState.Classes
 import Data.Time.Clock.POSIX
 import System.Mem.Weak
 import Data.Serialize
@@ -41,8 +42,8 @@ makePersistentBlockPointer :: forall m s ati. (Convert T.Transaction PersistentT
                            -> ati                                -- ^Account index table for this block
                            -> UTCTime                            -- ^Block arrival time
                            -> UTCTime                            -- ^Receive time
-                           -> Maybe Int
-                           -> Maybe Int
+                           -> Maybe Int                          -- ^Transaction count (only non available if we are upgrading a pending block)
+                           -> Maybe Int                          -- ^Transction size (only non available if we are upgrading a pending block)
                            -> Energy                       -- ^Energy cost of all transactions in the block. If not provided, it will be computed in-place.
                            -> m (PersistentBlockPointer ati s)
 makePersistentBlockPointer b _bpHash _bpHeight _bpParent _bpLastFinalized _bpState _bpATI _bpArriveTime _bpReceiveTime txcount txsize _bpTransactionsEnergyCost = do
@@ -105,14 +106,14 @@ makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
 
 -- | Create an unlinked persistent block pointer
 makeBlockPointerFromPersistentBlock :: (MonadIO m, Convert T.Transaction PersistentTransaction m) =>
-                                      PersistentBlock
-                                    -> s
-                                    -> ati
-                                    -> BlockHash
-                                    -> BlockHeight
-                                    -> Int
-                                    -> Int
-                                    -> Energy
+                                      PersistentBlock            -- ^Block deserialized as retrieved from the disk
+                                    -> s                         -- ^Block state
+                                    -> ati                       -- ^Account index table for this block
+                                    -> BlockHash                 -- ^Hash of this block
+                                    -> BlockHeight               -- ^Height of the block
+                                    -> Int                       -- ^Transaction count
+                                    -> Int                       -- ^Transaction size
+                                    -> Energy                    -- ^Transaction execution cost
                                     -> m (PersistentBlockPointer ati s)
 makeBlockPointerFromPersistentBlock b s ati hs bh txcount txsize ene = do
   parentW <- liftIO emptyWeak

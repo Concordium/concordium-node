@@ -32,12 +32,13 @@ import Data.ByteString.Char8(ByteString)
 import System.FilePath
 import Data.Pool(destroyAllResources)
 
+import Concordium.GlobalState.Classes
+import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
@@ -84,6 +85,11 @@ import Concordium.GlobalState.SQLiteATI
 -- 4. Declare the instance `C V` being V the actual newtype we want to give this
 -- behavior.
 --
+-- This deriving mechanism most often requires the use of UndecidableInstances. Adding
+-- derivations should be done with great care as it might lead to situations where the
+-- constraints for a specific instance requires that same instance to be fulfilled
+-- i.e. `C (T a) => C (T a)` leading to infinite loops in instance resolution (in runtime).
+--
 -- In the case of the `GlobalStateM` new type we will derive the BlockState monads,
 -- generically from `BlockStateM` and the TreeState monads also generically from
 -- `TreeStateM bs (BlockStateM ..)`.
@@ -110,8 +116,8 @@ newtype BlockStateM c r g s m a = BlockStateM (m a)
 
 -- * Specializations
 
-type MB r g s m = BlockStateM () r g s m
-type DB r g s m = BlockStateM PersistentBlockStateContext r g s m
+type MemoryBlockStateM r g s m = BlockStateM () r g s m
+type PersistentBlockStateM r g s m = BlockStateM PersistentBlockStateContext r g s m
 
 -- * Generic implementations
 
@@ -127,25 +133,25 @@ deriving via FocusGlobalStateM c g m
 
 -- ** Memory implementations
 deriving via PureBlockStateMonad m
-    instance BlockStateTypes (MB r g s m)
+    instance BlockStateTypes (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
     instance (Monad m)
-             => BlockStateQuery (MB r g s m)
+             => BlockStateQuery (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
     instance (Monad m,
-              BlockStateQuery (MB r g s m))
-             => BlockStateOperations (MB r g s m)
+              BlockStateQuery (MemoryBlockStateM r g s m))
+             => BlockStateOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
     instance (Monad m,
-              BlockStateStorage (PureBlockStateMonad m))
-             => BlockStateStorage (MB r g s m)
+              BlockStateOperations (MemoryBlockStateM r g s m))
+             => BlockStateStorage (MemoryBlockStateM r g s m)
 
 -- ** Disk implementations
 deriving via (PersistentBlockStateMonad PersistentBlockStateContext m)
-    instance BlockStateTypes (DB r g s m)
+    instance BlockStateTypes (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -154,7 +160,7 @@ deriving via (PersistentBlockStateMonad
               BlockStateQuery (PersistentBlockStateMonad
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
-             => BlockStateQuery (DB r g s m)
+             => BlockStateQuery (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -163,7 +169,7 @@ deriving via (PersistentBlockStateMonad
               BlockStateOperations (PersistentBlockStateMonad
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
-             => BlockStateOperations (DB r g s m)
+             => BlockStateOperations (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -172,7 +178,7 @@ deriving via (PersistentBlockStateMonad
               BlockStateStorage (PersistentBlockStateMonad
                                   PersistentBlockStateContext
                                   (FocusGlobalStateM PersistentBlockStateContext g m)))
-             => BlockStateStorage (DB r g s m)
+             => BlockStateStorage (PersistentBlockStateM r g s m)
 
 -----------------------------------------------------------------------------
 
@@ -190,63 +196,63 @@ newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
               BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage)
 
 -- * Specializations
-type MT bs m = TreeStateM (SkovData bs) m
-type DT ati bs m = TreeStateM (SkovPersistentData ati bs) m
+type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
+type PersistentTreeStateM ati bs m = TreeStateM (SkovPersistentData ati bs) m
 
 -- * Specialized implementations
 -- ** Memory implementations
 deriving via PureTreeStateMonad bs m
-    instance ATITypes (MT bs m)
+    instance ATITypes (MemoryTreeStateM bs m)
 
 deriving via PureTreeStateMonad bs m
-    instance Monad m => PerAccountDBOperations (MT bs m)
+    instance Monad m => PerAccountDBOperations (MemoryTreeStateM bs m)
 
 deriving via PureTreeStateMonad bs m
-    instance GlobalStateTypes (MT bs m)
+    instance GlobalStateTypes (MemoryTreeStateM bs m)
 
 deriving via PureTreeStateMonad bs m
     instance (Monad m,
               Convert Transaction Transaction (PureTreeStateMonad bs m))
-             => Convert Transaction Transaction (MT bs m)
+             => Convert Transaction Transaction (MemoryTreeStateM bs m)
 
 deriving via PureTreeStateMonad bs m
     instance (Monad m,
               BlockPointerMonad (PureTreeStateMonad bs m))
-              => BlockPointerMonad (MT bs m)
+              => BlockPointerMonad (MemoryTreeStateM bs m)
 
 deriving via PureTreeStateMonad bs m
     instance (Monad m,
               BlockStateStorage m,
               TreeStateMonad (PureTreeStateMonad bs m))
-              => TreeStateMonad (MT bs m)
+              => TreeStateMonad (MemoryTreeStateM bs m)
 
 -- ** Disk implementations
 deriving via PersistentTreeStateMonad ati bs m
     instance ATITypes (PersistentTreeStateMonad ati bs m)
-             => ATITypes (DT ati bs m)
+             => ATITypes (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m, PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
-             => PerAccountDBOperations (DT ati bs m)
+             => PerAccountDBOperations (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
-    instance GlobalStateTypes (DT ati bs m)
+    instance GlobalStateTypes (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
               Convert Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m))
-             => Convert Transaction PersistentTransaction (DT ati bs m)
+             => Convert Transaction PersistentTransaction (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
               BlockPointerMonad (PersistentTreeStateMonad ati bs m))
-             => BlockPointerMonad (DT ati bs m)
+             => BlockPointerMonad (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
               BlockStateStorage m,
               TreeStateMonad (PersistentTreeStateMonad ati bs m))
-             => TreeStateMonad (DT ati bs m)
+             => TreeStateMonad (PersistentTreeStateM ati bs m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
@@ -260,7 +266,7 @@ newtype GlobalStateM db c r g s m a = GlobalStateM {runGlobalStateM :: m a}
 
 -- * Specializations
 
-type TB g c r s m = TreeStateM g (BlockStateM c r g s m)
+type TreeStateBlockStateM g c r s m = TreeStateM g (BlockStateM c r g s m)
 
 -- * Generic implementations
 
@@ -278,32 +284,32 @@ deriving via BlockStateM c r g s m
               BlockStateStorage (BlockStateM c r g s m))
              => BlockStateStorage (GlobalStateM db c r g s m)
 
-deriving via TB g c r s m
-    instance ATITypes (TB g c r s m)
+deriving via TreeStateBlockStateM g c r s m
+    instance ATITypes (TreeStateBlockStateM g c r s m)
              => ATITypes (GlobalStateM db c r g s m)
 
-deriving via TB g c r s m
-    instance (Monad m, PerAccountDBOperations (TB g c r s m))
+deriving via TreeStateBlockStateM g c r s m
+    instance (Monad m, PerAccountDBOperations (TreeStateBlockStateM g c r s m))
              => PerAccountDBOperations (GlobalStateM db c r g s m)
 
-deriving via TB g c r s m
-    instance GlobalStateTypes (TB g c r s m)
+deriving via TreeStateBlockStateM g c r s m
+    instance GlobalStateTypes (TreeStateBlockStateM g c r s m)
              => GlobalStateTypes (GlobalStateM db c r g s m)
 
-deriving via TB g c r s m
+deriving via TreeStateBlockStateM g c r s m
     instance (Monad m,
-              Convert Transaction t (TB g c r s m))
+              Convert Transaction t (TreeStateBlockStateM g c r s m))
              => Convert Transaction t (GlobalStateM db c r g s m)
 
-deriving via TB g c r s m
+deriving via TreeStateBlockStateM g c r s m
     instance (Monad m,
-              BlockPointerMonad (TB g c r s m))
+              BlockPointerMonad (TreeStateBlockStateM g c r s m))
              => BlockPointerMonad (GlobalStateM db c r g s m)
 
-deriving via TB g c r s m
+deriving via TreeStateBlockStateM g c r s m
     instance (Monad m,
               BlockStateStorage (BlockStateM c r g s m),
-              TreeStateMonad (TB g c r s m))
+              TreeStateMonad (TreeStateBlockStateM g c r s m))
              => TreeStateMonad (GlobalStateM db c r g s m)
 
 -----------------------------------------------------------------------------

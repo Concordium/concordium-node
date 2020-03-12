@@ -1,4 +1,4 @@
-{-# LANGUAGE MultiParamTypeClasses, RecordWildCards, TypeFamilies, FlexibleContexts, TypeSynonymInstances, FunctionalDependencies, DerivingVia, ScopedTypeVariables, FlexibleInstances, UndecidableInstances #-}
+{-# LANGUAGE MultiParamTypeClasses, StandaloneDeriving, RecordWildCards, TypeFamilies, FlexibleContexts, TypeSynonymInstances, FunctionalDependencies, DerivingVia, ScopedTypeVariables, FlexibleInstances, UndecidableInstances #-}
 module Concordium.GlobalState.Block where
 
 import Data.Time
@@ -8,6 +8,37 @@ import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
+import Concordium.Crypto.SHA256 as Hash
+import Concordium.GlobalState.Classes
+
+-- | Serialize the block by first converting all the transactions to memory transactions
+fullBody :: (Serialize t,
+            Convert Transaction t m) =>
+           BakedBlock t -> m Put
+fullBody b = do
+  txs :: [Transaction] <- mapM toMemoryRepr (blockTransactions b)
+  return $ do
+    put (blockSlot b)
+    put (blockPointer b)
+    put (blockBaker b)
+    put (blockProof b)
+    put (blockNonce b)
+    put (blockLastFinalized b)
+    putListOf put txs
+
+instance (Monad m, Serialize t, Convert Transaction t m) =>
+    HashableTo (m BlockHash) (BakedBlock t) where
+  getHash b = do
+    putter <- fullBody b
+    return $ Hash.hashLazy . runPutLazy $ putter >> put (bbSignature b)
+
+instance (Monad m, Serialize t,
+          Convert Transaction t m) =>
+         HashableTo (m BlockHash) (Block t) where
+    getHash (GenesisBlock genData) =
+      return $ Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
+    getHash (NormalBlock bb) = getHash bb
+
 
 -- * Block type classes
 
@@ -144,6 +175,8 @@ instance (Serialize t) => BlockData (BakedBlock t) where
         put (blockLastFinalized b)
         putListOf put $ blockTransactions b
 
+
+
 -- |Representation of a block
 --
 -- All instances of this type will implement automatically:
@@ -180,6 +213,7 @@ instance (Serialize t) => BlockData (Block t) where
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE blockBody #-}
+
 
 -- |A baked block, pre-hashed with its arrival time.
 --

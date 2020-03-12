@@ -6,42 +6,13 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer as B
+import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Data.Serialize
 import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.AccountTransactionIndex
-
--- | The goal for this class definition is to abstract the process of converting
--- values that usually exist in two different variants (memory and disk).
---
--- Types are instance of this class if in the scope of the monad @m@ we can
--- convert between the types @a@ and @b@. This type should be trivially implemented
--- by an in-memory representation just embedding the values into the monad.
---
--- This serves two purposes: first associate both types and also provide the functions
--- for moving from one type to another.
---
--- We will consider that the type variable @a@ represents the memory version of the value.
---
--- *NOTE*: although `fromMemoryRepr` is monadic, we must enforce that this function is just
--- a wrapping of a pure function, effectively not making any side effects. Side effects
--- needed for mantaining the invariant should be done somewhere else. This means in
--- practice that for the case of the `PersistentTransaction` we won't write the transaction
--- to the disk inside this function.
-class (Monad m) => Convert a b m where
-  toMemoryRepr :: b -> m a
-  fromMemoryRepr :: a -> m b
-
-instance (Monad (t m), MonadTrans t, Convert a b m) => Convert a b (MGSTrans t m) where
-  {-# INLINE toMemoryRepr #-}
-  toMemoryRepr = lift . toMemoryRepr
-  {-# INLINE fromMemoryRepr #-}
-  fromMemoryRepr = lift . fromMemoryRepr
-
-deriving via (MGSTrans MaybeT m) instance Convert a b m => Convert a b (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance Convert a b m => Convert a b (ExceptT e m)
 
 -- |The 'BlockDataMonad' class provides an interface for the maybe monadic data associated
 -- with a block.
@@ -66,32 +37,6 @@ class (Monad m,
   verifyBlockSignature :: Sig.VerifyKey -> b -> m Bool
   -- |Serialize the block with all its contents.
   putBlock :: b -> m Put
-
--- instance (Monad (t m),
---           MonadTrans t,
---           BlockDataMonad b m) => BlockDataMonad b (MGSTrans t m) where
---   {-# INLINE verifyBlockSignature #-}
---   verifyBlockSignature = verifyBlockSignature
---   {-# INLINE putBlock #-}
---   putBlock = lift . putBlock
-
--- deriving via (MGSTrans MaybeT m) instance BlockDataMonad b m => BlockDataMonad b (MaybeT m)
--- deriving via (MGSTrans (ExceptT e) m) instance BlockDataMonad b m => BlockDataMonad b (ExceptT e m)
-
--- | Serialize the block by first converting all the transactions to memory transactions
-fullBody :: (Serialize t,
-            Convert Transaction t m) =>
-           BakedBlock t -> m Put
-fullBody b = do
-  txs :: [Transaction] <- mapM toMemoryRepr (blockTransactions b)
-  return $ do
-    put (blockSlot b)
-    put (blockPointer b)
-    put (blockBaker b)
-    put (blockProof b)
-    put (blockNonce b)
-    put (blockLastFinalized b)
-    putListOf put txs
 
 instance (Serialize t, Monad m, Convert Transaction t m) =>
          BlockDataMonad (BakedBlock t) m where
@@ -127,17 +72,17 @@ instance (Serialize t, Monad m, Convert Transaction t m) =>
 -- using the pointers inside the `BlockPointer t p s`.
 class (Monad m, GlobalStateTypes m, ATITypes m) => BlockPointerMonad m where
     -- |Get the 'BlockState' of a 'BlockPointer'.
-    blockState :: C.BlockPointer m -> m (BlockState m)
+    blockState :: BlockPointerType m -> m (BlockState m)
 
     -- |Get the parent block of a 'BlockPointer'
-    bpParent :: C.BlockPointer m -> m (C.BlockPointer m)
+    bpParent :: BlockPointerType m -> m (BlockPointerType m)
 
     -- |Get the last finalized block of a 'BlockPointer'
-    bpLastFinalized :: C.BlockPointer m -> m (C.BlockPointer m)
+    bpLastFinalized :: BlockPointerType m -> m (BlockPointerType m)
 
     -- |Get the block transaction affect.
-    bpTransactionAffectSummaries :: C.BlockPointer m -> m (ATIStorage m)
-    default bpTransactionAffectSummaries :: ATIStorage m ~ () => C.BlockPointer m -> m (ATIStorage m)
+    bpTransactionAffectSummaries :: BlockPointerType m -> m (ATIStorage m)
+    default bpTransactionAffectSummaries :: ATIStorage m ~ () => BlockPointerType m -> m (ATIStorage m)
     bpTransactionAffectSummaries = \_ -> return ()
     {-# INLINE bpTransactionAffectSummaries #-}
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE StandaloneDeriving, DerivingVia, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE StandaloneDeriving, DerivingVia, MultiParamTypeClasses, UndecidableInstances, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
 module Concordium.GlobalState.BlockPointer where
 
 import Data.Hashable
@@ -52,7 +52,6 @@ instance Ord BasicBlockPointerData where
     {-# INLINE compare #-}
     compare bp1 bp2 = compare (_bpHash bp1) (_bpHash bp2)
 
--- FIXME javier: This is re-hashing the block hash!!
 instance Hashable BasicBlockPointerData where
     {-# INLINE hashWithSalt #-}
     hashWithSalt s = hashWithSalt s . _bpHash
@@ -91,10 +90,11 @@ data BlockPointer ati t (p :: * -> *) s = BlockPointer {
     _bpParent :: p (BlockPointer ati t p s),
     -- |Pointer to the last finalized block (circular for genesis)
     _bpLastFinalized :: p (BlockPointer ati t p s),
-      -- |The block itself
+    -- |The block itself
     _bpBlock :: !(Block t),
-      -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
+    -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
     _bpState :: !s,
+    -- |Handle to access the account transaction index; the index of which transactions affect which accounts.
     _bpATI :: !ati
 }
 
@@ -126,6 +126,7 @@ instance (Serialize t) => BlockData (BlockPointer ati t p s) where
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
+    {-# INLINE blockSignature #-}
     {-# INLINE blockBody #-}
 
 instance (Serialize t) => BlockPointerData (BlockPointer ati t p s) where
