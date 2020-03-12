@@ -3,11 +3,11 @@ module Concordium.GlobalState.BlockPointer where
 
 import Data.Hashable
 import Concordium.Types.HashableTo
-import Data.Serialize
 import Concordium.GlobalState.Block
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Data.Time.Clock
+import Concordium.Types.Transactions(ToPut)
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Hash of the block
@@ -117,7 +117,7 @@ instance Show (BlockPointer ati t p s) where
 instance HashableTo Hash.Hash (BlockPointer ati t p s) where
     getHash = getHash . _bpInfo
 
-instance (Serialize t) => BlockData (BlockPointer ati t p s) where
+instance (ToPut t) => BlockData (BlockPointer ati t p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
@@ -129,7 +129,7 @@ instance (Serialize t) => BlockData (BlockPointer ati t p s) where
     {-# INLINE blockSignature #-}
     {-# INLINE blockBody #-}
 
-instance (Serialize t) => BlockPointerData (BlockPointer ati t p s) where
+instance (ToPut t) => BlockPointerData (BlockPointer ati t p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo

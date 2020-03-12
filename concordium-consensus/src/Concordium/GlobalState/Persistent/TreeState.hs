@@ -23,7 +23,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.PersistentTransactions
 import Concordium.Types.Transactions as T
-import Control.Exception
+import Control.Exception hiding (handle)
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict as HM hiding (toList)

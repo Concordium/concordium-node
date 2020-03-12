@@ -38,7 +38,7 @@ class (Monad m,
   -- |Serialize the block with all its contents.
   putBlock :: b -> m Put
 
-instance (Serialize t, Monad m, Convert Transaction t m) =>
+instance (ToPut t, Monad m, Convert Transaction t m) =>
          BlockDataMonad (BakedBlock t) m where
   verifyBlockSignature key b = do
     putter <- fullBody b
@@ -47,7 +47,7 @@ instance (Serialize t, Monad m, Convert Transaction t m) =>
     putter <- fullBody b
     return $ putter >> put (bbSignature b)
 
-instance (Serialize t, Monad m, Convert Transaction t m) =>
+instance (ToPut t, Monad m, Convert Transaction t m) =>
          BlockDataMonad (Block t) m where
   verifyBlockSignature _ GenesisBlock{} = return True
   verifyBlockSignature key (NormalBlock b) = do
@@ -58,12 +58,12 @@ instance (Serialize t, Monad m, Convert Transaction t m) =>
     putter <- fullBody b
     return $ putter >> put (bbSignature b)
 
-instance (Serialize t, Monad m, Convert Transaction t m) =>
+instance (ToPut t, Monad m, Convert Transaction t m) =>
          BlockDataMonad (B.PendingBlock t) m where
   verifyBlockSignature key = verifyBlockSignature key . pbBlock
   putBlock = putBlock . pbBlock
 
-instance (Serialize t, Monad m, Convert Transaction t m) =>
+instance (ToPut t, Monad m, Convert Transaction t m) =>
          BlockDataMonad (B.BlockPointer ati t p s) m where
   verifyBlockSignature key = verifyBlockSignature key . _bpBlock
   putBlock = putBlock . _bpBlock
@@ -101,7 +101,7 @@ deriving via (MGSTrans MaybeT m) instance BlockPointerMonad m => BlockPointerMon
 deriving via (MGSTrans (ExceptT e) m) instance BlockPointerMonad m => BlockPointerMonad (ExceptT e m)
 
 -- |Generate a baked block.
-signBlock :: (Convert Transaction t m, Serialize t) =>
+signBlock :: (Convert Transaction t m, ToPut t) =>
    BakerSignPrivateKey           -- ^Key for signing the new block
     -> Slot                       -- ^Block slot (must be non-zero)
     -> BlockHash                  -- ^Hash of parent block
