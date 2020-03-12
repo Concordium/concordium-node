@@ -1,5 +1,4 @@
 {-# LANGUAGE RecordWildCards, TypeFamilies, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, UndecidableInstances, ScopedTypeVariables #-}
-{-# OPTIONS_GHC -Wno-orphans #-}
 module Concordium.GlobalState.Persistent.Block where
 
 import Concordium.Types.PersistentTransactions
