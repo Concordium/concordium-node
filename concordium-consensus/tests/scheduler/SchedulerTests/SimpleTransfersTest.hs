@@ -91,8 +91,8 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   null fails && -- should be no failed transactions
   reject &&  -- the last transaction is rejected
   nonreject && -- all initial transactions are successful
-  alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
-  thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
+  alesamount == (100000 - 4 * fromIntegral simpleTransferCost - 88 - 98700 + 100) &&
+  thomasamount == (100000 - fromIntegral simpleTransferCost + 88 + 98700 - 100)
   where
     nonreject = all (\case (_, Types.TxSuccess{}) -> True
                            (_, Types.TxReject{}) -> False)

@@ -18,7 +18,7 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.Scheduler.Runner
-import qualified Concordium.Scheduler.Cost as Cost 
+import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
@@ -36,9 +36,9 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts 200000
 
--- We will use simple transfer transactions whose energy cost is equal to checking the header
+-- We will use simple transfer transactions.
 usedTransactionEnergy :: Types.Energy
-usedTransactionEnergy = Cost.checkHeader
+usedTransactionEnergy = simpleTransferCost
 
 maxBlockEnergy :: Types.Energy
 maxBlockEnergy = usedTransactionEnergy * 2
