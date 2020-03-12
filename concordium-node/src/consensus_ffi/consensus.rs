@@ -1,5 +1,5 @@
 use crate::blockchain_types::BakerId;
-use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
+use concordium_common::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::Fallible;
 use std::{
     collections::HashMap,
@@ -193,11 +193,11 @@ impl ConsensusQueues {
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.outbound.sender_low_priority.send_stop())?;
-        into_err!(self.outbound.sender_high_priority.send_stop())?;
-        into_err!(self.inbound.sender_low_priority.send_stop())?;
-        into_err!(self.inbound.sender_high_priority.send_stop())?;
-        into_err!(self.sender_peer_notifier.send_stop())?;
+        self.outbound.sender_low_priority.send_stop()?;
+        self.outbound.sender_high_priority.send_stop()?;
+        self.inbound.sender_low_priority.send_stop()?;
+        self.inbound.sender_high_priority.send_stop()?;
+        self.sender_peer_notifier.send_stop()?;
         Ok(())
     }
 }
