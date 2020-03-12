@@ -216,7 +216,7 @@ instance (Monad (PersistentTreeStateMonad ati bs m),
 constructBlock :: (MonadIO m,
                    BS.BlockStateStorage m,
                    CanExtend (ATIStorage m),
-                   TS.Convert T.Transaction PersistentTransaction m)
+                   TS.Convert (BakedBlock T.Transaction) PersistentBakedBlock m)
                => Maybe ByteString -> BlockHash -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
 constructBlock Nothing _ = return Nothing
 constructBlock (Just bytes) bh = do
