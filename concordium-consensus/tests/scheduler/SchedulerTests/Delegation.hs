@@ -14,7 +14,6 @@ import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
