@@ -9,7 +9,7 @@ module Concordium.GlobalState.Basic.BlockPointer where
 import Data.Time
 import Data.Time.Clock.POSIX
 import qualified Data.List as List
-import Control.Exception.Assert.Sugar
+import Control.Exception
 import Data.Functor.Identity
 import Concordium.Types
 import Concordium.Types.HashableTo

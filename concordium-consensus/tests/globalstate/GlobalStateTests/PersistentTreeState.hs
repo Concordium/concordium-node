@@ -27,7 +27,7 @@ import Data.Time.Clock.POSIX
 import Control.Monad.Identity
 import Data.Proxy
 import Test.Hspec
-import Control.Exception.Assert.Sugar
+import Control.Exception
 import Lens.Micro.Platform
 import Data.Maybe
 import Database.LMDB.Simple

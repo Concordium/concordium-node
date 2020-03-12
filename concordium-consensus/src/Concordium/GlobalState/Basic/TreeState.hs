@@ -5,7 +5,7 @@ import Lens.Micro.Platform
 import Data.List as List
 import Data.Foldable
 import Control.Monad.State
-import Control.Exception.Assert.Sugar
+import Control.Exception
 import Data.Serialize (runGet)
 import Data.Functor.Identity
 
@@ -15,6 +15,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
+import Concordium.GlobalState.Types
 import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
 import Concordium.GlobalState.Basic.TransactionTable
@@ -112,11 +113,11 @@ newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
 
 
-instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlock (PureTreeStateMonad bs m) = BasicPendingBlock
-    type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
+instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
+    type PendingBlockType (PureTreeStateMonad bs m) = BasicPendingBlock
+    type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
-instance (Monad m) => Convert Transaction Transaction (PureTreeStateMonad bs m) where
+instance (Monad m) => TS.Convert Transaction Transaction (PureTreeStateMonad bs m) where
   toMemoryRepr = return
   fromMemoryRepr = return
 
@@ -263,9 +264,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
       -- here since a transaction should not be marked dead in a finalized block.
       transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
     lookupTransaction th =
-       use (transactionTable . ttHashMap . at th) >>= maybe (return Nothing) (return . Just . (^. _2))
-
-    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = trs}}
+       preuse (transactionTable . ttHashMap . ix th . _2)
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats

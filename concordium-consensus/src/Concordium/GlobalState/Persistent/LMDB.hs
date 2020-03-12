@@ -16,11 +16,10 @@ module Concordium.GlobalState.Persistent.LMDB (
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
+import Concordium.GlobalState.Types
 import Concordium.Types
-import Concordium.ID.Types
 import qualified Concordium.Types.Transactions as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
@@ -53,9 +52,7 @@ finalizationRecordStoreName = "finalization"
 transactionStoreName = "transactions"
 transactionStatusStoreName = "transactionstatus"
 
--- NB: We do not store the @ati@ on disk.
-
--- NB: We do not store the @ati@ on disk.
+-- NB: The @ati@ is stored in an external database if chosen to.
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
 initialDatabaseHandlers :: PersistentBlockPointer ati bs -> S.Put -> RuntimeParameters -> IO (DatabaseHandlers bs)
@@ -111,16 +108,16 @@ data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the ser
                deriving (Show)
 
 lmdbStoreTypeSize :: LMDBStoreType -> Int
-lmdbStoreTypeSize (Block (_, v)) = (2 * digestSize) + Data.ByteString.length v
+lmdbStoreTypeSize (Block (_, v)) = digestSize + 8 + Data.ByteString.length v
 lmdbStoreTypeSize (Finalization (_, v)) = let FinalizationProof (vs, _)  = finalizationProof v in
   -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
-  (2 * digestSize) + 64 + (2 * digestSize) + (32 * Prelude.length vs) + 48 + 64
-lmdbStoreTypeSize (Tx (_, t)) = (2 * digestSize) +
+  digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
+lmdbStoreTypeSize (Tx (_, t)) = digestSize +
   sum (Prelude.map (\(_, Signature x) -> 8 + Sh.length x) (T.tsSignature $ T.btrSignature t)) +
-  (accountAddressSize + 8 + 8 + 4 + 8) + (fromIntegral . T.thPayloadSize $ T.btrHeader t)
-lmdbStoreTypeSize (TxStatus (_, t)) = (2 * digestSize) + 8 + case t of
-  T.Committed _ res -> HM.size res * ((2 * digestSize) + 8)
-  T.Finalized{} -> (2 * digestSize) + 8
+  T.transactionHeaderSize + (fromIntegral . T.thPayloadSize $ T.btrHeader t)
+lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
+  T.Committed _ res -> HM.size res * (digestSize + 8)
+  T.Finalized{} -> digestSize + 8
   _ -> 0
 
 -- | Depending on the variant of the provided tuple, this function will perform a `put` transaction in the
@@ -156,9 +153,9 @@ putOrResize dbh tup = liftIO $ handleJust selectDBFullError handleResize tryResi
 -- |Monad to abstract over the operations for reading and writing from a LMDB database. It provides functions for reading and writing Blocks and FinalizationRecords.
 -- The databases should be indexed by the @BlockHash@ and the @FinalizationIndex@ in each case.
 class (MonadIO m) => LMDBStoreMonad m where
-   writeBlock :: BlockPointer m -> m ()
+   writeBlock :: BlockPointerType m -> m ()
 
-   readBlock :: BlockHash -> m (Maybe (BlockPointer m))
+   readBlock :: BlockHash -> m (Maybe (BlockPointerType m))
 
    writeFinalizationRecord :: FinalizationRecord -> m ()
 

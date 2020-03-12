@@ -4,6 +4,7 @@
 -- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
 module Concordium.GlobalState.Persistent.TreeState where
 
+import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -22,7 +23,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.PersistentTransactions
 import Concordium.Types.Transactions as T
-import Control.Exception.Assert.Sugar
+import Control.Exception
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict as HM hiding (toList)
@@ -148,9 +149,9 @@ instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccoun
     PAAIConfig handle <- use logContext
     liftIO $ writeEntries handle bh ati sos
 
-instance (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m)) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
-    type PendingBlock (PersistentTreeStateMonad ati bs m) = PersistentPendingBlock
-    type BlockPointer (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
+instance (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m)) => GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PersistentPendingBlock
+    type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
   logContext = atiCtx
@@ -160,7 +161,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
           MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
-         => Convert T.Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m) where
+         => TS.Convert T.Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m) where
   toMemoryRepr (PersistentTransaction bt sz ar) = do
     tx <- liftIO $ deRefWeak $ pbtPtr bt
     maybe (do
@@ -168,7 +169,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
               case t of
                 Just tt ->
                   return $ Transaction tt sz (pbtHash bt) ar
-                Nothing -> error ("Mossing transaction that was persistent: " ++ show (pbtHash bt))
+                Nothing -> error ("Missing transaction that was persistent: " ++ show (pbtHash bt))
           ) (\t -> return $ Transaction t sz (pbtHash bt) ar) tx
   fromMemoryRepr (Transaction t ptrSize pbtHash ptrArrivalTime) = do
     pbtPtr <- liftIO $ mkWeakPtr t Nothing
@@ -215,7 +216,7 @@ instance (Monad (PersistentTreeStateMonad ati bs m),
 constructBlock :: (MonadIO m,
                    BS.BlockStateStorage m,
                    CanExtend (ATIStorage m),
-                   Convert T.Transaction PersistentTransaction m)
+                   TS.Convert T.Transaction PersistentTransaction m)
                => Maybe ByteString -> BlockHash -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
 constructBlock Nothing _ = return Nothing
 constructBlock (Just bytes) bh = do
@@ -240,7 +241,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
           MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m),
-          Convert T.Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m))
+          TS.Convert T.Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m))
          => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
   writeBlock bp = do
     dbh <- use db
@@ -426,7 +427,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   if (nft ^. at sender . non emptyANFT . anftNextNonce) <= nonce then do
                     writeTransaction trHash (trBareTransaction tr)
                     writeTransactionStatus trHash (Received slot)
-                    tx <- fromMemoryRepr tr
+                    tx <- TS.fromMemoryRepr tr
                     transactionTable .= (nft & (at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tx))
                     return (TS.Added tx)
                   else return TS.ObsoleteNonce
@@ -435,7 +436,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   case results of
                    Just res -> do
                     when (slot > res ^. tsSlot) $ writeTransactionStatus trHash (res & tsSlot .~  slot)
-                    tx <- fromMemoryRepr tr
+                    tx <- TS.fromMemoryRepr tr
                     return $ TS.Duplicate tx
                    Nothing -> error "Invariant failed: missing existing transaction doesn't have an associated transaction status"
         where
@@ -444,7 +445,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     finalizeTransactions bh slot = mapM_ finTrans
         where
             finTrans tx = do
-                tr :: T.Transaction <- toMemoryRepr tx
+                tr :: T.Transaction <- TS.toMemoryRepr tx
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
                 anft <- use (transactionTable . at sender . non emptyANFT)
@@ -466,20 +467,20 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         -- Update the non-finalized transactions for the sender
                         transactionTable . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
                     else error ("Missing tx in non-finalized set: " ++ show (pbtHash $ ptrBareTransaction tx) ++ " with set being: " ++ show (nfn) ++ " with nonce " ++ show nonce)
-    purgeTransaction tr = do
-        t <- readTransaction (getHash tr)
-        case t of
+    purgeTransaction t = do
+        dtr <- TS.fromMemoryRepr t
+        tr <- readTransaction (getHash t)
+        case tr of
             Nothing -> return True
-            Just tx -> do
-                res <- readTransactionStatus (getHash tr)
-                case res of
+            Just tx ->
+                readTransactionStatus (getHash t) >>= \case
                  Just results -> do
                    lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                    if (lastFinSlot >= results ^. tsSlot) then do
                        let nonce = transactionNonce tx
                            sender = transactionSender tx
-                       deleteTransaction (getHash tr)
-                       transactionTable . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
+                       deleteTransaction (getHash t)
+                       transactionTable . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete dtr
                        return True
                    else return False
                  Nothing -> error "Missing transaction status when purging transaction"
@@ -487,6 +488,9 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     commitTransaction s bh tr ti = do
         results <- readTransactionStatus (getHash tr)
         case results of
+          -- Transactions that are to be commited always must have an associated transaction status
+          -- when commiting. If it is not present, then we shall do a no-op in that case.
+          -- If the API us used correctly, the transaction should at least have the `Received` status.
           Nothing -> return ()
           Just res -> let newRes = addResult bh s ti res in
                        writeTransactionStatus (getHash tr) newRes
@@ -500,8 +504,6 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                        writeTransactionStatus (getHash tr) newRes
 
     lookupTransaction th = readTransactionStatus th
-
-    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = trs}}
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
