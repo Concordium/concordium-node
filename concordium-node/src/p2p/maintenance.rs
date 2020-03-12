@@ -372,11 +372,9 @@ impl P2PNode {
 
     /// It registers a connection's socket with the poll.
     pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
-        into_err!(self.poll_registry.register(
-            &mut conn.low_level.socket,
-            conn.token,
-            Interest::READABLE
-        ))
+        self.poll_registry
+            .register(&mut conn.low_level.socket, conn.token, Interest::READABLE)
+            .map_err(|e| e.into())
     }
 
     /// Notify the node handler that a connection needs to undergo a major
