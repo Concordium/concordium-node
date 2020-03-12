@@ -30,11 +30,20 @@ instance (Monad m, ToPut t, Convert Transaction t m) =>
     putter <- fullBody b
     return $ Hash.hashLazy . runPutLazy $ putter >> put (bbSignature b)
 
+hashGenesisData :: GenesisData -> Hash
+hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
+
 instance (Monad m, ToPut t,
           Convert Transaction t m) =>
          HashableTo (m BlockHash) (Block t) where
-    getHash (GenesisBlock genData) =
-      return $ Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
+    getHash (GenesisBlock genData) = return $! hashGenesisData genData
+    getHash (NormalBlock bb) = getHash bb
+
+instance HashableTo BlockHash (BakedBlock Transaction) where
+    getHash b = Hash.hashLazy . runPutLazy $ blockBody b >> put (bbSignature b)
+
+instance HashableTo BlockHash (Block Transaction) where
+    getHash (GenesisBlock genData) = hashGenesisData genData
     getHash (NormalBlock bb) = getHash bb
 
 
