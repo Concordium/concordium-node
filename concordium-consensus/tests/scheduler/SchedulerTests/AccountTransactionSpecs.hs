@@ -30,14 +30,18 @@ import qualified Acorn.Core as Core
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
+-- | An upper bound for the check header cost for the following test transactions.
+checkHeaderCost :: Types.Energy
+checkHeaderCost = Cost.checkHeader 5000 1
+
 initialAmount :: Types.Amount
-initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
+initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * checkHeaderCost)
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
 
 deployAccountCost :: Types.Energy
-deployAccountCost = Cost.deployCredential + Cost.checkHeader
+deployAccountCost = Cost.deployCredential + checkHeaderCost
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -66,7 +70,7 @@ transactionsInput =
          , keypair = alesKP
          }
   ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
-         , metadata = makeDummyHeader alesAccount 7 Cost.checkHeader
+         , metadata = makeDummyHeader alesAccount 7 (checkHeaderCost)
          , keypair = alesKP
          }
   ]
