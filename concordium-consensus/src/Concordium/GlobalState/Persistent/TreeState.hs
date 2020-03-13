@@ -25,6 +25,7 @@ import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -352,17 +353,18 @@ instance (bs ~ GS.BlockState m,
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
-    addCommitTransaction bi slot = do
-      let trHash = getHash bi
+    addCommitTransaction bi@WithMetadata{..} slot = do
+      let trHash = wmdHash
       tt <- use transactionTable
       case tt ^. ttHashMap . at trHash of
           Nothing ->
-            case bi of
+            case wmdData of
               NormalTransaction tr -> do
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                  transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
+                  let wmdtr = WithMetadata{wmdData=tr,..}
+                  transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at trHash ?~ (bi, Received slot)))
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
@@ -375,26 +377,28 @@ instance (bs ~ GS.BlockState m,
 
     finalizeTransactions bh slot = mapM_ finTrans
         where
-            finTrans (NormalTransaction tr) = do
+            finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
-                    assert (Set.member tr nfn) $ do
+                    let wmdtr = WithMetadata{wmdData=tr,..}
+                    assert (Set.member wmdtr nfn) $ do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
-                        forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
+                        forM_ (Set.delete wmdtr nfn) $
+                          \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
-                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
+                        transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-            finTrans CredentialDeployment{..} = do
-              transactionTable . ttHashMap . singular (ix (getHash biCred)) . _2 %= 
+            finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = do
+              transactionTable . ttHashMap . singular (ix wmdHash) . _2 %= 
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
 
