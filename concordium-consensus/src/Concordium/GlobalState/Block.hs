@@ -137,7 +137,7 @@ blockBody b = do
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        putListOf put $ map trBareTransaction $ blockTransactions b
+        put (map trBareTransaction $ blockTransactions b)
 
 instance BlockData BakedBlock where
     blockSlot = bbSlot

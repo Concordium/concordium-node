@@ -226,7 +226,6 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     -- so instead we will use `blockBody`
     let blockBS = runPut (do
                              putBlock bp
-                             maybe (return ()) S.put (blockSignature bp)
                              bs
                              S.put (bpHeight bp)
                              S.put (bpTransactionCount bp)
