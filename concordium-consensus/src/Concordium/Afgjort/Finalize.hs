@@ -56,10 +56,10 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState(BlockPointerData(..))
-import Concordium.GlobalState.Classes(GlobalStateTypes(..))
+import Concordium.GlobalState.Types
 import Concordium.Kontrol
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
@@ -89,7 +89,7 @@ instance Show FinalizationRound where
 
 
 
-ancestorAtHeight :: (GlobalStateTypes m, BlockPointerMonad m) => BlockHeight -> BlockPointer m -> m (BlockPointer m)
+ancestorAtHeight :: (GlobalStateTypes m, BlockPointerMonad m) => BlockHeight -> BlockPointerType m -> m (BlockPointerType m)
 ancestorAtHeight h bp
     | h == bpHeight bp = return bp
     | h < bpHeight bp = do
@@ -451,7 +451,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (BlockPointerMonad m, FinalizationMonad s m) => BlockPointer m -> m ()
+notifyBlockArrival :: (BlockPointerMonad m, FinalizationMonad s m) => BlockPointerType m -> m ()
 notifyBlockArrival b = do
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -476,7 +476,7 @@ getMyParty = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationRecord -> BlockPointer m -> m ()
+notifyBlockFinalized :: (BlockPointerMonad m, FinalizationMonad s m) => FinalizationRecord -> BlockPointerType m -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -508,7 +508,7 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 -- the height of the next finalized block.
 nextFinalizationHeight :: (BlockPointerMonad m)
     => BlockHeight -- ^Finalization minimum skip
-    -> BlockPointer m -- ^Last finalized block
+    -> BlockPointerType m -- ^Last finalized block
     -> m BlockHeight
 nextFinalizationHeight fs bp = do
   lf <- bpLastFinalized bp
@@ -519,7 +519,7 @@ nextFinalizationHeight fs bp = do
 nextFinalizationJustifierHeight :: (BlockPointerMonad m)
     => FinalizationParameters
     -> FinalizationRecord -- ^Last finalization record
-    -> BlockPointer m -- ^Last finalized block
+    -> BlockPointerType m -- ^Last finalized block
     -> m BlockHeight
 nextFinalizationJustifierHeight fp fr bp = (+ nextFinalizationDelay fr) <$> nextFinalizationHeight (finalizationMinimumSkip fp) bp
 

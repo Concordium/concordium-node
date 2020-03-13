@@ -1,6 +1,8 @@
 {-# LANGUAGE
     DerivingVia,
-    StandaloneDeriving #-}
+    StandaloneDeriving,
+    RecordWildCards,
+    ScopedTypeVariables #-}
 module Concordium.Skov.Monad where
 
 import Control.Monad.Trans.Class
@@ -9,12 +11,16 @@ import Control.Monad.Trans.Except
 import Data.Time
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
+import Concordium.GlobalState.Types
 import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
+import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.BlockState (BlockStateQuery)
-import Concordium.GlobalState.TreeState (BlockPointer, BlockPointerData, BlockState, MGSTrans(..), PendingBlock)
+import Concordium.GlobalState.BlockPointer (BlockPointerData)
+import Concordium.GlobalState.Basic.Block (BasicPendingBlock)
+import Concordium.GlobalState.Classes as C
 import Concordium.Logger
 import Concordium.TimeMonad
 
@@ -47,31 +53,31 @@ data UpdateResult
     -- ^The block was sent too early and should be dropped
     deriving (Show)
 
-class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockStateQuery m) => SkovQueryMonad m where
+class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockStateQuery m) => SkovQueryMonad m where
     -- |Look up a block in the table given its hash
-    resolveBlock :: BlockHash -> m (Maybe (BlockPointer m))
+    resolveBlock :: BlockHash -> m (Maybe (BlockPointerType m))
     -- |Determine if a block has been finalized.
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
-    lastFinalizedBlock :: m (BlockPointer m)
+    lastFinalizedBlock :: m (BlockPointerType m)
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
     --  Retrieves AdvanceTime and StableTime directly from genesis block
-    getBirkParameters :: Slot -> BlockPointer m -> m BirkParameters
+    getBirkParameters :: Slot -> BlockPointerType m -> m BirkParameters
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
-    genesisBlock :: m (BlockPointer m)
+    genesisBlock :: m (BlockPointerType m)
     -- |Get the height of the highest blocks in the tree.
     -- Note: the genesis block has height 0
     getCurrentHeight :: m BlockHeight
     -- |Get the blocks in the branches of the tree grouped by descending height.
     -- That is the first element of the list is all of the blocks at 'getCurrentHeight',
     -- the next is those at @getCurrentHeight - 1@, etc.
-    branchesFromTop :: m [[BlockPointer m]]
+    branchesFromTop :: m [[BlockPointerType m]]
     -- |Get a list of all the blocks at a given height in the tree.
-    getBlocksAtHeight :: BlockHeight -> m [BlockPointer m]
+    getBlocksAtHeight :: BlockHeight -> m [BlockPointerType m]
     -- |Get a block's state.
-    queryBlockState :: BlockPointer m -> m (BlockState m)
+    queryBlockState :: BlockPointerType m -> m (BlockState m)
     -- |Get the outcomes of a transaction.
     queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
@@ -81,16 +87,16 @@ class (Monad m, Eq (BlockPointer m), BlockPointerData (BlockPointer m), BlockSta
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
-    storeBlock :: PendingBlock m -> m UpdateResult
+    storeBlock :: BasicPendingBlock -> m UpdateResult
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
     storeBakedBlock ::
-        PendingBlock m        -- ^The block to add
-        -> BlockPointer m     -- ^Parent pointer
-        -> BlockPointer m     -- ^Last finalized pointer
+        PendingBlockType m        -- ^The block to add
+        -> BlockPointerType m     -- ^Parent pointer
+        -> BlockPointerType m     -- ^Last finalized pointer
         -> ExecutionResult m  -- ^Result of the execution of the block.
-        -> m (BlockPointer m)
+        -> m (BlockPointerType m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: Transaction -> m UpdateResult
     -- |Add a finalization record.  This should (eventually) result
@@ -145,3 +151,25 @@ getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + genesisSlotDuration genData * fromIntegral s))
+
+toBroadcastableBlock :: (BlockData (BlockPointerType m),
+                        Convert Transaction (BlockTransactionType (BlockPointerType m)) m) => BlockPointerType m -> m (BroadcastableBlock)
+toBroadcastableBlock b = case blockSlot b of
+  0 -> error "Genesis block can't be converted to broadcastable block"
+  bbSlot -> do
+    let bbFields = case blockFields b of
+          Just f -> f
+          Nothing -> -- logic error
+            error "Malformed block: block slot is higher than zero and the block doesn't have block fields"
+        bfBlockPointer = blockPointer bbFields
+        bfBlockBaker = blockBaker bbFields
+        bfBlockProof = blockProof bbFields
+        bfBlockNonce = blockNonce bbFields
+        bfBlockLastFinalized = blockLastFinalized bbFields
+        txs = blockTransactions b
+        bbSignature = case blockSignature b of
+          Just s -> s
+          Nothing -> -- logic error
+            error "Malformed block: block slot is higher than zero and the block doesn't have a signature"
+    bbTransactions :: [Transaction] <- mapM toMemoryRepr txs
+    return $ BakedBlock{bbFields = BlockFields{..}, ..}
