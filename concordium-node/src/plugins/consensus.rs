@@ -385,9 +385,8 @@ pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
 
     let mut peers = write_or_die!(peers_lock);
     // remove global state peers whose connections were dropped
-    for (live_peer, state) in mem::replace(&mut peers.peers, Default::default())
-        .into_iter()
-        .filter(|(id, _)| peer_ids.contains(&id))
+    for (live_peer, state) in
+        mem::take(&mut peers.peers).into_iter().filter(|(id, _)| peer_ids.contains(&id))
     {
         peers.peers.push(live_peer, state);
     }

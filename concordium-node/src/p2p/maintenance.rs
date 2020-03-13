@@ -416,7 +416,7 @@ impl P2PNode {
 
     /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
     pub fn join(&self) -> Fallible<()> {
-        for handle in mem::replace(&mut *write_or_die!(self.threads), Default::default()) {
+        for handle in mem::take(&mut *write_or_die!(self.threads)) {
             if let Err(e) = handle.join() {
                 error!("Can't join a node thread: {:?}", e);
             }

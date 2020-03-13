@@ -5,7 +5,7 @@
 This repository relies on git submodules for internal component dependencies, so do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
 
 ## Dependencies to build the project
-* Rust (stable 1.37+, and stable 1.41.0 (5e1a79984 2020-01-27) for using static libraries)
+* Rust (stable 1.37+, and stable 1.42.0 (b8cedc004 2020-03-09) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
 * flatc >= 1.11.0
