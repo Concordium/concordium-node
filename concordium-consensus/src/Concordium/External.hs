@@ -22,6 +22,7 @@ import Control.Monad.State.Class(MonadState)
 import Data.Functor
 import Control.Arrow
 import System.FilePath ((</>))
+import Data.Maybe
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
@@ -243,7 +244,8 @@ broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessag
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
-            let blockbs = runPut $ blockBody block >> put (blockSignature block)
+            -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
+            let blockbs = runPut $ blockBody block >> put (fromJust $ blockSignature block)
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
