@@ -6,7 +6,6 @@ module Concordium.GlobalState.Persistent.LMDB (
   , storeEnv
   , blockStore
   , finalizationRecordStore
-  , transactionStore
   , transactionStatusStore
   , initialDatabaseHandlers
   , LMDBStoreType (..)
@@ -39,15 +38,13 @@ data DatabaseHandlers bs = DatabaseHandlers {
     _storeEnv :: Environment ReadWrite,
     _blockStore :: Database BlockHash ByteString,
     _finalizationRecordStore :: Database FinalizationIndex FinalizationRecord,
-    _transactionStore :: Database TransactionHash T.BareTransaction,
     _transactionStatusStore :: Database TransactionHash T.TransactionStatus
 }
 makeLenses ''DatabaseHandlers
 
-blockStoreName, finalizationRecordStoreName, transactionStoreName, transactionStatusStoreName :: String
+blockStoreName, finalizationRecordStoreName, transactionStatusStoreName :: String
 blockStoreName = "blocks"
 finalizationRecordStoreName = "finalization"
-transactionStoreName = "transactions"
 transactionStatusStoreName = "transactionstatus"
 
 -- NB: The @ati@ is stored in an external database if chosen to.
@@ -65,14 +62,12 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
     (getDatabase (Just blockStoreName) :: L.Transaction ReadWrite (Database BlockHash ByteString))
   _finalizationRecordStore <- liftIO $ transaction _storeEnv
     (getDatabase (Just finalizationRecordStoreName) :: L.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
-  _transactionStore <- liftIO $ transaction _storeEnv
-    (getDatabase (Just transactionStoreName) :: L.Transaction ReadWrite (Database TransactionHash T.BareTransaction))
   _transactionStatusStore <- liftIO $ transaction _storeEnv
     (getDatabase (Just transactionStatusStoreName) :: L.Transaction ReadWrite (Database TransactionHash T.TransactionStatus))
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   liftIO $ transaction _storeEnv (L.put _blockStore (getHash gb) (Just $ runPut (do
-                                                                                    blockBody gb
+                                                                                    putBlock gb
                                                                                     serState
                                                                                     S.put (0 :: Int)
                                                                                     S.put (0 :: Int)
@@ -92,7 +87,6 @@ resizeDatabaseHandlers dbh size = do
   resizeEnvironment _storeEnv newSize
   _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
   _finalizationRecordStore <- transaction _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
-  _transactionStore <- transaction _storeEnv (getDatabase (Just transactionStoreName) :: Transaction ReadWrite (Database TransactionHash T.BareTransaction))
   _transactionStatusStore <- transaction _storeEnv (getDatabase (Just transactionStatusStoreName) :: Transaction ReadWrite (Database TransactionHash T.TransactionStatus))
   return DatabaseHandlers {..}
 
@@ -101,7 +95,6 @@ resizeDatabaseHandlers dbh size = do
 -- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
 data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the serialized form of the block
                | Finalization (FinalizationIndex, FinalizationRecord) -- ^The finalization index and the associated finalization record
-               | Tx (TransactionHash, T.BareTransaction)
                | TxStatus (TransactionHash, T.TransactionStatus)
                deriving (Show)
 
@@ -110,11 +103,6 @@ lmdbStoreTypeSize (Block (_, v)) = digestSize + 8 + Data.ByteString.length v
 lmdbStoreTypeSize (Finalization (_, v)) = let FinalizationProof (vs, _)  = finalizationProof v in
   -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
   digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
-lmdbStoreTypeSize (Tx (_, t)) =
-  digestSize +
-  T.signatureSize (T.btrSignature t) +
-  T.transactionHeaderSize +
-  (fromIntegral . T.thPayloadSize $ T.btrHeader t)
 lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
   T.Committed _ res -> HM.size res * (digestSize + 8)
   T.Finalized{} -> digestSize + 8
@@ -129,9 +117,6 @@ putInProperDB (Block (key, value)) dbh = do
 putInProperDB (Finalization (key, value)) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. finalizationRecordStore) key (Just value)
-putInProperDB (Tx (key, value)) dbh =  do
-  let env = dbh ^. storeEnv
-  transaction env $ L.put (dbh ^. transactionStore) key (Just value)
 putInProperDB (TxStatus (key, value)) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. transactionStatusStore) key (Just value)
@@ -160,12 +145,6 @@ class (MonadIO m) => LMDBStoreMonad m where
    writeFinalizationRecord :: FinalizationRecord -> m ()
 
    readFinalizationRecord :: FinalizationIndex -> m (Maybe FinalizationRecord)
-
-   readTransaction :: TransactionHash -> m (Maybe T.BareTransaction)
-
-   deleteTransaction :: TransactionHash -> m ()
-
-   writeTransaction :: TransactionHash -> T.BareTransaction -> m ()
 
    readTransactionStatus :: TransactionHash -> m (Maybe T.TransactionStatus)
 

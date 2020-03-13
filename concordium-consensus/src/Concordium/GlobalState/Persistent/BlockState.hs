@@ -36,6 +36,7 @@ import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
+import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
 import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
@@ -178,7 +179,7 @@ makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePo
         , bspCryptographicParameters = BRMemory $! _blockCryptographicParameters
         , bspTransactionOutcomes = _blockTransactionOutcomes
         }
-
+    
 initialPersistentState :: MonadIO m => BirkParameters
              -> CryptographicParameters
              -> [Account]
@@ -411,11 +412,11 @@ doRegIdExists pbs regid = do
         fst <$> Account.regIdExists regid (bspAccounts bsp)
 
 doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
-doPutNewAccount pbs acct = do
+doPutNewAccount pbs acct = do 
         bsp <- loadPBS pbs
         (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
         (res,) <$> storePBS pbs (bsp {bspAccounts = accts'})
-
+    
 doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
@@ -544,7 +545,7 @@ doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
         loadBufferedRef (bspCryptographicParameters bsp)
 
-doGetTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> TransactionIndex -> m (Maybe TransactionSummary)
+doGetTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! (bspTransactionOutcomes bsp) ^? ix transHash
@@ -714,5 +715,5 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         (inner', ref) <- flushBufferedRef inner
         liftIO $ writeIORef pbs inner'
         return (put ref)
-
+    
     getBlockState = liftIO . newIORef . BRBlobbed <$> get
