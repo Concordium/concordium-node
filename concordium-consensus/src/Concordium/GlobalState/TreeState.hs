@@ -242,7 +242,8 @@ class (Eq (BlockPointer m),
     getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
     getCredential th = 
       lookupTransaction th >>= \case
-        Just (Transactions.CredentialDeployment c, _) -> return (Just c)
+        Just (WithMetadata{wmdData=Transactions.CredentialDeployment{..},..}, _)
+            -> return (Just WithMetadata{wmdData=biCred,..})
         _ -> return Nothing
 
     -- |Add a transaction to the transaction table.

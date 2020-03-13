@@ -32,7 +32,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.Types.Transactions hiding (BlockItem'(..))
+import Concordium.Types.Transactions hiding (BareBlockItem(..))
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Data.Maybe

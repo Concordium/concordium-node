@@ -66,7 +66,7 @@ blockBody b = do
         put (blockNonce b)
         put (blockLastFinalized b)
         putWord64be (fromIntegral (length (blockTransactions b)))
-        mapM_ putBlockItem $ blockTransactions b
+        mapM_ toPut $ blockTransactions b
 
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
