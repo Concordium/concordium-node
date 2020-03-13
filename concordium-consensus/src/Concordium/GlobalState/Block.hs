@@ -181,7 +181,7 @@ instance BlockData Block where
     verifyBlockSignature key (NormalBlock bb) = verifyBlockSignature key bb
 
     putBlock (GenesisBlock gd) = put genesisSlot >> put gd
-    putBlock (NormalBlock bb) = blockBody bb
+    putBlock (NormalBlock bb) = putBlock bb
 
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
