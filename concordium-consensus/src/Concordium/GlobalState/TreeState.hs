@@ -22,8 +22,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.ByteString as ByteString
 
-import Concordium.GlobalState.Block (BlockData(..), BlockPendingData (..), BlockTransactionType)
-import Concordium.GlobalState.Basic.Block (BasicPendingBlock)
+import Concordium.GlobalState.Block (BlockData(..), BlockPendingData (..), PendingBlock(..))
 import Concordium.GlobalState.BlockPointer (BlockPointerData(..))
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.BlockMonads
@@ -59,11 +58,11 @@ instance Show (BlockStatus bp pb) where
 type Branches m = Seq.Seq [BlockPointerType m]
 
 -- |Result of trying to add a transaction to the transaction table.
-data AddTransactionResult t =
+data AddTransactionResult =
   -- |Transaction is a duplicate of the given transaction.
-  Duplicate !t |
+  Duplicate !Transaction |
   -- |The transaction was newly added.
-  Added !t |
+  Added !Transaction |
   -- |The nonce of the transaction is not later than the last finalized transaction for the sender.
   -- The transaction is not added to the table.
   ObsoleteNonce
@@ -80,7 +79,6 @@ class (Eq (BlockPointerType m),
        BlockPendingData (PendingBlockType m),
        BlockStateStorage m,
        BlockPointerMonad m,
-       Convert Transaction (BlockTransactionType (BlockPointerType m)) m,
        PerAccountDBOperations m,
        Monad m)
       => TreeStateMonad m where
@@ -95,7 +93,7 @@ class (Eq (BlockPointerType m),
         -> BlockProof       -- ^Block proof
         -> BlockNonce       -- ^Block nonce
         -> BlockHash        -- ^Hash of last finalized block
-        -> [BlockTransactionType (PendingBlockType m)]    -- ^List of transactions
+        -> [Transaction]    -- ^List of transactions
         -> UTCTime          -- ^Block receive time
         -> m (PendingBlockType m)
     -- |Create a 'PendingBlock' from the raw block data.
@@ -105,7 +103,7 @@ class (Eq (BlockPointerType m),
         ByteString.ByteString
                             -- ^Block data
         -> UTCTime          -- ^Block received time
-        -> m (Either String BasicPendingBlock)
+        -> m (Either String PendingBlock)
 
     -- * Operations on the block table
     -- |Get the current status of a block.
@@ -244,7 +242,7 @@ class (Eq (BlockPointerType m),
     -- with that nonce.
     getAccountNonFinalized :: AccountAddress
                            -> Nonce
-                           -> m [(Nonce, Set.Set (BlockTransactionType (BlockPointerType m)))]
+                           -> m [(Nonce, Set.Set (Transaction))]
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
@@ -261,20 +259,20 @@ class (Eq (BlockPointerType m),
     -- |Finalize a list of transactions on a given block. Per account, the transactions must be in
     -- continuous sequence by nonce, starting from the next available non-finalized
     -- nonce.
-    finalizeTransactions :: BlockHash -> Slot -> [BlockTransactionType (BlockPointerType m)] -> m ()
+    finalizeTransactions :: BlockHash -> Slot -> [Transaction] -> m ()
     -- |Mark a transaction as committed on a block with the given slot number,
     -- as well as add any additional outcomes for the given block (outcomes are given
     -- as the index of the transaction in the given block).
     -- This will prevent it from being purged while the slot number exceeds
     -- that of the last finalized block.
-    commitTransaction :: Slot -> BlockHash -> BlockTransactionType (BlockPointerType m) -> TransactionIndex -> m ()
+    commitTransaction :: Slot -> BlockHash -> Transaction -> TransactionIndex -> m ()
     -- |@addCommitTransaction tr slot@ adds a transaction and marks it committed
     -- for the given slot number. By default the transaction is created in the 'Received' state,
     -- but if the transaction is already in the table the outcomes are retained.
     -- See documentation of 'AddTransactionResult' for meaning of the return value.
     -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
     -- when constructing a block.
-    addCommitTransaction :: Transaction -> Slot -> m (AddTransactionResult (BlockTransactionType (BlockPointerType m)))
+    addCommitTransaction :: Transaction -> Slot -> m AddTransactionResult
     -- |Purge a transaction from the transaction table if its last committed slot
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
@@ -282,7 +280,7 @@ class (Eq (BlockPointerType m),
     purgeTransaction :: Transaction -> m Bool
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
-    markDeadTransaction :: BlockHash -> BlockTransactionType (BlockPointerType m) -> m ()
+    markDeadTransaction :: BlockHash -> Transaction -> m ()
     -- |Lookup a transaction by its hash.  As well as the transaction, return its current
     -- status as indicated in the transaction table.
     lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)

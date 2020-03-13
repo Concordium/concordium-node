@@ -12,8 +12,6 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.Block as PB
-import qualified Concordium.GlobalState.Basic.Block as BB
 import Concordium.GlobalState.Persistent.BlockPointer as PB
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
@@ -21,7 +19,6 @@ import Concordium.GlobalState.AccountTransactionIndex
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Types.PersistentTransactions
 import Concordium.Types.Transactions as T
 import Control.Exception hiding (handle)
 import Control.Monad.State
@@ -38,7 +35,6 @@ import Data.Time.Clock
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Mem.Weak
-import Concordium.GlobalState.Persistent.TransactionTable
 import Concordium.GlobalState.SQLiteATI
 -- * SkovPersistentData definition
 
@@ -46,7 +42,7 @@ data PersistenBlockStatus ati bs =
     BlockAlive !(PersistentBlockPointer ati bs)
     | BlockDead
     | BlockFinalized !FinalizationIndex
-    | BlockPending !PersistentPendingBlock
+    | BlockPending !PendingBlock
   deriving(Eq, Show)
 
 -- |Skov data for the persistent tree state version that also holds the database handlers
@@ -54,11 +50,11 @@ data SkovPersistentData ati bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
     _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus (ATIValues ati) bs)),
     -- |Map of (possibly) pending blocks by hash
-    _possiblyPendingTable :: !(HM.HashMap BlockHash [PersistentPendingBlock]),
+    _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
-    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PersistentPendingBlock),
+    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
     -- |Pointer to the last finalized block
     _lastFinalized :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Pointer to the last finalization record
@@ -76,7 +72,7 @@ data SkovPersistentData ati bs = SkovPersistentData {
     -- |Pending transaction table
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
-    _transactionTable :: !PersistentTransactionTable,
+    _transactionTable :: !TransactionTable,
     -- |Consensus statistics
     _statistics :: !ConsensusStatistics,
     -- |Runtime parameters
@@ -111,7 +107,7 @@ initialSkovPersistentData rp gd genState ati serState = do
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = HM.empty,
+            _transactionTable = emptyTransactionTable,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _db = initialDb,
@@ -150,30 +146,11 @@ instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccoun
     liftIO $ writeEntries handle bh ati sos
 
 instance (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m)) => GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
-    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PersistentPendingBlock
+    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PendingBlock
     type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
   logContext = atiCtx
-
-instance (MonadIO (PersistentTreeStateMonad ati bs m),
-          GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
-          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
-          CanExtend (ATIValues ati),
-          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
-         => TS.Convert T.Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m) where
-  toMemoryRepr (PersistentTransaction bt sz ar) = do
-    tx <- liftIO $ deRefWeak $ pbtPtr bt
-    maybe (do
-              t <- readTransaction (pbtHash bt)
-              case t of
-                Just tt ->
-                  return $ Transaction tt sz (pbtHash bt) ar
-                Nothing -> error ("Missing transaction that was persistent: " ++ show (pbtHash bt))
-          ) (\t -> return $ Transaction t sz (pbtHash bt) ar) tx
-  fromMemoryRepr (Transaction t ptrSize pbtHash ptrArrivalTime) = do
-    pbtPtr <- liftIO $ mkWeakPtr t Nothing
-    return $ PersistentTransaction {ptrBareTransaction = PersistentBareTransaction {..}, ..}
 
 getWeakPointer :: (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
                    MonadIO (PersistentTreeStateMonad ati bs m),
@@ -215,8 +192,7 @@ instance (Monad (PersistentTreeStateMonad ati bs m),
 -- The @ati@ is filled with a default value.
 constructBlock :: (MonadIO m,
                    BS.BlockStateStorage m,
-                   CanExtend (ATIStorage m),
-                   TS.Convert (BakedBlock T.Transaction) PersistentBakedBlock m)
+                   CanExtend (ATIStorage m))
                => Maybe ByteString -> BlockHash -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
 constructBlock Nothing _ = return Nothing
 constructBlock (Just bytes) bh = do
@@ -240,8 +216,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
-          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m),
-          TS.Convert T.Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m))
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
          => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
   writeBlock bp = do
     dbh <- use db
@@ -250,7 +225,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     -- we don't want the transactions to be written in this block
     -- so instead we will use `blockBody`
     let blockBS = runPut (do
-                             blockBody bp
+                             putBlock bp
                              maybe (return ()) S.put (blockSignature bp)
                              bs
                              S.put (bpHeight bp)
@@ -272,20 +247,6 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     dbh <- use db
     dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
     db .= dbh'
-  readTransaction th = do
-    env <- use (db . storeEnv)
-    dbT <- use (db . transactionStore)
-    liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe BareTransaction))
-  writeTransaction th t = do
-    dbh <- use db
-    dbh' <- putOrResize dbh (Tx (th, t))
-    db .= dbh'
-  deleteTransaction th = do
-    env <- use (db . storeEnv)
-    dbT <- use (db . transactionStore)
-    dbTS <- use (db . transactionStatusStore)
-    liftIO $ transaction env (L.put dbT th Nothing :: L.Transaction ReadWrite ())
-    liftIO $ transaction env (L.put dbTS th Nothing :: L.Transaction ReadWrite ())
   readTransactionStatus th = do
     env <- use (db . storeEnv)
     dbT <- use (db . transactionStatusStore)
@@ -302,13 +263,12 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
-      b <- signBlock key slot parent bid pf n lastFin trs
-      makePendingBlock b time
+        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
-        case runGet (BB.getBlock $ utcTimeToTransactionTime rectime) blockBS of
+        case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
             Right GenesisBlock {} -> return $ Left "Block deserialization failed: unexpected genesis block"
-            Right (NormalBlock block0) -> return $ Right $  BB.makePendingBlock block0 rectime
+            Right (NormalBlock block0) -> return $ Right $  makePendingBlock block0 rectime
     getBlockStatus bh = do
       st <- use (blockTable . at bh)
       case st of
@@ -411,7 +371,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     getPendingTransactions = use pendingTransactions
     putPendingTransactions pts = pendingTransactions .= pts
     getAccountNonFinalized addr nnce =
-            use (transactionTable . at addr) >>= \case
+            use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
                 Nothing -> return []
                 Just anfts ->
                     let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
@@ -420,90 +380,60 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         Just s -> (nnce, s) : Map.toAscList beyond
     addCommitTransaction tr slot = do
             let trHash = getHash tr
-            nft <- use transactionTable
-            t <- readTransaction trHash
-            case t of
+            tt <- use transactionTable
+            case tt ^. ttHashMap . at trHash of
                 Nothing ->
-                  if (nft ^. at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                    writeTransaction trHash (trBareTransaction tr)
-                    writeTransactionStatus trHash (Received slot)
-                    tx <- TS.fromMemoryRepr tr
-                    transactionTable .= (nft & (at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tx))
-                    return (TS.Added tx)
+                  if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
+                    transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
+                                            & (ttHashMap . at (getHash tr) ?~ (tr, Received slot)))
+                    return (TS.Added tr)
                   else return TS.ObsoleteNonce
-                Just _ -> do
-                  results <- (readTransactionStatus trHash)
-                  case results of
-                   Just res -> do
-                    when (slot > res ^. tsSlot) $ writeTransactionStatus trHash (res & tsSlot .~  slot)
-                    tx <- TS.fromMemoryRepr tr
-                    return $ TS.Duplicate tx
-                   Nothing -> error "Invariant failed: missing existing transaction doesn't have an associated transaction status"
+                Just (tr', results) -> do
+                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+                  return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
             nonce = transactionNonce tr
     finalizeTransactions bh slot = mapM_ finTrans
         where
-            finTrans tx = do
-                tr :: T.Transaction <- TS.toMemoryRepr tx
+            finTrans tr = do
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
-                anft <- use (transactionTable . at sender . non emptyANFT)
+                anft <- use (transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
-                    if Set.member tx nfn then do
+                    assert (Set.member tr nfn) $ do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
-                        let trHash = getHash tx
-                        forM_ (Set.delete tx nfn) $ deleteTransaction . getHash
+                        forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized.
-                        -- fromJust here is safe due to the precondition (and assertion) that all transactions
+                        -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
-                        status <- readTransactionStatus trHash
-                        case status of
-                            Just (Committed{..}) -> writeTransactionStatus trHash $ Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
-                            Nothing -> error "Missing transaction status when finalizing a transaction"
-                            _ -> error "Transaction should be in committed state when finalized."
+                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
-                        transactionTable . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-                    else error ("Missing tx in non-finalized set: " ++ show (pbtHash $ ptrBareTransaction tx) ++ " with set being: " ++ show (nfn) ++ " with nonce " ++ show nonce)
-    purgeTransaction t = do
-        dtr <- TS.fromMemoryRepr t
-        tr <- readTransaction (getHash t)
-        case tr of
+                        transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
+    commitTransaction slot bh tr idx =
+        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
+    purgeTransaction tr =
+        use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
-            Just tx ->
-                readTransactionStatus (getHash t) >>= \case
-                 Just results -> do
-                   lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                   if (lastFinSlot >= results ^. tsSlot) then do
-                       let nonce = transactionNonce tx
-                           sender = transactionSender tx
-                       deleteTransaction (getHash t)
-                       transactionTable . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete dtr
-                       return True
-                   else return False
-                 Nothing -> error "Missing transaction status when purging transaction"
-
-    commitTransaction s bh tr ti = do
-        results <- readTransactionStatus (getHash tr)
-        case results of
-          -- Transactions that are to be commited always must have an associated transaction status
-          -- when commiting. If it is not present, then we shall do a no-op in that case.
-          -- If the API us used correctly, the transaction should at least have the `Received` status.
-          Nothing -> return ()
-          Just res -> let newRes = addResult bh s ti res in
-                       writeTransactionStatus (getHash tr) newRes
-    markDeadTransaction bh tr = do
+            Just (_, results) -> do
+                lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
+                if (lastFinSlot >= results ^. tsSlot) then do
+                    let nonce = transactionNonce tr
+                        sender = transactionSender tr
+                    transactionTable . ttHashMap . at (getHash tr) .= Nothing
+                    transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
+                    return True
+                else return False
+    markDeadTransaction bh tr =
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
-        results <- readTransactionStatus (getHash tr)
-        case results of
-          Nothing -> return ()
-          Just res -> let newRes = markDeadResult bh res in
-                       writeTransactionStatus (getHash tr) newRes
-
-    lookupTransaction th = readTransactionStatus th
+      transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
+    lookupTransaction th =
+       preuse (transactionTable . ttHashMap . ix th . _2)
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats

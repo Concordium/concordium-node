@@ -16,9 +16,7 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
-import Concordium.GlobalState.Basic.TransactionTable
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -35,13 +33,13 @@ import Concordium.GlobalState.AccountTransactionIndex
 
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) BasicPendingBlock)),
+    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
     -- |Map of (possibly) pending blocks by hash
-    _possiblyPendingTable :: !(HM.HashMap BlockHash [BasicPendingBlock]),
+    _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
-    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight BasicPendingBlock),
+    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
     -- |List of finalization records with the blocks that they finalize, starting from genesis
     _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
     -- |Pending finalization records by finalization index
@@ -114,7 +112,7 @@ deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData 
 
 
 instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlockType (PureTreeStateMonad bs m) = BasicPendingBlock
+    type PendingBlockType (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
 instance (Monad m) => TS.Convert Transaction Transaction (PureTreeStateMonad bs m) where
@@ -135,8 +133,7 @@ instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
-      signed <- signBlock key slot parent bid pf n lastFin trs
-      return $ makePendingBlock signed time
+        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
