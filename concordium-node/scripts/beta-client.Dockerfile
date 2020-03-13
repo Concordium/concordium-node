@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -11,7 +11,7 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN --mount=type=ssh ./init.build.env.sh 
+RUN --mount=type=ssh ./init.build.env.sh
 # Build P2P client
 RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     strip /build-project/target/release/p2p_client-cli && \
@@ -23,7 +23,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     cd genesis_data && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and simple-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
@@ -57,7 +57,7 @@ RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
 RUN git checkout d3253ddac357069422b87a9201ee19860dd8fedd
-RUN --mount=type=ssh ci/dynamic-deps.sh 
+RUN --mount=type=ssh ci/dynamic-deps.sh
 ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 RUN stack build --copy-bins --ghc-options -j4
 
@@ -98,7 +98,7 @@ COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
-RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
+RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default
 RUN ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6.1 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf

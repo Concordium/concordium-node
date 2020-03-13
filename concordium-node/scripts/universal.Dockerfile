@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -11,7 +11,7 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN --mount=type=ssh ./init.build.env.sh 
+RUN --mount=type=ssh ./init.build.env.sh
 RUN --mount=type=ssh mkdir -p /build-project/release && \
     ./build-binaries.sh "instrumentation,elastic_logging,collector" "release" && \
     cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/release/ && \
@@ -39,8 +39,8 @@ RUN --mount=type=ssh mkdir -p /build-project/release && \
     # Clean
     rm -rf ~/.cargo ~/.rustup && \
     rm -rf deps src benches tests src concordium-common && \
-    rm -rf scripts rustfmt.toml README.md p2p.capnp && \ 
-    rm -rf init.build.env.sh .gitmodules .gitlab-ci.yml && \ 
+    rm -rf scripts rustfmt.toml README.md p2p.capnp && \
+    rm -rf init.build.env.sh .gitmodules .gitlab-ci.yml && \
     rm -rf .gitignore .gitattributes .dockerignore && \
     rm -rf consensus-sys Cargo.toml Cargo.lock build.rs && \
     rm -rf concordium-dns concordium-global-state && \
