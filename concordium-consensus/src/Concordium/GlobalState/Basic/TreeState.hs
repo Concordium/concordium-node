@@ -115,10 +115,6 @@ instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) wh
     type PendingBlockType (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
-instance (Monad m) => TS.Convert Transaction Transaction (PureTreeStateMonad bs m) where
-  toMemoryRepr = return
-  fromMemoryRepr = return
-
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
     bpParent = return . runIdentity . _bpParent
