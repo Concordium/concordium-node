@@ -14,7 +14,9 @@ import Data.Foldable
 import Control.Monad
 
 import Concordium.Types
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.Block (BroadcastableBlock)
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 
@@ -67,7 +69,7 @@ instance Serialize CatchUpStatus where
         cusBranches <- if cusIsRequest then get else return []
         return CatchUpStatus{..}
 
-makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointer m) -> [BlockPointer m] -> [BlockPointer m] -> m CatchUpStatus
+makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
     where
         cusLastFinalizedBlock = bpHash lfb
@@ -79,10 +81,10 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchU
 -- produce a pair of lists @(leaves, branches)@, which partions
 -- those blocks that are leaves (@leaves@) from those that are not
 -- (@branches@).
-leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
+leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
 leavesBranches = lb ([], [])
     where
-        lb :: ([BlockPointer m], [BlockPointer m]) -> [[BlockPointer m]] -> m ([BlockPointer m], [BlockPointer m])
+        lb :: ([BlockPointerType m], [BlockPointerType m]) -> [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
         lb lsbs [] = return lsbs
         lb (ls, bs) [ls'] = return (ls ++ ls', bs)
         lb (ls, bs) (s:r@(n:_)) = do
@@ -98,8 +100,8 @@ getCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
-handleCatchUp peerCUS = runExceptT $ do
+handleCatchUp :: forall m. (BlockPointerMonad m, TreeStateMonad m, SkovQueryMonad m, LoggerMonad m) => CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord BroadcastableBlock], CatchUpStatus), Bool))
+handleCatchUp peerCUS = toBroadcastable =<< (runExceptT $ do
         lfb <- lift lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
             -- Our last finalized height is below the peer's last finalized height
@@ -148,7 +150,7 @@ handleCatchUp peerCUS = runExceptT $ do
                 myBranches <- lift getBranches
                 let
                     -- Filter out blocks that are known to the peer
-                    filterUnknown :: [BlockPointer m] -> [BlockPointer m]
+                    filterUnknown :: [BlockPointerType m] -> [BlockPointerType m]
                     filterUnknown = filter ((`Set.notMember` peerKnownBlocks) . bpHash)
                     -- Given a branches structure, filter out the blocks known to the peer and split off
                     -- the oldest block (not known to the peer).  These are returned as two sequences
@@ -178,7 +180,7 @@ handleCatchUp peerCUS = runExceptT $ do
                         (b Seq.:<| bs) -> (Seq.singleton b, fmap (:[]) bs <> fmap filterUnknown myBranches)
                         Seq.Empty -> filterTakeOldest myBranches
                 let trim = Seq.dropWhileR null
-                    takeBranches :: Seq.Seq (BlockPointer m) -> Seq.Seq [BlockPointer m] -> ExceptT String m (Seq.Seq (BlockPointer m))
+                    takeBranches :: Seq.Seq (BlockPointerType m) -> Seq.Seq [BlockPointerType m] -> ExceptT String m (Seq.Seq (BlockPointerType m))
                     takeBranches out (trim -> brs) = bestBlockOf brs >>= \case
                         Nothing -> return out
                         Just bb -> (out <>) <$> innerLoop Seq.empty brs Seq.empty bb
@@ -205,4 +207,14 @@ handleCatchUp peerCUS = runExceptT $ do
                 return (Just (merge frs outBlocks2, myCUS), catchUpWithPeer)
             else
                 -- No response required
-                return (Nothing, catchUpWithPeer)
+                return (Nothing, catchUpWithPeer))
+   where
+      toBroadcastable :: (Either String (Maybe ([Either FinalizationRecord (BlockPointerType m)], CatchUpStatus), Bool)) ->
+                        m (Either String (Maybe ([Either FinalizationRecord BroadcastableBlock], CatchUpStatus), Bool))
+      toBroadcastable (Right ((Just (ets, s), b))) = do
+               nets :: [Either FinalizationRecord BroadcastableBlock] <- forM ets $ \case
+                             Left c -> return $ Left c
+                             Right bb -> Right <$> toBroadcastableBlock bb
+               return $ Right ((Just (nets, s), b))
+      toBroadcastable (Right ((Nothing, b))) = return (Right ((Nothing, b)))
+      toBroadcastable (Left s) = return $ Left s

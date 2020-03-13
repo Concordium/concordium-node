@@ -1,6 +1,7 @@
 {-# LANGUAGE
     ScopedTypeVariables,
     UndecidableInstances,
+    ConstraintKinds,
     TypeFamilies,
     CPP #-}
 module Concordium.Runner where
@@ -13,17 +14,19 @@ import Control.Exception
 import Data.ByteString as BS
 import Data.Serialize
 import Data.IORef
+import Data.Maybe
 import Control.Monad.IO.Class
 import Data.Time.Clock
 
-import Concordium.Types
-import Concordium.GlobalState.Block
-import Concordium.GlobalState.Classes
+import Concordium.GlobalState.Block hiding (PendingBlock)
+import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.TreeState as TS
 
+import Concordium.Types
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Birk.Bake
@@ -34,11 +37,10 @@ import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.Getters
 
+type SkovBlockPointer c = BlockPointerType (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
 
-type SkovBlockPointer c = BlockPointer (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
-
-data SimpleOutMessage c
-    = SOMsgNewBlock (SkovBlockPointer c)
+data SimpleOutMessage
+    = SOMsgNewBlock BroadcastableBlock
     | SOMsgFinalization FinalizationPseudoMessage
     | SOMsgFinalizationRecord FinalizationRecord
 
@@ -47,7 +49,7 @@ data SyncRunner c = SyncRunner {
     syncState :: MVar (SkovState c),
     syncBakerThread :: MVar ThreadId,
     syncLogMethod :: LogMethod IO,
-    syncCallback :: SimpleOutMessage c -> IO (),
+    syncCallback :: SimpleOutMessage -> IO (),
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
     syncHandlePendingLive :: IO ()
@@ -85,7 +87,7 @@ bufferedHandlePendingLive hpl bufferMVar = do
 makeSyncRunner :: (SkovConfiguration c, SkovQueryConfigMonad c LogIO) => LogMethod IO ->
                   BakerIdentity ->
                   c ->
-                  (SimpleOutMessage c -> IO ()) ->
+                  (SimpleOutMessage -> IO ()) ->
                   (CatchUpStatus -> IO ()) ->
                   IO (SyncRunner c)
 makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback = do
@@ -141,8 +143,9 @@ startSyncRunner sr@SyncRunner{..} = do
                         let bake = do
                                 curSlot <- getCurrentSlot
                                 mblock <-
-                                        if curSlot > lastSlot then
-                                            bakeForSlot syncBakerIdentity curSlot
+                                        if curSlot > lastSlot then do
+                                            b <- bakeForSlot syncBakerIdentity curSlot
+                                            maybe (return Nothing) (\bl -> Just <$> toBroadcastableBlock bl) b
                                         else
                                             return Nothing
                                 return (mblock, curSlot)
@@ -189,7 +192,7 @@ isSlotTooEarly s = do
 
 syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c
-    -> PendingBlock (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
+    -> BasicPendingBlock
     -> IO UpdateResult
 syncReceiveBlock syncRunner block = do
     blockTooEarly <- runSkovTransaction syncRunner (isSlotTooEarly (blockSlot block))
@@ -209,12 +212,6 @@ syncReceiveFinalizationMessage syncRunner finMsg = runSkovTransaction syncRunner
 syncReceiveFinalizationRecord :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c -> FinalizationRecord -> IO UpdateResult
 syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizeBlock finRec)
-
-{- 
-syncHookTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO, TransactionHookLenses (SkovState c))
-    => SyncRunner c -> TransactionHash -> IO HookResult
-syncHookTransaction syncRunner th = runSkovTransaction syncRunner (hookQueryTransaction th)
--}
 
 data SyncPassiveRunner c = SyncPassiveRunner {
     syncPState :: MVar (SkovState c),
@@ -252,13 +249,14 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
 shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
 
-syncPassiveReceiveBlock :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> PendingBlock (SkovT (SkovPassiveHandlers LogIO) c LogIO) -> IO UpdateResult
+syncPassiveReceiveBlock :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO)
+                        => SyncPassiveRunner c -> BasicPendingBlock -> IO UpdateResult
 syncPassiveReceiveBlock spr block = do
-    blockTooEarly <- runSkovPassive spr (isSlotTooEarly (blockSlot block))
-    if blockTooEarly then
-        return ResultEarlyBlock
-    else
-        runSkovPassive spr (storeBlock block)
+  blockTooEarly <- runSkovPassive spr (isSlotTooEarly (blockSlot block))
+  if blockTooEarly then
+      return ResultEarlyBlock
+  else
+      runSkovPassive spr (storeBlock block)
 
 syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
@@ -343,7 +341,8 @@ makeAsyncRunner logm bkr config = do
                                 Right (d, flag) -> do
                                     let
                                         send (Left fr) = writeChan outChan (MsgDirectedFinalizationRecord src (encode fr))
-                                        send (Right b) = writeChan outChan (MsgDirectedBlock src (runPut $ putBlock b))
+                                        send (Right b) = do
+                                          writeChan outChan (MsgDirectedBlock src (runPut $ blockBody b >> put (blockSignature b)))
                                     forM_ d $ \(frbs, rcus) -> do
                                         mapM_ send frbs
                                         writeChan outChan (MsgDirectedCatchUpStatus src (encode rcus))
@@ -357,6 +356,6 @@ makeAsyncRunner logm bkr config = do
         _ <- forkIO (msgLoop `catch` \(e :: SomeException) -> (logm Runner LLError ("Message loop exited with exception: " ++ show e) >> Prelude.putStrLn ("// **** " ++ show e)))
         return (inChan, outChan, sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ blockBody block >> put (fromJust $ blockSignature block)
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
