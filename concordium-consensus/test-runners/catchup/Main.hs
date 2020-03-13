@@ -22,7 +22,6 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
 
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
@@ -93,7 +92,7 @@ relayIn msgChan bakerChan sfsRef connectedRef = loop
 -}
 
 
-relay :: Peer -> Chan (OutMessage Peer) -> SyncRunner ActiveConfig -> IORef Bool -> Chan (Either (BlockHash, BakedBlock Transaction, [Instance]) FinalizationRecord) -> Chan (InMessage Peer) -> [Chan (InMessage Peer)] -> IO ()
+relay :: Peer -> Chan (OutMessage Peer) -> SyncRunner ActiveConfig -> IORef Bool -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> Chan (InMessage Peer) -> [Chan (InMessage Peer)] -> IO ()
 relay myPeer inp sr connectedRef monitor _loopback outps = loop
     where
         chooseDelay = do

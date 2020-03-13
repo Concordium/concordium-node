@@ -20,7 +20,7 @@ import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block hiding (PendingBlock)
+import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
@@ -93,8 +93,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     let bh = getHash bp
     let slot = blockSlot bp
     zipWithM_ (\tx i -> do
-                  tx' <- fromMemoryRepr (fst tx)
-                  commitTransaction slot bh tx' i) ftAdded [0..]
+                  commitTransaction slot bh (fst tx) i) ftAdded [0..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
@@ -145,7 +144,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions newpt'
 
 
-bakeForSlot :: (Convert Transaction (BlockTransactionType (PendingBlockType m)) m, BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+bakeForSlot :: (BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
@@ -161,8 +160,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    transactions <- mapM (fromMemoryRepr . fst) (ftAdded filteredTxs)
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) (map fst (ftAdded filteredTxs)) receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal

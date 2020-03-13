@@ -20,7 +20,7 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
-import Concordium.GlobalState.Classes(MGSTrans, Convert(..))
+import Concordium.GlobalState.Classes(MGSTrans)
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -138,8 +138,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
 executeFrom :: forall m .
-  (Convert Transaction (BlockTransactionType (BlockPointerType m)) m,
-   GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -176,9 +175,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
             -- Record the transaction outcomes
             bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
             -- Record transaction outcomes in the transaction table as well.
-            zipWithM_ (\tx tix -> do
-                          tr <- fromMemoryRepr tx :: m (BlockTransactionType (BlockPointerType m))
-                          commitTransaction slotNumber blockHash tr tix) txs [0..]
+            zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
             -- the main execution is now done. At this point we must mint new currency
             -- and reward the baker and other parties.
             bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
@@ -194,8 +191,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock :: forall m .
-  (Convert Transaction (BlockTransactionType (BlockPointerType m)) m,
-   GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing
@@ -220,13 +216,10 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     -- now we get transactions for each of the pending accounts.
     txs <- forM (HM.toList pt) $ \(acc, (l, _)) -> do -- m [(Nonce, Set.Set (BlockTransactionType (BlockPointerType m)))]
-      accTxs <- mapM (\(n, s) -> do
-                        -- Sadly, there is no Set.mapM
-                        nset <- mapM toMemoryRepr (Set.toList s)
-                        return (n, nset)) =<< getAccountNonFinalized acc l
+      accTxs <- getAccountNonFinalized acc l
 
       -- now find for each account the least arrival time of a transaction
-      let txsList = concatMap snd accTxs
+      let txsList = concatMap (Set.toList . snd) accTxs
       let minTime = minimum $ map trArrivalTime txsList
       return (txsList, minTime)
 

@@ -16,10 +16,9 @@ import Concordium.Types
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
-import Concordium.GlobalState.Block hiding (PendingBlock)
+import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockState (BlockStateQuery)
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
-import Concordium.GlobalState.Basic.Block (BasicPendingBlock)
 import Concordium.GlobalState.Classes as C
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -87,7 +86,7 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
-    storeBlock :: BasicPendingBlock -> m UpdateResult
+    storeBlock :: PendingBlock -> m UpdateResult
     -- |Store a block in the block table that has just been baked.
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
@@ -151,25 +150,3 @@ getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + genesisSlotDuration genData * fromIntegral s))
-
-toBroadcastableBlock :: (BlockData (BlockPointerType m),
-                        Convert Transaction (BlockTransactionType (BlockPointerType m)) m) => BlockPointerType m -> m (BroadcastableBlock)
-toBroadcastableBlock b = case blockSlot b of
-  0 -> error "Genesis block can't be converted to broadcastable block"
-  bbSlot -> do
-    let bbFields = case blockFields b of
-          Just f -> f
-          Nothing -> -- logic error
-            error "Malformed block: block slot is higher than zero and the block doesn't have block fields"
-        bfBlockPointer = blockPointer bbFields
-        bfBlockBaker = blockBaker bbFields
-        bfBlockProof = blockProof bbFields
-        bfBlockNonce = blockNonce bbFields
-        bfBlockLastFinalized = blockLastFinalized bbFields
-        txs = blockTransactions b
-        bbSignature = case blockSignature b of
-          Just s -> s
-          Nothing -> -- logic error
-            error "Malformed block: block slot is higher than zero and the block doesn't have a signature"
-    bbTransactions :: [Transaction] <- mapM toMemoryRepr txs
-    return $ BakedBlock{bbFields = BlockFields{..}, ..}
