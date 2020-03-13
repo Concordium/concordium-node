@@ -117,7 +117,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
             peersList: &other.peersList,
             bestBlock: &other.bestBlock,
             bestBlockHeight: other.bestBlockHeight,
-            bestArrivedTime: other.bestArrivedTime.as_ref().map(|s| s.as_str()),
+            bestArrivedTime: other.bestArrivedTime.as_deref(),
             blockArrivePeriodEMA: other.blockArrivePeriodEMA,
             blockArrivePeriodEMSD: other.blockArrivePeriodEMSD,
             blockArriveLatencyEMA: other.blockArriveLatencyEMA,
@@ -128,7 +128,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
             blockReceiveLatencyEMSD: other.blockReceiveLatencyEMSD,
             finalizedBlock: &other.finalizedBlock,
             finalizedBlockHeight: other.finalizedBlockHeight,
-            finalizedTime: other.finalizedTime.as_ref().map(|s| s.as_str()),
+            finalizedTime: other.finalizedTime.as_deref(),
             finalizationPeriodEMA: other.finalizationPeriodEMA,
             finalizationPeriodEMSD: other.finalizationPeriodEMSD,
             packetsSent: other.packetsSent,
@@ -177,7 +177,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
             bestBlockHeight:         other.bestBlockHeight,
             finalizedBlock:          &other.finalizedBlock,
             finalizedBlockHeight:    other.finalizedBlockHeight,
-            ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_ref().map(|s| s.as_slice()),
+            ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_deref(),
         }
     }
 }
@@ -196,7 +196,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoBetaUsers<'a> {
         Self {
             nodeName:     &other.nodeName,
             nodeId:       &other.nodeId,
-            betaUsername: other.betaUsername.as_ref().map(|s| s.as_str()),
+            betaUsername: other.betaUsername.as_deref(),
         }
     }
 }
