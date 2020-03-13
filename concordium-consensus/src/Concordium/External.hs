@@ -586,8 +586,8 @@ receiveTransaction bptr tdata len = do
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
-            case tr of
-              NormalTransaction tx -> logm External LLTrace $ "Transaction header is: " ++ show (btrHeader (trBareTransaction tx))
+            case wmdData tr of
+              NormalTransaction _ -> logm External LLTrace $ "Received normal transaction."
               CredentialDeployment _ -> logm External LLTrace $ "Received credential."
             case c of
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr

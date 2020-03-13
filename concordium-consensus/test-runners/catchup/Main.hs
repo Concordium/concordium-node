@@ -51,18 +51,17 @@ newtype Peer = Peer {
     peerChan :: Chan (InMessage Peer)
 }
 
-
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [BareTransaction]
+transactions :: StdGen -> [BlockItem]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage Peer) -> [BareTransaction] -> IO ()
+sendTransactions :: Chan (InMessage Peer) -> [BlockItem] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)

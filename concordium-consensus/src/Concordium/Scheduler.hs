@@ -14,7 +14,6 @@ import qualified Acorn.TypeCheck as TC
 import qualified Acorn.Interpreter as I
 import qualified Acorn.Core as Core
 import Acorn.Types(compile)
-import Concordium.Types.HashableTo
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
@@ -31,7 +30,6 @@ import Control.Applicative
 import Control.Monad.Except
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust, isJust)
-import Data.Proxy
 import qualified Data.Set as Set
 import qualified Data.PQueue.Prio.Max as Queue
 
@@ -735,7 +733,7 @@ handleDeployCredential ::
   ID.CredentialDeploymentInformation ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential cdi biHash = do
+handleDeployCredential cdi cdiHash = do
     remainingEnergy <- getRemainingEnergy
     let cost = Cost.deployCredential
     if remainingEnergy < cost then return Nothing
@@ -744,7 +742,7 @@ handleDeployCredential cdi biHash = do
             tsIndex <- bumpTransactionIndex
             return $ Just . TxValid $ TransactionSummary{
               tsSender = Nothing,
-              tsHash = biHash,
+              tsHash = cdiHash,
               tsCost = 0,
               tsEnergyCost = cost,
               tsType = Nothing,
@@ -831,27 +829,27 @@ handleDeployCredential cdi biHash = do
 --     as in the input).
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
-filterTransactions :: (SchedulerMonad m, TransactionData msg)
+filterTransactions :: (SchedulerMonad m)
                    => Integer -- ^Maximum block size in bytes.
-                   -> GroupedTransactions msg -- ^Transactions to make a block out of.
-                   -> m (FilteredTransactions msg)
+                   -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
+                   -> m FilteredTransactions
 filterTransactions maxSize inputTxs = do
   maxEnergy <- getMaxBlockEnergy
   (size, valid, invalidCred, unprocessedCred) <- runCredentials maxEnergy (credentialDeployments inputTxs)
   run maxEnergy invalidCred unprocessedCred size valid [] [] (perAccountTransactions inputTxs)
   where runCredentials maxEnergy = go 0 [] [] []
             where go size valid invalid unprocessedCred [] = return (size, valid, invalid, unprocessedCred)
-                  go size valid invalid unprocessedCred (cdwm@CDWM{..}:rest) = do
+                  go size valid invalid unprocessedCred (cdwm@WithMetadata{..}:rest) = do
                     totalEnergyUsed <- getUsedEnergy
-                    let csize = size + fromIntegral cdiwmSize
+                    let csize = size + fromIntegral wmdSize
                         energyCost = Cost.deployCredential
                         cenergy = totalEnergyUsed + fromIntegral energyCost
                     if csize <= maxSize && cenergy <= maxEnergy then
-                      observeTransactionFootprint (handleDeployCredential cdiwmCDI cdiwmHash) >>= \case
+                      observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                           (Just (TxValid summary), fp) -> do
                             markEnergyUsed (tsEnergyCost summary)
                             tlNotifyAccountEffect fp summary
-                            go csize ((CredentialDeployment cdwm, summary):valid) invalid unprocessedCred rest
+                            go csize ((fmap CredentialDeployment cdwm, summary):valid) invalid unprocessedCred rest
                           (Just (TxInvalid reason), _) -> do
                             go csize valid ((cdwm, reason):invalid) unprocessedCred rest
                           (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
@@ -868,7 +866,7 @@ filterTransactions maxSize inputTxs = do
                        (Just (TxValid summary), fp) -> do
                          markEnergyUsed (tsEnergyCost summary)
                          tlNotifyAccountEffect fp summary
-                         go csize ((NormalTransaction t, summary):valid) invalid unprocessed (ts : rest)
+                         go csize ((fmap NormalTransaction t, summary):valid) invalid unprocessed (ts : rest)
                        (Just (TxInvalid reason), _) ->
                          go csize valid (invalidTs t reason ts invalid) unprocessed rest
                        (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
@@ -898,13 +896,12 @@ filterTransactions maxSize inputTxs = do
 -- * 'Left Nothing' if maximum block energy limit was exceeded
 -- * 'Left (Just fk)' if a transaction failed with the given failure kind
 -- * 'Right outcomes' if all transactions are successful, with given outcomes.
-runTransactions :: forall a msg m .
-                (SchedulerMonad m, TransactionData msg, IntoExecutable a msg)
-                => [a]
-                -> m (Either (Maybe FailureKind) [(BlockItem' msg, TransactionSummary)])
+runTransactions :: forall m .
+                (SchedulerMonad m)
+                => [BlockItem]
+                -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
-    where go valid (t:ts) = do
-            let bi = intoExecutable t
+    where go valid (bi:ts) = do
             observeTransactionFootprint (predispatch bi) >>= \case
               (Just (TxValid summary), fp) -> do
                 markEnergyUsed (tsEnergyCost summary)
@@ -915,30 +912,29 @@ runTransactions = go []
           
           go valid [] = return (Right (reverse valid))
 
-          predispatch :: BlockItem' msg -> m (Maybe TxResult)
-          predispatch (NormalTransaction tr) = dispatch tr
-          predispatch (CredentialDeployment cred) = handleDeployCredential (cdiwmCDI cred) (getHash cred)
+          predispatch :: BlockItem -> m (Maybe TxResult)
+          predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
+          predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
 
 -- |Execute transactions in sequence only for sideffects on global state.
 -- Returns @Right energy@ if block executed successfully (where energy is the
 -- used energy), and 'Left' 'FailureKind' at first failed transaction. This is
 -- more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
-execTransactions :: forall a msg m.
-                 (SchedulerMonad m, TransactionData msg, IntoExecutable a msg)
-                 => [a]
-                 -> m (Either (Maybe FailureKind) (Proxy msg))
+execTransactions :: forall m . (SchedulerMonad m)
+                 => [BlockItem]
+                 -> m (Either (Maybe FailureKind) ())
 execTransactions = go
-  where go (t:ts) =
-          observeTransactionFootprint (predispatch (intoExecutable t)) >>= \case
+  where go (bi:ts) =
+          observeTransactionFootprint (predispatch bi) >>= \case
             (Nothing, _) -> return (Left Nothing)
             (Just (TxValid summary), fp) -> do
               markEnergyUsed (tsEnergyCost summary)
               tlNotifyAccountEffect fp summary
               go ts
             (Just (TxInvalid reason), _) -> return (Left (Just reason))
-        go [] = return (Right (Proxy :: Proxy msg))
+        go [] = return (Right ())
 
-        predispatch :: BlockItem' msg -> m (Maybe TxResult)
-        predispatch (NormalTransaction tr) = dispatch tr
-        predispatch (CredentialDeployment cred) = handleDeployCredential (cdiwmCDI cred) (getHash cred)
+        predispatch :: BlockItem -> m (Maybe TxResult)
+        predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
+        predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash

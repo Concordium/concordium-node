@@ -168,7 +168,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
-    (res, finState) <- runBSM (Sch.runTransactions @BlockItem @Transaction txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     let usedEnergy = finState ^. schedulerEnergyUsed
     let bshandle2 = finState ^. schedulerBlockState
     case res of
@@ -204,7 +204,7 @@ constructBlock :: forall m .
   -> BlockPointer m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> BirkParameters
-  -> m (Sch.FilteredTransactions Transaction, ExecutionResult m)
+  -> m (Sch.FilteredTransactions, ExecutionResult m)
 constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -222,14 +222,14 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     let credentialHashes = HashSet.toList (pt ^. pttDeployCredential)
     -- NB: catMaybes is safe, but invariants should ensure that it is a no-op.
-    orderedCredentials <- List.sortOn cdiwmArrivalTime . catMaybes <$> mapM getCredential credentialHashes
+    orderedCredentials <- List.sortOn wmdArrivalTime . catMaybes <$> mapM getCredential credentialHashes
 
     -- now we get transactions for each of the pending accounts.
     txs <- forM (HM.toList (pt ^. pttWithSender)) $ \(acc, (l, _)) -> do
       accTxs <- getAccountNonFinalized acc l
       -- now find for each account the least arrival time of a transaction
       let txsList = concatMap (Set.toList . snd) accTxs
-      let minTime = minimum $ map trArrivalTime txsList
+      let minTime = minimum $ map wmdArrivalTime txsList
       return (txsList, minTime)
 
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.

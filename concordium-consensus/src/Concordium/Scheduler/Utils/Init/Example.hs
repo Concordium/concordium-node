@@ -93,8 +93,9 @@ initSimpleCounter n = Runner.signTx
 
 
 {-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
-makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
-makeTransaction inc ca n = Runner.signTx mateuszKP header payload
+-- All transactions have the same arrival time (0)
+makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BlockItem
+makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -146,7 +147,7 @@ initialState birkParams cryptoParams bakerAccounts ips n =
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
-        finState = Types.execSI (execTransactions @Types.BareTransaction @Types.BareTransaction (initialTrans n))
+        finState = Types.execSI (execTransactions (map (fmap Types.NormalTransaction . Types.fromBareTransaction 0) (initialTrans n)))
                                 Types.emptySpecialBetaAccounts
                                 Types.dummyChainMeta
                                 maxBound

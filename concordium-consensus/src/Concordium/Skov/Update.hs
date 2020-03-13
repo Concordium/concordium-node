@@ -531,9 +531,9 @@ doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
 doReceiveTransactionInternal :: (TreeStateMonad m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
 doReceiveTransactionInternal tr slot =
         addCommitTransaction tr slot >>= \case
-          Added bi -> do
+          Added bi@WithMetadata{..} -> do
               ptrs <- getPendingTransactions
-              case bi of
+              case wmdData of
                 NormalTransaction tx -> do
                   focus <- getFocusBlock
                   st <- blockState focus
@@ -543,9 +543,9 @@ doReceiveTransactionInternal tr slot =
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.
                   when (nextNonce <= transactionNonce tx) $
-                      putPendingTransactions $! extendPendingTransactionTable nextNonce tx ptrs
-                CredentialDeployment cdiwm -> do
-                  putPendingTransactions $! extendPendingTransactionTable' (getHash cdiwm) ptrs
+                      putPendingTransactions $! extendPendingTransactionTable nextNonce WithMetadata{wmdData=tx,..} ptrs
+                CredentialDeployment _ -> do
+                  putPendingTransactions $! extendPendingTransactionTable' wmdHash ptrs
               return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)

@@ -71,7 +71,7 @@ processTransactions
     -> BlockPointer m
     -> BlockPointer m
     -> BakerId
-    -> m (FilteredTransactions Transaction, ExecutionResult m)
+    -> m (FilteredTransactions, ExecutionResult m)
 processTransactions slot ss bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
@@ -86,7 +86,7 @@ processTransactions slot ss bh finalizedP bid = do
 maintainTransactions ::
   TreeStateMonad m
   => BlockPointer m
-  -> FilteredTransactions Transaction
+  -> FilteredTransactions
   -> m ()
 maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
