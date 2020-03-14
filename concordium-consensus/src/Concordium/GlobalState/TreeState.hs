@@ -239,12 +239,16 @@ class (Eq (BlockPointerType m),
     -- * Operations on the transaction table
     -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
     -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
-    -- with that nonce.
+    -- with that nonce. Transaction groups are ordered by increasing nonce.
 
     getAccountNonFinalized ::
       AccountAddress
       -> Nonce
       -> m [(Nonce, Set.Set Transaction)]
+
+    -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
+    -- to return 'Nothing' if the requested credential has already been finalized.
+    getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
 
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
@@ -328,6 +332,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
+    getCredential = lift . getCredential
     addTransaction tr = lift $ addTransaction tr
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
@@ -370,6 +375,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getPendingTransactions #-}
     {-# INLINE putPendingTransactions #-}
     {-# INLINE getAccountNonFinalized #-}
+    {-# INLINE getCredential #-}
     {-# INLINE addTransaction #-}
     {-# INLINE finalizeTransactions #-}
     {-# INLINE commitTransaction #-}
