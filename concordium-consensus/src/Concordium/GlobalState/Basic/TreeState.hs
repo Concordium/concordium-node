@@ -260,18 +260,32 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
 
     commitTransaction slot bh tr idx =
         transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
-    purgeTransaction tr =
-        use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
+
+    purgeTransaction WithMetadata{..} =
+        use (transactionTable . ttHashMap . at wmdHash) >>= \case
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                 if (lastFinSlot >= results ^. tsSlot) then do
-                    let nonce = transactionNonce tr
-                        sender = transactionSender tr
-                    transactionTable . ttHashMap . at (getHash tr) .= Nothing
-                    transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
+                    -- remove from the table
+                    transactionTable . ttHashMap . at wmdHash .= Nothing
+                    -- if the transaction is from a sender also delete the relevant
+                    -- entry in the account non finalized table
+                    case wmdData of
+                      NormalTransaction tr -> do
+                        let nonce = transactionNonce tr
+                            sender = transactionSender tr
+                        transactionTable
+                          . ttNonFinalizedTransactions
+                          . at sender
+                          . non emptyANFT
+                          . anftMap
+                          . at nonce
+                          . non Set.empty %= Set.delete WithMetadata{wmdData=tr,..}
+                      _ -> return () -- do nothing.
                     return True
                 else return False
+
     markDeadTransaction bh tr =
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
