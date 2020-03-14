@@ -14,9 +14,8 @@ import System.Random
 
 import Concordium.Crypto.SHA256
 
-import qualified Concordium.GlobalState.Basic.Block as B
 import qualified Concordium.GlobalState.Basic.BlockPointer as BS
-import Concordium.GlobalState.Block
+import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.TreeState as TS
@@ -147,9 +146,12 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
                         testList knownBlocks knownFin (Right bp : rs) = do
-                            checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
-                            checkBinary Set.member (blockLastFinalized bp) knownFin "in" "block parent" "known finalized blocks"
-                            testList (Set.insert (getHash bp) knownBlocks) knownFin rs
+                            case blockFields bp of
+                              Just bf -> do
+                                checkBinary Set.member (blockPointer bf) knownBlocks "in" "block parent" "known blocks"
+                                checkBinary Set.member (blockLastFinalized bf) knownFin "in" "block parent" "known finalized blocks"
+                              Nothing -> return ()
+                            testList (Set.insert (bpHash bp) knownBlocks) knownFin rs
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
                     -- * A block is not sent before its parent
                     -- * A block is not sent before finalization of its last finalized block
@@ -157,11 +159,10 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                     -- Furthermore, check that the finalization records + the requestor's finalized blocks
                     -- add up to the respondent's finalized blocks.
                     testList reqLive reqFin l
-                    -- TODO js: check the correct ordering
-                    -- let recBPs = [bp | (Right bp) <- l]
-                    -- case recBPs of
-                    --     [] -> return ()
-                    --     (hbp : bps) -> forM_ bps $ \bp -> checkBinary (<=) (bpArriveTime hbp) (bpArriveTime bp) "<=" "first block time" "other block time"
+                    let recBPs = [bp | (Right bp) <- l]
+                    case recBPs of
+                        [] -> return ()
+                        (hbp : bps) -> forM_ bps $ \bp -> checkBinary (<=) (bpArriveTime hbp) (bpArriveTime bp) "<=" "first block time" "other block time"
                 return True
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"

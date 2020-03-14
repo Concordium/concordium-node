@@ -26,10 +26,8 @@ import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Block as B
-import Concordium.GlobalState.Basic.Block as BB
 import Concordium.GlobalState.Basic.BlockPointer
 import qualified Concordium.GlobalState.Basic.BlockState as BState
-import Concordium.GlobalState.Basic.TransactionTable
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.BlockPointer (bpHash, bpHeight)
 import Concordium.Types.Transactions
@@ -70,7 +68,7 @@ dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
 type Trs = HM.HashMap TransactionHash (Transaction, TransactionStatus)
-type ANFTS = HM.HashMap AccountAddress (AccountNonFinalizedTransactions Transaction)
+type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
@@ -256,7 +254,7 @@ type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT ExecState 
 
 data Event
     = EBake Slot
-    | EBlock BasicBakedBlock
+    | EBlock BakedBlock
     | ETransaction Transaction
     | EFinalization FinalizationPseudoMessage
     | EFinalizationRecord FinalizationRecord
@@ -345,7 +343,7 @@ runKonsensusTest steps g states es
                         Just _ -> error "Baked genesis block"
 
                 EBlock block -> do
-                    (_, fs', es') <- myRunSkovT (storeBlock (BB.makePendingBlock block dummyTime)) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (storeBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
                     continue fs' es'
                 ETransaction tr -> do
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
@@ -392,7 +390,7 @@ runKonsensusTestSimple steps g states es
                         Just _ -> error "Baked genesis block"
 
                 EBlock block -> do
-                    (_, fs', es') <- myRunSkovT (storeBlock (BB.makePendingBlock block dummyTime)) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (storeBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
                     continue fs' es'
                 ETransaction tr -> do
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
