@@ -938,6 +938,21 @@ getAccountNonFinalizedTransactions cptr addrcstr = do
         logm External LLTrace $ "Replying with: " ++ show status
         jsonValueToCString (AE.toJSON status)
 
+-- |Get the best guess for the next available account nonce.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with account address.
+getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
+getNextAccountNonce cptr addrcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Received next account nonce request."
+    withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
+        status <- runConsensusQuery c (Get.getNextAccountNonce addr)
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString status
+
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a NUL-termianated string encoding a JSON value.
 getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString

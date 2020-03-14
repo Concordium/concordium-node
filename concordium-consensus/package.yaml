@@ -59,7 +59,7 @@ default-extensions:
 flags:
   dynamic:
     manual: False
-    default: True
+    default: False
 
 library:
   source-dirs: src

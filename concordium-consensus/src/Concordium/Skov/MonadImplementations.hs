@@ -222,11 +222,14 @@ instance (
     {-# INLINE queryBlockState #-}
     queryBlockState = blockState
     {-# INLINE queryTransactionStatus #-}
-    queryTransactionStatus trHash = lookupTransaction trHash
+    queryTransactionStatus = lookupTransaction
     {-# INLINE queryNonFinalizedTransactions #-}
     queryNonFinalizedTransactions addr = do
       txs <- getAccountNonFinalized addr minNonce
       return $! map getHash . concatMap (toList . snd) $ txs
+
+    {-# INLINE queryNextAccountNonce #-}
+    queryNextAccountNonce = getNextAccountNonce
 
 instance (
         Monad m,

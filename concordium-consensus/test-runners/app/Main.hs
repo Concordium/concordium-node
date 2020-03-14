@@ -42,18 +42,18 @@ import Concordium.Startup
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [BareTransaction]
+transactions :: StdGen -> [BlockItem]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (_ : _ : rs) = Example.makeTransferTransaction n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Int -> Chan (InMessage a) -> [BareTransaction] -> IO ()
+sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
         (writeChan chan (MsgTransactionReceived $ runPut $ put t))
         -- r <- randomRIO (5000, 15000)
-        threadDelay (10^(6::Int))
+        threadDelay 10000
         sendTransactions bakerId chan ts
 sendTransactions _ _ _ = return ()
 
@@ -162,7 +162,7 @@ main = do
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
-        let logM src lvl msg = do
+        let logM src lvl msg = when (lvl == LLInfo) $ do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
@@ -174,7 +174,7 @@ main = do
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler (Just logT)
+            hconfig = HookLogHandler Nothing -- (Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions bakerId cin trans

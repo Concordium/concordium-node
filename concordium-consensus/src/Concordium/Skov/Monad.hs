@@ -81,7 +81,9 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     queryTransactionStatus :: TransactionHash -> m (Maybe TransactionStatus)
     -- |Get non-finalized transactions for an account, ordered by increasing nonce.
     queryNonFinalizedTransactions :: AccountAddress -> m [TransactionHash]
-
+    -- |Get best guess for next account nonce.
+    -- The second argument is 'True' if and only if all transactions from this account are finalized.
+    queryNextAccountNonce :: AccountAddress -> m (Nonce, Bool)
 
 class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
@@ -115,6 +117,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     queryBlockState = lift . queryBlockState
     queryTransactionStatus = lift . queryTransactionStatus
     queryNonFinalizedTransactions = lift . queryNonFinalizedTransactions
+    queryNextAccountNonce = lift . queryNextAccountNonce
     {-# INLINE resolveBlock #-}
     {-# INLINE isFinalized #-}
     {-# INLINE lastFinalizedBlock #-}
@@ -127,6 +130,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     {-# INLINE queryBlockState #-}
     {-# INLINE queryTransactionStatus #-}
     {-# INLINE queryNonFinalizedTransactions #-}
+    {-# INLINE queryNextAccountNonce #-}
 
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b

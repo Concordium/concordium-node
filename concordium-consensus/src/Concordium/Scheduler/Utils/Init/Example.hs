@@ -110,8 +110,8 @@ makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransact
                                                     )
 
 {-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
-makeTransferTransaction :: Nonce -> Types.BareTransaction
-makeTransferTransaction n = Runner.signTx mateuszKP header payload
+makeTransferTransaction :: Nonce -> Types.BlockItem
+makeTransferTransaction n = fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
