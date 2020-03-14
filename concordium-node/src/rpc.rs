@@ -626,14 +626,9 @@ impl P2p for RpcServerImpl {
         req: Request<AccountAddress>,
     ) -> Result<Response<JsonResponse>, Status> {
         authenticate!(req, self.access_token);
-        call_consensus!(
-            self,
-            "GetNextAccountNonce",
-            JsonResponse,
-            |cc: &ConsensusContainer| {
-                cc.get_next_account_nonce(&req.get_ref().account_address)
-            }
-        )
+        call_consensus!(self, "GetNextAccountNonce", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_next_account_nonce(&req.get_ref().account_address)
+        })
     }
 
     async fn get_block_summary(
