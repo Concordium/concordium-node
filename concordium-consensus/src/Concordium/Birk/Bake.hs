@@ -133,7 +133,7 @@ maintainTransactions bp FilteredTransactions{..} = do
           if b then return cpt
           else return $! extendPendingTransactionTable' (wmdHash cred) cpt
 
-    newpt' <- foldM_ purgeCredential newpt (map fst ftFailedCredentials)
+    newpt' <- foldM purgeCredential newpt (map fst ftFailedCredentials)
 
     -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
     let purgeTooBig cpt tx =
