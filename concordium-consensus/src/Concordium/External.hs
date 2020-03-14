@@ -1081,6 +1081,7 @@ foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CStrin
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
