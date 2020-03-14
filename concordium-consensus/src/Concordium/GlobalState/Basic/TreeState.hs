@@ -204,6 +204,11 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
 
+    getCredential txHash =
+      preuse (transactionTable . ttHashMap . ix txHash) >>= \case
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $! Just WithMetadata{wmdData=biCred,..}
+        _ -> return Nothing
+
     addCommitTransaction bi@WithMetadata{..} slot = do
       let trHash = wmdHash
       tt <- use transactionTable

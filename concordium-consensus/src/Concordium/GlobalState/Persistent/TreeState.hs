@@ -370,6 +370,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
     putPendingTransactions pts = pendingTransactions .= pts
+
     getAccountNonFinalized addr nnce =
             use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
                 Nothing -> return []
@@ -378,6 +379,13 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
+
+    -- only looking up the cached part is OK because the precondition of this method is that the
+    -- transaction is not yet finalized
+    getCredential txHash =
+      preuse (transactionTable . ttHashMap . ix txHash) >>= \case
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $! Just WithMetadata{wmdData=biCred,..}
+        _ -> return Nothing
 
     addCommitTransaction bi@WithMetadata{..} slot = do
       let trHash = wmdHash
