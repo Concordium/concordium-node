@@ -380,6 +380,14 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
 
+    getNextAccountNonce addr =
+        use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
+                Nothing -> return (minNonce, True)
+                Just anfts ->
+                  case Map.lookupMax (anfts ^. anftMap) of
+                    Nothing -> return (minNonce, True)
+                    Just (nonce, _) -> return (nonce + 1, False)
+
     -- only looking up the cached part is OK because the precondition of this method is that the
     -- transaction is not yet finalized
     getCredential txHash =
