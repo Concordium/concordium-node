@@ -9,6 +9,7 @@
 {-# LANGUAGE StandaloneDeriving, DerivingVia #-}
 module Concordium.GlobalState.TreeState(
     module Concordium.GlobalState.Classes,
+    module Concordium.GlobalState.Types,
     module Concordium.GlobalState.Block,
     module Concordium.GlobalState.TreeState
 ) where
@@ -21,17 +22,19 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.ByteString as ByteString
 
-import Concordium.Types
-import Concordium.Types.HashableTo
+import Concordium.GlobalState.Block (BlockData(..), BlockPendingData (..), PendingBlock(..))
+import Concordium.GlobalState.BlockPointer (BlockPointerData(..))
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Classes
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions as Transactions
 import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.BlockPointer
+import Concordium.Types.HashableTo
+import Concordium.Types
 import Concordium.GlobalState.AccountTransactionIndex
 
 data BlockStatus bp pb =
@@ -52,7 +55,7 @@ instance Show (BlockStatus bp pb) where
 -- be exactly the live blocks.  If a block is in the branches, then either it is at
 -- the lowest level and its parent is the last finalized block, or its parent is also
 -- in the branches at the level below.
-type Branches m = Seq.Seq [BlockPointer m]
+type Branches m = Seq.Seq [BlockPointerType m]
 
 -- |Result of trying to add a transaction to the transaction table.
 data AddTransactionResult =
@@ -68,12 +71,12 @@ data AddTransactionResult =
 -- |Monad that provides operations for working with the low-level tree state.
 -- These operations are abstracted where possible to allow for a range of implementation
 -- choices.
-class (Eq (BlockPointer m),
-       Ord (BlockPointer m),
-       HashableTo BlockHash (BlockPointer m),
-       BlockData (BlockPointer m),
-       BlockPointerData (BlockPointer m),
-       BlockPendingData (PendingBlock m),
+class (Eq (BlockPointerType m),
+       Ord (BlockPointerType m),
+       HashableTo BlockHash (BlockPointerType m),
+       BlockData (BlockPointerType m),
+       BlockPointerData (BlockPointerType m),
+       BlockPendingData (PendingBlockType m),
        BlockStateStorage m,
        BlockPointerMonad m,
        PerAccountDBOperations m,
@@ -92,7 +95,7 @@ class (Eq (BlockPointer m),
         -> BlockHash        -- ^Hash of last finalized block
         -> [BlockItem]      -- ^List of transactions
         -> UTCTime          -- ^Block receive time
-        -> m (PendingBlock m)
+        -> m (PendingBlockType m)
     -- |Create a 'PendingBlock' from the raw block data.
     -- If deserialisation fails, it returns an error.
     -- Otherwise, it returns the block.
@@ -100,29 +103,29 @@ class (Eq (BlockPointer m),
         ByteString.ByteString
                             -- ^Block data
         -> UTCTime          -- ^Block received time
-        -> m (Either String (PendingBlock m))
+        -> m (Either String PendingBlock)
 
     -- * Operations on the block table
     -- |Get the current status of a block.
-    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointer m) (PendingBlock m)))
+    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) (PendingBlockType m)))
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
     makeLiveBlock ::
-        PendingBlock m                       -- ^Block to make live
-        -> BlockPointer m                    -- ^Parent block pointer
-        -> BlockPointer m                    -- ^Last finalized block pointer
+        PendingBlockType m                       -- ^Block to make live
+        -> BlockPointerType m                    -- ^Parent block pointer
+        -> BlockPointerType m                    -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
         -> ATIStorage m                      -- ^This block's account -> transaction index.
         -> UTCTime                           -- ^Block arrival time
         -> Energy                            -- ^Energy cost of the transactions in the block.
-        -> m (BlockPointer m)
+        -> m (BlockPointerType m)
     -- |Mark a block as dead. This should only be used directly if there are no other state invariants
     -- which should be maintained. See 'markLiveBlockDead' for an alternative method which maintains more invariants.
     markDead :: BlockHash -> m ()
     -- |Mark a live block as dead. In addition, purge the block state and maintain invariants in the
     -- transaction table by purging all transaction outcomes that refer to this block.
     -- This has a default implementation in terms of 'markDead', 'purgeBlockState' and 'markDeadTransaction'.
-    markLiveBlockDead :: BlockPointer m -> m ()
+    markLiveBlockDead :: BlockPointerType m -> m ()
     markLiveBlockDead bp = do
       let bh = getHash bp
       -- Mark the block dead
@@ -138,15 +141,15 @@ class (Eq (BlockPointer m),
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
     -- |Mark a block as pending (i.e. awaiting parent or finalization of
     --  last finalized block)
-    markPending :: PendingBlock m -> m ()
+    markPending :: PendingBlockType m -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
-    getGenesisBlockPointer :: m (BlockPointer m)
+    getGenesisBlockPointer :: m (BlockPointerType m)
     -- |Get the 'GenesisData'.
     getGenesisData :: m GenesisData
     -- * Operations on the finalization list
     -- |Get the last finalized block.
-    getLastFinalized :: m (BlockPointer m, FinalizationRecord)
+    getLastFinalized :: m (BlockPointerType m, FinalizationRecord)
     -- |Get the slot number of the last finalized block
     getLastFinalizedSlot :: m Slot
     getLastFinalizedSlot = blockSlot . fst <$> getLastFinalized
@@ -159,11 +162,11 @@ class (Eq (BlockPointer m),
     -- |Add a block and finalization record to the finalization list.
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
-    addFinalization :: BlockPointer m -> FinalizationRecord -> m ()
+    addFinalization :: BlockPointerType m -> FinalizationRecord -> m ()
     -- |Get the finalization record for a particular finalization index (if available), with the finalized block.
-    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe (FinalizationRecord, BlockPointer m))
+    getFinalizationAtIndex :: FinalizationIndex -> m (Maybe (FinalizationRecord, BlockPointerType m))
     -- |Get a list of all (validated) finalization records with blocks from the given index
-    getFinalizationFromIndex :: FinalizationIndex -> m [(FinalizationRecord, BlockPointer m)]
+    getFinalizationFromIndex :: FinalizationIndex -> m [(FinalizationRecord, BlockPointerType m)]
     getFinalizationFromIndex i = getFinalizationAtIndex i >>= \case
             Nothing -> return []
             Just f -> (f :) <$> getFinalizationFromIndex (i+1)
@@ -186,13 +189,13 @@ class (Eq (BlockPointer m),
     --
     -- |Return a list of the blocks that are pending the given parent block,
     -- removing them from the pending table.
-    takePendingChildren :: BlockHash -> m [PendingBlock m]
+    takePendingChildren :: BlockHash -> m [PendingBlockType m]
     -- |Add a pending block, that is pending on the arrival of its parent.
-    addPendingBlock :: PendingBlock m -> m ()
+    addPendingBlock :: PendingBlockType m -> m ()
     -- |Return the next block that is pending its parent with slot number
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
-    takeNextPendingUntil :: Slot -> m (Maybe (PendingBlock m))
+    takeNextPendingUntil :: Slot -> m (Maybe (PendingBlockType m))
     -- * Operations on blocks that are pending the finalization of their
     -- last finalized block
     --
@@ -205,12 +208,12 @@ class (Eq (BlockPointer m),
     --
     -- |Add a block that is awaiting finalization of its last finalized block.
     addAwaitingLastFinalized :: BlockHeight         -- ^Height of block's last finalized block
-                                -> PendingBlock m   -- ^Block that is pending
+                                -> PendingBlockType m   -- ^Block that is pending
                                 -> m ()
     -- |Take the next awaiting-last-finalized block where the height of the
     -- block that is awaiting finalization is less than or equal to the given
     -- value.
-    takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe (PendingBlock m))
+    takeAwaitingLastFinalizedUntil :: BlockHeight -> m (Maybe (PendingBlockType m))
     -- * Operations on the finalization pool
     -- |Get the finalization pool at the given finalization index.
     getFinalizationPoolAtIndex :: FinalizationIndex -> m [FinalizationRecord]
@@ -225,9 +228,9 @@ class (Eq (BlockPointer m),
     -- the focus block.  (Ideally, this should be the best block, however, it
     -- shouldn't be a problem if it's not.)
     -- |Return the focus block.
-    getFocusBlock :: m (BlockPointer m)
+    getFocusBlock :: m (BlockPointerType m)
     -- |Update the focus block.
-    putFocusBlock :: BlockPointer m -> m ()
+    putFocusBlock :: BlockPointerType m -> m ()
     -- |Get the pending transactions after execution of the focus block.
     getPendingTransactions :: m PendingTransactionTable
     -- |Set the pending transactions after execution of the focus block.
@@ -237,14 +240,11 @@ class (Eq (BlockPointer m),
     -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
     -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
     -- with that nonce.
-    getAccountNonFinalized :: AccountAddress -> Nonce -> m [(Nonce, Set.Set Transaction)]
 
-    getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
-    getCredential th = 
-      lookupTransaction th >>= \case
-        Just (WithMetadata{wmdData=Transactions.CredentialDeployment{..},..}, _)
-            -> return (Just WithMetadata{wmdData=biCred,..})
-        _ -> return Nothing
+    getAccountNonFinalized ::
+      AccountAddress
+      -> Nonce
+      -> m [(Nonce, Set.Set Transaction)]
 
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
@@ -284,15 +284,8 @@ class (Eq (BlockPointer m),
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
-    -- |Lookup a transaction by its hash.  As well as the transaction, return its current
-    -- status as indicated in the transaction table.
-    lookupTransaction :: TransactionHash -> m (Maybe (BlockItem, TransactionStatus))
-    -- |Replace the transactions in a pending block with an identical set of
-    -- transactions.  (If the transactions are not identical, the hash will
-    -- not be correct.)  This is intended for de-duplicating transactions.
-    -- Ideally, this should be handled better.
-    updateBlockTransactions :: [BlockItem] -> PendingBlock m -> m (PendingBlock m)
-
+    -- |Lookup a transaction status by its hash.
+    lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
@@ -342,7 +335,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     purgeTransaction = lift . purgeTransaction
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
-    updateBlockTransactions trs b = lift $ updateBlockTransactions trs b
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
@@ -385,11 +377,9 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE purgeTransaction #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE markDeadTransaction #-}
-    {-# INLINE updateBlockTransactions #-}
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
--- deriving via (MGSTrans (RWST r w s) m) instance (TreeStateMonad m, Monoid w) => TreeStateMonad (RWST r w s m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)

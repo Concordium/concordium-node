@@ -7,6 +7,7 @@ import Data.Foldable
 import Control.Monad.State
 import Control.Exception
 import Data.Serialize (runGet)
+import Data.Functor.Identity
 
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HM
@@ -14,22 +15,22 @@ import qualified Data.Sequence as Seq
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
-import Concordium.Types
-import Concordium.Types.HashableTo
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.Basic.BlockPointer
+import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Classes as GS
+import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Block
-import qualified Concordium.GlobalState.TreeState as TS
-import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
+import qualified Concordium.GlobalState.TreeState as TS
+import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
-import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.AccountTransactionIndex
-
-import Concordium.GlobalState.Basic.Block
-import Concordium.GlobalState.Basic.BlockPointer
 
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
@@ -91,7 +92,7 @@ initialSkovData rp gd genState =
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-        gb = makeGenesisBlockPointer gd genState
+        gb = makeGenesisBasicBlockPointer gd genState
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a non-persistent tree state.
 -- The underlying Monad must provide instances for:
@@ -109,16 +110,16 @@ newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage)
 
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
-  
 
-instance (bs ~ GS.BlockState m) => GS.GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlock (PureTreeStateMonad bs m) = PendingBlock
-    type BlockPointer (PureTreeStateMonad bs m) = BasicBlockPointer bs
+
+instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
+    type PendingBlockType (PureTreeStateMonad bs m) = PendingBlock
+    type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
-    bpParent = return . _bpParent
-    bpLastFinalized = return . _bpLastFinalized
+    bpParent = return . runIdentity . _bpParent
+    bpLastFinalized = return . runIdentity . _bpLastFinalized
 
 instance ATITypes (PureTreeStateMonad bs m) where
   type ATIStorage (PureTreeStateMonad bs m) = ()
@@ -128,7 +129,8 @@ instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
 
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    makePendingBlock key slot parent bid pf n lastFin trs time = do
+        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
@@ -201,6 +203,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
+
     addCommitTransaction bi@WithMetadata{..} slot = do
       let trHash = wmdHash
       tt <- use transactionTable
@@ -220,7 +223,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                 transactionTable . ttHashMap . at trHash ?= (bi, Received slot)
                 return (TS.Added bi)
           Just (tr', results) -> do
-            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
 
     finalizeTransactions bh slot = mapM_ finTrans
@@ -268,9 +271,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
       transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
-    lookupTransaction th = use (transactionTable . ttHashMap . at th)
-
-    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
+    lookupTransaction th =
+       preuse (transactionTable . ttHashMap . ix th . _2)
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats
