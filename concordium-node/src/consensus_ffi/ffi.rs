@@ -325,6 +325,10 @@ extern "C" {
         transaction_hash: *const u8,
         block_hash: *const u8,
     ) -> *const c_char;
+    pub fn getNextAccountNonce(
+        consensus: *mut consensus_runner,
+        account_address: *const u8,
+    ) -> *const c_char;
 }
 
 pub fn get_consensus_ptr(
@@ -595,6 +599,14 @@ impl ConsensusContainer {
             consensus,
             transaction_hash.as_ptr() as *const u8,
             block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn ge_nNext_ccount_nonce(&self, account_address: &str) -> String {
+        let account_address = CString::new(account_address).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
+            consensus,
+            account_address.as_ptr() as *const u8
         ))
     }
 }
