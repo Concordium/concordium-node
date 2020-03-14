@@ -115,9 +115,12 @@ transactionsInput =
            }
     ]
 
-runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-                                                     [(Types.BareTransaction, Types.FailureKind)],
-                                                     Types.BirkParameters)], BlockState)
+type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
+                     [(Types.Transaction, Types.FailureKind)],
+                     Types.BirkParameters)],
+                    BlockState)
+
+runWithIntermediateStates :: PR.Context Core.UA IO TestResult
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->

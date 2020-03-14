@@ -22,7 +22,6 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
 
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState

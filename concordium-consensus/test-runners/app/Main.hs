@@ -23,7 +23,6 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
@@ -37,7 +36,7 @@ import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Birk.Bake
 
 import Concordium.Scheduler.Utils.Init.Example as Example
-
+--import Debug.Trace
 import Concordium.Startup
 
 nContracts :: Int
@@ -46,17 +45,17 @@ nContracts = 2
 transactions :: StdGen -> [BareTransaction]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
-        contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (a : b : rs) = Example.makeTransferTransaction n : trs (n+1) rs
+        --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
+        trs n (_ : _ : rs) = Example.makeTransferTransaction n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
-sendTransactions chan (t : ts) = do
-        writeChan chan (MsgTransactionReceived $ runPut $ put t)
+sendTransactions :: Int -> Chan (InMessage a) -> [BareTransaction] -> IO ()
+sendTransactions bakerId chan (t : ts) = do
+        (writeChan chan (MsgTransactionReceived $ runPut $ put t))
         -- r <- randomRIO (5000, 15000)
-        threadDelay 50000
-        sendTransactions chan ts
-sendTransactions _ _ = return ()
+        threadDelay (10^(6::Int))
+        sendTransactions bakerId chan ts
+sendTransactions _ _ _ = return ()
 
 relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "// *** relay thread exited on exception: " ++ show e)
@@ -138,14 +137,9 @@ genesisState genData = Example.initialState
                        -- (genesisMintPerSlot genData)
 
 
--- type TreeConfig = DiskTreeDiskBlockWithLogConfig
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> ByteString -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return . DTDBWLConfig rt genData (genesisState genData)
-
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
-
 
 -- type TreeConfig = MemoryTreeDiskBlockConfig
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -176,14 +170,14 @@ main = do
         logTransferFile <- openFile (transferLogPrefix ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
-        -- let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
-        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen -- dbConnString
+        --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = HookLogHandler (Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
-        _ <- forkIO $ sendTransactions cin trans
+        _ <- forkIO $ sendTransactions bakerId cin trans
         return (cin, cout, sr)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, sr), cs) -> forkIO $ relay cout sr monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)

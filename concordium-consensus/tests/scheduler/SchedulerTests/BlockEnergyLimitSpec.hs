@@ -64,14 +64,13 @@ transactions = [-- valid transaction: energy not over max limit
                       }
                ]
 
-testMaxBlockEnergy ::
-    PR.Context UA
-       IO
-       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)],
-        [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-        [Types.BareTransaction],
-        [Types.BareTransaction])
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
+                   [Types.Transaction],
+                   [Types.Transaction])
+
+testMaxBlockEnergy :: PR.Context UA IO TestResult
 testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
@@ -89,18 +88,13 @@ testMaxBlockEnergy = do
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftFailedCredentials, ftUnprocessed, concat (Types.perAccountTransactions ts))
 
-checkResult :: ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-                [(Types.BareTransaction, Types.FailureKind)],
-                [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-                [Types.BareTransaction],
-                [Types.BareTransaction]) ->
-               Expectation
-checkResult (valid, invalid, invalidCred, unproc, [t1, t2, t3, t4]) =
+checkResult :: TestResult -> Expectation
+checkResult (valid, invalid, invalidCred, unproc, [t1, t3, t4]) =
     validCheck >> invalidCheck >> unprocessedCheck
     where
         validCheck = case valid of
             [(t, Types.TxSuccess{})] ->
-                 assertEqual "The first transaction should be valid:" (Types.NormalTransaction t1) t
+                 assertEqual "The first transaction should be valid:" (Types.NormalTransaction <$> t1) t
             _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
         invalidCheck = do
             let (invalidTs, failures) = unzip invalid
@@ -114,7 +108,7 @@ checkResult (valid, invalid, invalidCred, unproc, [t1, t2, t3, t4]) =
         unprocessedCheck =
             assertEqual "The last transaction does not fit into the block since the block has reached the energy limit"
                 [t4] unproc
-checkResult _ = assertFailure "There should be four filtered transactions."
+checkResult _ = assertFailure "There should be three filtered transactions."
 
 
 tests :: Spec

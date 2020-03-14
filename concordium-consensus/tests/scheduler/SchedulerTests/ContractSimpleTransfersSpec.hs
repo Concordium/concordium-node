@@ -80,12 +80,11 @@ transactionsInput =
          }
   ]
 
-testSimpleTransfers ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)],
-     BlockState)
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   BlockState)
+
+testSimpleTransfers ::  PR.Context Core.UA IO TestResult
 testSimpleTransfers = do
     source <- liftIO $ TIO.readFile "test/contracts/SimpleContractTransfers.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
@@ -102,7 +101,7 @@ testSimpleTransfers = do
         _ -> return ()
     return (getResults ftAdded, ftFailed, endState)
 
-checkSimpleTransfersResult :: ([(a, Types.ValidResult)], [b], BlockState) -> Bool
+checkSimpleTransfersResult :: TestResult -> Bool
 checkSimpleTransfersResult (suc, fails, gs) =
   null fails && -- should be no failed transactions
   null reject &&

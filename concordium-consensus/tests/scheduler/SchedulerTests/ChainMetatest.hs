@@ -60,13 +60,11 @@ transactionsInput =
            }
     ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [(Types.ContractAddress, Instance)])
 
-testChainMeta ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)],
-     [(Types.ContractAddress, Instance)])
+testChainMeta :: PR.Context Core.UA IO TestResult
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
@@ -83,7 +81,7 @@ testChainMeta = do
         _ -> return ()
     return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
-checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
+checkChainMetaResult :: TestResult -> Bool
 checkChainMetaResult (suc, fails, instances) =
   null fails && -- should be no failed transactions
   null reject && -- no rejected transactions either

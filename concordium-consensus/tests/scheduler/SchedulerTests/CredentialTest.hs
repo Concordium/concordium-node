@@ -57,13 +57,12 @@ transactionsInput =
          }
   ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [Types.Transaction])
 
-testCredentialCheck
-  :: PR.Context Core.UA
-       IO
-       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)],
-        [Types.BareTransaction])
+testCredentialCheck :: PR.Context Core.UA IO TestResult
+       
 testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
@@ -78,9 +77,7 @@ testCredentialCheck = do
         Right _ -> return ()
     return (getResults ftAdded, ftFailed, concat (Types.perAccountTransactions transactions))
 
-checkCredentialCheckResult :: ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-                               [(Types.BareTransaction, Types.FailureKind)],
-                               [Types.BareTransaction]) -> Expectation
+checkCredentialCheckResult :: TestResult -> Expectation
 checkCredentialCheckResult (suc, fails, transactions) =
   failsCheck >> rejectCheck >> nonrejectCheck
   where
@@ -94,12 +91,12 @@ checkCredentialCheckResult (suc, fails, transactions) =
     rejectCheck =
       case last suc of
         (tx, Types.TxReject (Types.ReceiverAccountNoCredential _)) ->
-          assertEqual "The second transaction should be rejected." tx (Types.NormalTransaction (transactions !! 1))
+          assertEqual "The second transaction should be rejected." tx (Types.NormalTransaction <$> (transactions !! 1))
         other -> assertFailure $ "Last recorded transaction should fail with no account credential: " ++ show other
     nonrejectCheck =
       case head suc of
         (tx, Types.TxSuccess{}) ->
-          assertEqual "The first transaction should be successful." tx (Types.NormalTransaction (transactions !! 0))
+          assertEqual "The first transaction should be successful." tx (Types.NormalTransaction <$> (transactions !! 0))
         other -> assertFailure $ "First recorded transaction should be successful: " ++ show other
 
 

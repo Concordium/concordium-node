@@ -38,10 +38,9 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Basic.Block as BasicBlock
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
@@ -238,14 +237,15 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
-broadcastCallback :: (BlockData (TS.BlockPointer (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
+broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
                                                         (SkovConfig gs finconf hconf)
                                                         (LoggerT IO))))
-                  => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
+                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
-            let blockbs = runPut (putBlock block)
+            -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
+            let blockbs = runPut $ putBlock block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -299,8 +299,8 @@ consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunn
 
 runWithConsensus :: ConsensusRunner -> (forall h f gs.
                                         (TS.TreeStateMonad (SkovT h (SkovConfig gs f HookLogHandler) LogIO),
-                                        TS.PendingBlock
-                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ BasicBlock.PendingBlock
+                                        TS.PendingBlockType
+                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ PendingBlock
                                         ) => SkovT h (SkovConfig gs f HookLogHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
@@ -916,7 +916,7 @@ getTransactionStatusInBlock cptr trcstr bhcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLInfo "Received transaction status request."
-    withTransactionHash trcstr (logm External LLDebug) $ \txHash -> 
+    withTransactionHash trcstr (logm External LLDebug) $ \txHash ->
       withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
         status <- runConsensusQuery c (Get.getTransactionStatusInBlock txHash blockHash)
         logm External LLTrace $ "Replying with: " ++ show status

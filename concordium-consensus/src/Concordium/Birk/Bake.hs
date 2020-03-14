@@ -20,12 +20,13 @@ import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block
+import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
@@ -64,12 +65,11 @@ instance FromJSON BakerIdentity where
 
 processTransactions
     :: (TreeStateMonad m,
-        SkovMonad m
-        )
+        SkovMonad m)
     => Slot
     -> BirkParameters
-    -> BlockPointer m
-    -> BlockPointer m
+    -> BlockPointerType m
+    -> BlockPointerType m
     -> BakerId
     -> m (FilteredTransactions, ExecutionResult m)
 processTransactions slot ss bh finalizedP bid = do
@@ -84,15 +84,16 @@ processTransactions slot ss bh finalizedP bid = do
 
 -- Reestablish
 maintainTransactions ::
-  TreeStateMonad m
-  => BlockPointer m
+  (TreeStateMonad m)
+  => BlockPointerType m
   -> FilteredTransactions
   -> m ()
 maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     let bh = getHash bp
     let slot = blockSlot bp
-    zipWithM_ (commitTransaction slot bh . fst) ftAdded [0..]
+    zipWithM_ (\tx i -> do
+                  commitTransaction slot bh (fst tx) i) ftAdded [0..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
@@ -143,10 +144,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions newpt'
 
 
-bakeForSlot :: (BlockPointerMonad m,
-                SkovMonad m,
-                TreeStateMonad m,
-                MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointer m))
+bakeForSlot :: (BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
@@ -162,8 +160,7 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    let transactions = map fst (ftAdded filteredTxs)
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) transactions receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) (map fst (ftAdded filteredTxs)) receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal

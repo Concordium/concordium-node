@@ -63,12 +63,13 @@ transactionsInput =
          }
   ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   Types.Amount,
+                   Types.Amount)
 
-testSimpleTransfer
-  :: PR.Context Core.UA
-       IO
-       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
+
+testSimpleTransfer :: PR.Context Core.UA IO TestResult
 testSimpleTransfer = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
@@ -86,7 +87,7 @@ testSimpleTransfer = do
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
 
-checkSimpleTransferResult :: ([(a, Types.ValidResult)], [b], Types.Amount, Types.Amount) -> Bool
+checkSimpleTransferResult :: TestResult -> Bool
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   null fails && -- should be no failed transactions
   reject &&  -- the last transaction is rejected

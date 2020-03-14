@@ -128,13 +128,12 @@ transactions = [[-- t1: first transaction in group valid
 maxEnergy :: Types.Energy
 maxEnergy = Types.Energy 20000
 
-testGrouping ::
-    PR.Context UA
-       IO
-       ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)],
-        [Types.BareTransaction],
-        [Types.BareTransaction])
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [Types.Transaction],
+                   [Types.Transaction])
+
+testGrouping :: PR.Context UA IO TestResult
 testGrouping = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
@@ -150,17 +149,13 @@ testGrouping = do
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
 
-checkResult :: ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-                [(Types.BareTransaction, Types.FailureKind)],
-                [Types.BareTransaction],
-                [Types.BareTransaction]) ->
-               Expectation
+checkResult :: TestResult -> Expectation
 checkResult (valid, invalid, unproc, [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t11]) =
     validCheck >> invalidCheck >> unprocessedCheck
     where
         validCheck = do
           let (validTs, validResults) = unzip valid
-          assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid:" (map Types.NormalTransaction [t1, t5, t6, t9, t11]) validTs
+          assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid:" (map (Types.NormalTransaction <$>) [t1, t5, t6, t9, t11]) validTs
           assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid with TxSuccess result:"
             True $ all (\case Types.TxSuccess{} -> True
                               _ -> False) validResults

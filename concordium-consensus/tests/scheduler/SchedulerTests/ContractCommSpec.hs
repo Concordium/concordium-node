@@ -91,11 +91,10 @@ transactionsInput =
          }
   ]
 
-testCommCounter ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)])
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)])
+
+testCommCounter :: PR.Context Core.UA IO TestResult
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
@@ -112,7 +111,7 @@ testCommCounter = do
         _ -> return ()
     return (getResults ftAdded, ftFailed)
 
-checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool
+checkCommCounterResult :: TestResult -> Bool
 checkCommCounterResult (suc, fails) =
   null fails && -- should be no failed transactions
   length reject == 1 &&  -- one rejected (which is also the last one)

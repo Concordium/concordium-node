@@ -853,6 +853,10 @@ filterTransactions maxSize inputTxs = do
                           (Just (TxInvalid reason), _) -> do
                             go csize valid ((cdwm, reason):invalid) unprocessedCred rest
                           (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
+                    else if Cost.deployCredential > maxEnergy then
+                      -- this case should not happen (it would mean we set the parameters of the chain wrong),
+                      -- but we keep it just in case.
+                       go size valid ((cdwm, ExceedsMaxBlockEnergy):invalid) unprocessedCred rest
                     else go size valid invalid (cdwm:unprocessedCred) rest
 
         run maxEnergy invalidCred unprocessedCred = go

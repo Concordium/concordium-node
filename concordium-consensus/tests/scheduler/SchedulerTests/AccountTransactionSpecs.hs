@@ -51,7 +51,7 @@ transactionsInput = map (Types.fromCDI 0) $ [
 testAccountCreation ::
   PR.Context Core.UA
     IO
-    ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
+    ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
      [Maybe Types.Account],
      Types.Account,
@@ -77,7 +77,7 @@ testAccountCreation = do
             state ^. blockBank)
 
 checkAccountCreationResult ::
-  ([(Types.BlockItem' Types.BareTransaction, Types.ValidResult)],
+  ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
      [Maybe Types.Account],
      Types.Account,
