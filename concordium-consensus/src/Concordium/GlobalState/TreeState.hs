@@ -246,6 +246,11 @@ class (Eq (BlockPointerType m),
       -> Nonce
       -> m [(Nonce, Set.Set Transaction)]
 
+    -- |Get the successor of the largest known account for the given account
+    -- The function should return 'True' in the second component if and only if
+    -- all (known) transactions from this account are finalized.
+    getNextAccountNonce :: AccountAddress -> m (Nonce, Bool)
+
     -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
     -- to return 'Nothing' if the requested credential has already been finalized.
     getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
@@ -333,6 +338,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getPendingTransactions = lift getPendingTransactions
     putPendingTransactions = lift . putPendingTransactions
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
+    getNextAccountNonce = lift . getNextAccountNonce
     getCredential = lift . getCredential
     addTransaction tr = lift $ addTransaction tr
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
@@ -376,6 +382,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getPendingTransactions #-}
     {-# INLINE putPendingTransactions #-}
     {-# INLINE getAccountNonFinalized #-}
+    {-# INLINE getNextAccountNonce #-}
     {-# INLINE getCredential #-}
     {-# INLINE addTransaction #-}
     {-# INLINE finalizeTransactions #-}

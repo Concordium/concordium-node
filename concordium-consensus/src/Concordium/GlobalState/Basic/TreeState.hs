@@ -204,6 +204,14 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
 
+    getNextAccountNonce addr =
+        use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
+                Nothing -> return (minNonce, True)
+                Just anfts ->
+                  case Map.lookupMax (anfts ^. anftMap) of
+                    Nothing -> return (minNonce, True)
+                    Just (nonce, _) -> return (nonce + 1, False)
+
     getCredential txHash =
       preuse (transactionTable . ttHashMap . ix txHash) >>= \case
         Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $! Just WithMetadata{wmdData=biCred,..}
