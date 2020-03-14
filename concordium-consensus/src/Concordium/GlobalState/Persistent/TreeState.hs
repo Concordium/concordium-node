@@ -388,7 +388,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                     return (TS.Added tr)
                   else return TS.ObsoleteNonce
                 Just (tr', results) -> do
-                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %= updateSlot slot
                   return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
@@ -408,8 +408,11 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
-                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
-                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                        tt <- use transactionTable
+                        case tt ^. ttHashMap . singular (ix (getHash tr)) . _2 of
+                                  Committed{..} -> do
+                                       transactionTable .= (tt & (ttHashMap . at (getHash tr) .~ Nothing))
+                                       writeTransactionStatus (getHash tr) Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
@@ -431,8 +434,11 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
       transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
-    lookupTransaction th =
-       preuse (transactionTable . ttHashMap . ix th . _2)
+    lookupTransaction th = do
+       ts <- preuse (transactionTable . ttHashMap . ix th . _2)
+       case ts of
+         Just t -> return $ Just t
+         Nothing -> readTransactionStatus th
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats

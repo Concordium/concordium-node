@@ -213,7 +213,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                     return (TS.Added tr)
                   else return TS.ObsoleteNonce
                 Just (tr', results) -> do
-                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
+                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %=  updateSlot slot
                   return $ TS.Duplicate tr'
         where
             sender = transactionSender tr
