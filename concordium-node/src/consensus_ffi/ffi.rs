@@ -602,7 +602,7 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn ge_nNext_ccount_nonce(&self, account_address: &str) -> String {
+    pub fn get_next_account_nonce(&self, account_address: &str) -> String {
         let account_address = CString::new(account_address).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
             consensus,
