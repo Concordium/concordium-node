@@ -284,7 +284,8 @@ class (Eq (BlockPointerType m),
     -- number does not exceed the slot number of the last finalized block.
     -- (A transaction that has been committed to a finalized block should not be purged.)
     -- Returns @True@ if and only if the transaction is purged.
-    purgeTransaction :: Transaction -> m Bool
+    purgeTransaction :: BlockItem -> m Bool
+
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
