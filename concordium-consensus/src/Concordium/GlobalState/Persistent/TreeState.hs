@@ -1,36 +1,27 @@
-{-# LANGUAGE TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
+  {-# LANGUAGE ConstraintKinds, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
-module Concordium.GlobalState.Persistent.TreeState (
-  SkovPersistentData
-  , initialSkovPersistentDataDefault
-  , initialSkovPersistentData
-  , PersistentTreeStateMonad (..)
-  -- For testing purposes
-  , PersistenBlockStatus(..)
-  , db
-  , atiCtx
-  , genesisBlockPointer
-  , blockTable
-  , constructBlock
-  ) where
+--
+-- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
+module Concordium.GlobalState.Persistent.TreeState where
 
-import Concordium.GlobalState.Basic.Block as B
+import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlockPointer
+import Concordium.GlobalState.Persistent.BlockPointer as PB
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
-import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Types.Transactions
-import Control.Exception
+import Concordium.Types.Transactions as T
+import Control.Exception hiding (handle)
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict as HM hiding (toList)
@@ -45,6 +36,8 @@ import Data.Time.Clock
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Mem.Weak
+import Concordium.GlobalState.SQLiteATI
+-- * SkovPersistentData definition
 
 data PersistenBlockStatus ati bs =
     BlockAlive !(PersistentBlockPointer ati bs)
@@ -98,7 +91,7 @@ initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntime
 
 initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> (ATIValues ati, ATIContext ati) -> S.Put -> IO (SkovPersistentData ati bs)
 initialSkovPersistentData rp gd genState ati serState = do
-  gb <- makeGenesisBlockPointer gd genState (fst ati)
+  gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   initialDb <- initialDatabaseHandlers gb serState rp
@@ -141,70 +134,35 @@ newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPers
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
          => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)
 
-instance (ATITypes m, ATIStorage m ~ ATIValues ati) => ATITypes (PersistentTreeStateMonad ati bs m) where
-  type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIStorage m
+instance (CanExtend (ATIValues ati),
+          CanRecordFootprint (Footprint (ATIValues ati)))
+         => ATITypes (PersistentTreeStateMonad ati bs m) where
+  type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIValues ati
+
+instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad () bs m)
+
+instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccountDBOperations (PersistentTreeStateMonad DiskDump bs m) where
+  flushBlockSummaries bh ati sos = do
+    PAAIConfig handle <- use logContext
+    liftIO $ writeEntries handle bh ati sos
+
+instance (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m)) => GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PendingBlock
+    type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
   logContext = atiCtx
 
-deriving instance (PerAccountDBOperations m, ATIStorage m ~ ATIValues ati) => PerAccountDBOperations (PersistentTreeStateMonad ati bs m)
-
-instance (bs ~ GS.BlockState m, ATIValues ati ~ ATIStorage m) => GS.GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
-    type PendingBlock (PersistentTreeStateMonad ati bs m) = PendingBlock
-    type BlockPointer (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
-
--- |Construct a block from a serialized form.
--- The @ati@ is filled with a default value.
-constructBlock :: forall m . (MonadIO m, BS.BlockStateStorage m, CanExtend (ATIStorage m))
-               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
-constructBlock Nothing = return Nothing
-constructBlock (Just bytes) = do
-  tm <- liftIO getCurrentTime
-  case runGet (getTriple tm) bytes of
-    Left err -> fail $ "Could not deserialize block: " ++ err
-    Right (newBlock, state', height') -> do
-      st <- state'
-      let ati = defaultValue
-      liftIO $! Just <$> (makeBlockPointerFromBlock newBlock st ati height')
-  where getTriple tm = do
-          newBlock <- B.getBlock (utcTimeToTransactionTime tm)
-          state' <- BS.getBlockState
-          height' <- S.get
-          return (newBlock, state', height')
-
-instance (bs ~ GS.BlockState m,
-          MonadIO m,
-          BS.BlockStateStorage m,
-          ATIStorage m ~ ATIValues ati,
-          CanExtend (ATIValues ati),
-          MonadState (SkovPersistentData ati bs) m)
-         => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
-  writeBlock bp = do
-    dbh <- use db
-    bs <- BS.putBlockState (_bpState bp)
-    dbh' <- putOrResize dbh (Block (getHash bp, runPut (putBlock bp >> bs >> S.put (bpHeight bp))))
-    db .= dbh'
-  readBlock bh = do
-    env <- use (db . storeEnv)
-    dbB <- use (db . blockStore)
-    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
-    constructBlock bytes
-  readFinalizationRecord bh = do
-    env <- use (db . storeEnv)
-    dbF <- use (db . finalizationRecordStore)
-    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
-  writeFinalizationRecord fr = do
-    dbh <- use db
-    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
-    db .= dbh'
-
-getWeakPointer :: (MonadState (SkovPersistentData ati s) m,
-                  LMDBStoreMonad m, TS.BlockPointer m ~ PersistentBlockPointer (ATIValues ati) s) =>
-                 PersistentBlockPointer (ATIValues ati) s
-               -> (PersistentBlockPointer (ATIValues ati) s -> Weak (PersistentBlockPointer (ATIValues ati) s))
+getWeakPointer :: (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
+                   MonadIO (PersistentTreeStateMonad ati bs m),
+                   BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+                   CanExtend (ATIValues ati),
+                   MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+               => PersistentBlockPointer (ATIValues ati) (TS.BlockState m)
+               -> (PersistentBlockPointer (ATIValues ati) (TS.BlockState m) -> Weak (PersistentBlockPointer (ATIValues ati) (TS.BlockState m)))
                -> (BlockFields -> BlockHash)
                -> String
-               -> m (PersistentBlockPointer (ATIValues ati) s)
+               -> PersistentTreeStateMonad ati (TS.BlockState m) m (PersistentBlockPointer (ATIValues ati) (TS.BlockState m))
 getWeakPointer block field pointer name = do
       gb <- use genesisBlockPointer
       if gb == block then
@@ -217,33 +175,100 @@ getWeakPointer block field pointer name = do
             nb <- maybe (return $ Just gb) (\f -> readBlock (pointer f)) (blockFields $ _bpBlock block)
             return $ fromMaybe (error ("Couldn't find " ++ name ++ " block in disk")) nb
 
-instance (bs ~ GS.BlockState m,
-          BS.BlockStateStorage m,
-          Monad m,
-          MonadIO m,
-          ATIStorage m ~ ATIValues ati,
-          ATITypes m,
-          MonadState (SkovPersistentData ati bs) m) => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
-    blockState = return . _bpState
-    bpParent block = getWeakPointer block _bpParent blockPointer "parent"
-    bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
-    bpTransactionAffectSummaries block = return (_bpATI block)
+instance (Monad (PersistentTreeStateMonad ati bs m),
+          bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m),
+          CanExtend (ATIValues ati),
+          CanRecordFootprint (Footprint (ATIValues ati)))
+         => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
+  blockState = return . _bpState
+  bpParent block = getWeakPointer block _bpParent blockPointer "parent"
+  bpLastFinalized block = getWeakPointer block _bpLastFinalized blockLastFinalized "last finalized"
+  bpTransactionAffectSummaries block = return (_bpATI block)
 
-instance (bs ~ GS.BlockState m,
-          BS.BlockStateStorage m,
-          Monad m,
-          MonadIO m,
-          ATIStorage m ~ ATIValues ati,
-          PerAccountDBOperations m,
-          MonadState (SkovPersistentData ati bs) m
-          )
-          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+
+-- |Construct a block from a serialized form.
+-- The @ati@ is filled with a default value.
+constructBlock :: (MonadIO m,
+                   BS.BlockStateStorage m,
+                   CanExtend (ATIStorage m))
+               => Maybe ByteString -> BlockHash -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
+constructBlock Nothing _ = return Nothing
+constructBlock (Just bytes) bh = do
+  tm <- liftIO getCurrentTime
+  case runGet (getTriple tm) bytes of
+    Left err -> fail $ "Could not deserialize block: " ++ err ++ " with bytes " ++ show bytes
+    Right (newBlock, state', height', txcount, txsize, txenergy) -> do
+      st <- state'
+      let ati = defaultValue
+      Just <$> (makeBlockPointerFromPersistentBlock newBlock st ati bh height' txcount txsize txenergy)
+  where getTriple tm = do
+          newBlock <- getBlock (utcTimeToTransactionTime tm)
+          state' <- BS.getBlockState
+          height' <- S.get
+          txcount <- S.get
+          txsize <- S.get
+          txenergy <- S.get
+          return (newBlock, state', height', txcount, txsize, txenergy)
+
+instance (MonadIO (PersistentTreeStateMonad ati bs m),
+          bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          CanExtend (ATIValues ati),
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+         => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
+  writeBlock bp = do
+    dbh <- use db
+    bs <- BS.putBlockState (_bpState bp)
+    -- This value won't be created with `putBlock` because
+    -- we don't want the transactions to be written in this block
+    -- so instead we will use `blockBody`
+    let blockBS = runPut (do
+                             putBlock bp
+                             bs
+                             S.put (bpHeight bp)
+                             S.put (bpTransactionCount bp)
+                             S.put (bpTransactionsSize bp)
+                             S.put (bpTransactionsEnergyCost bp))
+    dbh' <- putOrResize dbh (Block (getHash bp, blockBS))
+    db .= dbh'
+  readBlock bh = do
+    env <- use (db . storeEnv)
+    dbB <- use (db . blockStore)
+    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
+    constructBlock bytes bh
+  readFinalizationRecord bh = do
+    env <- use (db . storeEnv)
+    dbF <- use (db . finalizationRecordStore)
+    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
+  writeFinalizationRecord fr = do
+    dbh <- use db
+    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
+    db .= dbh'
+  readTransactionStatus th = do
+    env <- use (db . storeEnv)
+    dbT <- use (db . transactionStatusStore)
+    liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe T.TransactionStatus))
+  writeTransactionStatus th t = do
+    dbh <- use db
+    dbh' <- putOrResize dbh (TxStatus (th, t))
+    db .= dbh'
+
+instance (MonadIO (PersistentTreeStateMonad ati bs m),
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData ati bs) m)
+         => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
+    makePendingBlock key slot parent bid pf n lastFin trs time = do
+        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
             Right GenesisBlock {} -> return $ Left "Block deserialization failed: unexpected genesis block"
-            Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
+            Right (NormalBlock block0) -> return $ Right $  makePendingBlock block0 rectime
     getBlockStatus bh = do
       st <- use (blockTable . at bh)
       case st of
@@ -270,7 +295,7 @@ instance (bs ~ GS.BlockState m,
                   (Nothing, Just _) -> error $ "Lost block that was stored as finalized" ++ show bh
                   _ -> error $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st ati arrTime energy = do
-            blockP <- liftIO $ makeBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
+            blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
             blockTable . at (getHash block) ?= BlockAlive blockP
             return blockP
     markDead bh = blockTable . at bh ?= BlockDead
@@ -353,11 +378,14 @@ instance (bs ~ GS.BlockState m,
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
+
     addCommitTransaction bi@WithMetadata{..} slot = do
       let trHash = wmdHash
       tt <- use transactionTable
-      case tt ^. ttHashMap . at trHash of
-          Nothing ->
+      -- check if the transaction is in the transaction table cache
+      case tt ^? ttHashMap . ix trHash of
+          Nothing -> do
+
             case wmdData of
               NormalTransaction tr -> do
                 let sender = transactionSender tr
@@ -369,11 +397,21 @@ instance (bs ~ GS.BlockState m,
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
               CredentialDeployment{..} -> do
-                transactionTable . ttHashMap . at trHash ?= (bi, Received slot)
-                return (TS.Added bi)
-          Just (tr', results) -> do
-            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
-            return $ TS.Duplicate tr'
+                -- because we do not have nonce tracking for these transactions we need to check that
+                -- this transction does not already exist in the on-disk storage.
+                finalizedP <- memberTransactionTable trHash
+                if finalizedP then
+                  return $ TS.Duplicate bi
+                else do
+                  transactionTable . ttHashMap . at trHash ?= (bi, Received slot)
+                  return (TS.Added bi)
+          Just (_, results) -> do
+            -- if it is we update the maximum committed slot,
+            -- unless the transaction is already finalized (this case is handled by updateSlot)
+            -- In the current model this latter case should not happen; once a transaction is finalized
+            -- it is written to disk (see finalizeTransactions below)
+            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %= updateSlot slot
+            return $ TS.Duplicate bi
 
     finalizeTransactions bh slot = mapM_ finTrans
         where
@@ -389,21 +427,34 @@ instance (bs ~ GS.BlockState m,
                         -- They can never be part of any other block after this point.
                         forM_ (Set.delete wmdtr nfn) $
                           \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
-                        -- Mark the status of the transaction as finalized.
-                        -- Singular here is safe due to the precondition (and assertion) that all transactions
-                        -- which are part of live blocks are in the transaction table.
-                        transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
-                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
-                                  _ -> error "Transaction should be in committed state when finalized."
+                        -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
+                        deleteAndFinalizeStatus wmdHash
+
                         -- Update the non-finalized transactions for the sender
-                        transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-            finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = do
-              transactionTable . ttHashMap . singular (ix wmdHash) . _2 %= 
-                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
-                                  _ -> error "Transaction should be in committed state when finalized."
+                        transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing)
+                                                                                           & (anftNextNonce .~ nonce + 1))
+            finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
+
+            deleteAndFinalizeStatus txHash = do
+              status <- preuse (transactionTable . ttHashMap . ix txHash . _2)
+              case status of
+                Just (Committed{..}) -> do
+                  -- delete the transaction from the cache
+                  transactionTable . ttHashMap . at txHash .= Nothing
+                  -- and write the status to disk
+                  writeTransactionStatus txHash Finalized{_tsSlot=slot,
+                                                          tsBlockHash=bh,
+                                                          tsFinResult=tsResults HM.! bh,
+                                                           -- the previous lookup is safe; finalized transaction must be on a block
+                                                          ..}
+                _ -> error "Transaction should exist and be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
+        -- add a transaction status. This only updates the cached version which is correct at the moment
+        -- because transactions are only written to disk on finalization, at which point their
+        -- statuses are no longer updated.
         transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
+
     purgeTransaction tr =
         use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
             Nothing -> return True
@@ -416,15 +467,15 @@ instance (bs ~ GS.BlockState m,
                     transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
                     return True
                 else return False
-
     markDeadTransaction bh tr =
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
       transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
-
-    lookupTransaction th = use (transactionTable . ttHashMap . at th)
-
-    updateBlockTransactions trs pb = return $ pb {pbBlock = (pbBlock pb) {bbTransactions = BlockTransactions trs}}
+    lookupTransaction th = do
+       ts <- preuse (transactionTable . ttHashMap . ix th . _2)
+       case ts of
+         Just t -> return $ Just t
+         Nothing -> readTransactionStatus th
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .= stats

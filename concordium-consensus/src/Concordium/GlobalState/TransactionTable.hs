@@ -10,7 +10,7 @@ import Concordium.Types.Transactions
 data TransactionTable = TransactionTable {
     -- |Map from transaction hashes to transactions, together with their current status.
     _ttHashMap :: HM.HashMap TransactionHash (BlockItem, TransactionStatus),
-    _ttNonFinalizedTransactions :: HM.HashMap AccountAddress (AccountNonFinalizedTransactions Transaction)
+    _ttNonFinalizedTransactions :: HM.HashMap AccountAddress AccountNonFinalizedTransactions
 }
 makeLenses ''TransactionTable
 

@@ -24,7 +24,8 @@ import Control.Monad.Reader.Class
 import Control.Monad.Writer.Class
 import Data.Functor.Identity
 
-import Concordium.GlobalState.Block
+--import qualified Concordium.GlobalState.Block as B
+--import qualified Concordium.GlobalState.BlockPointer as B
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where
@@ -66,12 +67,6 @@ class BlockStateTypes (m :: * -> *) where
     type BlockState m :: *
     type UpdatableBlockState m :: *
 
--- |The basic types associated with a monad providing an
--- implementation of the global state.
-class (BlockStateTypes m, BlockPendingData (PendingBlock m), BlockPointerData (BlockPointer m)) => GlobalStateTypes m where
-    type PendingBlock m :: *
-    type BlockPointer m :: *
-
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad
 -- type classes over monad transfers.  (That is, instances of various typeclasses
@@ -89,11 +84,5 @@ instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
 
-instance (GlobalStateTypes m) => GlobalStateTypes (MGSTrans t m) where
-    type PendingBlock (MGSTrans t m) = PendingBlock m
-    type BlockPointer (MGSTrans t m) = BlockPointer m
-
 deriving via (MGSTrans MaybeT m) instance BlockStateTypes (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance (GlobalStateTypes m) => GlobalStateTypes (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateTypes (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance (GlobalStateTypes m) => GlobalStateTypes (ExceptT e m)

@@ -10,10 +10,10 @@
     PartialTypeSignatures,
     ScopedTypeVariables,
     GeneralizedNewtypeDeriving #-}
--- |This module pairs together two global state implmentations
+-- |This module pairs together two global state implementations
 -- for testing purposes.
 module Concordium.GlobalState.Paired where
-
+{-
 import Lens.Micro.Platform
 import Control.Exception
 import Control.Monad.Reader.Class
@@ -30,8 +30,9 @@ import Concordium.Types
 
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Classes
+import qualified Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState
@@ -60,39 +61,40 @@ data PairGSContext lc rc = PairGSContext {
     }
 makeLenses ''PairGSContext
 
-newtype FocusLeft a = FocusLeft { unFocusLeft :: a }
-newtype FocusRight a = FocusRight { unFocusRight :: a }
-
-instance HasGlobalStateContext (PairGSContext lc rc) a => HasGlobalStateContext lc (FocusLeft a) where
-    globalStateContext = lens unFocusLeft (const FocusLeft) . globalStateContext . pairContextLeft
-
-instance HasGlobalStateContext (PairGSContext lc rc) a => HasGlobalStateContext rc (FocusRight a) where
-    globalStateContext = lens unFocusRight (const FocusRight) . globalStateContext . pairContextRight
-
-type BSML lc r ls s m = BlockStateM lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
-type BSMR rc r rs s m = BlockStateM rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
-
-instance (HasGlobalStateContext (PairGSContext lc rc) r)
-        => BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
-    type BlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (BlockState (BSML lc r lg s m),
-                BlockState (BSMR rc r rg s m))
-    type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (UpdatableBlockState (BSML lc r lg s m),
-                UpdatableBlockState (BSMR rc r rg s m))
-
 data PairGState ls rs = PairGState {
         _pairStateLeft :: !ls,
         _pairStateRight :: !rs
     }
 makeLenses ''PairGState
 
-instance HasGlobalState (PairGState ls rs) s => HasGlobalState ls (FocusLeft s) where
-    globalState = lens unFocusLeft (const FocusLeft) . globalState . pairStateLeft
+newtype FocusLeft a = FocusLeft { unFocusLeft :: a }
+newtype FocusRight a = FocusRight { unFocusRight :: a }
 
-instance HasGlobalState (PairGState ls rs) s => HasGlobalState rs (FocusRight s) where
-    globalState = lens unFocusRight (const FocusRight) . globalState . pairStateRight
+instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateContext lc (FocusLeft a) where
+    globalStateContext = lens unFocusLeft (const FocusLeft) . C.globalStateContext . pairContextLeft
 
+instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateContext rc (FocusRight a) where
+    globalStateContext = lens unFocusRight (const FocusRight) . C.globalStateContext . pairContextRight
+
+type BSML lc r ls s m = BlockStateM lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
+type BSMR rc r rs s m = BlockStateM rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
+
+instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
+        => C.BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
+    type BlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (C.BlockState (BSML lc r lg s m),
+                C.BlockState (BSMR rc r rg s m))
+    type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (C.UpdatableBlockState (BSML lc r lg s m),
+                C.UpdatableBlockState (BSMR rc r rg s m))
+
+instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
+    globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
+
+instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState rs (FocusRight s) where
+    globalState = lens unFocusRight (const FocusRight) . C.globalState . pairStateRight
+
+-- * Block Metadata
 newtype PairBlockMetadata l r = PairBlockMetadata (l, r)
 instance (BlockMetadata l, BlockMetadata r) => BlockMetadata (PairBlockMetadata l r) where
     blockPointer (PairBlockMetadata (l, r)) = assert (blockPointer l == blockPointer r) $ blockPointer l
@@ -101,10 +103,12 @@ instance (BlockMetadata l, BlockMetadata r) => BlockMetadata (PairBlockMetadata 
     blockNonce (PairBlockMetadata (l, r)) = assert (blockNonce l == blockNonce r) $ blockNonce l
     blockLastFinalized (PairBlockMetadata (l, r)) = assert (blockLastFinalized l == blockLastFinalized r) $ blockLastFinalized l
 
+-- * Block Data
 newtype PairBlockData l r = PairBlockData (l, r)
     deriving (BlockMetadata) via (PairBlockMetadata l r)
 
 type instance BlockFieldType (PairBlockData l r) = PairBlockMetadata (BlockFieldType l) (BlockFieldType r)
+type instance BlockTransactionType (PairBlockData l r) = PairBlockMetadata (BlockTransactionType l) (BlockTransactionType r)
 
 instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
     blockSlot (PairBlockData (l, r)) = assert (blockSlot l == blockSlot r) $ blockSlot l
@@ -112,11 +116,11 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
         (Nothing, Nothing) -> Nothing
         (Just ml, Just mr) -> Just $ PairBlockMetadata (ml, mr)
         _ -> error "blockFields do not match"
-    blockTransactions (PairBlockData (l, r)) = assert (blockTransactions l == blockTransactions r) $ blockTransactions l
-    verifyBlockSignature k (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature k r) $ vbsl
-        where
-            vbsl = verifyBlockSignature k l
-    putBlock (PairBlockData (l, _)) = putBlock l
+    blockTransactions (PairBlockData (l, r)) = zipWith (\a b -> PairBlockMetadata (a,b)) (blockTransactions l) (blockTransactions r)
+    -- verifyBlockSignature k (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature k r) $ vbsl
+    --     where
+    --         vbsl = verifyBlockSignature k l
+    -- putBlock (PairBlockData (l, _)) = putBlock l
 
 instance (HashableTo BlockHash l, HashableTo BlockHash r) => HashableTo BlockHash (PairBlockData l r) where
     getHash (PairBlockData (l, r)) = assert ((getHash l :: BlockHash) == getHash r) $ getHash l
@@ -158,7 +162,7 @@ coerceBSML = coerce
 coerceBSMR :: BSMR rc r rs s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceBSMR = coerce
 
-instance (Monad m, HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m))
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m))
         => BlockStateQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
@@ -207,7 +211,7 @@ instance (Monad m, HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuer
 
 
 
-instance (Monad m, HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m))
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m))
         => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
@@ -329,9 +333,9 @@ instance (Monad m, HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOper
         bs1' <- coerceBSML $ bsoUpdateBirkParameters bs1 bps
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps
         return (bs1', bs2')
-    
+
 instance (Monad m,
-    HasGlobalStateContext (PairGSContext lc rc) r,
+    C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
     BlockStateStorage (BSMR rc r rs s m))
         => BlockStateStorage (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -372,9 +376,9 @@ coerceGSML = coerce
 coerceGSMR :: GSMR rc r rs s m a -> GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceGSMR = coerce
 
-instance (HasGlobalStateContext (PairGSContext lc rc) r,
+instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
           MonadReader r m,
-          HasGlobalState (PairGState ls rs) s,
+          C.HasGlobalState (PairGState ls rs) s,
           MonadState s m,
           MonadIO m,
           BlockPointerMonad (GSML lc r ls s m),
@@ -393,9 +397,9 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         bs2 <- coerceGSMR $ bpLastFinalized bp2
         return $ PairBlockData (bs1, bs2)
 
-instance (HasGlobalStateContext (PairGSContext lc rc) r,
+instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         MonadReader r m,
-        HasGlobalState (PairGState ls rs) s,
+        C.HasGlobalState (PairGState ls rs) s,
         MonadState s m,
         MonadIO m,
         BlockStateStorage (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m),
@@ -405,9 +409,10 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
         ATIStorage (GSMR rc r rs s m) ~ ())
         => TreeStateMonad (GlobalStateM NoLogContext (PairGSContext lc rc) r (PairGState ls rs) s m) where
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
-        pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs brtime
-        pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs brtime
-        return $ PairBlockData (pb1, pb2)
+      let (trs1, trs2) = unzip $ map (\(PairBlockMetadata (l, r)) -> (l, r)) trs
+      pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs1 brtime
+      pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs2 brtime
+      return $ PairBlockData (pb1, pb2)
     importPendingBlock bs t = do
         r1 <- coerceGSML $ importPendingBlock bs t
         r2 <- coerceGSMR $ importPendingBlock bs t
@@ -544,7 +549,7 @@ instance (HasGlobalStateContext (PairGSContext lc rc) r,
     getAccountNonFinalized acct nonce = do
         r1 <- coerceGSML $ getAccountNonFinalized acct nonce
         r2 <- coerceGSMR $ getAccountNonFinalized acct nonce
-        assert (r1 == r2) $ return r1
+        return (PairBlockMetadata (r1, r2))
     addTransaction tr = do
         r1 <- coerceGSML $ addTransaction tr
         r2 <- coerceGSMR $ addTransaction tr
@@ -596,3 +601,4 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
     shutdownGlobalState _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
             shutdownGlobalState (Proxy :: Proxy c1) ctx1 s1 c1
             shutdownGlobalState (Proxy :: Proxy c2) ctx2 s2 c2
+-}
