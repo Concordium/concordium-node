@@ -170,6 +170,9 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- not valid.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
 
+  -- |Update the election difficulty (birk parameter) in the global state.
+  updateElectionDifficulty :: ElectionDifficulty -> m ()
+
   -- *Other metadata.
 
   -- |Retrieve the identity provider with given id, if possible.
