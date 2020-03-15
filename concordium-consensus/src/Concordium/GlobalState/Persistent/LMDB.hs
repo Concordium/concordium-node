@@ -97,6 +97,7 @@ resizeDatabaseHandlers dbh size = do
 data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the serialized form of the block
                | Finalization (FinalizationIndex, FinalizationRecord) -- ^The finalization index and the associated finalization record
                | TxStatus (TransactionHash, T.TransactionStatus)
+               | TxStatuses [(TransactionHash, T.TransactionStatus)]
                deriving (Show)
 
 lmdbStoreTypeSize :: LMDBStoreType -> Int
@@ -108,6 +109,7 @@ lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
   T.Committed _ res -> HM.size res * (digestSize + 8)
   T.Finalized{} -> digestSize + 8
   _ -> 0
+lmdbStoreTypeSize (TxStatuses ss) = Prelude.length ss * (2 * digestSize + 16)
 
 -- | Depending on the variant of the provided tuple, this function will perform a `put` transaction in the
 -- correct database.
@@ -121,6 +123,10 @@ putInProperDB (Finalization (key, value)) dbh =  do
 putInProperDB (TxStatus (key, value)) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. transactionStatusStore) key (Just value)
+putInProperDB (TxStatuses statuses) dbh = do
+  let env = dbh ^. storeEnv
+  let putter (key, value) = L.put (dbh ^. transactionStatusStore) key (Just value)
+  transaction env $ mapM_ putter statuses
 
 -- |Provided default function that tries to perform an insertion in a given database of a given value,
 -- altering the environment if needed when the database grows.
@@ -150,6 +156,8 @@ class (MonadIO m) => LMDBStoreMonad m where
    readTransactionStatus :: TransactionHash -> m (Maybe T.TransactionStatus)
 
    writeTransactionStatus :: TransactionHash -> T.TransactionStatus -> m ()
+
+   writeTransactionStatuses :: [(TransactionHash, T.TransactionStatus)] -> m ()
 
    -- |Check if the given key is in the on-disk transaction table. At the moment
    -- this has a default implementation in terms of 'readTransactionStatus', but

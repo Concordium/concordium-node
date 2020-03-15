@@ -256,6 +256,11 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     dbh' <- putOrResize dbh (TxStatus (th, t))
     db .= dbh'
 
+  writeTransactionStatuses tss = do
+    dbh <- use db
+    dbh' <- putOrResize dbh (TxStatuses tss)
+    db .= dbh'
+
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
@@ -429,7 +434,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate bi
 
-    finalizeTransactions bh slot = mapM_ finTrans
+    finalizeTransactions bh slot txs = mapM finTrans txs >>= writeTransactionStatuses
         where
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
@@ -444,11 +449,12 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         forM_ (Set.delete wmdtr nfn) $
                           \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
-                        deleteAndFinalizeStatus wmdHash
+                        ss <- deleteAndFinalizeStatus wmdHash
 
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing)
                                                                                            & (anftNextNonce .~ nonce + 1))
+                        return ss
             finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
 
             deleteAndFinalizeStatus txHash = do
@@ -458,11 +464,11 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   -- delete the transaction from the cache
                   transactionTable . ttHashMap . at txHash .= Nothing
                   -- and write the status to disk
-                  writeTransactionStatus txHash Finalized{_tsSlot=slot,
-                                                          tsBlockHash=bh,
-                                                          tsFinResult=tsResults HM.! bh,
-                                                           -- the previous lookup is safe; finalized transaction must be on a block
-                                                          ..}
+                  return (txHash, Finalized{_tsSlot=slot,
+                                            tsBlockHash=bh,
+                                            tsFinResult=tsResults HM.! bh,
+                                            -- the previous lookup is safe; finalized transaction must be on a block
+                                            ..})
                 _ -> error "Transaction should exist and be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
