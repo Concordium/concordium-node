@@ -91,6 +91,7 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     log_builder.filter(Some(&"hyper"), LevelFilter::Error);
     log_builder.filter(Some(&"reqwest"), LevelFilter::Error);
     log_builder.filter(Some(&"gotham"), LevelFilter::Error);
+    log_builder.filter(Some(&"h2"), LevelFilter::Error);
     log_builder.init();
 }
 
