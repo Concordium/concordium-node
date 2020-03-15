@@ -30,6 +30,7 @@ import Control.Monad.Except
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust, isJust)
 import qualified Data.Set as Set
+import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
@@ -216,7 +217,8 @@ dispatch msg = do
        
                    UndelegateStake ->
                      handleDelegateStake (mkWTC TTUndelegateStake) Nothing
-          
+                   UpdateElectionDifficulty{..} ->
+                     handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
           case res of
             Nothing -> return Nothing
             Just summary -> return $! Just $! TxValid summary
@@ -806,7 +808,33 @@ handleDelegateStake wtc targetBaker =
             return $! (TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
--- *Exposed methods.
+-- |Update the election difficulty birk parameter.
+-- The given difficulty
+handleUpdateElectionDifficulty
+  :: SchedulerMonad m
+  => WithDepositContext
+  -> ElectionDifficulty
+  -> m (Maybe TransactionSummary)
+handleUpdateElectionDifficulty wtc uedDifficulty =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        senderAddr = senderAccount ^. accountAddress
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.updateElectionDifficulty
+        k ls _ = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+          specialBetaAccounts <- getSpecialBetaAccounts
+          if HashSet.member senderAddr specialBetaAccounts
+          then do
+            unless (isValidElectionDifficulty uedDifficulty) $ error $ "Invalid election dificulty: " ++ show uedDifficulty
+            updateElectionDifficulty uedDifficulty
+            return $! (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
+          else return $! (TxReject $ NotFromSpecialBetaAccount senderAddr, energyCost, usedEnergy)
+
+
+-- *exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
 -- maximum block size and block energy limit. The list of input transactions is traversed from left to
 -- right and any invalid transactions are not included in the block.
