@@ -122,3 +122,4 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middlew
 
 ### Delay baker startup if PostGreSQL starts too slowly
 If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP`
+
