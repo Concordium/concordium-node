@@ -209,7 +209,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                 Nothing -> return (minNonce, True)
                 Just anfts ->
                   case Map.lookupMax (anfts ^. anftMap) of
-                    Nothing -> return (minNonce, True)
+                    Nothing -> return (anfts ^. anftNextNonce, True) -- all transactions are finalized
                     Just (nonce, _) -> return (nonce + 1, False)
 
     getCredential txHash =
