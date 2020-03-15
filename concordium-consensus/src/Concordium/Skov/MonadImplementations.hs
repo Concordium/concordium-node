@@ -30,7 +30,6 @@ import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState
 import Concordium.Types
-import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Skov.Monad
@@ -187,11 +186,6 @@ deriving via SkovTGSM h c' m
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
-              Convert Transaction t (SkovTGSM h c' m))
-             => Convert Transaction t (SkovT h c' m)
-
-deriving via SkovTGSM h c' m
-    instance (Monad m,
               BlockPointerMonad (SkovTGSM h c' m))
              => BlockPointerMonad (SkovT h c' m)
 
@@ -204,7 +198,6 @@ deriving via SkovTGSM h c' m
 
 instance (
         Monad m,
-        HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovT h c m))),
         BlockStateQuery (SkovT h c m),
         TreeStateMonad (SkovT h c m)
         ) => SkovQueryMonad (SkovT h c m) where
@@ -229,24 +222,24 @@ instance (
     {-# INLINE queryBlockState #-}
     queryBlockState = blockState
     {-# INLINE queryTransactionStatus #-}
-    queryTransactionStatus trHash = lookupTransaction trHash
+    queryTransactionStatus = lookupTransaction
     {-# INLINE queryNonFinalizedTransactions #-}
     queryNonFinalizedTransactions addr = do
       txs <- getAccountNonFinalized addr minNonce
       return $! map getHash . concatMap (toList . snd) $ txs
+
+    {-# INLINE queryNextAccountNonce #-}
+    queryNextAccountNonce = getNextAccountNonce
 
 instance (
         Monad m,
         TimeMonad m,
         LoggerMonad m,
         OnSkov (SkovT h c m),
-        HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovT h c m))),
         BlockStateStorage (SkovT h c m),
         TreeStateMonad (SkovT h c m),
-        PendingBlockType (SkovT h c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointerType (SkovT h c m))),
-        Convert Transaction (BlockTransactionType (PendingBlockType (SkovT h c m))) (SkovT h c m),
-        BlockDataMonad (PendingBlockType (SkovT h c m)) (SkovT h c m)
-        ) => SkovMonad (SkovT h c m) where
+        PendingBlockType (SkovT h c m) ~ GB.PendingBlock)
+        => SkovMonad (SkovT h c m) where
     {-# INLINE storeBlock #-}
     storeBlock = doStoreBlock
     {-# INLINE storeBakedBlock #-}
@@ -322,7 +315,7 @@ instance FinalizationConfig (SkovConfig gc (ActiveFinalization t) hc) where
     initialiseFinalization (SkovConfig _ (ActiveFinalization finInst genData) _)
             = (finInst, initialFinalizationState finInst genHash finParams)
             where
-                genHash = getHash (GenesisBlock genData :: Block Transaction)
+                genHash = getHash $ GenesisBlock genData
                 finParams = genesisFinalizationParameters genData
     {-# INLINE initialiseFinalization #-}
 
@@ -357,7 +350,7 @@ instance FinalizationConfig (SkovConfig gc (BufferedFinalization t) hc) where
     initialiseFinalization (SkovConfig _ (BufferedFinalization finInst genData) _)
             = (finInst, BufferedFinalizationState (initialFinalizationState finInst genHash finParams) emptyFinalizationBuffer)
             where
-                genHash = getHash (GenesisBlock genData :: Block Transaction)
+                genHash = getHash $ GenesisBlock genData
                 finParams = genesisFinalizationParameters genData
     {-# INLINE initialiseFinalization #-}
 
@@ -515,18 +508,13 @@ type SkovConfigMonad h c m = (SkovConfiguration c,
         GlobalStateTypes (TreeStateConfigM h c m),
         TreeStateMonad (TreeStateConfigM h c m),
         BlockPointerMonad (TreeStateConfigM h c m),
-        HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovTTBM h c m))),
-        PendingBlockType (SkovT h c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointerType (SkovT h c m))),
+        PendingBlockType (SkovT h c m) ~ GB.PendingBlock,
         BlockFields ~ BlockFieldType (BlockPointerType (SkovTGSM h c m)),
         PendingBlockType (TreeStateConfigM h c m) ~ PendingBlockType (SkovT h c m),
-        BlockPointerType (TreeStateConfigM h c m) ~ BlockPointerType (SkovT h c m),
-        BlockDataMonad (PendingBlockType (SkovT h c m)) (SkovT h c m),
-        Convert Transaction (BlockTransactionType (PendingBlockType (TreeStateConfigM h c m))) (TreeStateConfigM h c m)
-    )
+        BlockPointerType (TreeStateConfigM h c m) ~ BlockPointerType (SkovT h c m))
 
 type SkovQueryConfigMonad c m =
-    (HashableTo TransactionHash (BlockTransactionType (BlockPointerType (SkovTTBM () c m))),
-     PendingBlockType (SkovT () c m) ~ GB.PendingBlock (BlockTransactionType (BlockPointerType (SkovT () c m))),
+    (PendingBlockType (SkovT () c m) ~ GB.PendingBlock,
      BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM () c m)),
      TreeStateMonad (SkovTGSM () c m),
      BlockPointerMonad (SkovTGSM () c m),

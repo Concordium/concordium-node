@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler
@@ -148,7 +149,7 @@ dispatch msg = do
           return $! Just $! TxValid $! TransactionSummary{
             tsEnergyCost = cost,
             tsCost = payment,
-            tsSender = senderAccount ^. accountAddress,
+            tsSender = Just (senderAccount ^. accountAddress),
             tsResult = TxReject SerializationFailure,
             tsHash = transactionHash msg,
             tsType = Nothing,
@@ -184,9 +185,6 @@ dispatch msg = do
                      -- fixed size this is OK.
                      let msgSize = fromIntegral (thPayloadSize meta)
                      in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
-       
-                   DeployCredential cdi ->
-                     handleDeployCredential (mkWTC TTDeployCredential) (payloadBodyBytes (transactionPayload msg)) cdi
        
                    DeployEncryptionKey encKey ->
                      handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
@@ -487,77 +485,7 @@ runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f =
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
-
-handleDeployCredential ::
-  SchedulerMonad m
-    => WithDepositContext ->
-    -- |Credentials to deploy in serialized form. We pass these to the verify function.
-    AH.CredentialDeploymentInformationBytes ->
-    -- |Credentials to deploy.
-    ID.CredentialDeploymentInformation ->
-    m (Maybe TransactionSummary)
-handleDeployCredential wtc cdiBytes cdi =
-  withDeposit wtc c k
-  where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
-        meta = wtc ^. wtcTransactionHeader
-        c = tickEnergy Cost.deployCredential
-        k ls _ = do
-          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
-          let cdv = ID.cdiValues cdi
-          -- check that a registration id does not yet exist
-          let regId = ID.cdvRegId cdv
-          regIdEx <- accountRegIdExists regId
-          if regIdEx then
-            return $! (TxReject (DuplicateAccountRegistrationID (ID.cdvRegId cdv)), energyCost, usedEnergy)
-          else do
-            -- We now look up the identity provider this credential is derived from.
-            -- Of course if it does not exist we reject the transaction.
-            let credentialIP = ID.cdvIpId cdv
-            getIPInfo credentialIP >>= \case
-              Nothing -> return $! (TxReject (NonExistentIdentityProvider (ID.cdvIpId cdv)), energyCost, usedEnergy)
-              Just ipInfo -> do
-                cryptoParams <- getCrypoParams
-                -- we have two options. One is that we are deploying a credential on an existing account.
-                case ID.cdvAccount cdv of
-                  ID.ExistingAccount aaddr ->
-                    -- first check whether an account with the address exists in the global store
-                    -- if it does not we cannot deploy the credential.
-                    getAccount aaddr >>= \case
-                      Nothing -> return $! (TxReject (InvalidAccountReference aaddr), energyCost, usedEnergy)
-                      Just account -> do
-                            -- otherwise we just try to add a credential to the account
-                            -- but only if the credential is from the same identity provider
-                            -- as the existing ones on the account.
-                            -- Since we always maintain this invariant it is sufficient to check
-                            -- for one credential only.
-                            let credentials = account ^. accountCredentials
-                            let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
-                            if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
-                              addAccountCredential account cdv
-                              return $! (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}], energyCost, usedEnergy)
-                            else
-                              return $! (TxReject AccountCredentialInvalid, energyCost, usedEnergy)
-                  ID.NewAccount keys threshold ->
-                    -- account does not yet exist, so create it, but we need to be careful
-                    if null keys || length keys > 255 then
-                      return $! (TxReject AccountCredentialInvalid, energyCost, usedEnergy)
-                    else do
-                      let accountKeys = ID.makeAccountKeys keys threshold
-                      let aaddr = ID.addressFromRegId regId
-                      let account = newAccount accountKeys aaddr
-                      -- this check is extremely unlikely to fail (it would amount to a hash collision since
-                      -- we checked regIdEx above already.
-                      accExistsAlready <- isJust <$> getAccount aaddr
-                      let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
-                      if not accExistsAlready && check then do
-                        _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                                   -- We know the address does not yet exist.
-                        addAccountCredential account cdv  -- and then add the credentials
-                        return $! (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}], energyCost, usedEnergy)
-                      else return $! (TxReject AccountCredentialInvalid, energyCost, usedEnergy)
-
+       
 handleDeployEncryptionKey ::
   SchedulerMonad m
     => WithDepositContext
@@ -797,6 +725,84 @@ handleDelegateStake wtc targetBaker =
             return $! (TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
+
+-- *Transactions without a sender
+handleDeployCredential ::
+  SchedulerMonad m => 
+  -- |Credentials to deploy.
+  ID.CredentialDeploymentInformation ->
+  TransactionHash ->
+  m (Maybe TxResult)
+handleDeployCredential cdi cdiHash = do
+    remainingEnergy <- getRemainingEnergy
+    let cost = Cost.deployCredential
+    if remainingEnergy < cost then return Nothing
+    else do
+      let mkSummary tsResult = do
+            tsIndex <- bumpTransactionIndex
+            return $ Just . TxValid $ TransactionSummary{
+              tsSender = Nothing,
+              tsHash = cdiHash,
+              tsCost = 0,
+              tsEnergyCost = cost,
+              tsType = Nothing,
+              ..
+              }
+      let cdiBytes = S.encode cdi
+      let cdv = ID.cdiValues cdi
+      -- check that a registration id does not yet exist
+      let regId = ID.cdvRegId cdv
+      regIdEx <- accountRegIdExists regId
+      if regIdEx then
+        return $! (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
+      else do
+        -- We now look up the identity provider this credential is derived from.
+        -- Of course if it does not exist we reject the transaction.
+        let credentialIP = ID.cdvIpId cdv
+        getIPInfo credentialIP >>= \case
+          Nothing -> return $! Just (TxInvalid (NonExistentIdentityProvider (ID.cdvIpId cdv)))
+          Just ipInfo -> do
+            cryptoParams <- getCrypoParams
+            -- we have two options. One is that we are deploying a credential on an existing account.
+            case ID.cdvAccount cdv of
+              ID.ExistingAccount aaddr ->
+                -- first check whether an account with the address exists in the global store
+                -- if it does not we cannot deploy the credential.
+                getAccount aaddr >>= \case
+                  Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
+                  Just account -> do
+                        -- otherwise we just try to add a credential to the account
+                        -- but only if the credential is from the same identity provider
+                        -- as the existing ones on the account.
+                        -- Since we always maintain this invariant it is sufficient to check
+                        -- for one credential only.
+                        let credentials = account ^. accountCredentials
+                        let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
+                        if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
+                          addAccountCredential account cdv
+                          mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                        else
+                          return $ (Just (TxInvalid AccountCredentialInvalid))
+              ID.NewAccount keys threshold ->
+                -- account does not yet exist, so create it, but we need to be careful
+                if null keys || length keys > 255 then
+                  return $ Just (TxInvalid AccountCredentialInvalid)
+                else do
+                  let accountKeys = ID.makeAccountKeys keys threshold
+                  let aaddr = ID.addressFromRegId regId
+                  let account = newAccount accountKeys aaddr
+                  -- this check is extremely unlikely to fail (it would amount to a hash collision since
+                  -- we checked regIdEx above already).
+                  accExistsAlready <- isJust <$> getAccount aaddr
+                  let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
+                  if not accExistsAlready && check then do
+                    _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                               -- We know the address does not yet exist.
+                    addAccountCredential account cdv  -- and then add the credentials
+                    mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                  else return $ Just (TxInvalid AccountCredentialInvalid)
+
+
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
 -- maximum block size and block energy limit. The list of input transactions is traversed from left to
@@ -823,10 +829,37 @@ handleDelegateStake wtc targetBaker =
 --     as in the input).
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
-filterTransactions :: (TransactionData msg, SchedulerMonad m)
-                      => Integer -> GroupedTransactions msg -> m (FilteredTransactions msg)
-filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
-  where run maxEnergy = go 0 [] [] []
+filterTransactions :: (SchedulerMonad m)
+                   => Integer -- ^Maximum block size in bytes.
+                   -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
+                   -> m FilteredTransactions
+filterTransactions maxSize inputTxs = do
+  maxEnergy <- getMaxBlockEnergy
+  (size, valid, invalidCred, unprocessedCred) <- runCredentials maxEnergy (credentialDeployments inputTxs)
+  run maxEnergy invalidCred unprocessedCred size valid [] [] (perAccountTransactions inputTxs)
+  where runCredentials maxEnergy = go 0 [] [] []
+            where go size valid invalid unprocessedCred [] = return (size, valid, invalid, unprocessedCred)
+                  go size valid invalid unprocessedCred (cdwm@WithMetadata{..}:rest) = do
+                    totalEnergyUsed <- getUsedEnergy
+                    let csize = size + fromIntegral wmdSize
+                        energyCost = Cost.deployCredential
+                        cenergy = totalEnergyUsed + fromIntegral energyCost
+                    if csize <= maxSize && cenergy <= maxEnergy then
+                      observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
+                          (Just (TxValid summary), fp) -> do
+                            markEnergyUsed (tsEnergyCost summary)
+                            tlNotifyAccountEffect fp summary
+                            go csize ((fmap CredentialDeployment cdwm, summary):valid) invalid unprocessedCred rest
+                          (Just (TxInvalid reason), _) -> do
+                            go csize valid ((cdwm, reason):invalid) unprocessedCred rest
+                          (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
+                    else if Cost.deployCredential > maxEnergy then
+                      -- this case should not happen (it would mean we set the parameters of the chain wrong),
+                      -- but we keep it just in case.
+                       go size valid ((cdwm, ExceedsMaxBlockEnergy):invalid) unprocessedCred rest
+                    else go size valid invalid (cdwm:unprocessedCred) rest
+
+        run maxEnergy invalidCred unprocessedCred = go
           where go size valid invalid unprocessed ((t:ts) : rest) = do
                   totalEnergyUsed <- getUsedEnergy
                   let csize = size + fromIntegral (transactionSize t)
@@ -837,7 +870,7 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
                        (Just (TxValid summary), fp) -> do
                          markEnergyUsed (tsEnergyCost summary)
                          tlNotifyAccountEffect fp summary
-                         go csize ((t, summary):valid) invalid unprocessed (ts : rest)
+                         go csize ((fmap NormalTransaction t, summary):valid) invalid unprocessed (ts : rest)
                        (Just (TxInvalid reason), _) ->
                          go csize valid (invalidTs t reason ts invalid) unprocessed rest
                        (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
@@ -853,7 +886,9 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
                   let txs = FilteredTransactions{
                               ftAdded = reverse valid,
                               ftFailed = invalid,
-                              ftUnprocessed = unprocessed
+                              ftUnprocessed = unprocessed,
+                              ftUnprocessedCredentials = unprocessedCred,
+                              ftFailedCredentials = invalidCred
                             }
                   in return txs         
                 -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
@@ -865,29 +900,37 @@ filterTransactions maxSize inputTxs = getMaxBlockEnergy >>= flip run inputTxs
 -- * 'Left Nothing' if maximum block energy limit was exceeded
 -- * 'Left (Just fk)' if a transaction failed with the given failure kind
 -- * 'Right outcomes' if all transactions are successful, with given outcomes.
-runTransactions :: (TransactionData msg, SchedulerMonad m)
-                   => [msg] -> m (Either (Maybe FailureKind) [(msg, TransactionSummary)])
+runTransactions :: forall m .
+                (SchedulerMonad m)
+                => [BlockItem]
+                -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
-    where go valid (t:ts) = observeTransactionFootprint (dispatch t) >>= \case
-            (Just (TxValid summary), fp) -> do
-              markEnergyUsed (tsEnergyCost summary)
-              tlNotifyAccountEffect fp summary
-              go ((t, summary):valid) ts
-            (Just (TxInvalid reason), _) -> return (Left (Just reason))
-            (Nothing, _) -> return (Left Nothing)
+    where go valid (bi:ts) = do
+            observeTransactionFootprint (predispatch bi) >>= \case
+              (Just (TxValid summary), fp) -> do
+                markEnergyUsed (tsEnergyCost summary)
+                tlNotifyAccountEffect fp summary
+                go ((bi, summary):valid) ts
+              (Just (TxInvalid reason), _) -> return (Left (Just reason))
+              (Nothing, _) -> return (Left Nothing)
           
           go valid [] = return (Right (reverse valid))
+
+          predispatch :: BlockItem -> m (Maybe TxResult)
+          predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
+          predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
 
 -- |Execute transactions in sequence only for sideffects on global state.
 -- Returns @Right energy@ if block executed successfully (where energy is the
 -- used energy), and 'Left' 'FailureKind' at first failed transaction. This is
 -- more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
-execTransactions :: (TransactionData msg, SchedulerMonad m)
-                 => [msg] -> m (Either (Maybe FailureKind) ())
+execTransactions :: forall m . (SchedulerMonad m)
+                 => [BlockItem]
+                 -> m (Either (Maybe FailureKind) ())
 execTransactions = go
-  where go (t:ts) =
-          observeTransactionFootprint (dispatch t) >>= \case
+  where go (bi:ts) =
+          observeTransactionFootprint (predispatch bi) >>= \case
             (Nothing, _) -> return (Left Nothing)
             (Just (TxValid summary), fp) -> do
               markEnergyUsed (tsEnergyCost summary)
@@ -895,3 +938,7 @@ execTransactions = go
               go ts
             (Just (TxInvalid reason), _) -> return (Left (Just reason))
         go [] = return (Right ())
+
+        predispatch :: BlockItem -> m (Maybe TxResult)
+        predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
+        predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash

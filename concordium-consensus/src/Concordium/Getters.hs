@@ -119,6 +119,18 @@ getAccountNonFinalizedTransactions :: SkovStateQueryable z m => AccountAddress -
 getAccountNonFinalizedTransactions addr sfsRef = runStateQuery sfsRef $
     queryNonFinalizedTransactions addr
 
+-- |Return the best guess as to what the next account nonce should be.
+-- If all account transactions are finalized then this information is reliable.
+-- Otherwise this is the best guess, assuming all other transactions will be
+-- committed to blocks and eventually finalized.
+-- The 'Bool' indicates whether all transactions are finalized.
+getNextAccountNonce :: SkovStateQueryable z m => AccountAddress -> z -> IO Value
+getNextAccountNonce addr sfsRef = runStateQuery sfsRef $ do
+    (nonce, allFinal) <- (queryNextAccountNonce addr)
+    return $ object ["nonce" .= nonce,
+                     "allFinal" .= allFinal
+                    ]
+
 -- |Return a block with given hash and outcomes.
 getBlockSummary :: SkovStateQueryable z m => BlockHash -> z -> IO Value
 getBlockSummary hash sfsRef = runStateQuery sfsRef $
@@ -357,5 +369,5 @@ checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
 getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
 getCatchUpStatus sRef isRequest = runStateQuery sRef $ CU.getCatchUpStatus isRequest
 
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord BroadcastableBlock], CU.CatchUpStatus), Bool))
+handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointerType m)], CU.CatchUpStatus), Bool))
 handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus
