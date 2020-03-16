@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
-    (initialState, makeTransaction, makeTransferTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
+    (initialState, makeTransaction, makeTransferTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime, dummyCreationTime) where
 
 import qualified Data.HashMap.Strict as Map
 
@@ -136,7 +136,7 @@ initialState birkParams cryptoParams bakerAccounts ips n =
         initialAmount = 2 ^ (62 :: Int)
         customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
                           & (accountAmount .~ initialAmount)
-                          . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential mateuszAccount dummyMaxExpiryTime dummyMaxExpiryTime))]
+                          . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential mateuszAccount dummyMaxExpiryTime dummyCreationTime))]
         initAccount = foldl (flip Acc.putAccountWithRegIds)
                             Acc.emptyAccounts
                             (customAccounts ++ bakerAccounts)

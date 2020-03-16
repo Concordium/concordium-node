@@ -53,19 +53,23 @@ existsValidCredential cm acc = do
     -- the same as the expiry date of the credential.
     -- If the credential is still valid at the beginning of this slot then
     -- we consider it valid. Otherwise we fail the transaction.
-    Just (expiry, _) -> do
-      let year = toInteger $ ID.year expiry
-      let month = fromIntegral $ ID.month expiry
-      let date = fromGregorianValid year month 1
-      case date of
-        Nothing -> False
-        Just d ->
-          let utctime = UTCTime d 0
-              slottime = fromIntegral $ slotTime cm
-              slotutc = posixSecondsToUTCTime slottime
-          in
-              (utctime >= slotutc)
+    Just (expiry, _) -> isTimestampAfterYearMonth (slotTime cm) expiry
 
+-- |Check if a Unix timestamp is after a given year/month. For example given
+-- December 2019, any timestamp after or equal January 1st 2020 00:00:00 will
+-- evaluate to true. Note timestamp is UTC in Gregorian calendar.
+isTimestampAfterYearMonth :: Timestamp -> ID.YearMonth -> Bool
+isTimestampAfterYearMonth ts ym = 
+    utcTs >= utcYearMonthExpiryTs
+  where
+    utcTs = posixSecondsToUTCTime (fromIntegral ts)
+    utcYearMonthExpiryTs = UTCTime expiryDay 0
+      where
+        year = toInteger (ID.year ym)
+        month = fromIntegral (ID.month ym)
+        expiryYear = (if month == 12 then (year + 1) else year)
+        expiryMonth = (if month == 12 then 1 else (month + 1)) -- (month % 12) + 1
+        expiryDay = fromGregorian expiryYear expiryMonth 1 -- unchecked, always valid
 
 -- |Check that
 --  * the transaction has a valid sender,
