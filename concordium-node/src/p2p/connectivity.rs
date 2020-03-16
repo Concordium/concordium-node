@@ -227,7 +227,7 @@ impl P2PNode {
                 if let Err(e) =
                     conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
                 {
-                    error!("{}", e);
+                    error!("send error: {}", e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
                         self.register_conn_change(ConnChange::Removal(conn.token));
                     } else {
@@ -238,7 +238,7 @@ impl P2PNode {
 
                 if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
                     if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
-                        error!("{}", e);
+                        error!("receive error: {}", e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
                         } else {

@@ -472,18 +472,16 @@ impl Connection {
                 self
             );
 
-            if let Err(err) = self.low_level.write_to_socket(msg.clone()) {
-                bail!("Can't send a raw network request: {}", err);
-            } else {
-                self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
-                self.handler.stats.pkt_sent_inc();
-                self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-                self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+            self.low_level.write_to_socket(msg.clone())?;
 
-                #[cfg(feature = "network_dump")]
-                {
-                    self.send_to_dump(msg, false);
-                }
+            self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+            self.handler.stats.pkt_sent_inc();
+            self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+            self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+
+            #[cfg(feature = "network_dump")]
+            {
+                self.send_to_dump(msg, false);
             }
         }
 
