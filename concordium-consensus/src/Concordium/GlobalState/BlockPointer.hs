@@ -7,7 +7,6 @@ import Concordium.GlobalState.Block
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Data.Time.Clock
-import Concordium.Types.Transactions(ToPut)
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
     -- |Hash of the block
@@ -83,53 +82,53 @@ instance HashableTo Hash.Hash BasicBlockPointerData where
 -- * BlockData
 -- * BlockPointerData
 -- * HashableTo BlockHash
-data BlockPointer ati t (p :: * -> *) s = BlockPointer {
+data BlockPointer ati (p :: * -> *) s = BlockPointer {
     -- |Information about the block, e.g., height, transactions, ...
     _bpInfo :: !BasicBlockPointerData,
     -- |Pointer to the parent (circular reference for genesis block)
-    _bpParent :: p (BlockPointer ati t p s),
+    _bpParent :: p (BlockPointer ati p s),
     -- |Pointer to the last finalized block (circular for genesis)
-    _bpLastFinalized :: p (BlockPointer ati t p s),
+    _bpLastFinalized :: p (BlockPointer ati p s),
     -- |The block itself
-    _bpBlock :: !(Block t),
+    _bpBlock :: !Block,
     -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
     _bpState :: !s,
     -- |Handle to access the account transaction index; the index of which transactions affect which accounts.
     _bpATI :: !ati
 }
 
-type instance BlockFieldType (BlockPointer ati t p s) = BlockFields
-type instance BlockTransactionType (BlockPointer ati t p s) = t
+type instance BlockFieldType (BlockPointer ati p s) = BlockFields
 
-instance Eq (BlockPointer ati t p s) where
+instance Eq (BlockPointer ati p s) where
     bp1 == bp2 = _bpInfo bp1 == _bpInfo bp2
 
-instance Ord (BlockPointer ati t p s) where
+instance Ord (BlockPointer ati p s) where
     compare bp1 bp2 = compare (_bpInfo bp1) (_bpInfo bp2)
 
-instance Hashable (BlockPointer ati t p s) where
+instance Hashable (BlockPointer ati p s) where
     hashWithSalt s = hashWithSalt s . _bpInfo
     hash = hash . _bpInfo
 
-instance Show (BlockPointer ati t p s) where
+instance Show (BlockPointer ati p s) where
     show = show . _bpInfo
 
-instance HashableTo Hash.Hash (BlockPointer ati t p s) where
+instance HashableTo Hash.Hash (BlockPointer ati p s) where
     getHash = getHash . _bpInfo
 
-instance (ToPut t) => BlockData (BlockPointer ati t p s) where
+instance BlockData (BlockPointer ati p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
     blockSignature = blockSignature . _bpBlock
-    blockBody = blockBody . _bpBlock
+    verifyBlockSignature key = verifyBlockSignature key . _bpBlock
+    putBlock = putBlock . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE blockSignature #-}
-    {-# INLINE blockBody #-}
+    {-# INLINE putBlock #-}
 
-instance (ToPut t) => BlockPointerData (BlockPointer ati t p s) where
+instance BlockPointerData (BlockPointer ati p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo

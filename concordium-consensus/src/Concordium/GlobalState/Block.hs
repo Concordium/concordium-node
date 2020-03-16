@@ -9,22 +9,15 @@ import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.Crypto.SHA256 as Hash
-import Concordium.GlobalState.Classes
-
--- | Serialize the block by first converting all the transactions to memory transactions
-fullBody :: forall m t. (Convert (BakedBlock Transaction) (BakedBlock t) m) =>
-           BakedBlock t -> m Put
-fullBody b = do
-  bx <- toMemoryRepr b :: m (BakedBlock Transaction)
-  return $ blockBody bx
+import qualified Concordium.Crypto.BlockSignature as Sig
 
 hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
-instance HashableTo BlockHash (BakedBlock Transaction) where
+instance HashableTo BlockHash BakedBlock where
     getHash b = Hash.hashLazy . runPutLazy $ blockBody b >> put (bbSignature b)
 
-instance HashableTo BlockHash (Block Transaction) where
+instance HashableTo BlockHash Block where
     getHash (GenesisBlock genData) = hashGenesisData genData
     getHash (NormalBlock bb) = getHash bb
 
@@ -48,17 +41,6 @@ class BlockMetadata d where
 -- @BlockFieldType b@ is an instance of 'BlockMetadata'.
 type family BlockFieldType (b :: *) :: *
 
--- |The type of the transactions in the block.
---
--- The block datatypes are parametrized by a type variable @t@ that indicates
--- its Transaction type. By default given a Type @Block... t@, its
--- @BlockTransactionType@ is automatically defined as @t@.
---
--- As GlobalStateTypes provides the block types associated with a given monad
--- @m@, we can get the TransactionType associated with that monad using the expression
--- @BlockTransactionType (BlockPointer m)@.
-type family BlockTransactionType (b :: *) :: *
-
 -- |The 'BlockData' class provides an interface for the pure data associated
 -- with a block.
 class (BlockMetadata (BlockFieldType b)) => BlockData b where
@@ -67,15 +49,18 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |The fields of a block, if it was baked; @Nothing@ for the genesis block.
     blockFields :: b -> Maybe (BlockFieldType b)
     -- |The transactions in a block in the variant they are currently stored in the block.
-    blockTransactions :: b -> [BlockTransactionType b]
+    blockTransactions :: b -> [BlockItem]
     blockSignature :: b -> Maybe BlockSignature
+    -- |Determine if the block is signed by the given key
+    -- (always 'True' for genesis block)
+    verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
     -- |Provides a pure serialization of the block.
     --
     -- This means that if some IO is needed for serializing the block (as
     -- in the case of the Persistent blocks), it will not be done and we
     -- would just serialize the hashes of the transactions. This is useful in order
     -- to get the serialized version of the block that we want to write into the disk.
-    blockBody :: b -> Put
+    putBlock :: b -> Put
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
@@ -119,23 +104,20 @@ instance BlockMetadata BlockFields where
 -- * BlockFieldType & BlockTransactionType
 -- * BlockMetadata
 -- * BlockData
-data BakedBlock t = BakedBlock {
+data BakedBlock = BakedBlock {
     -- |Slot number (must be >0)
     bbSlot :: !Slot,
     -- |Block fields
     bbFields :: !BlockFields,
     -- |Block transactions
-    bbTransactions :: ![t],
+    bbTransactions :: ![BlockItem],
     -- |Block signature
     bbSignature :: BlockSignature
 } deriving (Show)
 
-type instance BlockFieldType (BakedBlock t) = BlockFields
-type instance BlockTransactionType (BakedBlock t) = t
+type instance BlockFieldType BakedBlock = BlockFields
 
-type BroadcastableBlock = BakedBlock Transaction
-
-instance BlockMetadata (BakedBlock t) where
+instance BlockMetadata BakedBlock where
     blockPointer = bfBlockPointer . bbFields
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker . bbFields
@@ -147,35 +129,26 @@ instance BlockMetadata (BakedBlock t) where
     blockLastFinalized = bfBlockLastFinalized . bbFields
     {-# INLINE blockLastFinalized #-}
 
-instance (ToPut t) => BlockData (BakedBlock t) where
-    blockSlot = bbSlot
-    {-# INLINE blockSlot #-}
-    blockFields = Just . bbFields
-    {-# INLINE blockFields #-}
-    blockTransactions = bbTransactions
-    blockSignature = Just . bbSignature
-    blockBody b = do
+blockBody :: (BlockMetadata b, BlockData b) => b -> Put
+blockBody b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
         put (blockProof b)
         put (blockNonce b)
         put (blockLastFinalized b)
-        putListOf toPut $ blockTransactions b
+        putWord64be (fromIntegral (length (blockTransactions b)))
+        mapM_ toPut $ blockTransactions b
 
-instance Convert Transaction t m => Convert (BakedBlock Transaction) (BakedBlock t) m where
-  toMemoryRepr BakedBlock{..} = do
-    newTxs <- mapM toMemoryRepr bbTransactions
-    return $ BakedBlock{bbTransactions = newTxs,..}
-  fromMemoryRepr BakedBlock{..} = do
-    newTxs <- mapM fromMemoryRepr bbTransactions
-    return $ BakedBlock{bbTransactions = newTxs,..}
-
-instance (Monad m, Convert (BakedBlock Transaction) (BakedBlock t) m) =>
-    HashableTo (m BlockHash) (BakedBlock t) where
-  getHash b = do
-    bx <- toMemoryRepr b :: m (BakedBlock Transaction)
-    return $ Hash.hashLazy . runPutLazy $ blockBody bx >> put (bbSignature b)
+instance BlockData BakedBlock where
+    blockSlot = bbSlot
+    {-# INLINE blockSlot #-}
+    blockFields = Just . bbFields
+    {-# INLINE blockFields #-}
+    blockTransactions = bbTransactions
+    blockSignature = Just . bbSignature
+    verifyBlockSignature key b = Sig.verify key (runPut (blockBody b)) (bbSignature b)
+    putBlock b = blockBody b >> put (bbSignature b)
 
 -- |Representation of a block
 --
@@ -183,17 +156,16 @@ instance (Monad m, Convert (BakedBlock Transaction) (BakedBlock t) m) =>
 --
 -- * BlockFieldType & BlockTransactionType
 -- * BlockData
-data Block t
+data Block
     = GenesisBlock !GenesisData
     -- ^A genesis block
-    | NormalBlock !(BakedBlock t)
+    | NormalBlock !BakedBlock
     -- ^A baked (i.e. non-genesis) block
     deriving (Show)
 
-type instance BlockFieldType (Block t) = BlockFieldType (BakedBlock t)
-type instance BlockTransactionType (Block t) = t
+type instance BlockFieldType Block = BlockFieldType BakedBlock
 
-instance (ToPut t) => BlockData (Block t) where
+instance BlockData Block where
     blockSlot GenesisBlock{} = 0
     blockSlot (NormalBlock bb) = blockSlot bb
 
@@ -206,19 +178,16 @@ instance (ToPut t) => BlockData (Block t) where
     blockSignature GenesisBlock{} = Nothing
     blockSignature (NormalBlock bb) = blockSignature bb
 
-    blockBody (GenesisBlock gd) = put genesisSlot >> put gd
-    blockBody (NormalBlock bb) = blockBody bb
+    verifyBlockSignature _ GenesisBlock{} = True
+    verifyBlockSignature key (NormalBlock bb) = verifyBlockSignature key bb
+
+    putBlock (GenesisBlock gd) = put genesisSlot >> put gd
+    putBlock (NormalBlock bb) = putBlock bb
 
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE blockBody #-}
-
-instance (Monad m, Convert (BakedBlock Transaction) (BakedBlock t) m) =>
-         HashableTo (m BlockHash) (Block t) where
-    getHash (GenesisBlock genData) =
-      return $! hashGenesisData genData
-    getHash (NormalBlock bb) = getHash bb
+    {-# INLINE putBlock #-}
 
 -- |A baked block, pre-hashed with its arrival time.
 --
@@ -229,22 +198,21 @@ instance (Monad m, Convert (BakedBlock Transaction) (BakedBlock t) m) =>
 -- * BlockData
 -- * BlockPendingData
 -- * HashableTo BlockHash
-data PendingBlock t = PendingBlock {
+data PendingBlock = PendingBlock {
     pbHash :: !BlockHash,
-    pbBlock :: !(BakedBlock t),
+    pbBlock :: !BakedBlock,
     pbReceiveTime :: !UTCTime
 }
 
-type instance BlockFieldType (PendingBlock t) = BlockFieldType (BakedBlock t)
-type instance BlockTransactionType (PendingBlock t) = t
+type instance BlockFieldType PendingBlock = BlockFieldType BakedBlock
 
-instance Eq (PendingBlock t) where
+instance Eq PendingBlock where
     pb1 == pb2 = pbHash pb1 == pbHash pb2
 
-instance Show (PendingBlock t) where
+instance Show PendingBlock where
     show pb = show (pbHash pb) ++ " (" ++ show (blockBaker $ bbFields $ pbBlock pb) ++ ")"
 
-instance BlockMetadata (PendingBlock t) where
+instance BlockMetadata PendingBlock where
     blockPointer = bfBlockPointer . bbFields . pbBlock
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker . bbFields . pbBlock
@@ -256,19 +224,58 @@ instance BlockMetadata (PendingBlock t) where
     blockLastFinalized = bfBlockLastFinalized . bbFields . pbBlock
     {-# INLINE blockLastFinalized #-}
 
-instance (ToPut t) => BlockData (PendingBlock t) where
+instance BlockData PendingBlock where
     blockSlot = blockSlot . pbBlock
     blockFields = blockFields . pbBlock
     blockTransactions = blockTransactions . pbBlock
     blockSignature = blockSignature . pbBlock
-    blockBody = blockBody . pbBlock
+    verifyBlockSignature key = verifyBlockSignature key . pbBlock
+    putBlock = putBlock . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE blockBody #-}
+    {-# INLINE putBlock #-}
 
-instance (ToPut t) => BlockPendingData (PendingBlock t) where
+instance BlockPendingData PendingBlock where
     blockReceiveTime = pbReceiveTime
 
-instance HashableTo BlockHash (PendingBlock t) where
+instance HashableTo BlockHash PendingBlock where
   getHash = pbHash
+
+
+-- |Deserialize a block.
+-- NB: This does not check transaction signatures.
+getBlock :: TransactionTime -> Get Block
+getBlock arrivalTime = do
+  sl <- get
+  if sl == 0 then GenesisBlock <$> get
+  else do
+    bfBlockPointer <- get
+    bfBlockBaker <- get
+    bfBlockProof <- get
+    bfBlockNonce <- get
+    bfBlockLastFinalized <- get
+    bbTransactions <- getListOf (getBlockItem arrivalTime)
+    bbSignature <- get
+    return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
+
+makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
+makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
+
+-- |Generate a baked block.
+signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
+    -> Slot                       -- ^Block slot (must be non-zero)
+    -> BlockHash                  -- ^Hash of parent block
+    -> BakerId                    -- ^Identifier of block baker
+    -> BlockProof                 -- ^Block proof
+    -> BlockNonce                 -- ^Block nonce
+    -> BlockHash                  -- ^Hash of last finalized block
+    -> [BlockItem]                -- ^Payload of the block.
+    -> BakedBlock
+signBlock key slot parent baker proof bnonce lastFin transactions
+    | slot == 0 = error "Only the genesis block may have slot 0"
+    | otherwise = do
+        let sig = Sig.sign key . runPut $ blockBody (preBlock undefined)
+        preBlock sig
+    where
+        preBlock = BakedBlock slot (BlockFields parent baker proof bnonce lastFin) transactions

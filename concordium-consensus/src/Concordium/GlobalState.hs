@@ -34,7 +34,6 @@ import Data.Pool(destroyAllResources)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Types
-import Concordium.Types.Transactions
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
@@ -46,7 +45,6 @@ import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext
 import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
-import Concordium.Types.PersistentTransactions
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.SQLiteATI
 
@@ -212,11 +210,6 @@ deriving via PureTreeStateMonad bs m
 
 deriving via PureTreeStateMonad bs m
     instance (Monad m,
-              Convert Transaction Transaction (PureTreeStateMonad bs m))
-             => Convert Transaction Transaction (MemoryTreeStateM bs m)
-
-deriving via PureTreeStateMonad bs m
-    instance (Monad m,
               BlockPointerMonad (PureTreeStateMonad bs m))
               => BlockPointerMonad (MemoryTreeStateM bs m)
 
@@ -237,11 +230,6 @@ deriving via PersistentTreeStateMonad ati bs m
 
 deriving via PersistentTreeStateMonad ati bs m
     instance GlobalStateTypes (PersistentTreeStateM ati bs m)
-
-deriving via PersistentTreeStateMonad ati bs m
-    instance (Monad m,
-              Convert Transaction PersistentTransaction (PersistentTreeStateMonad ati bs m))
-             => Convert Transaction PersistentTransaction (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
@@ -295,11 +283,6 @@ deriving via TreeStateBlockStateM g c r s m
 deriving via TreeStateBlockStateM g c r s m
     instance GlobalStateTypes (TreeStateBlockStateM g c r s m)
              => GlobalStateTypes (GlobalStateM db c r g s m)
-
-deriving via TreeStateBlockStateM g c r s m
-    instance (Monad m,
-              Convert Transaction t (TreeStateBlockStateM g c r s m))
-             => Convert Transaction t (GlobalStateM db c r g s m)
 
 deriving via TreeStateBlockStateM g c r s m
     instance (Monad m,
