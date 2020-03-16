@@ -37,7 +37,7 @@ use p2p_client::{
 };
 
 use std::{
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -260,9 +260,7 @@ fn start_consensus_message_threads(
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
     let consensus_ref = consensus.clone();
-    threads.push(spawn_or_die!("Peers status notifier thread for consensus", {
-        let peer_stats_notifier_control_queue_receiver =
-            CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
+    threads.push(spawn_or_die!("consensus peer list handling", {
         let mut last_peer_list_update = 0;
         loop {
             if node_ref.last_peer_update() > last_peer_list_update {
@@ -272,10 +270,8 @@ fn start_consensus_message_threads(
 
             check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref);
 
-            if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
-                if let QueueMsg::Stop = msg {
-                    break;
-                }
+            if node_ref.is_terminated.load(Ordering::Relaxed) {
+                break;
             }
 
             thread::sleep(Duration::from_millis(200));
@@ -285,12 +281,12 @@ fn start_consensus_message_threads(
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
     let consensus_ref = consensus.clone();
-    threads.push(spawn_or_die!("Process inbound consensus requests", {
+    threads.push(spawn_or_die!("inbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
-        let cvar = &*CALLBACK_QUEUE.inbound.signaler;
+        let cvar = &CALLBACK_QUEUE.inbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
         let mut exhausted: bool;
@@ -343,13 +339,12 @@ fn start_consensus_message_threads(
     }));
 
     let node_ref = Arc::clone(node);
-    let peers_ref = Arc::clone(&peers);
-    threads.push(spawn_or_die!("Process outbound consensus requests", {
+    threads.push(spawn_or_die!("outbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.outbound.receiver_low_priority.lock().unwrap();
-        let cvar = &*CALLBACK_QUEUE.outbound.signaler;
+        let cvar = &CALLBACK_QUEUE.outbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
         let mut exhausted: bool;
@@ -368,7 +363,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
+                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -382,7 +377,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
+                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -411,7 +406,7 @@ where
             }
         }
         QueueMsg::Stop => {
-            warn!("Closing the {} consensus channel", dir);
+            debug!("Closing the {} consensus channel", dir);
             return false;
         }
     }
@@ -428,7 +423,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
             error!("{}", e);
         }
     }
-    spawn_or_die!("Process transfer log messages", {
+    spawn_or_die!("transfer log", {
         let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             match receiver.recv() {
@@ -453,7 +448,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
 
 #[cfg(not(feature = "elastic_logging"))]
 fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
-    spawn_or_die!("Process transfer log messages", {
+    spawn_or_die!("transfer log", {
         let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             match receiver.recv() {

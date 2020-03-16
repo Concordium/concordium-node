@@ -118,30 +118,35 @@ impl P2PNode {
 
     /// Shut down connection with the given poll token.
     pub fn remove_connection(&self, token: Token) -> Option<Connection> {
+        let removed_cand = lock_or_die!(self.conn_candidates()).remove(&token);
         let removed_conn = write_or_die!(self.connections()).remove(&token);
 
-        if removed_conn.is_some() {
+        if removed_cand.is_some() {
+            removed_cand
+        } else if removed_conn.is_some() {
             self.bump_last_peer_update();
+            removed_conn
+        } else {
+            None
         }
-
-        removed_conn
     }
 
     /// Shut down connections with the given poll tokens.
-    pub fn remove_connections(&self, tokens: &[Token]) -> bool {
+    pub fn remove_connections(&self, tokens: &[Token]) {
+        let conn_candidates = &mut lock_or_die!(self.conn_candidates());
         let connections = &mut write_or_die!(self.connections());
 
         let mut removed = 0;
         for token in tokens {
-            if connections.remove(&token).is_some() {
+            if conn_candidates.remove(&token).is_some() {
+                continue;
+            } else if connections.remove(&token).is_some() {
                 removed += 1;
             }
         }
         if removed > 0 {
             self.bump_last_peer_update();
         }
-
-        removed == tokens.len()
     }
 
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
@@ -227,7 +232,7 @@ impl P2PNode {
                 if let Err(e) =
                     conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
                 {
-                    error!("{}", e);
+                    error!("[send] {}", e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
                         self.register_conn_change(ConnChange::Removal(conn.token));
                     } else {
@@ -238,7 +243,7 @@ impl P2PNode {
 
                 if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
                     if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
-                        error!("{}", e);
+                        error!("[receive] {}", e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
                         } else {

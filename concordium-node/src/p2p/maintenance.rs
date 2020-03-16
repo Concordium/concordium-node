@@ -414,16 +414,6 @@ impl P2PNode {
     #[cfg(feature = "network_dump")]
     pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
 
-    /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
-    pub fn join(&self) -> Fallible<()> {
-        for handle in mem::take(&mut *write_or_die!(self.threads)) {
-            if let Err(e) = handle.join() {
-                error!("Can't join a node thread: {:?}", e);
-            }
-        }
-        Ok(())
-    }
-
     /// Get the node's client version.
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
 
@@ -487,9 +477,18 @@ impl P2PNode {
 
     /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
-        info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
         CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
+    }
+
+    /// Joins the threads spawned by the node.
+    pub fn join(&self) -> Fallible<()> {
+        for handle in mem::take(&mut *write_or_die!(self.threads)) {
+            if let Err(e) = handle.join() {
+                error!("Can't join a node thread: {:?}", e);
+            }
+        }
+        Ok(())
     }
 
     /// Shut the node down gracefully and terminate its threads.
@@ -502,7 +501,7 @@ impl P2PNode {
 /// Spawn the node's poll thread.
 pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
     let node = Arc::clone(node_ref);
-    let poll_thread = spawn_or_die!("Poll thread", move || {
+    let poll_thread = spawn_or_die!("poll loop", move || {
         let mut events = Events::with_capacity(10);
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
@@ -550,6 +549,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
 
                 // Check the termination switch
                 if node.is_terminated.load(Ordering::Relaxed) {
+                    info!("Shutting down");
                     break;
                 }
 

@@ -480,7 +480,7 @@ impl StatsExportService {
         prometheus_push_password: Option<String>,
     ) {
         let metrics_families = self.registry.gather();
-        let _th = spawn_or_die!("Prometheus push", move || loop {
+        let _th = spawn_or_die!("Prometheus", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
                 prometheus_push_password.clone().map(|password| prometheus::BasicAuthentication {
