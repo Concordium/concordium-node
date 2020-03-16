@@ -7,6 +7,7 @@ stages:
 
 .generic:
   variables:
+    GIT_SUBMODULE_STRATEGY: none
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
     LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:$LD_LIBRARY_PATH"
