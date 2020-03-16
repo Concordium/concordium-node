@@ -80,31 +80,31 @@ testCasesReject =
         )
       ]
 
-type RunResult = ([([(Types.BareTransaction, Types.ValidResult)],
-                     [(Types.BareTransaction, Types.FailureKind)],
-                     Types.BirkParameters)], BlockState)
+type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
+                      [(Types.Transaction, Types.FailureKind)], Types.BirkParameters)],
+                    BlockState)
 
 runWithIntermediateStates
   :: [TransactionJSON]
-  -> PR.Context Core.UA IO RunResult
+  -> PR.Context Core.UA IO TestResult
 runWithIntermediateStates transactionsInput = do
   txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize [tx])
+                                    (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
                                     specialBetaAccounts
                                     Types.dummyChainMeta
                                     maxBound
                                     st
                             in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState))
                          ([], initialBlockState)
-                         txs
+                         (Types.perAccountTransactions txs)
   return (res, state)
 
 
 -- | Run the given transactions, testing the result with the given spec and some basic specs.
-runAndTest :: String -> [TransactionJSON] -> (RunResult -> Spec) -> Spec
+runAndTest :: String -> [TransactionJSON] -> (TestResult -> Spec) -> Spec
 runAndTest name transactionsInput specs = do
   describe name $ do
     -- Basic specs
