@@ -483,7 +483,7 @@ withDeposit wtc comp k = do
       (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
       chargeExecutionCost tsHash (wtc ^. wtcSenderAccount) payment
       return $! Just $! TransactionSummary{
-        tsSender = thSender txHeader,
+        tsSender = Just (thSender txHeader),
         tsCost = payment,
         tsEnergyCost = usedEnergy,
         tsResult = TxReject reason,
@@ -496,7 +496,7 @@ withDeposit wtc comp k = do
       -- In this case we invoke the continuation, which should charge for the used energy.
       (tsResult, tsCost, tsEnergyCost) <- k ls a
       return $! Just $! TransactionSummary{
-        tsSender = thSender txHeader,
+        tsSender = Just (thSender txHeader),
         tsType = Just (wtc ^. wtcTransactionType),
         tsIndex = wtc ^. wtcTransactionIndex,
         ..

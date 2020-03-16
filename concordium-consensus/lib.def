@@ -28,6 +28,7 @@ EXPORTS
  getTransactionStatus
  getTransactionStatusInBlock
  getAccountNonFinalizedTransactions
+ getNextAccountNonce
  getBlockSummary
  checkIfWeAreBaker
  checkIfWeAreFinalizer

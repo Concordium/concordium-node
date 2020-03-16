@@ -14,17 +14,17 @@ import System.Random
 
 import Concordium.Crypto.SHA256
 
-import qualified Concordium.GlobalState.Basic.Block as B
-import qualified Concordium.GlobalState.Basic.BlockPointer as BS
+import Concordium.GlobalState.Block as B
+import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 
+import Concordium.Types.HashableTo
 import Concordium.Logger
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
@@ -58,7 +58,7 @@ runKonsensus steps g states es
                     (mb, fs', es2) <- myRunSkovT (bakeForSlot bkr sl) handlers fi fs es1
                     case mb of
                         Nothing -> continue fs' (es2 & esEventPool %~ ((rcpt, EBake (sl + 1)) Seq.<|))
-                        Just BS.BasicBlockPointer{_bpBlock = B.NormalBlock b} ->
+                        Just BlockPointer{_bpBlock = NormalBlock b} ->
                             continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                         Just _ -> error "Baked genesis block"
 
@@ -133,7 +133,7 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBlocks = Set.fromList [bpHash bp | (Right bp) <- l]
+                    let recBlocks = Set.fromList [getHash bp | (Right bp) <- l]
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
                     let reqFin = Set.fromList $ finalizationBlockPointer . fst <$> toList (ssGSState s1 ^. BTS.finalizationList)
@@ -144,8 +144,11 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
                         testList knownBlocks knownFin (Right bp : rs) = do
-                            checkBinary Set.member (bpHash (BS._bpParent bp)) knownBlocks "in" "block parent" "known blocks"
-                            checkBinary Set.member (bpHash (BS._bpLastFinalized bp)) knownFin "in" "block parent" "known finalized blocks"
+                            case blockFields bp of
+                              Just bf -> do
+                                checkBinary Set.member (blockPointer bf) knownBlocks "in" "block parent" "known blocks"
+                                checkBinary Set.member (blockLastFinalized bf) knownFin "in" "block parent" "known finalized blocks"
+                              Nothing -> return ()
                             testList (Set.insert (bpHash bp) knownBlocks) knownFin rs
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
                     -- * A block is not sent before its parent
