@@ -44,11 +44,7 @@ baker = mkFullBaker 1 alesAccount
 -- all types of transactions.
 transactions :: Types.TransactionExpiryTime -> [TransactionJSON]
 transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
-                        , metadata = makeHeaderWithExpiry alesAccount 1 10000 t
-                        , keypair = alesKP
-                        }
-                 ,TJSON { payload = DeployCredential cdi1
-                        , metadata = makeHeaderWithExpiry alesAccount 2 100000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = AddBaker (baker ^. _1 . bakerElectionVerifyKey)
@@ -59,31 +55,31 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                                              (baker ^. _3)
                                              alesAccount
                                              alesKP
-                        , metadata = makeHeaderWithExpiry alesAccount 3 100000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 2 100000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = UpdateBakerAccount 0 alesAccount alesKP
-                        , metadata = makeHeaderWithExpiry alesAccount 4 100000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 3 100000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
-                        , metadata = makeHeaderWithExpiry alesAccount 5 100000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 4 100000 t
                         , keypair = alesKP
                          }
                  ,TJSON { payload = DelegateStake 0
-                        , metadata = makeHeaderWithExpiry alesAccount 6 1000000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 5 1000000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = UndelegateStake
-                        , metadata = makeHeaderWithExpiry alesAccount 7 1000000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 6 1000000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = RemoveBaker 0 "<dummy proof>"
-                      , metadata = makeHeaderWithExpiry alesAccount 8 100000 t
+                      , metadata = makeHeaderWithExpiry alesAccount 7 100000 t
                       , keypair = alesKP
                       }
                  ,TJSON { payload = DeployModule "FibContract"
-                        , metadata = makeHeaderWithExpiry alesAccount 9 100000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 8 100000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = InitContract { amount = 123
@@ -91,7 +87,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                                                  , moduleName = "FibContract"
                                                  , parameter = "Unit.Unit"
                                                  }
-                        , metadata = makeHeaderWithExpiry alesAccount 10 1000000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 9 1000000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = Update { amount = 0
@@ -99,7 +95,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                                            , moduleName = "FibContract"
                                            , message = "Fib 30"
                                            }
-                        , metadata = makeHeaderWithExpiry alesAccount 11 1000000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 10 1000000 t
                         , keypair = alesKP
                         }
                  ]
@@ -107,13 +103,11 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
 slotTime :: Types.Timestamp
 slotTime = 1
 
-testExpiryTime ::
-    Types.TransactionExpiryTime ->
-    PR.Context UA
-       IO
-       ([(Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)],
-        [Types.BareTransaction])
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [Types.Transaction])
+
+testExpiryTime :: Types.TransactionExpiryTime -> PR.Context UA IO TestResult
 testExpiryTime expiry = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source
@@ -130,9 +124,7 @@ testExpiryTime expiry = do
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed)
 
 checkExpiryTimeResult :: Types.TransactionExpiryTime ->
-                         ([(Types.BareTransaction, Types.ValidResult)],
-                          [(Types.BareTransaction, Types.FailureKind)],
-                          [Types.BareTransaction]) ->
+                         TestResult ->
                          Bool
 checkExpiryTimeResult (Types.TransactionExpiryTime expiry) (added, fails, unprocs) =
     null unprocs &&

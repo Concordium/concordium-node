@@ -26,10 +26,9 @@ import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Block as B
-import Concordium.GlobalState.Basic.Block as BB
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Basic.BlockPointer
 import qualified Concordium.GlobalState.Basic.BlockState as BState
-import Concordium.GlobalState.Basic.TransactionTable
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.BlockPointer (bpHash, bpHeight)
 import Concordium.Types.Transactions
@@ -69,8 +68,8 @@ import Test.Hspec
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Trs = HM.HashMap TransactionHash (Transaction, TransactionStatus)
-type ANFTS = HM.HashMap AccountAddress (AccountNonFinalizedTransactions Transaction)
+type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
+type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
@@ -97,10 +96,28 @@ invariantSkovData TS.SkovData{..} = do
                 checkBinary (==) fi (finalizationIndex fr) "==" "key in finalization pool" "finalization index"
         -- Transactions
         (nonFinTrans, anftNonces) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty)
-        let anft' = foldr (\(tr, _) nft -> nft & at (transactionSender tr) . non emptyANFT . anftMap . at (transactionNonce tr) . non Set.empty %~ Set.insert tr) anftNonces nonFinTrans
+        let anft' = foldr (\(bi, _) ->
+                             case bi of
+                               WithMetadata{wmdData=NormalTransaction tr,..} ->
+                                 at (transactionSender tr)
+                                 . non emptyANFT
+                                 . anftMap
+                                 . at (transactionNonce tr)
+                                 . non Set.empty %~ Set.insert WithMetadata{wmdData=tr,..}
+                               _ -> id
+                          )
+                          anftNonces
+                          nonFinTrans
         unless (anft' == _ttNonFinalizedTransactions _transactionTable) $ Left "Incorrect non-finalized transactions"
         (pendingTrans, pendingNonces) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces
-        let ptt = foldr (\(tr, _) -> checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
+        let ptt = foldr (\(bi, _) ->
+                           case wmdData bi of
+                             NormalTransaction tr ->
+                               checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
+                             CredentialDeployment _ -> extendPendingTransactionTable' (wmdHash bi)
+                        )
+                        emptyPendingTransactionTable
+                        pendingTrans
         checkBinary (==) ptt _pendingTransactions "==" "expected pending transactions" "recorded pending transactions"
         checkEpochs _focusBlock
     where
@@ -149,14 +166,21 @@ invariantSkovData TS.SkovData{..} = do
             | otherwise = do
                 (trMap', anfts') <- walkTransactions src (runIdentity $ BS._bpParent dest) trMap anfts
                 foldM checkTransaction (trMap', anfts') (blockTransactions dest)
-        checkTransaction :: (Trs, ANFTS) -> Transaction -> Either String (Trs, ANFTS)
-        checkTransaction (trMap, anfts) tr = do
-            let updMap Nothing = Left $ "Transaction missing: " ++ show tr
+        checkTransaction :: (Trs, ANFTS) -> BlockItem -> Either String (Trs, ANFTS)
+        checkTransaction (trMap, anfts) bi = do
+            let updMap Nothing = Left $ "Transaction missing: " ++ show bi
                 updMap (Just _) = Right Nothing
-            trMap' <- (at (transactionHash tr)) updMap trMap
-            let updNonce n = if n == transactionNonce tr then Right (n + 1) else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
-            anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
-            return (trMap', anfts')
+            trMap' <- (at (getHash bi)) updMap trMap
+            case wmdData bi of
+              NormalTransaction tr ->
+                let updNonce n =
+                      if n == transactionNonce tr then Right (n + 1)
+                      else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
+                in do anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
+                      return (trMap', anfts')
+              _ -> do
+                return (trMap', anfts)
+
         finSes = FinalizationSessionId (bpHash _genesisBlockPointer) 0
         finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData)
         notDeadOrPending TreeState.BlockDead = False
@@ -256,8 +280,8 @@ type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT ExecState 
 
 data Event
     = EBake Slot
-    | EBlock BasicBakedBlock
-    | ETransaction Transaction
+    | EBlock BakedBlock
+    | ETransaction BlockItem
     | EFinalization FinalizationPseudoMessage
     | EFinalizationRecord FinalizationRecord
     | ETimer Integer (SkovT MyHandlers (Config DummyTimer) (StateT ExecState LogIO) ())
@@ -345,7 +369,7 @@ runKonsensusTest steps g states es
                         Just _ -> error "Baked genesis block"
 
                 EBlock block -> do
-                    (_, fs', es') <- myRunSkovT (storeBlock (BB.makePendingBlock block dummyTime)) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (storeBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
                     continue fs' es'
                 ETransaction tr -> do
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
@@ -392,7 +416,7 @@ runKonsensusTestSimple steps g states es
                         Just _ -> error "Baked genesis block"
 
                 EBlock block -> do
-                    (_, fs', es') <- myRunSkovT (storeBlock (BB.makePendingBlock block dummyTime)) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (storeBlock (B.makePendingBlock block dummyTime)) handlers fi fs es1
                     continue fs' es'
                 ETransaction tr -> do
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
@@ -414,7 +438,7 @@ runKonsensusTestSimple steps g states es
 nAccounts :: Int
 nAccounts = 2
 
-genTransactions :: Int -> Gen [BareTransaction]
+genTransactions :: Int -> Gen [BlockItem]
 genTransactions n = mapM gent (take n [minNonce..])
     where
         gent nnce = do
@@ -482,8 +506,8 @@ withInitialStatesTransactions n trcount r = monadicIO $ do
         s0 <- initialiseStates n
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO getTransactionTime
-        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
+        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)
+                                                                            | x <- [0..n-1], tr <- trs])
 
 withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
@@ -491,8 +515,8 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO getTransactionTime
-        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
+        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)
+                                                                            | x <- [0..n-1], tr <- trs])
 
 
 tests :: Word -> Spec

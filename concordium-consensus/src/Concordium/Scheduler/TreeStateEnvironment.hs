@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications #-}
 {-# LANGUAGE DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
@@ -8,6 +8,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HashSet
 import qualified Data.Set as Set
 import qualified Data.List as List
+import Data.Maybe
 
 import Control.Monad
 import Control.Monad.Writer.Class(MonadWriter)
@@ -20,7 +21,7 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block(blockSlot)
-import Concordium.GlobalState.Classes(MGSTrans, Convert(..))
+import Concordium.GlobalState.Classes(MGSTrans)
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -138,8 +139,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
 executeFrom :: forall m .
-  (Convert Transaction (BlockTransactionType (BlockPointerType m)) m,
-   GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -147,7 +147,7 @@ executeFrom :: forall m .
   -> BlockPointerType m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> BirkParameters
-  -> [Transaction] -- ^Transactions on this block.
+  -> [BlockItem] -- ^Transactions on this block.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
 executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps txs =
   let cm = let blockHeight = bpHeight blockParent + 1
@@ -176,9 +176,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
             -- Record the transaction outcomes
             bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
             -- Record transaction outcomes in the transaction table as well.
-            zipWithM_ (\tx tix -> do
-                          tr <- fromMemoryRepr tx :: m (BlockTransactionType (BlockPointerType m))
-                          commitTransaction slotNumber blockHash tr tix) txs [0..]
+            zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
             -- the main execution is now done. At this point we must mint new currency
             -- and reward the baker and other parties.
             bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
@@ -194,15 +192,14 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock :: forall m .
-  (Convert Transaction (BlockTransactionType (BlockPointerType m)) m,
-   GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing
   -> BlockPointerType m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> BirkParameters
-  -> m (Sch.FilteredTransactions Transaction, ExecutionResult m)
+  -> m (Sch.FilteredTransactions, ExecutionResult m)
 constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
@@ -218,16 +215,17 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
 
+    let credentialHashes = HashSet.toList (pt ^. pttDeployCredential)
+    -- NB: catMaybes is safe, but invariants should ensure that it is a no-op.
+    orderedCredentials <- List.sortOn wmdArrivalTime . catMaybes <$> mapM getCredential credentialHashes
+
     -- now we get transactions for each of the pending accounts.
-    txs <- forM (HM.toList pt) $ \(acc, (l, _)) -> do -- m [(Nonce, Set.Set (BlockTransactionType (BlockPointerType m)))]
-      accTxs <- mapM (\(n, s) -> do
-                        -- Sadly, there is no Set.mapM
-                        nset <- mapM toMemoryRepr (Set.toList s)
-                        return (n, nset)) =<< getAccountNonFinalized acc l
+    txs <- forM (HM.toList (pt ^. pttWithSender)) $ \(acc, (l, _)) -> do
+      accTxs <- getAccountNonFinalized acc l
 
       -- now find for each account the least arrival time of a transaction
-      let txsList = concatMap snd accTxs
-      let minTime = minimum $ map trArrivalTime txsList
+      let txsList = concatMap (Set.toList . snd) accTxs
+      let minTime = minimum $ map wmdArrivalTime txsList
       return (txsList, minTime)
 
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
@@ -240,8 +238,12 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
+    let grouped = GroupedTransactions{
+          perAccountTransactions = orderedTxs,
+          credentialDeployments = orderedCredentials
+          }
     (ft@Sch.FilteredTransactions{..}, finState) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) orderedTxs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) grouped) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     let usedEnergy = finState ^. schedulerEnergyUsed
@@ -252,5 +254,5 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     bshandleFinal <- freezeBlockState bshandle4
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
-                                           _finalState = bshandleFinal,
-                                           _transactionLog = finState ^. accountTransactionLog})
+                                _finalState = bshandleFinal,
+                                _transactionLog = finState ^. accountTransactionLog})

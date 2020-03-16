@@ -30,7 +30,6 @@ import Data.Aeson(Value(Null))
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
-import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
@@ -42,7 +41,6 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
-import qualified Concordium.GlobalState.Persistent.Block as PersistentBlock
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
@@ -216,7 +214,7 @@ toLogTransferMethod logtCallBackPtr = logTransfer
                     in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
                 BS.CredentialDeployment{..} ->
                   withTxReference trcdId $ \txRef ->
-                    let rest = runPut (put trcdSource <> put trcdAccount <> put trcdCredentialRegId)
+                    let rest = runPut (put trcdAccount <> put trcdCredentialRegId)
                     in unsafeWithBSLen rest $ logit 6 block slot txRef 0
 
 -- |Callback for broadcasting a message to the network.
@@ -239,11 +237,15 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
-broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage -> IO ()
+broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
+                                                        (SkovConfig gs finconf hconf)
+                                                        (LoggerT IO))))
+                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
-            let blockbs = runPut $ blockBody block >> put (blockSignature block)
+            -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
+            let blockbs = runPut $ putBlock block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -298,7 +300,7 @@ consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunn
 runWithConsensus :: ConsensusRunner -> (forall h f gs.
                                         (TS.TreeStateMonad (SkovT h (SkovConfig gs f HookLogHandler) LogIO),
                                         TS.PendingBlockType
-                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ PersistentBlock.PersistentPendingBlock
+                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ PendingBlock
                                         ) => SkovT h (SkovConfig gs f HookLogHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
@@ -578,13 +580,15 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- getTransactionTime
-    toReceiveResult <$> case runGet (getUnverifiedTransaction now) tbs of
+    toReceiveResult <$> case runGet (getBlockItem now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
-            logm External LLTrace $ "Transaction header is: " ++ show (btrHeader (trBareTransaction tr))
+            case wmdData tr of
+              NormalTransaction _ -> logm External LLTrace $ "Received normal transaction."
+              CredentialDeployment _ -> logm External LLTrace $ "Received credential."
             case c of
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
@@ -934,6 +938,21 @@ getAccountNonFinalizedTransactions cptr addrcstr = do
         logm External LLTrace $ "Replying with: " ++ show status
         jsonValueToCString (AE.toJSON status)
 
+-- |Get the best guess for the next available account nonce.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with account address.
+getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
+getNextAccountNonce cptr addrcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLInfo "Received next account nonce request."
+    withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
+        status <- runConsensusQuery c (Get.getNextAccountNonce addr)
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString status
+
 -- |Get the list of transactions in a block with short summaries of their effects.
 -- Returns a NUL-termianated string encoding a JSON value.
 getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
@@ -1006,9 +1025,8 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             let
-                toMsg :: Either FinalizationRecord BroadcastableBlock -> (MessageType, BS.ByteString)
                 toMsg (Left finRec) = (MTFinalizationRecord, encode finRec)
-                toMsg (Right block) = (MTBlock, runPut $ blockBody block >> put (blockSignature block))
+                toMsg (Right block) = (MTBlock, runPut $ putBlock block)
             runConsensusQuery c (\z -> Get.handleCatchUpStatus z cus <&> fmap (first (fmap $ \(l, rcus) -> (toMsg <$> l, rcus)))) >>= \case
                 Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
                 Right (d, flag) -> do
@@ -1063,6 +1081,7 @@ foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CStrin
 foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
