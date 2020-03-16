@@ -129,7 +129,7 @@ pub fn main() -> Fallible<()> {
     let _node_info_map_clone = Arc::clone(&node_info_map);
     let _cleanup_interval = conf.cleanup_interval;
     #[allow(unreachable_code)] // the loop never breaks on its own
-    let _ = spawn_or_die!("Cleanup thread", {
+    let _ = spawn_or_die!("collector backend cleanup", {
         loop {
             thread::sleep(Duration::from_millis(_cleanup_interval));
             info!("Running cleanup");

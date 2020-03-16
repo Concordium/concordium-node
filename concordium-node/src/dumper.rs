@@ -72,7 +72,7 @@ pub fn create_dump_thread(
             .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
             .unwrap()
     };
-    spawn_or_die!("Dump thread", move || -> Fallible<()> {
+    spawn_or_die!("network dump", move || -> Fallible<()> {
         let mut dir: Option<std::path::PathBuf> = None;
         let mut pretty_dump: Option<std::fs::File> = None;
         let mut raw_dump: Option<std::fs::File> = None;
