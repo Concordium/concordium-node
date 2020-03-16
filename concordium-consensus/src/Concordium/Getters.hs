@@ -79,7 +79,7 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
       withBlockStateJSON tsBlockHash $ \bs -> do
         outcome <- BS.getTransactionOutcome bs tsFinResult
         return $ object ["status" .= String "finalized",
-                         fromString (show tsBlockHash) .= outcome
+                         "outcomes" .= object [fromString (show tsBlockHash) .= outcome]
                         ]
     Just AT.Committed{..} -> do
       outcomes <- forM (HM.toList tsResults) $ \(bh, idx) ->
@@ -88,7 +88,9 @@ getTransactionStatus hash sfsRef = runStateQuery sfsRef $
           Just bp -> do
             outcome <- flip BS.getTransactionOutcome idx =<< queryBlockState bp
             return (T.pack (show bh) .= outcome)
-      return $ object (("status" .= String "committed"):outcomes)
+      return $ object ["status" .= String "committed",
+                       "outcomes" .= object outcomes
+                      ]
 
 getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> BlockHash -> z -> IO Value
 getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
