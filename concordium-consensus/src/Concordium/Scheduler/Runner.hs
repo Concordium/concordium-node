@@ -19,7 +19,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
 import Concordium.Types.Execution(Proof)
-import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
@@ -52,8 +51,6 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.Update amnt addr msg))
     (TJSON meta (Transfer to amnt) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
-    (TJSON meta (DeployCredential c) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.DeployCredential c))
     (TJSON meta AddBaker{..} keys) ->
       let abElectionVerifyKey = bvfkey
           abSignatureVerifyKey = bsigvfkey
@@ -89,17 +86,22 @@ processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context
 processTransactions = mapM transactionHelper
 
 -- |For testing purposes: process transactions without grouping them by accounts
--- (i.e. creating one "group" per transaction)
+-- (i.e. creating one "group" per transaction).
+-- Arrival time of transactions is taken to be 0.
 processUngroupedTransactions :: (MonadFail m, MonadIO m) =>
-                       [TransactionJSON] ->
-                       Context Core.UA m (Types.GroupedTransactions Types.BareTransaction)
-processUngroupedTransactions = (fmap . fmap) (:[]) . processTransactions
+                                [TransactionJSON] ->
+                                Context Core.UA m (Types.GroupedTransactions Types.Transaction)
+processUngroupedTransactions inpt = do
+  txs <- processTransactions inpt
+  return (Types.fromTransactions (map ((:[]) . Types.fromBareTransaction 0) txs))
 
 -- |For testing purposes: process transactions in the groups in which they came
+-- The arrival time of all transactions is taken to be 0.
 processGroupedTransactions :: (MonadFail m, MonadIO m) =>
                               [[TransactionJSON]] ->
-                              Context Core.UA m (Types.GroupedTransactions Types.BareTransaction)
-processGroupedTransactions = mapM processTransactions
+                              Context Core.UA m (Types.GroupedTransactions Types.Transaction)
+processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromBareTransaction 0)))
+                             . mapM processTransactions
 
 data PayloadJSON = DeployModule { moduleName :: Text }
                  | InitContract { amount :: Amount
@@ -114,7 +116,6 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                  | Transfer { toaddress :: Address
                             , amount :: Amount
                             }
-                 | DeployCredential {cdi :: CredentialDeploymentInformation}
                  -- FIXME: These should be updated to support more than one keypair for the account.
                  -- Need to demonstrate knowledge of all the relevant keys.
                  | AddBaker {

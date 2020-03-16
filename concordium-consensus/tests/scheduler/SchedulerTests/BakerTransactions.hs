@@ -115,22 +115,25 @@ transactionsInput =
            }
     ]
 
-runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, Types.ValidResult)],
-                                                     [(Types.BareTransaction, Types.FailureKind)],
-                                                     Types.BirkParameters)], BlockState)
+type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
+                     [(Types.Transaction, Types.FailureKind)],
+                     Types.BirkParameters)],
+                    BlockState)
+
+runWithIntermediateStates :: PR.Context Core.UA IO TestResult
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize [tx])
+                                    (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
                                     Set.empty -- special beta accounts
                                     Types.dummyChainMeta
                                     maxBound
                                     st
                             in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState))
                          ([], initialBlockState)
-                         txs
+                         (Types.perAccountTransactions txs)
   return (res, state)
 
 tests :: Spec

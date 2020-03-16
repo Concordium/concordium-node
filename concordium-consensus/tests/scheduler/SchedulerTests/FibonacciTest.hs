@@ -65,13 +65,13 @@ transactionsInput =
         }
   ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.WithMetadata Types.BareTransaction, Types.FailureKind)],
+                   [(Types.ContractAddress, Types.Instance)])
 
 testFibonacci ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)],
-     [(Types.ContractAddress, Types.Instance)])
+  PR.Context Core.UA IO TestResult
+    
 testFibonacci = do
     source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
@@ -91,8 +91,7 @@ testFibonacci = do
 fib :: [Int64]
 fib = 1:1:zipWith (+) fib (tail fib)
 
-checkFibonacciResult ::
-  ([(a, Types.ValidResult)], [b], [(Types.ContractAddress, Types.Instance)]) -> Bool
+checkFibonacciResult :: TestResult -> Bool
 checkFibonacciResult (suc, fails, instances) =
   null fails && -- should be no failed transactions
   null reject && -- no rejected transactions either
