@@ -584,6 +584,11 @@ doUpdateBirkParameters pbs newBirk = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBirkParameters = newBirk}
 
+doSetElectionDifficulty :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ElectionDifficulty -> m PersistentBlockState
+doSetElectionDifficulty pbs d = do
+        bsp <- loadPBS pbs
+        storePBS pbs bsp{bspBirkParameters = bspBirkParameters bsp & birkElectionDifficulty .~ d}
+
 data PersistentBlockStateContext = PersistentBlockStateContext {
     pbscModuleCache :: IORef ModuleCache,
     pbscBlobStore :: BlobStore
@@ -656,6 +661,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoUpdateBirkParameters = doUpdateBirkParameters
+    bsoSetElectionDifficulty = doSetElectionDifficulty
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetInstance #-}
@@ -685,6 +691,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
     {-# INLINE bsoUpdateBirkParameters #-}
+    {-# INLINE bsoSetElectionDifficulty #-}
+
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}
