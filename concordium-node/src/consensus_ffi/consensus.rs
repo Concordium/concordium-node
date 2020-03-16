@@ -184,8 +184,10 @@ impl ConsensusQueues {
     pub fn stop(&self) -> Fallible<()> {
         self.outbound.sender_low_priority.send_stop()?;
         self.outbound.sender_high_priority.send_stop()?;
+        self.outbound.signaler.notify_one();
         self.inbound.sender_low_priority.send_stop()?;
         self.inbound.sender_high_priority.send_stop()?;
+        self.inbound.signaler.notify_one();
         Ok(())
     }
 }
