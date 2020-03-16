@@ -289,7 +289,6 @@ then
     ARGS="$ARGS --cleanup-interval $COLLECTOR_BACKEND_CLEANUP_INTERVAL"
 fi
 
-
 if [ -n "$BUCKET_CLEANUP_INTERVAL" ];
 then
     ARGS="$ARGS --bucket_cleanup_interval $BUCKET_CLEANUP_INTERVAL"
@@ -391,7 +390,6 @@ elif [ "$MODE" == "local_basic" ]; then
             sleep $DB_SLEEP
         fi
     fi
-
     /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID="0000000001000000"
@@ -399,6 +397,44 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
         --id $NODE_ID \
         --listen-port 8888 \
         $EXTRA_ARGS
+elif [ "$MODE" == "local_wallet_server" ]; then
+    if [ -n "$WALLET_SERVER_ID_FILE" ];
+    then
+        ARGS="$ARGS --ip-data $WALLET_SERVER_ID_FILE"
+    else
+        ARGS="$ARGS --ip-data /genesis-complementary-bundle/ip_private_keys/identity_provider-0.json"
+    fi
+    if [ -n "$WALLET_SERVER_GLOBAL_FILE" ];
+    then
+        ARGS="$ARGS --global $WALLET_SERVER_GLOBAL_FILE"
+    else
+        ARGS="$ARGS --global /genesis-complementary-bundle/global.json"
+    fi
+    if [ -n "$DB_SLEEP" ];
+    then
+        echo "Sleeping for $DB_SLEEP"
+        sleep $DB_SLEEP
+    fi
+    /wallet-server --address 0.0.0.0:8000 $ARGS
+elif [ "$MODE" == "local_wallet_proxy" ]; then
+    if [ -n "$WALLET_PROXY_GRPC_IP" ];
+    then
+        ARGS="$ARGS --grpc-ip $WALLET_PROXY_GRPC_IP"
+    fi
+    if [ -n "$WALLET_PROXY_GRPC_PORT" ];
+    then
+        ARGS="$ARGS --grpc-port $WALLET_PROXY_GRPC_PORT"
+    fi
+    if [ -n "$WALLET_PROXY_DATABASE" ];
+    then
+        ARGS="$ARGS --db $WALLET_PROXY_DATABASE"
+    fi
+    if [ -n "$DB_SLEEP" ];
+    then
+        echo "Sleeping for $DB_SLEEP"
+        sleep $DB_SLEEP
+    fi
+    eval "/wallet-proxy$ARGS"
 else
     echo "No matching MODE was found. Please check!"
 fi

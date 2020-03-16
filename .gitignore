@@ -35,3 +35,4 @@ baker_id_gen
 *.mdb
 CONSENSUS_VERSION
 genesis-data
+genesis-complementary-bundle

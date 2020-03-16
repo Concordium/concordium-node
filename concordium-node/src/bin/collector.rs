@@ -74,6 +74,8 @@ struct ConfigCli {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
+    #[structopt(long = "info", help = "Info mode")]
+    pub info: bool,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
     #[structopt(
@@ -105,8 +107,10 @@ async fn main() {
         Env::default().filter_or("LOG_LEVEL", "trace")
     } else if conf.debug {
         Env::default().filter_or("LOG_LEVEL", "debug")
-    } else {
+    } else if conf.info {
         Env::default().filter_or("LOG_LEVEL", "info")
+    } else {
+        Env::default().filter_or("LOG_LEVEL", "warn")
     };
 
     setup_logger_env(env, conf.no_log_timestamp);

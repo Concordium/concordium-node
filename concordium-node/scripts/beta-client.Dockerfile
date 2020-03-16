@@ -50,7 +50,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
 # Middleware and simple-client is now built
 
 # Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.8 as oak-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
