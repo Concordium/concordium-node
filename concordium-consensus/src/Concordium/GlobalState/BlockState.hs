@@ -17,6 +17,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.RWS.Strict hiding (ask)
 import Data.Word
+import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
 
 import Concordium.Types
@@ -31,7 +32,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.Types.Transactions
+import Concordium.Types.Transactions hiding (BareBlockItem(..))
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Data.Maybe
@@ -75,7 +76,10 @@ class (Monad m, BlockStateTypes m) => BlockStateQuery m where
     getRewardStatus :: BlockState m -> m BankStatus
 
     -- |Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: BlockState m -> TransactionHash -> m (Maybe ValidResult)
+    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
+
+    -- |Get all transaction outcomes for this block.
+    getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
@@ -225,14 +229,13 @@ class BlockStateQuery m => BlockStateOperations m where
 
 
   -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
-
   -- new baker and return the assigned identity.
   -- This method should also update the next available baker id in the system.
   -- If a baker with the given signing key already exists do nothing and
   -- return 'Nothing'
   bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (Maybe BakerId, UpdatableBlockState m)
-  
-  -- |Update an existing baker's information. The method may assume that the baker with 
+
+  -- |Update an existing baker's information. The method may assume that the baker with
   -- the given Id exists.
   -- If a baker with a given signing key already exists return 'False', and if the baker
   -- was successfully updated return 'True'.
@@ -268,7 +271,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
 
   -- |Set the list of transaction outcomes for the block.
-  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [(TransactionHash, ValidResult)] -> m (UpdatableBlockState m)
+  bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
 
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
@@ -322,6 +325,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getBlockBirkParameters = lift . getBlockBirkParameters
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
+  getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
@@ -331,6 +335,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getContractInstanceList #-}
   {-# INLINE getBlockBirkParameters #-}
   {-# INLINE getRewardStatus #-}
+  {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
 
@@ -419,13 +424,6 @@ deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQu
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
 
--- deriving via (BSMTrans g (RWST r w s) m) instance (BlockStateQuery g m, Monoid w) => BlockStateQuery g (RWST r w s m)
--- deriving via (BSMTrans g (RWST r w s) m) instance (BlockStateOperations g m, Monoid w) => BlockStateOperations g (RWST r w s m)
-
-deriving instance BlockStateQuery m => BlockStateQuery (TreeStateM s m)
-deriving instance BlockStateOperations m => BlockStateOperations (TreeStateM s m)
-deriving instance BlockStateStorage m => BlockStateStorage (TreeStateM s m)
-
 data TransferReason =
   -- |Transfer because of a top-level transaction recorded on a block.
   DirectTransfer {
@@ -474,12 +472,10 @@ data TransferReason =
   CredentialDeployment {
     -- |Id of the top-level transaction.
     trcdId :: !TransactionHash,
-    -- |Which account sent the transaction.
-    trcdSource :: !AccountAddress,
     -- |To which account was the credential deployed.
     trcdAccount :: !AccountAddress,
-    -- |Credential values which were deployed deployed.
-    trcdCredentialValues :: !ID.CredentialDeploymentValues
+    -- |Credential registration ID.values which were deployed deployed.
+    trcdCredentialRegId :: !ID.CredentialRegistrationID
     } |
   -- |Baking reward (here meaning the actual block reward + execution reward for block transactions).
   BakingRewardTransfer {
@@ -502,34 +498,32 @@ data TransferReason =
     }
   deriving(Show)
 
-resultToReasons :: (BlockMetadata bp, TransactionData tx) => bp -> tx -> ValidResult -> [TransferReason]
-resultToReasons bp tx res =
-  case res of
-       TxReject _ a _ -> [ExecutionCost trId sender a baker]
-       TxSuccess events a _ -> mapMaybe extractReason events ++ [ExecutionCost trId sender a baker]
+resultToReasons :: (BlockMetadata bp) => bp -> TransactionSummary -> [TransferReason]
+resultToReasons bp TransactionSummary{..} =
+  case tsResult of
+       TxReject{} | Just sender <- tsSender -> [ExecutionCost tsHash sender tsCost baker]
+                  | otherwise -> []
+       TxSuccess{..} -> mapMaybe extractReason vrEvents ++ [ExecutionCost tsHash (fromJust tsSender) tsCost baker | isJust tsSender]
   where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
-          Just (DirectTransfer trId source amount target)
+          Just (DirectTransfer tsHash source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
-          Just (ContractToAccountTransfer trId source amount target)
+          Just (ContractToAccountTransfer tsHash source amount target)
         extractReason (Transferred (AddressAccount source) amount (AddressContract target)) =
-          Just (AccountToContractTransfer trId source amount target)
+          Just (AccountToContractTransfer tsHash source amount target)
         extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
-          Just (ContractToContractTransfer trId source amount target)
-        extractReason (Updated (AddressAccount source) target amount _) =
-          Just (AccountToContractTransfer trId source amount target)
-        extractReason (Updated (AddressContract source) target amount _) =
-          Just (ContractToContractTransfer trId source amount target)
-        extractReason (CredentialDeployed cdv) =
-          let caaddr = ID.credentialAccountAddress cdv
-          in Just (CredentialDeployment trId sender caaddr cdv)
+          Just (ContractToContractTransfer tsHash source amount target)
+        extractReason (Updated target (AddressAccount source) amount _) =
+          Just (AccountToContractTransfer tsHash source amount target)
+        extractReason (Updated target (AddressContract source) amount _) =
+          Just (ContractToContractTransfer tsHash source amount target)
+        extractReason (CredentialDeployed regid address) =
+          Just (CredentialDeployment tsHash address regid)
         extractReason _ = Nothing
         
-        trId = transactionHash tx
-        sender = thSender (transactionHeader tx)
         baker = blockBaker bp
 
-specialToReason :: BlockMetadata bp => bp -> SpecialTransactionOutcome -> TransferReason
-specialToReason bp (BakingReward acc amount) = BakingRewardTransfer (blockBaker bp) acc amount
+specialToReason :: SpecialTransactionOutcome -> TransferReason
+specialToReason (BakingReward bid acc amount) = BakingRewardTransfer bid acc amount
 
 type LogTransferMethod m = BlockHash -> Slot -> TransferReason -> m ()
 
