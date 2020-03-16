@@ -37,7 +37,7 @@ use p2p_client::{
 };
 
 use std::{
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -261,8 +261,6 @@ fn start_consensus_message_threads(
     let peers_ref = Arc::clone(&peers);
     let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("consensus peer list handling", {
-        let peer_stats_notifier_control_queue_receiver =
-            CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
         let mut last_peer_list_update = 0;
         loop {
             if node_ref.last_peer_update() > last_peer_list_update {
@@ -272,10 +270,8 @@ fn start_consensus_message_threads(
 
             check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref);
 
-            if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
-                if let QueueMsg::Stop = msg {
-                    break;
-                }
+            if node_ref.is_terminated.load(Ordering::Relaxed) {
+                break;
             }
 
             thread::sleep(Duration::from_millis(200));
@@ -290,7 +286,7 @@ fn start_consensus_message_threads(
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
-        let cvar = &*CALLBACK_QUEUE.inbound.signaler;
+        let cvar = &CALLBACK_QUEUE.inbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
         let mut exhausted: bool;
@@ -348,7 +344,7 @@ fn start_consensus_message_threads(
             CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.outbound.receiver_low_priority.lock().unwrap();
-        let cvar = &*CALLBACK_QUEUE.outbound.signaler;
+        let cvar = &CALLBACK_QUEUE.outbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
         let mut exhausted: bool;
