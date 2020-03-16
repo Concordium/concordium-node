@@ -1,5 +1,6 @@
 {-# LANGUAGE
     ScopedTypeVariables,
+    BangPatterns,
     UndecidableInstances,
     ConstraintKinds,
     TypeFamilies,
@@ -188,7 +189,7 @@ isSlotTooEarly s = do
     slotTime <- getSlotTimestamp s
     return $ slotTime > now + threshold
 
-syncReceiveBlock :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
+syncReceiveBlock :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     => SyncRunner c
     -> PendingBlock
     -> IO UpdateResult
@@ -207,11 +208,11 @@ syncReceiveFinalizationMessage :: (FinalizationMonad (SkovT (SkovHandlers Thread
     => SyncRunner c -> FinalizationPseudoMessage -> IO UpdateResult
 syncReceiveFinalizationMessage syncRunner finMsg = runSkovTransaction syncRunner (finalizationReceiveMessage finMsg)
 
-syncReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
+syncReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     => SyncRunner c -> FinalizationRecord -> IO UpdateResult
 syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizationReceiveRecord False finRec)
 
-syncReceiveCatchUp :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)) 
+syncReceiveCatchUp :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     => SyncRunner c
     -> CatchUpStatus
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
@@ -274,7 +275,7 @@ syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction
 syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
 syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizationReceiveRecord False finRec)
 
-syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) 
+syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
     => SyncPassiveRunner c
     -> CatchUpStatus
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
@@ -330,26 +331,26 @@ makeAsyncRunner logm bkr config = do
                 MsgTransactionReceived transBS -> do
                     now <- getTransactionTime
                     case runGet (getBlockItem now) transBS of
-                        Right trans -> void $ syncReceiveTransaction sr trans
+                        Right !trans -> void $ syncReceiveTransaction sr trans
                         _ -> return ()
                     msgLoop
                 MsgFinalizationReceived src bs -> do
                     case runGet get bs of
-                        Right finMsg -> do
+                        Right !finMsg -> do
                             res <- syncReceiveFinalizationMessage sr finMsg
                             handleResult src res
                         _ -> return ()
                     msgLoop
                 MsgFinalizationRecordReceived src finRecBS -> do
                     case runGet get finRecBS of
-                        Right finRec -> do
+                        Right !finRec -> do
                             res <- syncReceiveFinalizationRecord sr finRec
                             handleResult src res
                         _ -> return ()
                     msgLoop
                 MsgCatchUpStatusReceived src cuBS -> do
                     case runGet get cuBS of
-                        Right cu -> do
+                        Right !cu -> do
                             (resp, res) <- syncReceiveCatchUp sr cu
                             forM_ resp $ \(msgs, cus) -> do
                                 let
