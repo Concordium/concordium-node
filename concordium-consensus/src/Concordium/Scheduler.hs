@@ -807,8 +807,10 @@ handleDeployCredential cdi cdiHash = do
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size and block energy limit. The list of input transactions is traversed from left to
--- right and any invalid transactions are not included in the block.
+-- maximum block size and block energy limit. The GroupedTransactions are processed in
+-- order of their arrival time. Picking the next transaction to process is done
+-- by picking the earliest transaction amongst the heads of the grouped transaction lists
+-- and credential deployments
 -- This function assumes that the transactions appear grouped by their associated account address,
 -- and that each transaction group is ordered by transaction nonce.
 -- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
@@ -840,7 +842,8 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
   -- We sort the lists of grouped transactions by the arrival time of the first element of the list
   -- We maintain this as an invariant during the filtering
   let sortedGroupedTrans = sortOn (\x -> (fmap (wmdArrivalTime . (^. _1)) (uncons x))) perAccountTransactions
-  runNext maxEnergy 0 [] [] [] [] [] credentialDeployments sortedGroupedTrans
+      sortedCredentialDeployments = sortOn wmdArrivalTime credentialDeployments
+  runNext maxEnergy 0 [] [] [] [] [] sortedCredentialDeployments sortedGroupedTrans
   where
         insertTrans [] [] = []
         insertTrans [] trans = trans
