@@ -14,12 +14,10 @@ import Control.Exception
 import Data.ByteString as BS
 import Data.Serialize
 import Data.IORef
-import Data.Maybe
 import Control.Monad.IO.Class
 import Data.Time.Clock
 
-import Concordium.GlobalState.Block hiding (PendingBlock)
-import Concordium.GlobalState.Basic.Block
+import Concordium.GlobalState.Block
 import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
@@ -39,8 +37,8 @@ import Concordium.Getters
 
 type SkovBlockPointer c = BlockPointerType (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
 
-data SimpleOutMessage
-    = SOMsgNewBlock BroadcastableBlock
+data SimpleOutMessage c
+    = SOMsgNewBlock (SkovBlockPointer c)
     | SOMsgFinalization FinalizationPseudoMessage
     | SOMsgFinalizationRecord FinalizationRecord
 
@@ -49,7 +47,7 @@ data SyncRunner c = SyncRunner {
     syncState :: MVar (SkovState c),
     syncBakerThread :: MVar ThreadId,
     syncLogMethod :: LogMethod IO,
-    syncCallback :: SimpleOutMessage -> IO (),
+    syncCallback :: SimpleOutMessage c -> IO (),
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
     syncHandlePendingLive :: IO ()
@@ -87,7 +85,7 @@ bufferedHandlePendingLive hpl bufferMVar = do
 makeSyncRunner :: (SkovConfiguration c, SkovQueryConfigMonad c LogIO) => LogMethod IO ->
                   BakerIdentity ->
                   c ->
-                  (SimpleOutMessage -> IO ()) ->
+                  (SimpleOutMessage c -> IO ()) ->
                   (CatchUpStatus -> IO ()) ->
                   IO (SyncRunner c)
 makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback = do
@@ -144,8 +142,7 @@ startSyncRunner sr@SyncRunner{..} = do
                                 curSlot <- getCurrentSlot
                                 mblock <-
                                         if curSlot > lastSlot then do
-                                            b <- bakeForSlot syncBakerIdentity curSlot
-                                            maybe (return Nothing) (\bl -> Just <$> toBroadcastableBlock bl) b
+                                            bakeForSlot syncBakerIdentity curSlot
                                         else
                                             return Nothing
                                 return (mblock, curSlot)
@@ -192,7 +189,7 @@ isSlotTooEarly s = do
 
 syncReceiveBlock :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
     => SyncRunner c
-    -> BasicPendingBlock
+    -> PendingBlock
     -> IO UpdateResult
 syncReceiveBlock syncRunner block = do
     blockTooEarly <- runSkovTransaction syncRunner (isSlotTooEarly (blockSlot block))
@@ -202,7 +199,7 @@ syncReceiveBlock syncRunner block = do
         runSkovTransaction syncRunner (storeBlock block)
 
 syncReceiveTransaction :: (SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
-    => SyncRunner c -> Transaction -> IO UpdateResult
+    => SyncRunner c -> BlockItem -> IO UpdateResult
 syncReceiveTransaction syncRunner trans = runSkovTransaction syncRunner (receiveTransaction trans)
 
 syncReceiveFinalizationMessage :: (SkovFinalizationConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO)
@@ -250,7 +247,7 @@ shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
 shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
 
 syncPassiveReceiveBlock :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO)
-                        => SyncPassiveRunner c -> BasicPendingBlock -> IO UpdateResult
+                        => SyncPassiveRunner c -> PendingBlock -> IO UpdateResult
 syncPassiveReceiveBlock spr block = do
   blockTooEarly <- runSkovPassive spr (isSlotTooEarly (blockSlot block))
   if blockTooEarly then
@@ -258,7 +255,7 @@ syncPassiveReceiveBlock spr block = do
   else
       runSkovPassive spr (storeBlock block)
 
-syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> Transaction -> IO UpdateResult
+syncPassiveReceiveTransaction :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> BlockItem -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
 
 syncPassiveReceiveFinalizationRecord :: (SkovConfigMonad (SkovPassiveHandlers LogIO) c LogIO) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
@@ -315,7 +312,7 @@ makeAsyncRunner logm bkr config = do
                     msgLoop
                 MsgTransactionReceived transBS -> do
                     now <- getTransactionTime
-                    case runGet (getUnverifiedTransaction now) transBS of
+                    case runGet (getBlockItem now) transBS of
                         Right trans -> void $ syncReceiveTransaction sr trans
                         _ -> return ()
                     msgLoop
@@ -342,7 +339,7 @@ makeAsyncRunner logm bkr config = do
                                     let
                                         send (Left fr) = writeChan outChan (MsgDirectedFinalizationRecord src (encode fr))
                                         send (Right b) = do
-                                          writeChan outChan (MsgDirectedBlock src (runPut $ blockBody b >> put (blockSignature b)))
+                                          writeChan outChan (MsgDirectedBlock src (runPut $ putBlock b))
                                     forM_ d $ \(frbs, rcus) -> do
                                         mapM_ send frbs
                                         writeChan outChan (MsgDirectedCatchUpStatus src (encode rcus))
@@ -356,6 +353,6 @@ makeAsyncRunner logm bkr config = do
         _ <- forkIO (msgLoop `catch` \(e :: SomeException) -> (logm Runner LLError ("Message loop exited with exception: " ++ show e) >> Prelude.putStrLn ("// **** " ++ show e)))
         return (inChan, outChan, sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ blockBody block >> put (fromJust $ blockSignature block)
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
