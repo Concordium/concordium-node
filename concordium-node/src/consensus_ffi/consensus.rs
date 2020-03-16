@@ -56,7 +56,7 @@ pub struct ConsensusInboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Arc<Condvar>,
+    pub signaler:               Condvar,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -80,7 +80,7 @@ pub struct ConsensusOutboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Arc<Condvar>,
+    pub signaler:               Condvar,
 }
 
 impl Default for ConsensusOutboundQueues {
