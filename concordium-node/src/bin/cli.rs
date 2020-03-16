@@ -343,7 +343,6 @@ fn start_consensus_message_threads(
     }));
 
     let node_ref = Arc::clone(node);
-    let peers_ref = Arc::clone(&peers);
     threads.push(spawn_or_die!("outbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
@@ -368,7 +367,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
+                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -382,7 +381,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
+                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
                 });
                 if stop_loop {
                     break 'outer_loop;
