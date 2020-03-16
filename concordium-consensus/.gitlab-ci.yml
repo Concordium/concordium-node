@@ -7,11 +7,9 @@ stages:
 
 .generic:
   variables:
-    GIT_SUBMODULE_STRATEGY: recursive
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
     LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:$LD_LIBRARY_PATH"
-    GIT_SUBMODULE_STRATEGY: recursive
     RUSTFLAGS: -Dwarnings
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
   cache:
@@ -29,6 +27,8 @@ stages:
   before_script:
     - rustc --version && cargo --version
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+    - git submodule sync --recursive
+    - git submodule update --init --remote --recursive
 
 .generic-haskell-build:
   extends: .generic
