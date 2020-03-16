@@ -312,6 +312,7 @@ impl Connection {
         ));
         self.populate_remote_end_networks(remote_peer, nets);
         self.handler.bump_last_peer_update();
+        debug!("Concluded handshake with peer {}", id);
     }
 
     /// Queues a message to be sent to the connection.
