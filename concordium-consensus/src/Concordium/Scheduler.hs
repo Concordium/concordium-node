@@ -839,14 +839,14 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
   maxEnergy <- getMaxBlockEnergy
   -- We sort the lists of grouped transactions by the arrival time of the first element of the list
   -- We maintain this as an invariant during the filtering
-  let (sortedGroupedTrans :: [[Transaction]]) = sortOn (\x -> (fmap (^. _1) (uncons x))) perAccountTransactions
+  let sortedGroupedTrans = sortOn (\x -> (fmap (wmdArrivalTime . (^. _1)) (uncons x))) perAccountTransactions
   runNext maxEnergy 0 [] [] [] [] [] credentialDeployments sortedGroupedTrans
   where
         insertTrans [] [] = []
         insertTrans [] trans = trans
         insertTrans (t1:ts1) [] = [(t1:ts1)]
         insertTrans (t1:ts1) (group:groups) = case group of
-          (t2:ts2) -> if wmdArrivalTime t1 < wmdArrivalTime t2
+          (t2:ts2) -> if wmdArrivalTime t1 <= wmdArrivalTime t2
                       then (t1:ts1) : ((t2:ts2) : groups)
                       else (t2:ts2) : (insertTrans (t1:ts1) groups)
           [] -> insertTrans (t1:ts1) groups
@@ -861,11 +861,11 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
                   ftUnprocessedCredentials = unprocC
                 }
             go [] (group : groups) = case group of
-              (t:ts) -> runTransactionFromGroup group [] groups
+              (t:ts) -> runTransactionFromGroup (t:ts) [] groups
               [] -> go [] groups
             go (c:creds) [] = runCredential c creds []
             go (c:creds) (group : groups) = case group of
-              (t:ts) -> if wmdArrivalTime c < wmdArrivalTime t
+              (t:ts) -> if wmdArrivalTime c <= wmdArrivalTime t
                         then runCredential c creds ((t:ts) : groups)
                         else runTransactionFromGroup (t:ts) (c:creds) groups
               [] -> go (c:creds) groups
