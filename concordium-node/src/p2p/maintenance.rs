@@ -414,16 +414,6 @@ impl P2PNode {
     #[cfg(feature = "network_dump")]
     pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
 
-    /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
-    pub fn join(&self) -> Fallible<()> {
-        for handle in mem::take(&mut *write_or_die!(self.threads)) {
-            if let Err(e) = handle.join() {
-                error!("Can't join a node thread: {:?}", e);
-            }
-        }
-        Ok(())
-    }
-
     /// Get the node's client version.
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
 
@@ -490,6 +480,16 @@ impl P2PNode {
         info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
         CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
+    }
+
+    /// Joins the threads spawned by the node.
+    pub fn join(&self) -> Fallible<()> {
+        for handle in mem::take(&mut *write_or_die!(self.threads)) {
+            if let Err(e) = handle.join() {
+                error!("Can't join a node thread: {:?}", e);
+            }
+        }
+        Ok(())
     }
 
     /// Shut the node down gracefully and terminate its threads.
