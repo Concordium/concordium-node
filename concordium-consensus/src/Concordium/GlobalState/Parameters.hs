@@ -89,7 +89,8 @@ data GenesisData = GenesisData {
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
     genesisIdentityProviders :: [IpInfo],
-    genesisMintPerSlot :: Amount
+    genesisMintPerSlot :: Amount,
+    genesisMaxBlockEnergy :: Energy
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
@@ -161,7 +162,9 @@ data GenesisParameters = GenesisParameters {
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
     gpBetaAccounts :: [GenesisAccount],
-    gpMintPerSlot :: Amount
+    gpMintPerSlot :: Amount,
+    -- Maximum total energy that can be consumed by the transactions in a block
+    gpMaxBlockEnergy :: Energy
 }
 
 instance FromJSON GenesisParameters where
@@ -179,6 +182,7 @@ instance FromJSON GenesisParameters where
         gpIdentityProviders <- v .:? "identityProviders" .!= []
         gpBetaAccounts <- v .:? "betaAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+        gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
 
 -- |Implementation-defined parameters, such as block size. They are not
@@ -187,20 +191,36 @@ data RuntimeParameters = RuntimeParameters {
   -- |Maximum block size produced by the baker (in bytes). Note that this only
   -- applies to the blocks produced by this baker, we will still accept blocks
   -- of arbitrary size from other bakers.
-  rpBlockSize :: !Int
+  rpBlockSize :: !Int,
+  -- |Treestate storage directory.
+  rpTreeStateDir :: !FilePath,
+  -- |BlockState storage file.
+  rpBlockStateFile :: !FilePath,
+  -- |Threshold for how far into the future we accept blocks. Blocks with a slot
+  -- time that exceeds our current time + this threshold are rejected and the p2p
+  -- is told to not relay these blocks.
+  rpEarlyBlockThreshold :: !Timestamp
   }
 
 -- |Default runtime parameters, block size = 10MB.
 defaultRuntimeParameters :: RuntimeParameters
-defaultRuntimeParameters = RuntimeParameters{
-  rpBlockSize = 10 * 10^(6 :: Int) -- 10MB
+defaultRuntimeParameters = RuntimeParameters {
+  rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
+  rpTreeStateDir = "treestate",
+  rpBlockStateFile = "blockstate",
+  rpEarlyBlockThreshold = 30 -- 30 seconds
   }
 
 instance FromJSON RuntimeParameters where
   parseJSON = withObject "RuntimeParameters" $ \v -> do
     rpBlockSize <- v .: "blockSize"
+    rpTreeStateDir <- v .: "treeStateDir"
+    rpBlockStateFile <- v .: "blockStateFile"
+    rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
+    when (rpEarlyBlockThreshold <= 0) $
+      fail "The early block threshold must be a postitive integer"
     return RuntimeParameters{..}
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
@@ -245,3 +265,4 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 gpFinalizationMinimumSkip
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
+        genesisMaxBlockEnergy = gpMaxBlockEnergy
