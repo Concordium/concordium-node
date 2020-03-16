@@ -100,20 +100,15 @@ impl Default for ConsensusOutboundQueues {
 }
 
 pub struct ConsensusQueues {
-    pub inbound:                ConsensusInboundQueues,
-    pub outbound:               ConsensusOutboundQueues,
-    pub receiver_peer_notifier: Mutex<QueueReceiver<()>>,
-    pub sender_peer_notifier:   QueueSyncSender<()>,
+    pub inbound:  ConsensusInboundQueues,
+    pub outbound: ConsensusOutboundQueues,
 }
 
 impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender_peer_notifier, receiver_peer_notifier) = crossbeam_channel::bounded(100);
         Self {
-            inbound: Default::default(),
+            inbound:  Default::default(),
             outbound: Default::default(),
-            receiver_peer_notifier: Mutex::new(receiver_peer_notifier),
-            sender_peer_notifier,
         }
     }
 }
@@ -184,12 +179,6 @@ impl ConsensusQueues {
                 q.try_iter().count()
             );
         }
-        if let Ok(ref mut q) = self.receiver_peer_notifier.try_lock() {
-            debug!(
-                "Drained the Consensus peers notification control queue for {} element(s)",
-                q.try_iter().count()
-            );
-        }
     }
 
     pub fn stop(&self) -> Fallible<()> {
@@ -197,7 +186,6 @@ impl ConsensusQueues {
         self.outbound.sender_high_priority.send_stop()?;
         self.inbound.sender_low_priority.send_stop()?;
         self.inbound.sender_high_priority.send_stop()?;
-        self.sender_peer_notifier.send_stop()?;
         Ok(())
     }
 }
