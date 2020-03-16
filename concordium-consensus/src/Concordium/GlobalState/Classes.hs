@@ -86,33 +86,3 @@ instance BlockStateTypes (MGSTrans t m) where
 
 deriving via (MGSTrans MaybeT m) instance BlockStateTypes (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateTypes (ExceptT e m)
-
--- | The goal for this class definition is to abstract the process of converting
--- values that usually exist in two different variants (memory and disk).
---
--- Types are instance of this class if in the scope of the monad @m@ we can
--- convert between the types @a@ and @b@. This type should be trivially implemented
--- by an in-memory representation just embedding the values into the monad.
---
--- This serves two purposes: first associate both types and also provide the functions
--- for moving from one type to another.
---
--- We will consider that the type variable @a@ represents the memory version of the value.
---
--- *NOTE*: although `fromMemoryRepr` is monadic, we must enforce that this function is just
--- a wrapping of a pure function, effectively not making any side effects. Side effects
--- needed for mantaining the invariant should be done somewhere else. This means in
--- practice that for the case of the `PersistentTransaction` we won't write the transaction
--- to the disk inside this function.
-class (Monad m) => Convert a b m where
-  toMemoryRepr :: b -> m a
-  fromMemoryRepr :: a -> m b
-
-instance (Monad (t m), MonadTrans t, Convert a b m) => Convert a b (MGSTrans t m) where
-  {-# INLINE toMemoryRepr #-}
-  toMemoryRepr = lift . toMemoryRepr
-  {-# INLINE fromMemoryRepr #-}
-  fromMemoryRepr = lift . fromMemoryRepr
-
-deriving via (MGSTrans MaybeT m) instance Convert a b m => Convert a b (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance Convert a b m => Convert a b (ExceptT e m)

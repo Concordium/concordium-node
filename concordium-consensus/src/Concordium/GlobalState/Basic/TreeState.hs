@@ -16,9 +16,7 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Set as Set
 
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.Basic.Block
 import Concordium.GlobalState.Basic.BlockPointer
-import Concordium.GlobalState.Basic.TransactionTable
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -26,6 +24,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
@@ -35,13 +34,13 @@ import Concordium.GlobalState.AccountTransactionIndex
 
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) BasicPendingBlock)),
+    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
     -- |Map of (possibly) pending blocks by hash
-    _possiblyPendingTable :: !(HM.HashMap BlockHash [BasicPendingBlock]),
+    _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Priority queue of blocks waiting for their last finalized block to be finalized, ordered by height of the last finalized block
-    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight BasicPendingBlock),
+    _blocksAwaitingLastFinalized :: !(MPQ.MinPQueue BlockHeight PendingBlock),
     -- |List of finalization records with the blocks that they finalize, starting from genesis
     _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
     -- |Pending finalization records by finalization index
@@ -114,12 +113,8 @@ deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData 
 
 
 instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlockType (PureTreeStateMonad bs m) = BasicPendingBlock
+    type PendingBlockType (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
-
-instance (Monad m) => TS.Convert Transaction Transaction (PureTreeStateMonad bs m) where
-  toMemoryRepr = return
-  fromMemoryRepr = return
 
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
     blockState = return . _bpState
@@ -135,8 +130,7 @@ instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
 instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
-      signed <- signBlock key slot parent bid pf n lastFin trs
-      return $ makePendingBlock signed time
+        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     importPendingBlock blockBS rectime =
         case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
             Left err -> return $ Left $ "Block deserialization failed: " ++ err
@@ -209,56 +203,97 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
                     in return $ case atnnce of
                         Nothing -> Map.toAscList beyond
                         Just s -> (nnce, s) : Map.toAscList beyond
-    addCommitTransaction tr slot = do
-            let trHash = getHash tr
-            tt <- use transactionTable
-            case tt ^. ttHashMap . at trHash of
-                Nothing ->
-                  if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
-                    transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert tr)
-                                            & (ttHashMap . at (getHash tr) ?~ (tr, Received slot)))
-                    return (TS.Added tr)
-                  else return TS.ObsoleteNonce
-                Just (tr', results) -> do
-                  when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 . tsSlot .=  slot
-                  return $ TS.Duplicate tr'
-        where
-            sender = transactionSender tr
-            nonce = transactionNonce tr
+
+    getNextAccountNonce addr =
+        use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
+                Nothing -> return (minNonce, True)
+                Just anfts ->
+                  case Map.lookupMax (anfts ^. anftMap) of
+                    Nothing -> return (anfts ^. anftNextNonce, True) -- all transactions are finalized
+                    Just (nonce, _) -> return (nonce + 1, False)
+
+    getCredential txHash =
+      preuse (transactionTable . ttHashMap . ix txHash) >>= \case
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $! Just WithMetadata{wmdData=biCred,..}
+        _ -> return Nothing
+
+    addCommitTransaction bi@WithMetadata{..} slot = do
+      let trHash = wmdHash
+      tt <- use transactionTable
+      case tt ^. ttHashMap . at trHash of
+          Nothing ->
+            case wmdData of
+              NormalTransaction tr -> do
+                let sender = transactionSender tr
+                    nonce = transactionNonce tr
+                if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
+                  let wmdtr = WithMetadata{wmdData=tr,..}
+                  transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert wmdtr)
+                                          & (ttHashMap . at trHash ?~ (bi, Received slot)))
+                  return (TS.Added bi)
+                else return TS.ObsoleteNonce
+              CredentialDeployment{..} -> do
+                transactionTable . ttHashMap . at trHash ?= (bi, Received slot)
+                return (TS.Added bi)
+          Just (tr', results) -> do
+            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %= updateSlot slot
+            return $ TS.Duplicate tr'
+
     finalizeTransactions bh slot = mapM_ finTrans
         where
-            finTrans tr = do
+            finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
                     let nfn = anft ^. anftMap . at nonce . non Set.empty
-                    assert (Set.member tr nfn) $ do
+                    let wmdtr = WithMetadata{wmdData=tr,..}
+                    assert (Set.member wmdtr nfn) $ do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
-                        forM_ (Set.delete tr nfn) $ \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
+                        forM_ (Set.delete wmdtr nfn) $
+                          \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized.
                         -- Singular here is safe due to the precondition (and assertion) that all transactions
                         -- which are part of live blocks are in the transaction table.
-                        transactionTable . ttHashMap . singular (ix (getHash tr)) . _2 %=
+                        transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
+            finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = do
+              transactionTable . ttHashMap . singular (ix wmdHash) . _2 %= 
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
+
     commitTransaction slot bh tr idx =
         transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
-    purgeTransaction tr =
-        use (transactionTable . ttHashMap . at (getHash tr)) >>= \case
+
+    purgeTransaction WithMetadata{..} =
+        use (transactionTable . ttHashMap . at wmdHash) >>= \case
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                 if (lastFinSlot >= results ^. tsSlot) then do
-                    let nonce = transactionNonce tr
-                        sender = transactionSender tr
-                    transactionTable . ttHashMap . at (getHash tr) .= Nothing
-                    transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %= Set.delete tr
+                    -- remove from the table
+                    transactionTable . ttHashMap . at wmdHash .= Nothing
+                    -- if the transaction is from a sender also delete the relevant
+                    -- entry in the account non finalized table
+                    case wmdData of
+                      NormalTransaction tr -> do
+                        let nonce = transactionNonce tr
+                            sender = transactionSender tr
+                        transactionTable
+                          . ttNonFinalizedTransactions
+                          . at sender
+                          . non emptyANFT
+                          . anftMap
+                          . at nonce
+                          . non Set.empty %= Set.delete WithMetadata{wmdData=tr,..}
+                      _ -> return () -- do nothing.
                     return True
                 else return False
+
     markDeadTransaction bh tr =
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.

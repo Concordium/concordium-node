@@ -16,15 +16,14 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.Types.Transactions as Transactions
 
-type BasicBlockPointer s = BlockPointer () Transactions.Transaction Identity s
+type BasicBlockPointer s = BlockPointer () Identity s
 
 -- |Make a 'BasicBlockPointer' from a 'PendingBlock'.
 -- The parent and last finalized block pointers must match the block data.
 makeBasicBlockPointer ::
-    BasicPendingBlock        -- ^Pending block
+    PendingBlock        -- ^Pending block
     -> BasicBlockPointer s    -- ^Parent block pointer
     -> BasicBlockPointer s    -- ^Last finalized block pointer
     -> s       -- ^Block state
@@ -47,7 +46,8 @@ makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransact
                     ..}
     where
         bf = bbFields $ pbBlock pb
-        (_bpTransactionCount, _bpTransactionsSize) = List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.trSize tx + csize)) (0, 0) (blockTransactions pb)
+        (_bpTransactionCount, _bpTransactionsSize) =
+          List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.blockItemSize tx + csize)) (0, 0) (blockTransactions pb)
 
 makeGenesisBasicBlockPointer :: GenesisData -> s -> BasicBlockPointer s
 makeGenesisBasicBlockPointer genData _bpState = theBlockPointer

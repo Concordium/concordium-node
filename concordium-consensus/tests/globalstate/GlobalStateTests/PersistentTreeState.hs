@@ -1,6 +1,7 @@
 {-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module GlobalStateTests.PersistentTreeState where
 
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -15,13 +16,11 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Persistent.LMDB
 import Control.Monad.State hiding (state)
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
 import Concordium.Types
-import Control.Exception
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Time.Clock.POSIX
 import Control.Monad.Identity
@@ -79,6 +78,7 @@ specifyWithGS s dbDir f = specify s $
                           (ret, _, _) <- runRWST (runGlobalStateM $ f) c d
                           return ret)
 
+useI :: MonadState (Identity s) f => Getting b s b -> f b
 useI f = (^. f) <$> runIdentity <$> RWS.get
 
 testFinalizeABlock :: Test
