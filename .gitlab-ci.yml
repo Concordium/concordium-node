@@ -44,7 +44,7 @@ stages:
     - scripts/download-static-libs.sh
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
-    - echo "Running clippy with network dump, instrumentation, elastic logging, collector and beta features"
-    - cargo clippy --features=static,instrumentation,elastic_logging,collector,network_dump,beta --color=always --all -- -Dclippy::all
+    - echo "Running clippy with network dump, instrumentation, elastic logging, collector and staging net features"
+    - cargo clippy --features=static,instrumentation,elastic_logging,collector,network_dump,staging_net --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n features"
     - cargo clippy --features=static,s11n_capnp,s11n_serde_cbor --color=always --all -- -Dclippy::all

@@ -24,7 +24,7 @@ static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
 elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
-beta = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
+staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 
 [profile.release]
 codegen-units = 1

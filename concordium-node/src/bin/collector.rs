@@ -221,7 +221,7 @@ async fn collect_data<'a>(
 
     let node_info_reply = node_info_reply.get_ref();
     let node_id = node_info_reply.node_id.to_owned().unwrap();
-    let beta_username = node_info_reply.beta_username.to_owned();
+    let staging_net_username = node_info_reply.staging_net_username.to_owned();
     let peer_type = node_info_reply.peer_type.to_owned();
     let baker_committee = node_info_reply.consensus_baker_committee;
     let finalization_committee = node_info_reply.consensus_finalizer_committee;
@@ -366,7 +366,7 @@ async fn collect_data<'a>(
         bakingCommitteeMember: baker_committee,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,
-        betaUsername: beta_username,
+        stagingNetUsername: staging_net_username,
         last_updated: 0,
         transactionsPerBlockEMA: transactions_per_block_ema,
         transactionsPerBlockEMSD: transactions_per_block_emsd,

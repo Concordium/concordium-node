@@ -335,12 +335,12 @@ impl P2p for RpcServerImpl {
         let peer_type = self.node.peer_type().to_string();
         let current_localtime =
             SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
-        let beta_username = {
-            #[cfg(feature = "beta")]
+        let staging_net_username = {
+            #[cfg(feature = "staging_net")]
             {
-                Some(self.node.config.beta_username.clone())
+                Some(self.node.config.staging_net_username.clone())
             }
-            #[cfg(not(feature = "beta"))]
+            #[cfg(not(feature = "staging_net"))]
             {
                 None
             }
@@ -356,7 +356,7 @@ impl P2p for RpcServerImpl {
                 consensus_baker_committee: consensus.in_baking_committee()
                     == ConsensusIsInCommitteeResponse::ActiveInCommittee,
                 consensus_finalizer_committee: consensus.in_finalization_committee(),
-                beta_username,
+                staging_net_username,
             },
             None => NodeInfoResponse {
                 node_id,
@@ -367,7 +367,7 @@ impl P2p for RpcServerImpl {
                 consensus_type: "Inactive".to_owned(),
                 consensus_baker_committee: false,
                 consensus_finalizer_committee: false,
-                beta_username,
+                staging_net_username,
             },
         }))
     }

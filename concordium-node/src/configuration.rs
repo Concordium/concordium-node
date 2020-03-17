@@ -364,9 +364,9 @@ pub struct CliConfig {
         default_value = "http://127.0.0.1:9200"
     )]
     pub elastic_logging_url: String,
-    #[cfg(feature = "beta")]
-    #[structopt(long = "beta-token", help = "Beta client token")]
-    pub beta_token: String,
+    #[cfg(feature = "staging_net")]
+    #[structopt(long = "staging-net-token", help = "Staging network client token")]
+    pub staging_net_token: String,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
