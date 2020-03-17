@@ -583,4 +583,5 @@ tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 defaultMaxFinComSize $ runKonsensusTestDefault 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 100
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 10000
+    it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 defaultMaxFinComSize $ runKonsensusTestDefault 10000
     it "10 parties, 10000 steps, 15 transfer transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 15 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000

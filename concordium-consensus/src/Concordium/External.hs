@@ -271,6 +271,7 @@ type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig
 makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteString -> TreeConfigWithLog
 makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData (genesisState genData)
 
+
 type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) HookLogHandler
 type PassiveConfig gs = SkovConfig gs (NoFinalization ()) HookLogHandler
 
@@ -314,6 +315,8 @@ defaultEarlyBlockThreshold = 30
 -- a null pointer will be returned.
 startConsensus ::
            Word64 -- ^Maximum block size.
+           -> Word64 -- ^Insertions before purging of transactions
+           -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
@@ -323,7 +326,7 @@ startConsensus ::
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
+startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -333,7 +336,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                         connString
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
@@ -345,7 +348,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
                     hconfig = HookLogHandler Nothing -- logT
@@ -370,6 +373,8 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
 -- a null pointer will be returned.
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
+           -> Word64 -- ^Insertions before purging of transactions
+           -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
@@ -377,7 +382,7 @@ startConsensusPassive ::
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
+startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
@@ -386,7 +391,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                         connString
                     finconfig = NoFinalization genData
@@ -397,7 +402,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                     finconfig = NoFinalization genData
                     hconfig = HookLogHandler Nothing
@@ -1031,8 +1036,8 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                         sendMsg MTCatchUpStatus $ encode rcus
             return $! result
 
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
