@@ -19,8 +19,6 @@ import Data.Foldable(forM_)
 import Text.Read(readMaybe)
 import Control.Exception
 import Control.Monad.State.Class(MonadState)
-import Data.Functor
-import Control.Arrow
 import System.FilePath ((</>))
 
 import qualified Data.Text.Lazy as LT
@@ -44,12 +42,13 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, receiveBlock, MessageType)
+import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
-import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
+-- import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
 
 import qualified Concordium.Getters as Get
 
@@ -275,7 +274,7 @@ makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData (genesisState 
 
 
 type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) HookLogHandler
-type PassiveConfig gs = SkovConfig gs NoFinalization HookLogHandler
+type PassiveConfig gs = SkovConfig gs (NoFinalization ()) HookLogHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
@@ -400,7 +399,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
                         connString
-                    finconfig = NoFinalization
+                    finconfig = NoFinalization genData
                     hconfig = HookLogHandler Nothing
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback
@@ -410,7 +409,7 @@ startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC 
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
                         genData
-                    finconfig = NoFinalization
+                    finconfig = NoFinalization genData
                     hconfig = HookLogHandler Nothing
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
@@ -510,8 +509,8 @@ receiveBlock bptr cstr l = do
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
-    toReceiveResult <$> do
-        runWithConsensus c (TS.importPendingBlock blockBS now) >>= \case
+    toReceiveResult <$>
+        case (deserializePendingBlock blockBS now) of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail
@@ -805,7 +804,7 @@ checkIfWeAreFinalizer cptr = do
         return 0
       BakerRunner s -> do
         logm External LLDebug "Active consensus, querying best block."
-        r <- Get.checkFinalizerExistsBestBlock s
+        r <- Get.checkIsCurrentFinalizer s
         logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
       PassiveRunnerWithLog _ -> do
@@ -813,7 +812,7 @@ checkIfWeAreFinalizer cptr = do
         return 0
       BakerRunnerWithLog s -> do
         logm External LLDebug "Active consensus, querying best block."
-        r <- Get.checkFinalizerExistsBestBlock s
+        r <- Get.checkIsCurrentFinalizer s
         logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
 
@@ -977,7 +976,7 @@ getCatchUpStatus cptr = do
         c <- deRefStablePtr cptr
         let logm = consensusLogMethod c
         logm External LLInfo $ "Received request for catch-up status"
-        cus <- runConsensusQuery c Get.getCatchUpStatus True
+        cus <- runWithConsensus c (Skov.getCatchUpStatus True)
         logm External LLTrace $ "Replying with catch-up status = " ++ show cus
         byteStringToCString $ encode (cus :: CatchUpStatus)
 
@@ -1025,29 +1024,22 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
         Right cus -> do
             logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
             let
-                toMsg (Left finRec) = (MTFinalizationRecord, encode finRec)
-                toMsg (Right block) = (MTBlock, runPut $ putBlock block)
-            runConsensusQuery c (\z -> Get.handleCatchUpStatus z cus <&> fmap (first (fmap $ \(l, rcus) -> (toMsg <$> l, rcus)))) >>= \case
-                Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
-                Right (d, flag) -> do
-                    let
-                        sendMsg = callDirectMessageCallback cbk src
-                    forM_ d $ \(frbs, rcus) -> do
-                        let limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                toMsg (MessageBlock, mbs) = (MTBlock, mbs)
+                toMsg (MessageFinalizationRecord, mbs) = (MTFinalizationRecord, mbs)
+            (response, result) <- case c of
+                BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus
+                PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus
+                BakerRunnerWithLog{..} -> syncReceiveCatchUp bakerSyncRunnerWithLog cus
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveCatchUp passiveSyncRunnerWithLog cus
+            forM_ response $ \(frbs, rcus) -> do
+                        let
+                            limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                            sendMsg = callDirectMessageCallback cbk src
                         logm Skov LLTrace $ "Sending " ++ show (length limFrbs) ++ " blocks/finalization records"
-                        mapM_ (uncurry sendMsg) limFrbs
+                        mapM_ (uncurry sendMsg . toMsg) limFrbs
                         logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
                         sendMsg MTCatchUpStatus $ encode rcus
-                    return $! if flag then
-                                if cusIsResponse cus then
-                                    -- Mark the peer pending
-                                    ResultPendingBlock
-                                else
-                                    -- Mark the peer pending if it is up-to-date, otherwise no change
-                                    ResultContinueCatchUp
-                            else
-                                -- Mark the peer up-to-date
-                                ResultSuccess
+            return $! result
 
 foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> IO (StablePtr ConsensusRunner)

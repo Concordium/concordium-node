@@ -68,3 +68,6 @@ toList = BitSet.toList . parties
 
 fromList :: (Party -> VoterPower) -> [Party] -> PartySet
 fromList w l = PartySet (sum $ w <$> l) (BitSet.fromList l)
+
+isSubsetOf :: PartySet -> PartySet -> Bool
+isSubsetOf ps1 ps2 = BitSet.isSubsetOf (parties ps1) (parties ps2)

@@ -35,9 +35,13 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
+import Concordium.Skov.CatchUp
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad
+import Concordium.Afgjort.FinalizationQueue
+import Concordium.Afgjort.Monad
+import Concordium.Afgjort.Finalize.Types
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Buffer
 
@@ -114,12 +118,20 @@ instance SkovTimerHandlers (SkovHandlers t c m) c m where
 instance SkovPendingLiveHandlers (SkovHandlers t c m) m where
     handlePendingLive = shPendingLive
 
-data SkovPassiveHandlers m = SkovPassiveHandlers {
+data SkovPassiveHandlers (c :: *) m = SkovPassiveHandlers {
     sphPendingLive :: m ()
 }
 
-instance SkovPendingLiveHandlers (SkovPassiveHandlers m) m where
+instance SkovPendingLiveHandlers (SkovPassiveHandlers c m) m where
     handlePendingLive = sphPendingLive
+
+-- This provides an instance of timer handlers that should not be used.
+-- TODO: In future, the types in finalization should be refined so that
+-- this instance is not needed.
+instance SkovTimerHandlers (SkovPassiveHandlers c m) c m where
+    type SkovHandlerTimer (SkovPassiveHandlers c m) = ()
+    handleOnTimeout _ _ _ = error "Attempted to set a timer, but SkovPassiveHandlers does not support timers."
+    handleCancelTimer _ _ = error "Attempted to cancel a timer, but SkovPassiveHandlers does not support timers."
 
 -- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
 -- performing Skov operations.
@@ -207,6 +219,8 @@ instance (
     isFinalized = doIsFinalized
     {-# INLINE lastFinalizedBlock #-}
     lastFinalizedBlock = fst <$> getLastFinalized
+    {-# INLINE nextFinalizationIndex #-}
+    nextFinalizationIndex = getNextFinalizationIndex
     {-# INLINE getBirkParameters #-}
     getBirkParameters = doGetBirkParameters
     {-# INLINE getGenesisData #-}
@@ -221,6 +235,10 @@ instance (
     getBlocksAtHeight = doGetBlocksAtHeight
     {-# INLINE queryBlockState #-}
     queryBlockState = blockState
+    {-# INLINE blockLastFinalizedIndex #-}
+    blockLastFinalizedIndex = doBlockLastFinalizedIndex
+    {-# INLINE getCatchUpStatus #-}
+    getCatchUpStatus = doGetCatchUpStatus
     {-# INLINE queryTransactionStatus #-}
     queryTransactionStatus = lookupTransaction
     {-# INLINE queryNonFinalizedTransactions #-}
@@ -238,6 +256,7 @@ instance (
         OnSkov (SkovT h c m),
         BlockStateStorage (SkovT h c m),
         TreeStateMonad (SkovT h c m),
+        FinalizationMonad (SkovT h c m),
         PendingBlockType (SkovT h c m) ~ GB.PendingBlock)
         => SkovMonad (SkovT h c m) where
     {-# INLINE storeBlock #-}
@@ -246,66 +265,38 @@ instance (
     storeBakedBlock = doStoreBakedBlock
     {-# INLINE receiveTransaction #-}
     receiveTransaction tr = doReceiveTransaction tr 0
-    {-# INLINE finalizeBlock #-}
-    finalizeBlock = doFinalizeBlock
-
-class HasFinalizationInstance f where
-    finalizationInstance :: f -> FinalizationInstance
-instance HasFinalizationInstance FinalizationInstance where
-    finalizationInstance = id
-    {-# INLINE finalizationInstance #-}
+    {-# INLINE trustedFinalize #-}
+    trustedFinalize = doTrustedFinalize
+    {-# INLINE handleCatchUpStatus #-}
+    handleCatchUpStatus = doHandleCatchUp
 
 class FinalizationConfig c where
     type FCContext c
     type FCState c
     initialiseFinalization :: c -> (FCContext c, FCState c)
 
-class (FinalizationConfig c, Monad m, BlockPointerMonad m) => FinalizationConfigHandlers c m | m -> c where
-    finalizationOnBlock :: BlockPointerType m -> m ()
-    finalizationOnFinalize :: FinalizationRecord -> BlockPointerType m  -> m ()
-    proxyFinalizationMessage :: (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
-
-instance (
-        FinalizationStateLenses (SkovState c) (Timer (SkovT h c m)),
-        HasFinalizationInstance (SkovContext c),
-        FinalizationConfigHandlers c (SkovT h c m),
-        SkovFinalizationHandlers h m,
-        SkovTimerHandlers h c m,
-        MonadIO m,
-        TimeMonad m,
-        LoggerMonad m,
-        SkovMonad (SkovT h c m))
-        => FinalizationMonad (SkovState c) (SkovT h c m) where
-    broadcastFinalizationMessage = proxyFinalizationMessage (\msg' -> SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h (FPMMessage msg')))
-    broadcastFinalizationPseudoMessage (FPMMessage msg) = broadcastFinalizationMessage msg
-    broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
-    broadcastFinalizationRecord r = SkovT (\h _ -> lift $ handleBroadcastFinalizationRecord h r)
-    getFinalizationInstance = asks finalizationInstance
-    {-# INLINE broadcastFinalizationMessage #-}
-    {-# INLINE broadcastFinalizationPseudoMessage #-}
-    {-# INLINE broadcastFinalizationRecord #-}
-    {-# INLINE getFinalizationInstance #-}
-
-
-
 data SkovConfig gsconfig finconfig handlerconfig = SkovConfig gsconfig !finconfig !handlerconfig
 
 
-data NoFinalization = NoFinalization
+data NoFinalization (t :: *) = NoFinalization !GenesisData
 
-instance FinalizationConfig (SkovConfig gsconf NoFinalization hconf) where
-    type FCContext (SkovConfig gsconf NoFinalization hconf) = ()
-    type FCState (SkovConfig gsconf NoFinalization hconf) = ()
-    initialiseFinalization _ = ((), ())
+instance FinalizationConfig (SkovConfig gsconf (NoFinalization t) hconf) where
+    type FCContext (SkovConfig gsconf (NoFinalization t) hconf) = ()
+    type FCState (SkovConfig gsconf (NoFinalization t) hconf) = FinalizationState t
+    initialiseFinalization (SkovConfig _ (NoFinalization genData) _)
+            = ((), initialPassiveFinalizationState genHash finParams)
+        where
+            genHash = getHash (GenesisBlock genData)
+            finParams = genesisFinalizationParameters genData
     {-# INLINE initialiseFinalization #-}
 
-instance (BlockPointerMonad (SkovT h (SkovConfig gsconf NoFinalization hconf) m)) => FinalizationConfigHandlers (SkovConfig gsconf NoFinalization hconf) (SkovT h (SkovConfig gsconf NoFinalization hconf) m) where
-    finalizationOnBlock = \_ -> return ()
-    finalizationOnFinalize = \_ _ -> return ()
-    proxyFinalizationMessage = \_ _ -> return ()
-    {-# INLINE finalizationOnBlock #-}
-    {-# INLINE finalizationOnFinalize #-}
-    {-# INLINE proxyFinalizationMessage #-}
+-- This provides an implementation of FinalizationOutputMonad that does nothing.
+-- This should be fine, because NoFinalization indicates that no participation in
+-- finalization is expected.  However, in future, it would be nice if the type signatures
+-- in finalization meant that this instance is not required.
+instance (Monad m)
+        => FinalizationOutputMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m) where
+    broadcastFinalizationPseudoMessage _ = return ()
 
 data ActiveFinalization (t :: *) = ActiveFinalization !FinalizationInstance !GenesisData
 
@@ -314,22 +305,14 @@ instance FinalizationConfig (SkovConfig gc (ActiveFinalization t) hc) where
     type FCState (SkovConfig gc (ActiveFinalization t) hc) = FinalizationState t
     initialiseFinalization (SkovConfig _ (ActiveFinalization finInst genData) _)
             = (finInst, initialFinalizationState finInst genHash finParams)
-            where
-                genHash = getHash $ GenesisBlock genData
-                finParams = genesisFinalizationParameters genData
+        where
+            genHash = getHash (GenesisBlock genData)
+            finParams = genesisFinalizationParameters genData
     {-# INLINE initialiseFinalization #-}
 
-instance (
-        TreeStateMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
-        BlockPointerMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
-        FinalizationMonad (SkovState (SkovConfig gc (ActiveFinalization t) hc)) (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m)
-        ) => FinalizationConfigHandlers (SkovConfig gc (ActiveFinalization t) hc) (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m) where
-    finalizationOnBlock = notifyBlockArrival
-    finalizationOnFinalize = notifyBlockFinalized
-    proxyFinalizationMessage = id
-    {-# INLINE finalizationOnBlock #-}
-    {-# INLINE finalizationOnFinalize #-}
-    {-# INLINE proxyFinalizationMessage #-}
+instance (SkovFinalizationHandlers h m, Monad m)
+        => FinalizationOutputMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m) where
+    broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
 
 data BufferedFinalization (t :: *) = BufferedFinalization !FinalizationInstance !GenesisData
 
@@ -339,6 +322,8 @@ data BufferedFinalizationState t = BufferedFinalizationState {
     }
 makeLenses ''BufferedFinalizationState
 
+instance FinalizationQueueLenses (BufferedFinalizationState t) where
+    finQueue = bfsFinalization . finQueue
 instance FinalizationStateLenses (BufferedFinalizationState t) t where
     finState = bfsFinalization
 instance FinalizationBufferLenses (BufferedFinalizationState t) where
@@ -354,19 +339,11 @@ instance FinalizationConfig (SkovConfig gc (BufferedFinalization t) hc) where
                 finParams = genesisFinalizationParameters genData
     {-# INLINE initialiseFinalization #-}
 
-instance (
-        TreeStateMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
-        BlockPointerMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
-        FinalizationBufferLenses (SkovState (SkovConfig gc (BufferedFinalization t) hc)),
-        FinalizationMonad (SkovState (SkovConfig gc (BufferedFinalization t) hc)) (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m)
-        ) => FinalizationConfigHandlers (SkovConfig gc (BufferedFinalization t) hc) (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m) where
-    finalizationOnBlock = notifyBlockArrival
-    finalizationOnFinalize = notifyBlockFinalized
-    proxyFinalizationMessage = bufferFinalizationMessage
-    {-# INLINE finalizationOnBlock #-}
-    {-# INLINE finalizationOnFinalize #-}
-    {-# INLINE proxyFinalizationMessage #-}
-
+instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, LoggerMonad m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
+        => FinalizationOutputMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m) where
+    broadcastFinalizationMessage = bufferFinalizationMessage (\msg' -> SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h (FPMMessage msg')))
+    broadcastFinalizationPseudoMessage (FPMMessage msg) = broadcastFinalizationMessage msg
+    broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
 
 class HandlerConfig c where
     handlerLogTransfer :: Proxy c -> HCContext c -> Maybe (LogTransferMethod IO)
@@ -433,6 +410,10 @@ instance (
         return (SkovContext c finctx hctx, SkovState s finst hst logCtx)
     shutdownSkov (SkovContext c _ _) (SkovState s _ _ logCtx) = shutdownGlobalState (Proxy :: Proxy gsconf) c s logCtx
 
+instance (FinalizationQueueLenses (FCState (SkovConfig gsconf finconf hconf)))
+        => FinalizationQueueLenses (SkovState (SkovConfig gsconf finconf hconf)) where
+    finQueue = lens ssFinState (\s fs -> s {ssFinState = fs}) . finQueue
+
 instance (FinalizationStateLenses (FCState (SkovConfig gsconf finconf hconf)) t)
         => FinalizationStateLenses (SkovState (SkovConfig gsconf finconf hconf)) t where
     finState = lens ssFinState (\s fs -> s {ssFinState = fs}) . finState
@@ -456,14 +437,13 @@ instance (g ~ GSState gsconf) => HasGlobalState g (SkovState (SkovConfig gsconf 
     globalState = lens (ssGSState) (\ss v -> ss {ssGSState = v})
 
 instance (MonadIO m,
-        FinalizationConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
         HandlerConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
         SkovPendingLiveHandlers h m,
         SkovMonad (SkovT h (SkovConfig gsconf finconf hconf) m),
         TreeStateMonad (SkovT h (SkovConfig gsconf finconf hconf) m))
         => OnSkov (SkovT h (SkovConfig gsconf finconf hconf) m) where
-    onBlock bp = finalizationOnBlock bp >> handleBlock bp
-    onFinalize fr bp = finalizationOnFinalize fr bp >> handleFinalize fr bp
+    onBlock bp = handleBlock bp
+    onFinalize fr bp = handleFinalize fr bp
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
     logTransfer = fmap liftLM . handlerLogTransfer (Proxy :: Proxy (SkovConfig gsconf finconf hconf)) <$> asks scHandlerContext
         where
@@ -472,6 +452,23 @@ instance (MonadIO m,
     {-# INLINE onFinalize #-}
     {-# INLINE logTransfer #-}
 
+deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (NoFinalization t) hc)) (SkovState (SkovConfig gc (NoFinalization t) hc)) (SkovT h (SkovConfig gc (NoFinalization t) hc) m))
+    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),
+        TreeStateMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),
+        SkovTimerHandlers h (SkovConfig gc (NoFinalization t) hc) m)
+        => FinalizationMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m)
+
+deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (ActiveFinalization t) hc)) (SkovState (SkovConfig gc (ActiveFinalization t) hc)) (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m))
+    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
+        TreeStateMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
+        SkovTimerHandlers h (SkovConfig gc (ActiveFinalization t) hc) m, SkovFinalizationHandlers h m)
+        => FinalizationMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m)
+
+deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (BufferedFinalization t) hc)) (SkovState (SkovConfig gc (BufferedFinalization t) hc)) (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m))
+    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, LoggerMonad m, SkovMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
+        TreeStateMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
+        SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m, SkovFinalizationHandlers h m)
+        => FinalizationMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m)
 -- If we require `C (SkovT ...)` for a specific class `C`, the compiler will complain
 -- because:
 -- 1. the instances for `SkovT` are derived from `GlobalStateM` setting the type
@@ -519,11 +516,4 @@ type SkovQueryConfigMonad c m =
      TreeStateMonad (SkovTGSM () c m),
      BlockPointerMonad (SkovTGSM () c m),
      BlockStateStorage (BlockStateConfigM () c m)
-    )
-
-type SkovFinalizationConfigMonad h c m = (
-    SkovConfigMonad h c m,
-    FinalizationStateLenses (SkovState c) (Timer (SkovT h c m)),
-    HasFinalizationInstance (SkovContext c),
-    FinalizationConfigHandlers c (SkovT h c m)
     )
