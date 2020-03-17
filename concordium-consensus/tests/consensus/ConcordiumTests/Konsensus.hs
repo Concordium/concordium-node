@@ -70,9 +70,12 @@ dummyTime = posixSecondsToUTCTime 0
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
 finalizationParameters = FinalizationParameters 2
 
+-- Maximum finalization-committee size for most tests, where we don't try to ensure that the committee members change.
 defaultMaxFinComSize :: FinalizationCommitteeSize
 defaultMaxFinComSize = 1000
 
+-- Maximum finalization-committee size for the test in which we want to ensure that the finalization committee members
+-- change. To ensure that the members change it is convenient for this number to be similar to the total number of bakers.
 maxFinComSizeChangingFinCommittee :: FinalizationCommitteeSize
 maxFinComSizeChangingFinCommittee = 10
 
@@ -317,11 +320,18 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
 myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
 
-type FinComParties = Set.Set (Set.Set Sig.VerifyKey)
+type FinComPartiesSet = Set.Set (Set.Set Sig.VerifyKey)
 
-runKonsensusTest :: RandomGen g => FinalizationCommitteeSize -> Maybe FinComParties -> Int -> g -> States -> ExecState -> IO Property
+-- The `collectedFinComParties` parameter should be Nothing if we don't care about changing the finalization committee members.
+-- Otherwise, it carries a set of finalization-committee-member sets. In each round of finalization, we add the
+-- set of parties to this set. In the end, we ensure that the size of this set is greater than 1, which means that
+-- there have been at least two different sets of committee members.
+runKonsensusTest :: RandomGen g => FinalizationCommitteeSize -> Maybe FinComPartiesSet -> Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest maxFinComSize collectedFinComParties steps g states es
         | steps <= 0 = return $
+            -- If we run this test from `runKonsensusTestForChangingFinCommittee`, we want to ensure that the members of
+            -- the finalization committee change. To do that, this ensures that the size of the finalization-committee-members set
+            -- is greater than 1.
             if any ((1 >=) . Set.size) collectedFinComParties
             then counterexample "Parties of finalization committee should change at least once." False
             else label ("fin length: " ++ show (maximum $ (\s -> s ^. _5 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
@@ -335,6 +345,7 @@ runKonsensusTest maxFinComSize collectedFinComParties steps g states es
                     Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                     Right _ -> do
                         let states' = states & ix rcpt . _5 .~ fs'
+                            -- Adding the current set of finalization-committee members to `collectedFinComParties`
                             newCollectedFinComParties = collectedFinComParties <&>
                               Set.insert (Set.fromList $ partySignKey <$> (Vec.toList . parties) (_finsCommittee fState))
                         runKonsensusTest maxFinComSize newCollectedFinComParties (steps - 1) g' states' es'
@@ -384,6 +395,8 @@ genTransactions n = mapM gent (take n [minNonce..])
             g <- arbitrary
             return $ Example.makeTransaction f (ContractAddress (fromIntegral $ g `mod` nAccounts) 0) nnce
 
+-- Generate transactions that transfer between `minAmount` and `maxAmount` of GTU among accounts specified in
+-- `kpAccountPairs`.
 genTransferTransactions :: GTU -> GTU -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BareTransaction]
 genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromList $ zip (snd <$> kpAccountPairs) $ repeat minNonce
   where gtt :: [BareTransaction] -> Map.Map AccountAddress Nonce -> Int -> Gen [BareTransaction]
@@ -416,6 +429,7 @@ dummyIdentityProviders = []
 mateuszAmount :: Amount
 mateuszAmount = Amount (2 ^ (40 :: Int))
 
+-- Initial states for the tests that don't attempt to change the members of the finalization committee.
 initialiseStates :: Int -> FinalizationCommitteeSize -> PropertyM IO States
 initialiseStates n maxFinComSize = do
         let bns = [0..fromIntegral n - 1]
@@ -435,6 +449,12 @@ initialiseStates n maxFinComSize = do
                              ) bis
         return $ Vec.fromList res
 
+-- Initial states for the test in which we want finalization-committee members to change.
+-- The `averageStake` amount is a stake such that
+--   * it is approximately equal to `1 / maxFinCommitteSize` of the total stake
+--   * to be in the committee, a baker needs to have at least `averageStake` stake
+-- We pick `f` bakers that will initially be in the finalization committee; their stake will be somewhat greater than
+-- `averageStake`; and we pick `b` bakers whose stake will be lower and who therefore won't be in the committee.
 initialiseStatesTransferTransactions :: Int -> Int -> Amount -> Amount -> FinalizationCommitteeSize -> PropertyM IO States
 initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = do
         let fs          = [0..fromIntegral f - 1]
