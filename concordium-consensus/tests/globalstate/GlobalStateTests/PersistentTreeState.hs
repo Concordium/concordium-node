@@ -20,6 +20,7 @@ import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
+import Concordium.Startup
 import Concordium.Types
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Time.Clock.POSIX
@@ -59,7 +60,7 @@ createGlobalState dbDir = do
   now <- truncate <$> getPOSIXTime
   let
     n = 3
-    genesis = makeTestingGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
+    genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
     state = basicGenesisState genesis
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir }) genesis state
   (x, y, NoLogContext) <- initialiseGlobalState config

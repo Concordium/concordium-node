@@ -1,4 +1,4 @@
-  {-# LANGUAGE ConstraintKinds, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, BangPatterns, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
+  {-# LANGUAGE ConstraintKinds, BangPatterns, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
 --
 -- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
@@ -25,6 +25,7 @@ import Control.Exception hiding (handle)
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict as HM hiding (toList)
+import qualified Data.HashMap.Strict as HM
 import Data.List as List
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -36,6 +37,8 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Mem.Weak
 import Concordium.GlobalState.SQLiteATI
+import Data.Time.Clock
+import Data.Foldable as Fold (foldl')
 -- * SkovPersistentData definition
 
 data PersistenBlockStatus ati bs =
@@ -69,6 +72,8 @@ data SkovPersistentData ati bs = SkovPersistentData {
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
     _transactionTable :: !TransactionTable,
+    -- |Transaction table purge counter
+    _transactionTablePurgeCounter :: !Int,
     -- |Consensus statistics
     _statistics :: !ConsensusStatistics,
     -- |Runtime parameters
@@ -102,6 +107,7 @@ initialSkovPersistentData rp gd genState ati serState = do
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
             _transactionTable = emptyTransactionTable,
+            _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _db = initialDb,
@@ -241,6 +247,73 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     dbh' <- putOrResize dbh (TxStatuses tss)
     db .= dbh'
 
+
+-- | This function will remove transactions that are pending for a long time.
+-- First it goes over the account non finalized transactions and for each account it separates the transactions that
+-- will be purged to those that won't. For a transaction to be purged its arrival time plus the transactions keep-alive
+-- time must be lower that the current timestamp and its status must be `Received`.
+-- The `ttNonFinalizedTransactions` map is updated and afterwards the transactions are removed from the `ttHashMap`.
+-- The `PendingTransactionTable` is updated doing a rollback to the last seen nonce on the right side of each entry in
+-- `pttWithSender`.
+purgeTransactionTable :: (MonadIO (PersistentTreeStateMonad ati bs m),
+                          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+                      => PersistentTreeStateMonad ati bs m ()
+purgeTransactionTable = do
+  purgeCount <- use transactionTablePurgeCounter
+  RuntimeParameters{..} <- use runtimeParameters
+  when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
+    tt <- use transactionTable
+    pt <- use pendingTransactions
+    txHighestNonces <- removeTransactions tt rpTransactionsKeepAliveTime
+    pendingTransactions .= rollbackNonces txHighestNonces pt
+    transactionTablePurgeCounter .= 0
+ where
+   removeTransactions TransactionTable{..} kat = do
+     tm <- liftIO (utcTimeToTransactionTime <$> getCurrentTime)
+     let removeTxs :: [(Nonce, Set.Set T.Transaction)] -> ([Set.Set T.Transaction], Map.Map Nonce (Set.Set T.Transaction), Nonce)
+         removeTxs ncs = (\(x, y, h) -> (x, Map.fromList y, h)) $ removeTxs' ncs 0
+
+         removeTxs' :: [(Nonce, Set.Set T.Transaction)] -> Nonce -> ([Set.Set T.Transaction], [(Nonce, Set.Set T.Transaction)], Nonce)
+         removeTxs' [] h = ([], [], h)
+         removeTxs' ((n, txs):ncs) hn =
+           -- We can only remove transactions which are not committed to any blocks.
+           -- Otherwise we would break many invariants.
+           let toRemove t =
+                 case _ttHashMap ^? ix (biHash t) . _2 of
+                   Just Received{} -> True
+                   _ -> False
+               (toDrop, nn) =
+                 Set.partition (\t -> biArrivalTime t + kat < tm && toRemove t) txs in -- split in old and still valid transactions
+             if Set.size nn == 0
+             -- if all are to be removed, remove all the next txs and return previous nonce
+             then (toDrop : fmap snd ncs, [], hn)
+             else let (nextToDrop, nextToKeep, nextHn) = removeTxs' ncs n in
+               -- else combine the transactions to drop and the transactions to keep with the ones from the next step
+               (toDrop : nextToDrop, (n, nn) : nextToKeep, nextHn)
+
+         processANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([Set.Set T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce))
+         processANFT (acc, AccountNonFinalizedTransactions{..}) =
+           -- we need to get a list in ascending order
+           -- in order to do only one pass over the nonces if we ever hit a nonce that gets emptied
+           let (removed, kept, hn) = removeTxs (Map.toAscList _anftMap) in
+             (removed, (acc, AccountNonFinalizedTransactions{_anftMap = kept, ..}), (acc, hn))
+
+         results = fmap processANFT (HM.toList $ _ttNonFinalizedTransactions)
+         allDeletes = fmap (^. _1) results
+         !newNFT = fromList $ fmap (^. _2) results
+         highestNonces = fmap (^. _3) results
+         !newTMap = Fold.foldl' (Fold.foldl' (Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)))) _ttHashMap allDeletes
+     transactionTable .= TransactionTable{_ttHashMap = newTMap, _ttNonFinalizedTransactions = newNFT}
+     return highestNonces
+
+   rollbackNonces :: [(AccountAddress, Nonce)] -> PendingTransactionTable -> PendingTransactionTable
+   rollbackNonces e PTT{..} = PTT {_pttWithSender =
+                                   let !v = Fold.foldl' (\pt (acc, n) ->
+                                                           update (\(n1, n2) ->
+                                                                     if n2 > n && n >= n1 then Just (n1, n)
+                                                                     else if n2 > n then Nothing
+                                                                     else Just (n1, n2)) acc pt) _pttWithSender e in v,
+                                   ..}
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
@@ -379,6 +452,8 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   let wmdtr = WithMetadata{wmdData=tr,..}
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at trHash ?~ (bi, Received slot)))
+                  transactionTablePurgeCounter %= (+ 1)
+                  purgeTransactionTable
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
               CredentialDeployment{..} -> do

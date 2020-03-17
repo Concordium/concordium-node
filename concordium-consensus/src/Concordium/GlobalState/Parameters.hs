@@ -30,6 +30,7 @@ import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
+import Concordium.Types.Transactions
 
 type CryptographicParameters = GlobalContext
 
@@ -200,7 +201,14 @@ data RuntimeParameters = RuntimeParameters {
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
-  rpEarlyBlockThreshold :: !Timestamp
+  rpEarlyBlockThreshold :: !Timestamp,
+  -- |Number of insertions to be performed in the trasnaction table before running
+  -- a purge to remove long living transactions that have not been executed for more
+  -- than `rpTransactionsKeepAliveTime` seconds.
+  rpInsertionsBeforeTransactionPurge :: !Int,
+  -- |Number of seconds after receiving a transction during which it is kept in the
+  -- transaction table if a purge is executed.
+  rpTransactionsKeepAliveTime :: !TransactionTime
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -209,7 +217,9 @@ defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
   rpTreeStateDir = "treestate",
   rpBlockStateFile = "blockstate",
-  rpEarlyBlockThreshold = 30 -- 30 seconds
+  rpEarlyBlockThreshold = 30, -- 30 seconds
+  rpInsertionsBeforeTransactionPurge = 1000,
+  rpTransactionsKeepAliveTime = 5 * 60 -- 5 min
   }
 
 instance FromJSON RuntimeParameters where
@@ -218,6 +228,8 @@ instance FromJSON RuntimeParameters where
     rpTreeStateDir <- v .: "treeStateDir"
     rpBlockStateFile <- v .: "blockStateFile"
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
+    rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
+    rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $
