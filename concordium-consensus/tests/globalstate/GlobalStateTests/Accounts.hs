@@ -195,7 +195,7 @@ runAccountAction FlushPersistent (ba, pa) = do
         return (ba, pa')
 runAccountAction ArchivePersistent (ba, pa) = do
         ppa <- store (Proxy :: Proxy BlobRef) pa
-        !pa' <- fromRight (error "deserializing blob failed") $ S.runGet (load (Proxy :: Proxy BlobRef)) (S.runPut ppa)
+        pa' <- fromRight (error "deserializing blob failed") $ S.runGet (load (Proxy :: Proxy BlobRef)) (S.runPut ppa)
         return (ba, pa')
 runAccountAction (RegIdExists rid) (ba, pa) = do
         let be = B.regIdExists rid ba
