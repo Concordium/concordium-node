@@ -31,6 +31,8 @@ import Control.Monad.Except
 import Control.Exception
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust, isJust)
+import Data.Ord
+import Data.List hiding (group)
 import qualified Data.Set as Set
 import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
@@ -189,33 +191,34 @@ dispatch msg = do
                    -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
                    Transfer toaddr amount ->
                      handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
-       
+
                    Update amount cref maybeMsg ->
                      -- the payload size includes amount + address + message, but since the first two fields are
                      -- fixed size this is OK.
                      let msgSize = fromIntegral (thPayloadSize meta)
                      in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
-       
+
                    DeployEncryptionKey encKey ->
                      handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
-       
+
                    AddBaker{..} ->
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
-       
+
                    RemoveBaker{..} ->
                      handleRemoveBaker (mkWTC TTRemoveBaker) rbId rbProof
-       
+
                    UpdateBakerAccount{..} ->
                      handleUpdateBakerAccount (mkWTC TTUpdateBakerAccount) ubaId ubaAddress ubaProof
-       
+
                    UpdateBakerSignKey{..} ->
                      handleUpdateBakerSignKey (mkWTC TTUpdateBakerSignKey) ubsId ubsKey ubsProof
-       
+
                    DelegateStake{..} ->
                      handleDelegateStake (mkWTC TTDelegateStake) (Just dsID)
-       
+
                    UndelegateStake ->
                      handleDelegateStake (mkWTC TTUndelegateStake) Nothing
+
                    UpdateElectionDifficulty{..} ->
                      handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
           case res of
@@ -231,7 +234,7 @@ handleDeployModule ::
   -> m (Maybe TransactionSummary)
 handleDeployModule wtc psize mod =
   withDeposit wtc c k
-  where 
+  where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
@@ -497,7 +500,7 @@ runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f =
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
-       
+
 handleDeployEncryptionKey ::
   SchedulerMonad m
     => WithDepositContext
@@ -764,7 +767,7 @@ handleUpdateElectionDifficulty wtc uedDifficulty =
 
 -- *Transactions without a sender
 handleDeployCredential ::
-  SchedulerMonad m => 
+  SchedulerMonad m =>
   -- |Credentials to deploy.
   ID.CredentialDeploymentInformation ->
   TransactionHash ->
@@ -841,8 +844,11 @@ handleDeployCredential cdi cdiHash = do
 
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size and block energy limit. The list of input transactions is traversed from left to
--- right and any invalid transactions are not included in the block.
+-- maximum block size and block energy limit. The GroupedTransactions are processed in
+-- order of their arrival time. Picking the next transaction is done by comparing the
+-- arrival time of the head of the head of the grouped transactions list and the
+-- head of the credential list, picking whichever is earliest. The entire group is
+-- processed if it is earliest.
 -- This function assumes that the transactions appear grouped by their associated account address,
 -- and that each transaction group is ordered by transaction nonce.
 -- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
@@ -865,71 +871,105 @@ handleDeployCredential cdi cdiHash = do
 --     as in the input).
 --   * @ftUnprocessed@ is a list of transactions which were not
 --     processed due to size restrictions.
-filterTransactions :: (SchedulerMonad m)
+filterTransactions :: forall m . (SchedulerMonad m)
                    => Integer -- ^Maximum block size in bytes.
                    -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
                    -> m FilteredTransactions
-filterTransactions maxSize inputTxs = do
+filterTransactions maxSize GroupedTransactions{..} = do
   maxEnergy <- getMaxBlockEnergy
-  (size, valid, invalidCred, unprocessedCred) <- runCredentials maxEnergy (credentialDeployments inputTxs)
-  run maxEnergy invalidCred unprocessedCred size valid [] [] (perAccountTransactions inputTxs)
-  where runCredentials maxEnergy = go 0 [] [] []
-            where go size valid invalid unprocessedCred [] = return (size, valid, invalid, unprocessedCred)
-                  go size valid invalid unprocessedCred (cdwm@WithMetadata{..}:rest) = do
-                    totalEnergyUsed <- getUsedEnergy
-                    let csize = size + fromIntegral wmdSize
-                        energyCost = Cost.deployCredential
-                        cenergy = totalEnergyUsed + fromIntegral energyCost
-                    if csize <= maxSize && cenergy <= maxEnergy then
-                      observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
-                          (Just (TxValid summary), fp) -> do
-                            markEnergyUsed (tsEnergyCost summary)
-                            tlNotifyAccountEffect fp summary
-                            go csize ((fmap CredentialDeployment cdwm, summary):valid) invalid unprocessedCred rest
-                          (Just (TxInvalid reason), _) -> do
-                            go csize valid ((cdwm, reason):invalid) unprocessedCred rest
-                          (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
-                    else if Cost.deployCredential > maxEnergy then
-                      -- this case should not happen (it would mean we set the parameters of the chain wrong),
-                      -- but we keep it just in case.
-                       go size valid ((cdwm, ExceedsMaxBlockEnergy):invalid) unprocessedCred rest
-                    else go size valid invalid (cdwm:unprocessedCred) rest
 
-        run maxEnergy invalidCred unprocessedCred = go
-          where go size valid invalid unprocessed ((t:ts) : rest) = do
-                  totalEnergyUsed <- getUsedEnergy
-                  let csize = size + fromIntegral (transactionSize t)
-                      tenergy = transactionGasAmount t
-                      cenergy = totalEnergyUsed + tenergy
-                  if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
-                    observeTransactionFootprint (dispatch t) >>= \case
-                       (Just (TxValid summary), fp) -> do
-                         markEnergyUsed (tsEnergyCost summary)
-                         tlNotifyAccountEffect fp summary
-                         go csize ((fmap NormalTransaction t, summary):valid) invalid unprocessed (ts : rest)
-                       (Just (TxInvalid reason), _) ->
-                         go csize valid (invalidTs t reason ts invalid) unprocessed rest
-                       (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
-                  -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
-                  else if tenergy > maxEnergy then
-                     go size valid (invalidTs t ExceedsMaxBlockEnergy ts invalid) unprocessed rest
-                  else -- otherwise still try the remaining transactions to avoid deadlocks from
-                       -- one single too-big transaction.
-                     go size valid invalid (t:unprocessed) (ts:rest)
-                go size valid invalid unprocessed ([] : rest) =
-                  go size valid invalid unprocessed rest
-                go _ valid invalid unprocessed [] =
-                  let txs = FilteredTransactions{
-                              ftAdded = reverse valid,
-                              ftFailed = invalid,
-                              ftUnprocessed = unprocessed,
-                              ftUnprocessedCredentials = unprocessedCred,
-                              ftFailedCredentials = invalidCred
-                            }
-                  in return txs         
-                -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
-                -- with a SuccessorOfInvalidTransaction failure
-                invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
+  runNext maxEnergy 0 emptyFilteredTransactions credentialDeployments perAccountTransactions
+  where
+        runNext :: Energy -- ^Maximum block energy
+                -> Integer -- ^Current size of transactions in the block.
+                -> FilteredTransactions -- ^Currently accummulated result
+                -> [CredentialDeploymentWithMeta] -- ^Credentials to process
+                -> [[Transaction]] -- ^Transactions to process, grouped per account.
+                -> m FilteredTransactions
+        runNext maxEnergy size fts credentials remainingTransactions =
+          case (credentials, remainingTransactions) of
+            -- need to reverse because we accummulated in reverse (for performance reasons)
+            ([], []) -> return fts{ ftAdded = reverse (ftAdded fts )}
+            ([], group : groups) -> runTransactionGroup size fts groups group
+            (c:creds, []) -> runCredential creds c
+            (cs@(c:creds), group : groups) ->
+              case group of
+                [] -> runNext maxEnergy size fts cs groups
+                (t:_) ->
+                  if wmdArrivalTime c <= wmdArrivalTime t
+                  then runCredential creds c
+                  else runTransactionGroup size fts groups group
+
+          where 
+            -- run a single credential and continue
+            runCredential remainingCreds c@WithMetadata{..} = do
+              totalEnergyUsed <- getUsedEnergy
+              let csize = size + fromIntegral wmdSize
+                  energyCost = Cost.deployCredential
+                  cenergy = totalEnergyUsed + fromIntegral energyCost
+              if csize <= maxSize && cenergy <= maxEnergy then
+                observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
+                    (Just (TxInvalid reason), _) -> do
+                      let newFts = fts { ftFailedCredentials = (c, reason) : ftFailedCredentials fts}
+                      runNext maxEnergy size newFts remainingCreds remainingTransactions -- NB: We keep the old size
+                    (Just (TxValid summary), fp) -> do
+                      markEnergyUsed (tsEnergyCost summary)
+                      tlNotifyAccountEffect fp summary
+                      let newFts = fts { ftAdded = (fmap CredentialDeployment c, summary) : ftAdded fts}
+                      runNext maxEnergy csize newFts remainingCreds remainingTransactions
+                    (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
+              else if Cost.deployCredential > maxEnergy then
+                -- this case should not happen (it would mean we set the parameters of the chain wrong),
+                -- but we keep it just in case.
+                 let newFts = fts { ftFailedCredentials = (c, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
+                 in runNext maxEnergy size newFts remainingCreds remainingTransactions
+              else
+                 let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
+                 in runNext maxEnergy size newFts remainingCreds remainingTransactions
+
+            -- run all transactions in a group
+            runTransactionGroup :: Integer -- ^Current size of transactions in the block.
+                                -> FilteredTransactions
+                                -> [[Transaction]] -- ^Remaining groups to process.
+                                -> [Transaction] -- ^Current group to process.
+                                -> m FilteredTransactions
+            runTransactionGroup currentSize currentFts remainingGroups (t:ts) = do
+              totalEnergyUsed <- getUsedEnergy
+              let csize = currentSize + fromIntegral (transactionSize t)
+                  tenergy = transactionGasAmount t
+                  cenergy = totalEnergyUsed + tenergy
+              if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
+                observeTransactionFootprint (dispatch t) >>= \case
+                   (Just (TxValid summary), fp) -> do
+                     markEnergyUsed (tsEnergyCost summary)
+                     tlNotifyAccountEffect fp summary
+                     let newFts = currentFts { ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts}
+                     runTransactionGroup csize newFts remainingGroups ts
+                   (Just (TxInvalid reason), _) ->
+                     let (newFts, rest) = invalidTs t reason currentFts ts
+                     in runTransactionGroup size newFts remainingGroups rest
+                   (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
+              -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
+              -- don't process any of the rest of the group
+              else if tenergy > maxEnergy then
+                let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
+                in runTransactionGroup size newFts remainingGroups rest
+              else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
+                   -- one single too-big transaction.
+                let newFts = currentFts { ftUnprocessed = t : (ftUnprocessed currentFts) }
+                in runTransactionGroup size newFts remainingGroups ts
+
+            -- group processed, continue with the next group or credential
+            runTransactionGroup currentSize currentFts remainingGroups [] =
+              runNext maxEnergy currentSize currentFts credentials remainingGroups
+
+            -- determine whether there is any point in processing more transactions from this group.
+            invalidTs t failure currentFts ts =
+              -- FIXME: relying on laziness for the following to not be very expensive
+              case takeWhile ((== transactionNonce t) . transactionNonce) ts of
+                [] -> -- all remaining transactions have higher nonce, all will fail
+                 (currentFts { ftFailed =  (t, failure) : map (, SuccessorOfInvalidTransaction) ts ++ ftFailed currentFts}, [])
+                _ -> (currentFts { ftFailed = (t, failure) : ftFailed currentFts }, ts)
 
 -- |Execute transactions in sequence. Returns
 --
@@ -949,7 +989,7 @@ runTransactions = go []
                 go ((bi, summary):valid) ts
               (Just (TxInvalid reason), _) -> return (Left (Just reason))
               (Nothing, _) -> return (Left Nothing)
-          
+
           go valid [] = return (Right (reverse valid))
 
           predispatch :: BlockItem -> m (Maybe TxResult)
