@@ -9,7 +9,6 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState
@@ -29,13 +28,10 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialAmount :: Types.Amount
-initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
+initialAmount = 0
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
-
-deployAccountCost :: Types.Energy
-deployAccountCost = Cost.deployCredential + Cost.checkHeader
 
 transactionsInput :: [Types.CredentialDeploymentWithMeta]
 transactionsInput = map (Types.fromCDI 0) $ [
@@ -87,6 +83,7 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   length fails == 1 && -- all but the 4'th transaction should fail.
   txsuc &&
   txstateAccs &&
+  noCost &&
   stateInvariant
   where txsuc = case suc of
           [(_, a11), (_, a12),(_, a13),(_, a15),(_, a16),(_, a17)] |
@@ -100,6 +97,7 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
         txstateAccs = case stateAccs of
                         [Just _, Just _, Just _, Just _, Just _] -> True
                         _ -> False
+        noCost = stateAles ^. Types.accountAmount == initialAmount && bankState ^. Types.executionCost == 0
         stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 
 tests :: Spec
