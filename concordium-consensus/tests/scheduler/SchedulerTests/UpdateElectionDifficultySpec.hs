@@ -76,7 +76,7 @@ testCasesReject =
                 , metadata = makeDummyHeader thomasAccount 1 10000
                 , keypair = thomasKP
                 }
-        , Types.NotFromSpecialAccount thomasAccount
+        , Types.NotFromSpecialAccount
         )
       ]
 

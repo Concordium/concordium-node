@@ -759,7 +759,7 @@ handleUpdateElectionDifficulty wtc uedDifficulty =
             unless (isValidElectionDifficulty uedDifficulty) $ error $ "Invalid election dificulty: " ++ show uedDifficulty
             updateElectionDifficulty uedDifficulty
             return $! (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
-          else return $! (TxReject $ NotFromSpecialAccount senderAddr, energyCost, usedEnergy)
+          else return $! (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
 
 -- *Transactions without a sender
 handleDeployCredential ::
