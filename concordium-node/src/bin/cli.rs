@@ -120,10 +120,8 @@ async fn main() -> Fallible<()> {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
             ConsensusLogLevel::Debug
-        } else if conf.common.info {
-            ConsensusLogLevel::Info
         } else {
-            ConsensusLogLevel::Warning
+            ConsensusLogLevel::Info
         },
         &data_dir_path,
         &consensus_database_url,
