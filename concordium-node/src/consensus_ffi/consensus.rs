@@ -216,18 +216,22 @@ impl std::fmt::Display for ConsensusType {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub max_block_size:          u64,
-    pub baker_id:                Option<BakerId>,
-    pub is_baking:               Arc<AtomicBool>,
-    pub consensus:               Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:                 Arc<[u8]>,
-    pub consensus_type:          ConsensusType,
-    pub database_connection_url: String,
+    pub max_block_size:            u64,
+    pub insertions_before_purging: u64,
+    pub transaction_keep_alive:    u64,
+    pub baker_id:                  Option<BakerId>,
+    pub is_baking:                 Arc<AtomicBool>,
+    pub consensus:                 Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:                   Arc<[u8]>,
+    pub consensus_type:            ConsensusType,
+    pub database_connection_url:   String,
 }
 
 impl ConsensusContainer {
     pub fn new(
         max_block_size: u64,
+        insertions_before_purging: u64,
+        transaction_keep_alive: u64,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
@@ -245,6 +249,8 @@ impl ConsensusContainer {
 
         match get_consensus_ptr(
             max_block_size,
+            insertions_before_purging,
+            transaction_keep_alive,
             genesis_data.clone(),
             private_data,
             max_log_level,
@@ -253,6 +259,8 @@ impl ConsensusContainer {
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 max_block_size,
+                insertions_before_purging,
+                transaction_keep_alive,
                 baker_id,
                 is_baking: Arc::new(AtomicBool::new(false)),
                 consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
