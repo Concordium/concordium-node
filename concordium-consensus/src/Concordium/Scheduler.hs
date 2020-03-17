@@ -909,16 +909,14 @@ filterTransactions maxSize GroupedTransactions{..} = do
                      let newFts = currentFts { ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts}
                      runTransactionGroup csize newFts remainingGroups ts
                    (Just (TxInvalid reason), _) ->
-                     let newFts = currentFts { ftFailed = invalidTs t reason ts (ftFailed currentFts) }
-                     in runNext maxEnergy size newFts credentials remainingGroups
+                     let (newFts, rest) = invalidTs t reason currentFts ts
+                     in runTransactionGroup size newFts remainingGroups rest
                    (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
               -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
               -- don't process any of the rest of the group
-              -- FIXME: This is a potential issue becuase we can have multiple transctions with the same nonce.
-              -- Ideally we would proceed with the group.
               else if tenergy > maxEnergy then
-                let newFts = currentFts { ftFailed = invalidTs t ExceedsMaxBlockEnergy ts (ftFailed currentFts) }
-                in runNext maxEnergy size newFts credentials remainingGroups
+                let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
+                in runTransactionGroup size newFts remainingGroups rest
               else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                    -- one single too-big transaction.
                 let newFts = currentFts { ftUnprocessed = t : (ftUnprocessed currentFts) }
@@ -928,9 +926,13 @@ filterTransactions maxSize GroupedTransactions{..} = do
             runTransactionGroup currentSize currentFts remainingGroups [] =
               runNext maxEnergy currentSize currentFts credentials remainingGroups
 
-            -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
-            -- with a SuccessorOfInvalidTransaction failure
-            invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
+            -- determine whether there is any point in processing more transactions from this group.
+            invalidTs t failure currentFts ts =
+              -- FIXME: relying on laziness for the following to not be very expensive
+              case takeWhile ((== transactionNonce t) . transactionNonce) ts of
+                [] -> -- all remaining transactions have higher nonce, all will fail
+                 (currentFts { ftFailed =  (t, failure) : map (, SuccessorOfInvalidTransaction) ts ++ ftFailed currentFts}, [])
+                _ -> (currentFts { ftFailed = (t, failure) : ftFailed currentFts }, ts)
 
 -- |Execute transactions in sequence. Returns
 --
