@@ -50,9 +50,6 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
-    if conf.common.print_config {
-        info!("{:?}", conf);
-    }
 
     #[cfg(feature = "staging_net")]
     {
@@ -63,8 +60,6 @@ async fn main() -> Fallible<()> {
     }
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
-
-    info!("Debugging enabled: {}", conf.common.debug);
 
     // The P2PNode thread
     let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
@@ -121,14 +116,14 @@ async fn main() -> Fallible<()> {
         &conf.cli.baker,
         gen_data,
         priv_data,
-        if conf.common.trace {
+        if conf.common.no_consensus_logs {
+            ConsensusLogLevel::Error
+        } else if conf.common.trace {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
             ConsensusLogLevel::Debug
-        } else if conf.common.info {
-            ConsensusLogLevel::Info
         } else {
-            ConsensusLogLevel::Warning
+            ConsensusLogLevel::Info
         },
         &data_dir_path,
         &consensus_database_url,
@@ -139,8 +134,6 @@ async fn main() -> Fallible<()> {
 
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
-
-    info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -239,11 +232,10 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>)
         {
             Ok(addrs) => {
                 for addr in addrs {
-                    info!("Connecting to peer {}", &connect_to);
-                    connect(node, PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
+                    let _ = connect(node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
                 }
             }
-            Err(err) => error!("Can't parse data for node to connect to {}", err),
+            Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
         }
     }
 }

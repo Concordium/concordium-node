@@ -302,12 +302,14 @@ pub struct CommonConfig {
     pub listen_port: u16,
     #[structopt(long = "listen-address", short = "l", help = "Address to listen on")]
     pub listen_address: Option<String>,
-    #[structopt(long = "debug", short = "d", help = "Debug mode")]
+    #[structopt(long = "debug", short = "d", help = "DEBUG-level logging mode")]
     pub debug: bool,
-    #[structopt(long = "trace", help = "Trace mode")]
+    #[structopt(long = "trace", help = "TRACE-level logging mode")]
     pub trace: bool,
-    #[structopt(long = "info", help = "Info mode")]
+    #[structopt(long = "info", help = "INFO-level logging mode")]
     pub info: bool,
+    #[structopt(long = "no-consensus-logs", help = "Disables consensus logs except for ERRORs")]
+    pub no_consensus_logs: bool,
     #[structopt(
         long = "network-id",
         short = "n",
@@ -573,6 +575,15 @@ pub fn parse_config() -> Fallible<Config> {
         if let Some(breakage_target) = conf.cli.breakage_target {
             ensure!([0, 1, 2, 3, 4, 99].contains(&breakage_target), "Unsupported breakage-target");
         }
+    }
+
+    #[cfg(feature = "instrumentation")]
+    {
+        ensure!(
+            conf.prometheus.prometheus_server || conf.prometheus.prometheus_push_gateway.is_some(),
+            "The instrumentation feature requires either prometheus-server or \
+             prometheus-push-gateway argument to be set"
+        );
     }
 
     Ok(conf)
