@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
-    (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction,
+    (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction, createCustomAccount,
      mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
@@ -127,11 +127,13 @@ initialStateWithMateuszAccount :: BirkParameters
                                -> Amount
                                -> BlockState.BlockState
 initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amount =
-  initialState birkParams cryptoParams bakerAccounts ips n [createCustomAccount amount mateuszKP mateuszAccount]
-    where createCustomAccount amnt kp address =
-              newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address
-                  & (accountAmount .~ amnt)
-                  . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime))
+    initialState birkParams cryptoParams bakerAccounts ips n [createCustomAccount amount mateuszKP mateuszAccount]
+
+createCustomAccount :: Amount -> Sig.KeyPair -> AccountAddress -> Account
+createCustomAccount amount kp address =
+    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address
+        & (accountAmount .~ amount)
+        . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime))
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}

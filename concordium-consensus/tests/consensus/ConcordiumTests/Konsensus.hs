@@ -57,6 +57,7 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParame
 import Concordium.Startup (makeBakerAccountKP, dummyCryptographicParameters)
 
 import Concordium.Crypto.DummyData
+import Concordium.Types.DummyData (mateuszAccount)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -434,20 +435,7 @@ initialiseStates :: Int -> FinalizationCommitteeSize -> PropertyM IO States
 initialiseStates n maxFinComSize = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i (mateuszAmount * 4))) bns
-        let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-        let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10
-        res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
-                                let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
-                                let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts mateuszAmount))
-                                        (ActiveFinalization fininst gen)
-                                        NoHandler
-                                (initCtx, initState) <- liftIO $ initialiseSkov config
-                                return (bid, binfo, kp, initCtx, initState)
-                             ) bis
-        return $ Vec.fromList res
+        createInitStates bis maxFinComSize [Example.createCustomAccount mateuszAmount mateuszKP mateuszAccount]
 
 -- Initial states for the test in which we want finalization-committee members to change.
 -- The `averageStake` amount is a stake such that
@@ -464,15 +452,18 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
             bakers s    = mapM (\i -> (i,) <$> pick (makeBaker i s))
         finBs    <- bakers finComStake fs
         nonFinBs <- bakers restStake bs
-        let bis = finBs ++ nonFinBs
-            genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
+        createInitStates (finBs ++ nonFinBs) maxFinComSize []
+
+createInitStates :: [(BakerId, (BakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
+createInitStates bis maxFinComSize specialAccounts = do
+        let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
             bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig
-                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts []))
+                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts specialAccounts))
                                                (ActiveFinalization fininst gen)
                                                NoHandler
                                        (initCtx, initState) <- liftIO $ initialiseSkov config
