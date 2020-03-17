@@ -9,6 +9,7 @@ getResults = map (\(x, r) -> (x, tsResult r))
 
 -- | The cost for processing a simple transfer (account to account)
 -- with one signature in the transaction.
--- Payload size estimated to 8 (64bit amount) + 1 (transaction type) (numbers have to be verified).
+--
+-- * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
 simpleTransferCost :: Energy
-simpleTransferCost = Cost.checkHeader (Types.transactionHeaderSize + 8 + 1) 1
+simpleTransferCost = Cost.checkHeader (Types.transactionHeaderSize + 42) 1
