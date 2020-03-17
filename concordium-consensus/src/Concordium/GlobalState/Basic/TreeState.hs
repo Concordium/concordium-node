@@ -6,7 +6,6 @@ import Data.List as List
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
-import Data.Serialize (runGet)
 import Data.Functor.Identity
 
 import qualified Data.Map.Strict as Map

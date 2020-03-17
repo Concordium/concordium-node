@@ -20,7 +20,6 @@ import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import qualified Data.ByteString as ByteString
 
 import Concordium.GlobalState.Block (BlockData(..), BlockPendingData (..), PendingBlock(..))
 import Concordium.GlobalState.BlockPointer (BlockPointerData(..))
