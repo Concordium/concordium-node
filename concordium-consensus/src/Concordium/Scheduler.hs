@@ -808,13 +808,10 @@ handleDeployCredential cdi cdiHash = do
 -- *Exposed methods.
 -- |Make a valid block out of a list of transactions, respecting the given
 -- maximum block size and block energy limit. The GroupedTransactions are processed in
--- order of their arrival time. Picking the next transaction to process is done
--- by picking the earliest transaction amongst the heads of the grouped transaction lists
--- and credential deployments
--- NOTICE: For processing the transactions and credentials in order of arrival times
--- it is a precondition that the credentials are sorted by arrival time AND that
--- the grouped transaction are sorted by arrival time of the head of each grouped
--- transaction list.
+-- order of their arrival time. Picking the next transaction is done by comparing the
+-- arrival time of the head of the head of the grouped transactions list and the
+-- head of the credential list, picking whichever is earliest. The entire group is
+-- processed if it is earliest.
 -- This function assumes that the transactions appear grouped by their associated account address,
 -- and that each transaction group is ordered by transaction nonce.
 -- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
@@ -859,13 +856,13 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
                   ftUnprocessedCredentials = unprocC
                 }
             go [] (group : groups) = case group of
-              (t:ts) -> runTransactionFromGroup (t:ts) [] groups
+              (t:ts) -> runTransactionGroup (t:ts) size valid failedC failedT unprocC unprocT [] groups
               [] -> go [] groups
             go (c:creds) [] = runCredential c creds []
             go (c:creds) (group : groups) = case group of
               (t:ts) -> if wmdArrivalTime c <= wmdArrivalTime t
                         then runCredential c creds ((t:ts) : groups)
-                        else runTransactionFromGroup (t:ts) (c:creds) groups
+                        else runTransactionGroup (t:ts) size valid failedC failedT unprocC unprocT creds groups
               [] -> go (c:creds) groups
 
             -- run a single credential and continue
@@ -889,12 +886,10 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
                  runNext maxEnergy size valid ((c, ExceedsMaxBlockEnergy):failedC) failedT unprocC unprocT remainingCreds transactions
               else runNext maxEnergy size valid failedC failedT (c : unprocC) unprocT remainingCreds transactions
 
-            -- run a single transaction from a transaction group, updating the
-            -- sorted transaction group list afterwards depending on result
-            -- and continue
-            runTransactionFromGroup (t:ts) credentials remainingTransactions = do
+            -- run all transactions in a group
+            runTransactionGroup (t:ts) currentSize valid failedC failedT unprocC unprocT credentials remainingTransactions = do
               totalEnergyUsed <- getUsedEnergy
-              let csize = size + fromIntegral (transactionSize t)
+              let csize = currentSize + fromIntegral (transactionSize t)
                   tenergy = transactionGasAmount t
                   cenergy = totalEnergyUsed + tenergy
               if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
@@ -902,8 +897,7 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
                    (Just (TxValid summary), fp) -> do
                      markEnergyUsed (tsEnergyCost summary)
                      tlNotifyAccountEffect fp summary
-                     let remainingTrans = insertTrans ts remainingTransactions -- insert the rest of the group into the remaining transactions
-                     runNext maxEnergy csize ((fmap NormalTransaction t, summary):valid) failedC failedT unprocC unprocT credentials remainingTrans
+                     runTransactionGroup ts csize ((fmap NormalTransaction t, summary):valid) failedC failedT unprocC unprocT credentials remainingTransactions
                    (Just (TxInvalid reason), _) ->
                      runNext maxEnergy csize valid failedC (invalidTs t reason ts failedT) unprocC unprocT credentials remainingTransactions
                    (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
@@ -912,24 +906,12 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
                 runNext maxEnergy size valid failedC (invalidTs t ExceedsMaxBlockEnergy ts failedT) unprocC unprocT credentials remainingTransactions
               else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                    -- one single too-big transaction.
-                let remainingTrans = insertTrans ts remainingTransactions
-                in runNext maxEnergy size valid failedC failedT unprocC (t : unprocT) credentials remainingTrans
-            runTransactionFromGroup [] _ _ = error "Unreachable. We don't run a transaction from an empty group"
+                runTransactionGroup ts size valid failedC failedT unprocC (t : unprocT) credentials remainingTransactions
+            runTransactionGroup [] size valid failedC failedT unprocC unprocT credentials remainingTransactions =
+              runNext maxEnergy size valid failedC failedT unprocC unprocT credentials remainingTransactions
            -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
            -- with a SuccessorOfInvalidTransaction failure
             invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
-            -- insert a grouped transaction list into the already sorted list of
-            -- grouped transaction lists, mainting the ordering by arrival time of the
-            -- head of each grouped transaction list, while eliminating empty grouped
-            -- transaction lists when encountered
-            insertTrans [] [] = []
-            insertTrans [] trans = trans
-            insertTrans (t1:ts1) [] = [(t1:ts1)]
-            insertTrans (t1:ts1) (group:groups) = case group of
-              (t2:ts2) -> if wmdArrivalTime t1 <= wmdArrivalTime t2
-                          then (t1:ts1) : ((t2:ts2) : groups)
-                          else (t2:ts2) : (insertTrans (t1:ts1) groups)
-              [] -> insertTrans (t1:ts1) groups
 
 -- |Execute transactions in sequence. Returns
 --
