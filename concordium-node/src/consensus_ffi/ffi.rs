@@ -202,6 +202,8 @@ type DirectMessageCallback =
 extern "C" {
     pub fn startConsensus(
         max_block_size: u64,
+        insertions_before_purging: u64,
+        transaction_keep_alive: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -217,6 +219,8 @@ extern "C" {
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         max_block_size: u64,
+        insertions_before_purging: u64,
+        transaction_keep_alive: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
@@ -331,8 +335,12 @@ extern "C" {
     ) -> *const c_char;
 }
 
+// TODO : Simplify arguments to function, or group with struct
+#[allow(clippy::too_many_arguments)]
 pub fn get_consensus_ptr(
     max_block_size: u64,
+    insertions_before_purging: u64,
+    transaction_keep_alive: u64,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
@@ -353,6 +361,8 @@ pub fn get_consensus_ptr(
 
                 startConsensus(
                     max_block_size,
+                    insertions_before_purging,
+                    transaction_keep_alive,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
@@ -374,6 +384,8 @@ pub fn get_consensus_ptr(
                 {
                     startConsensusPassive(
                         max_block_size,
+                        insertions_before_purging,
+                        transaction_keep_alive,
                         c_string_genesis.as_ptr() as *const u8,
                         genesis_data_len as i64,
                         catchup_status_callback,

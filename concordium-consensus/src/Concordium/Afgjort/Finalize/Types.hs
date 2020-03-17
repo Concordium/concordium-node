@@ -32,6 +32,15 @@ data FinalizationInstance = FinalizationInstance {
     finMyBlsKey :: !Bls.SecretKey
 }
 
+class HasFinalizationInstance f where
+    finalizationInstance :: f -> Maybe FinalizationInstance
+instance HasFinalizationInstance FinalizationInstance where
+    finalizationInstance = Just
+    {-# INLINE finalizationInstance #-}
+instance HasFinalizationInstance () where
+    finalizationInstance _ = Nothing
+    {-# INLINE finalizationInstance #-}
+
 data PartyInfo = PartyInfo {
     partyIndex :: !Party,
     partyWeight :: !VoterPower,
@@ -239,3 +248,9 @@ fpmHeader (FPMCatchUp CatchUpMessage{..}) = FinalizationMessageHeader {
             msgDelta = 0,
             msgSenderIndex = cuSenderIndex
         }
+
+roundBaid :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> ByteString
+roundBaid finSessId finIx finDelta = runPut $ do
+        S.put finSessId
+        S.put finIx
+        S.put finDelta

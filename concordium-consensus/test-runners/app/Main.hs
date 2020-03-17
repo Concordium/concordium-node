@@ -1,4 +1,5 @@
 {-# LANGUAGE
+    BangPatterns,
     OverloadedStrings,
     CPP,
     ScopedTypeVariables #-}
@@ -66,7 +67,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
             case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of
-                        Right (NormalBlock block) -> do
+                        Right (NormalBlock !block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
@@ -88,7 +89,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                         writeChan outp (MsgFinalizationReceived () bs)
                 MsgFinalizationRecord fr -> do
                     case runGet get fr of
-                        Right fr' -> writeChan monitor (Right fr')
+                        Right !fr' -> writeChan monitor (Right fr')
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -185,11 +186,16 @@ main = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
-                    let stateStr = show gs'
-
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    -- let stateStr = show gs'
+                    let finInfo = case bfBlockFinalizationData (bbFields block) of
+                            NoFinalizationData -> ""
+                            BlockFinalizationData fr -> "\\lfin.wits:" ++ show (finalizationProofParties $ finalizationProof fr)
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++  "\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
+                    case (blockFinalizationData block) of
+                        NoFinalizationData -> return ()
+                        BlockFinalizationData fr ->
+                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

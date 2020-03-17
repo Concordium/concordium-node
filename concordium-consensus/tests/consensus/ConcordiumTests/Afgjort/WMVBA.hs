@@ -22,8 +22,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as H
 
-import Debug.Trace
-
 import Concordium.Crypto.DummyData
 
 genBlsSecretKey :: Gen Bls.SecretKey
@@ -63,7 +61,7 @@ makeInput :: WMVBAInput -> WMVBA () ()
 makeInput (ReceiveWMVBAMessage p m) = receiveWMVBAMessage p () m
 makeInput (StartWMVBA v) = startWMVBA v
 
-invariantWMVBAState :: WMVBAInstance () -> WMVBAState () -> [WMVBAOutputEvent ()] -> Either String ()
+invariantWMVBAState :: WMVBAInstance -> WMVBAState () -> [WMVBAOutputEvent ()] -> Either String ()
 invariantWMVBAState (WMVBAInstance baid _totalWeight corruptWeight _partyWeight _maxParty
                                    _publicKeys _me _privateKey publicBlsKeys _privateBlsKey)
                     (WMVBAState _ _ _ justifications badJustifications)
@@ -101,7 +99,7 @@ runWMVBATest me baid nparties keys = go myInstance initialWMVBAState
         corruptWeight  = nparties `div` 3
         inst i = WMVBAInstance baid (fromIntegral nparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties) vrfKeyMap i myVRFKeypair blsPublicKeyMap myBlsKey
         myInstance = inst (fromIntegral me)
-        go _ins _st [] = return (1 === 1)
+        go _ins _st [] = return (property True)
         go ins st (e : es) = do
           (_, st', outputs) <- runWMVBA (makeInput e) ins st
           case invariantWMVBAState myInstance st' outputs of
@@ -121,7 +119,7 @@ testData1 :: BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> 
 testData1 baid v keys = inputs
   where
     inputs = let (inps, _) = Vec.foldl f ([], 0) keys in inps
-    f (inps, i) (_, blssk) = (ReceiveWMVBAMessage (fromIntegral i) (makeWMVBAWitnessCreatorMessage baid v blssk) : inps, i+1)
+    f (inps, i) (_, blssk) = (ReceiveWMVBAMessage i (makeWMVBAWitnessCreatorMessage baid v blssk) : inps, i+1)
 
 testData2 :: BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> Int -> Bls.SecretKey -> [WMVBAInput]
 testData2 baid v keys corrupted wrongkey = inputs
@@ -211,7 +209,7 @@ createAggSigTest = do
         (proof, bad) = createAggregateSig wi val (PM.fromList pWeight signatures) PS.empty
     case proof of
       Just (good, sig) -> return $ (bad === culprits .&&. Bls.verifyAggregate toSign (pubKeys <$> good) sig)
-      Nothing -> return $ 1 === 3
+      Nothing -> return $ property False
 
 tests :: Word -> Spec
 tests lvl = describe "Concordium.Afgjort.WMVBA" $ do

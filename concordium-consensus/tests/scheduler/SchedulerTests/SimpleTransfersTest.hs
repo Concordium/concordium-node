@@ -13,7 +13,6 @@ import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState
@@ -92,8 +91,8 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   null fails && -- should be no failed transactions
   reject &&  -- the last transaction is rejected
   nonreject && -- all initial transactions are successful
-  alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
-  thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
+  alesamount == (100000 - 4 * fromIntegral simpleTransferCost - 88 - 98700 + 100) &&
+  thomasamount == (100000 - fromIntegral simpleTransferCost + 88 + 98700 - 100)
   where
     nonreject = all (\case (_, Types.TxSuccess{}) -> True
                            (_, Types.TxReject{}) -> False)

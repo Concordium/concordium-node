@@ -49,6 +49,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.FinalizationQueue
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
@@ -74,26 +75,22 @@ type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 invariantSkovData :: TS.SkovData BState.BlockState -> Either String ()
-invariantSkovData TS.SkovData{..} = do
+invariantSkovData TS.SkovData{..} = addContext $ do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
         (finMap, lastFin, _) <- foldM checkFin (HM.empty, _genesisBlockPointer, 0) _finalizationList
         -- Live blocks
         (liveFinMap, _) <- foldM checkLive (finMap, [lastFin]) _branches
-        unless (HM.filter notDeadOrPending _blockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
+        checkBinary (==) (HM.filter notDeadOrPending _blockTable) liveFinMap "==" "non-dead/pending blocks" "finalized and branch blocks"
+        -- unless (HM.filter notDeadOrPending _blockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
         unless (checkLastNonEmpty _branches) $ Left $ "Last element of branches was empty. branches: " ++ show _branches
         -- Pending blocks
         queue <- foldM (checkPending (blockSlot lastFin)) (Set.empty) (HM.toList _possiblyPendingTable)
         let pendingSet = Set.fromList (MPQ.toListU _possiblyPendingQueue)
         checkBinary (Set.isSubsetOf) queue pendingSet "is a subset of" "pending blocks" "pending queue"
-        let allPossiblyPending = Set.fromList ((fst <$> MPQ.elemsU _possiblyPendingQueue) ++ (getHash <$> MPQ.elemsU _blocksAwaitingLastFinalized))
+        let allPossiblyPending = Set.fromList (fst <$> MPQ.elemsU _possiblyPendingQueue)
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
-        -- Finalization pool
-        forM_ (Map.toList _finalizationPool) $ \(fi, frs) -> do
-            checkBinary (>=) fi (fromIntegral (Seq.length _finalizationList)) ">=" "pending finalization record index" "length of finalization list"
-            forM_ frs $ \fr -> do
-                checkBinary (==) fi (finalizationIndex fr) "==" "key in finalization pool" "finalization index"
         -- Transactions
         (nonFinTrans, anftNonces) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty)
         let anft' = foldr (\(bi, _) ->
@@ -181,8 +178,6 @@ invariantSkovData TS.SkovData{..} = do
               _ -> do
                 return (trMap', anfts)
 
-        finSes = FinalizationSessionId (bpHash _genesisBlockPointer) 0
-        finCom = makeFinalizationCommittee (genesisFinalizationParameters _genesisData)
         notDeadOrPending TreeState.BlockDead = False
         notDeadOrPending (TreeState.BlockPending {}) = False
         notDeadOrPending _ = True
@@ -209,6 +204,8 @@ invariantSkovData TS.SkovData{..} = do
             let futureLotteryBakers = _birkLotteryBakers nextEpochParams
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
+        addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
+        addContext r = r
 
 invariantSkovFinalization :: SkovState (Config t) -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) = do
@@ -235,6 +232,30 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
             case roundInput of
                 Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
                 Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
+        -- The finalization queue should include all finalizations back from the last one
+        -- that are not contained in finalized blocks.
+        let finQLF Seq.Empty l = l
+            finQLF (q Seq.:|> (fr, b)) l
+                | bpHash b == BS.bpLastFinalizedHash lfb = l
+                | otherwise = finQLF q ((fr, b) Seq.<| l)
+            finQ = finQLF _finalizationList Seq.empty
+        checkBinary (==) (_fqFirstIndex _finsQueue) (maybe 1 (finalizationIndex . fst) (finQ Seq.!? 0) ) "==" ("finalization queue first index (from " ++ show _finsQueue ++ ")") ("expected value (from " ++ show finQ ++ " and last fin's last fin: " ++ show (BS.bpLastFinalizedHash lfb) ++ ")")
+        -- Check that everything in finQLF is actually in the finalization queue
+        -- and check that there is at most one extra record which is for an unknown block
+        let
+            checkFinQ Seq.Empty Seq.Empty = return ()
+            checkFinQ Seq.Empty (fp Seq.:<| Seq.Empty) = case HM.lookup (fpBlock fp) _blockTable of
+                    Nothing -> return ()
+                    Just (TreeState.BlockPending _) -> return ()
+                    Just s -> Left $ "Status of residual finalization proof should be Nothing or BlockPending, but was " ++ show s
+            checkFinQ Seq.Empty s = Left $ "There should be at most 1 residual finalization proof, but there were " ++ show (Seq.length s)
+            checkFinQ ((fr, _) Seq.:<| fl') (fp Seq.:<| fps') = do
+                checkBinary (==) (finalizationBlockPointer fr) (fpBlock fp) "==" "finalization list block" "finalization queue block"
+                checkBinary (==) (finalizationIndex fr) (fpIndex fp) "==" "finalization list index" "finalization queue index"
+                checkFinQ fl' fps'
+            checkFinQ _ _ = Left $ "Finalization queue is missing finalization"
+        checkFinQ finQ (_fqProofs _finsQueue)
+
     where
         checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
@@ -246,7 +267,7 @@ checkFinalizationRecordsVerify TS.SkovData{..} =
           f (prevRes, i) (fr, bp) = case prevRes of
             Left err -> return (Left err, i+1)
             Right _ ->
-              if i == 0 then
+              if i == (0 :: Int) then
                   return $ (checkBinary (==) bp _genesisBlockPointer "==" "first finalized block" "genesis block", i+1)
               else
                   return (unless (verifyFinalProof finSes finCom fr) $ Left $ "Could not verify finalization record at index " ++ show i, i+1)
@@ -375,10 +396,10 @@ runKonsensusTest steps g states es
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                     continue fs' es'
                 EFinalization fmsg -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (finalizeBlock frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveRecord False frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then
@@ -422,10 +443,10 @@ runKonsensusTestSimple steps g states es
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                     continue fs' es'
                 EFinalization fmsg -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (finalizeBlock frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveRecord False frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then

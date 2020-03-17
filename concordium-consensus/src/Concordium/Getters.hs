@@ -31,9 +31,7 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
-import qualified Concordium.Skov.CatchUp as CU
 import qualified Data.PQueue.Prio.Max as Queue
-import Concordium.Logger
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 
@@ -359,17 +357,10 @@ checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
         Just _ -> return 1
         Nothing -> return 0
 
--- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
--- checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, FinalizationMonad s m) => z -> IO Bool
-checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
-checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
+-- |Check whether the node is currently a member of the finalization committee.
+checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
+checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    fs <- use finState
    case fs ^. finCurrentRound of
-     Nothing -> return False
-     Just _ -> return True
-
-getCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
-getCatchUpStatus sRef isRequest = runStateQuery sRef $ CU.getCatchUpStatus isRequest
-
-handleCatchUpStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointerType m)], CU.CatchUpStatus), Bool))
-handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus
+     Left _ -> return False
+     Right _ -> return True
