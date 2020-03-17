@@ -64,8 +64,6 @@ async fn main() -> Fallible<()> {
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
-    info!("Debugging enabled: {}", conf.common.debug);
-
     // The P2PNode thread
     let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
