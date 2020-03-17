@@ -59,6 +59,9 @@ data FilteredTransactions = FilteredTransactions {
   ftUnprocessedCredentials :: [CredentialDeploymentWithMeta]
   }
 
+emptyFilteredTransactions :: FilteredTransactions
+emptyFilteredTransactions = FilteredTransactions [] [] [] [] []
+
 -- |Transactions grouped by accounts.
 -- For example, if T1 and T2 are transactions from account A,
 -- and T3, T4, and T5 are transactions from account B, then
