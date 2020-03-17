@@ -281,6 +281,12 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return r
 
+  {-# INLINE updateElectionDifficulty #-}
+  updateElectionDifficulty d = do
+    s <- use schedulerBlockState
+    s' <- lift (bsoSetElectionDifficulty s d)
+    schedulerBlockState .= s'
+
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do
     s <- use schedulerBlockState
