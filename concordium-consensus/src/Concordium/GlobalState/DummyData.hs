@@ -55,6 +55,9 @@ dummyIdentityProviders =
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
 
+dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
+dummyFinalizationCommitteeMaxSize = 1000
+
 {-# WARNING makeFakeBakers "Do not use in production" #-}
 makeFakeBakers :: Word -> [(BakerInfo, Account)]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
@@ -94,12 +97,23 @@ makeTestingGenesisData ::
     -> Duration  -- ^Slot duration in seconds.
     -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
+    -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> GenesisData
-makeTestingGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSkip genesisCryptographicParameters genesisIdentityProviders genesisSpecialBetaAccounts genesisMaxBlockEnergy
+makeTestingGenesisData
+  genesisTime
+  nBakers
+  genesisSlotDuration
+  elecDiff
+  finMinSkip
+  finComMaxSize
+  genesisCryptographicParameters
+  genesisIdentityProviders
+  genesisSpecialBetaAccounts
+  genesisMaxBlockEnergy
     = GenesisData{..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
@@ -110,7 +124,7 @@ makeTestingGenesisData genesisTime nBakers genesisSlotDuration elecDiff finMinSk
                           genesisBakers
                           genesisBakers
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters = FinalizationParameters [VoterInfo vvk vrfk 1 vblsk | (BakerInfo vrfk vvk vblsk _ _) <- bakers] finMinSkip
+        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
