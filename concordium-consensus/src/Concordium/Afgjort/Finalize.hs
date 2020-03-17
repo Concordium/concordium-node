@@ -60,10 +60,12 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState(BlockPointerData(..), BlockPointer)
+import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Classes
 import Concordium.Kontrol
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
@@ -100,10 +102,12 @@ data PassiveFinalizationRound = PassiveFinalizationRound {
 initialPassiveFinalizationRound :: PassiveFinalizationRound
 initialPassiveFinalizationRound = PassiveFinalizationRound Map.empty
 
-ancestorAtHeight :: BlockPointerData bp => BlockHeight -> bp -> bp
+ancestorAtHeight :: (GlobalStateTypes m, BlockPointerMonad m) => BlockHeight -> BlockPointerType m -> m (BlockPointerType m)
 ancestorAtHeight h bp
-    | h == bpHeight bp = bp
-    | h < bpHeight bp = ancestorAtHeight h (bpParent bp)
+    | h == bpHeight bp = return bp
+    | h < bpHeight bp = do
+        parent <- bpParent bp
+        ancestorAtHeight h parent
     | otherwise = error "ancestorAtHeight: block is below required height"
 
 -- TODO: Only store pending messages for at most one round in the future.
@@ -212,7 +216,7 @@ getFinalizationInstance = asks finalizationInstance
 
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad r s m = (SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad r s m = (BlockPointerMonad m, TreeStateMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
@@ -252,7 +256,8 @@ tryNominateBlock = do
             h <- use finHeight
             bBlock <- bestBlock
             when (bpHeight bBlock >= h + roundDelta) $ do
-                let nomBlock = bpHash $ ancestorAtHeight h bBlock
+                ancestor <- ancestorAtHeight h bBlock
+                let nomBlock = bpHash ancestor
                 finCurrentRound .= Right (r {roundInput = Just nomBlock})
                 simpleWMVBA $ startWMVBA nomBlock
 
@@ -277,7 +282,8 @@ newRound newDelta me = do
         }
         h <- use finHeight
         logEvent Afgjort LLDebug $ "Starting finalization round: height=" ++ show (theBlockHeight h) ++ " delta=" ++ show (theBlockHeight newDelta)
-        justifiedInputs <- fmap (ancestorAtHeight h) <$> getBlocksAtHeight (h + newDelta)
+        blocksAtHeight <- getBlocksAtHeight (h + newDelta)
+        justifiedInputs <- mapM (ancestorAtHeight h) blocksAtHeight
         finIx <- use finIndex
         committee <- use finCommittee
         sessId <- use finSessionId
@@ -339,7 +345,8 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
 
 -- |Handle when a finalization proof is generated:
 --  * Notify Skov of finalization ('trustedFinalize').
---  * If the finalized block is known,
+--  * If the finalized block is known to Skov, handle this new finalization ('finalizationBlockFinal').
+--  * If the block is not known, add the finalization to the queue ('addQueuedFinalization').
 handleFinalizationProof :: (FinalizationMonad m, SkovMonad m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
 handleFinalizationProof sessId fIndex delta committee (finB, (parties, sig)) = do
         let finRec = FinalizationRecord {
@@ -571,14 +578,15 @@ notifyBlockArrivalForPending b = do
         _ -> return ()
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (FinalizationBaseMonad r s m, BlockPointerData bp, FinalizationMonad m) => bp -> m ()
+notifyBlockArrival :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockPointerType m -> m ()
 notifyBlockArrival b = do
     notifyBlockArrivalForPending b
     FinalizationState{..} <- use finState
     forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
         when (bpHeight b == _finsHeight + roundDelta) $ do
-            logEvent Afgjort LLTrace $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash (ancestorAtHeight _finsHeight b))
-            simpleWMVBA $ justifyWMVBAInput (bpHash (ancestorAtHeight _finsHeight b))
+            ancestor <- ancestorAtHeight _finsHeight b
+            logEvent Afgjort LLTrace $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash ancestor)
+            simpleWMVBA $ justifyWMVBAInput (bpHash ancestor)
         tryNominateBlock
 
 -- |Determine what index we have in the finalization committee.
@@ -634,7 +642,7 @@ pendingToOutputWitnesses sessId finIx delta finBlock = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationRecord -> BlockPointer m -> m ()
+notifyBlockFinalized :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationRecord -> BlockPointerType m -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -645,6 +653,10 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Move to next index
         oldFinIndex <- finIndex <<.= finalizationIndex + 1
         unless (finalizationIndex == oldFinIndex) $ error "Non-sequential finalization"
+        -- Update the finalization queue index as necessary
+        getBlockStatus (bpLastFinalizedHash bp) >>= \case
+            Just (BlockFinalized _ FinalizationRecord{finalizationIndex = fi}) -> updateQueuedFinalizationIndex (fi + 1)
+            _ -> error "Invariant violation: notifyBlockFinalized called on block with last finalized block that is not finalized."
         -- Add all witnesses we have to the finalization queue
         sessId <- use finSessionId
         fc <- use finCommittee
@@ -670,7 +682,8 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
         let newFinDelay = nextFinalizationDelay fr
         fs <- use finMinSkip
-        finHeight .= nextFinalizationHeight fs bp
+        nfh <- nextFinalizationHeight fs bp
+        finHeight .= nfh
         finIndexInitialDelta .= newFinDelay
         -- Update finalization committee for the new round
         finCommittee <~ getFinalizationCommittee bp
@@ -685,20 +698,22 @@ nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then fin
 
 -- |Given the finalization minimum skip and an explicitly finalized block, compute
 -- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerData bp)
+nextFinalizationHeight :: (BlockPointerMonad m)
     => BlockHeight -- ^Finalization minimum skip
-    -> bp -- ^Last finalized block
-    -> BlockHeight
-nextFinalizationHeight fs bp = bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight (bpLastFinalized bp)) `div` 2)
+    -> BlockPointerType m -- ^Last finalized block
+    -> m BlockHeight
+nextFinalizationHeight fs bp = do
+  lf <- bpLastFinalized bp
+  return $ bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight lf) `div` 2)
 
 -- |The height that a chain must be for a block to be eligible for finalization.
 -- This is the next finalization height + the next finalization delay.
-nextFinalizationJustifierHeight :: (BlockPointerData bp)
+nextFinalizationJustifierHeight :: (BlockPointerMonad m)
     => FinalizationParameters
     -> FinalizationRecord -- ^Last finalization record
-    -> bp -- ^Last finalized block
-    -> BlockHeight
-nextFinalizationJustifierHeight fp fr bp = nextFinalizationHeight (finalizationMinimumSkip fp) bp + nextFinalizationDelay fr
+    -> BlockPointerType m -- ^Last finalized block
+    -> m BlockHeight
+nextFinalizationJustifierHeight fp fr bp = (+ nextFinalizationDelay fr) <$> nextFinalizationHeight (finalizationMinimumSkip fp) bp
 
 getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of
@@ -794,7 +809,7 @@ processFinalizationSummary FinalizationSummary{..} =
 
 -- |Given an existing block, returns a 'FinalizationRecord' that can be included in
 -- a child of that block, if available.
-nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointer m -> m (Maybe FinalizationRecord)
+nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType m -> m (Maybe FinalizationRecord)
 nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
@@ -802,9 +817,11 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, SkovQueryMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovQueryMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad)
 
-deriving instance (BlockPointerData (BlockPointer m)) => GlobalStateTypes (ActiveFinalizationM r s m)
+deriving instance (BlockPointerData (BlockPointerType m), BlockPendingData (PendingBlockType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
+deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM r s m)
+-- deriving instance (Convert a b m) => Convert a b (ActiveFinalizationM r s m)
 
 {-
 instance GlobalStateTypes m => GlobalStateTypes (ActiveFinalizationM r s m) where

@@ -17,15 +17,14 @@ import Data.Maybe
 import Concordium.Crypto.SHA256
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 
-import qualified Concordium.GlobalState.Basic.Block as B
-import qualified Concordium.GlobalState.Basic.BlockPointer as BS
+import Concordium.GlobalState.Block as B
+import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.Types (Amount(..))
 import Concordium.Types.HashableTo
@@ -37,6 +36,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 import Concordium.Startup(dummyCryptographicParameters)
+import Concordium.Types (Energy(..))
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -61,7 +61,7 @@ runKonsensus steps g states es
                     (mb, fs', es2) <- myRunSkovT (bakeForSlot bkr sl) handlers fi fs es1
                     case mb of
                         Nothing -> continue fs' (es2 & esEventPool %~ ((rcpt, EBake (sl + 1)) Seq.<|))
-                        Just BS.BasicBlockPointer{_bpBlock = B.NormalBlock b} ->
+                        Just BlockPointer{_bpBlock = NormalBlock b} ->
                             continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                         Just _ -> error "Baked genesis block"
 
@@ -93,7 +93,7 @@ initialiseStatesDictator n = do
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             fps = FinalizationParameters 2 1000
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
+            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
@@ -130,7 +130,12 @@ catchUpCheck :: (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Confi
 catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request) c2 s2
-        monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show response ++ "\n"
+        let
+            formatMsg (MessageBlock, b) = show (hash b)
+            formatMsg (MessageFinalizationRecord, fr) = case decode fr of
+                    Left e -> error e
+                    Right fr' -> "Proof(" ++ show (finalizationIndex fr') ++ ", " ++ show (finalizationBlockPointer fr') ++ ")"
+        monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show (fmap (_1 %~ fmap formatMsg) response) ++ "\n"
         cuwp <- case result of
             ResultSuccess -> return False
             ResultPendingBlock -> fail "ResultPendingBlock should not be the result when message is not a response"
@@ -168,8 +173,12 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
                         testList knownBlocks knownFin ((MessageBlock, runGet (B.getBlock 0) -> Right (B.NormalBlock bp)) : rs) = do
                             checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
-                            -- checkBinary Set.member (bpHash (bpLastFinalized bp)) knownFin "in" "block parent" "known finalized blocks"
-                            testList (Set.insert (getHash bp) knownBlocks) knownFin rs
+                            knownFin' <- case blockFinalizationData bp of
+                                NoFinalizationData -> return knownFin
+                                BlockFinalizationData finRec -> do
+                                    checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
+                                    return (Set.insert (finalizationBlockPointer finRec) knownFin)
+                            testList (Set.insert (getHash bp) knownBlocks) knownFin' rs
                         testList _ _ _ = error "Serialization failure"
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
                     -- * A block is not sent before its parent

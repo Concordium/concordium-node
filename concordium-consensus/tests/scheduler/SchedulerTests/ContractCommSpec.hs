@@ -4,6 +4,8 @@ module SchedulerTests.ContractCommSpec where
 import Test.Hspec
 import Test.HUnit
 
+import Lens.Micro.Platform
+
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
@@ -12,14 +14,10 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
 import qualified Data.Text.IO as TIO
-
-import Lens.Micro.Platform
 
 import Control.Monad.IO.Class
 
@@ -29,15 +27,13 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ 1000000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount 1000000 Acc.emptyAccounts 1000000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -95,26 +91,27 @@ transactionsInput =
          }
   ]
 
-testCommCounter ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)])
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)])
+
+testCommCounter :: PR.Context Core.UA IO TestResult
 testCommCounter = do
     source <- liftIO $ TIO.readFile "test/contracts/CommCounter.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
-    transactions <- processTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), endState) =
+    transactions <- processUngroupedTransactions transactionsInput
+    let (Sch.FilteredTransactions{..}, finState) =
             Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
               dummySpecialBetaAccounts
               Types.dummyChainMeta
+              maxBound
               initialBlockState
+    let endState = finState ^. Types.ssBlockState
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (ftAdded, ftFailed)
+    return (getResults ftAdded, ftFailed)
 
-checkCommCounterResult :: ([(a, Types.ValidResult)], [b]) -> Bool
+checkCommCounterResult :: TestResult -> Bool
 checkCommCounterResult (suc, fails) =
   null fails && -- should be no failed transactions
   length reject == 1 &&  -- one rejected (which is also the last one)

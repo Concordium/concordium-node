@@ -12,6 +12,7 @@ import Data.Time.Clock.POSIX
 import System.IO
 import Data.Serialize
 import Control.Exception
+import System.Directory
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -22,7 +23,6 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
@@ -36,26 +36,26 @@ import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Birk.Bake
 
 import Concordium.Scheduler.Utils.Init.Example as Example
-
+--import Debug.Trace
 import Concordium.Startup
 
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [BareTransaction]
+transactions :: StdGen -> [BlockItem]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
-        contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
+        --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
+        trs n (_ : _ : rs) = Example.makeTransferTransaction n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage a) -> [BareTransaction] -> IO ()
-sendTransactions chan (t : ts) = do
-        writeChan chan (MsgTransactionReceived $ runPut $ put t)
+sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
+sendTransactions bakerId chan (t : ts) = do
+        (writeChan chan (MsgTransactionReceived $ runPut $ put t))
         -- r <- randomRIO (5000, 15000)
-        threadDelay 50000
-        sendTransactions chan ts
-sendTransactions _ _ = return ()
+        threadDelay 10000
+        sendTransactions bakerId chan ts
+sendTransactions _ _ _ = return ()
 
 relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "// *** relay thread exited on exception: " ++ show e)
@@ -138,9 +138,17 @@ genesisState genData = Example.initialStateWithMateuszAccount
                        -- (genesisMintPerSlot genData)
 
 
-type TreeConfig = MemoryTreeDiskBlockConfig
+type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+
+-- type TreeConfig = MemoryTreeDiskBlockConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
+
+-- type TreeConfig = MemoryTreeMemoryBlockConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
 
@@ -149,25 +157,28 @@ main :: IO ()
 main = do
     let n = 5
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders []
+    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
     trans <- transactions <$> newStdGen
+    createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
-        let logM src lvl msg = do
+        let logM src lvl msg = when (lvl == LLInfo) $ do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
-        logTransferFile <- openFile ("transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers") WriteMode
+        let transferLogPrefix = "transfer-log-" ++ show now ++ "-" ++ show bakerId
+        logTransferFile <- openFile (transferLogPrefix ++ ".transfers") WriteMode
         let logT bh slot reason =
               hPrint logTransferFile (bh, slot, reason)
-        gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
+        --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler Nothing --(Just logT)
+            hconfig = HookLogHandler Nothing -- (Just logT)
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
-        _ <- forkIO $ sendTransactions cin trans
+        _ <- forkIO $ sendTransactions bakerId cin trans
         return (cin, cout, sr)) (zip [(0::Int) ..] bis)
     monitorChan <- newChan
     mapM_ (\((_,cout, sr), cs) -> forkIO $ relay cout sr monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)

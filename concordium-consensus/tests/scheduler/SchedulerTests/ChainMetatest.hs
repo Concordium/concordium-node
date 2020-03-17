@@ -16,8 +16,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances as Ins
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 
 import Lens.Micro.Platform
 
@@ -31,15 +29,13 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000) Acc.emptyAccounts) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs))) .
-    (blockBank . Rew.totalGTU .~ 100000)
+initialBlockState = blockStateWithAlesAccount 100000 Acc.emptyAccounts 100000
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
@@ -64,28 +60,28 @@ transactionsInput =
            }
     ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [(Types.ContractAddress, Instance)])
 
-testChainMeta ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)],
-     [(Types.ContractAddress, Instance)])
+testChainMeta :: PR.Context Core.UA IO TestResult
 testChainMeta = do
     source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
-    transactions <- processTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gs) =
+    transactions <- processUngroupedTransactions transactionsInput
+    let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             chainMeta
+            maxBound
             initialBlockState
+    let gs = finState ^. Types.ssBlockState
     case invariantBlockState gs of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
-    return (ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
+    return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
-checkChainMetaResult :: ([(a1, Types.ValidResult)], [b], [(a3, Instance)]) -> Bool
+checkChainMetaResult :: TestResult -> Bool
 checkChainMetaResult (suc, fails, instances) =
   null fails && -- should be no failed transactions
   null reject && -- no rejected transactions either

@@ -73,17 +73,19 @@ makeGenesisData ::
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
+    -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> (GenesisData, [(BakerIdentity,BakerInfo)])
 makeGenesisData
-  genesisTime
-  nBakers
-  genesisSlotDuration
-  elecDiff
-  finMinSkip
-  finComMaxSize
-  genesisCryptographicParameters
-  genesisIdentityProviders
-  genesisSpecialBetaAccounts
+        genesisTime
+        nBakers
+        genesisSlotDuration
+        elecDiff
+        finMinSkip
+        finComMaxSize
+        genesisCryptographicParameters
+        genesisIdentityProviders
+        genesisSpecialBetaAccounts
+        genesisMaxBlockEnergy
     = (GenesisData{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.

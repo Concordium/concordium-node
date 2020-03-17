@@ -12,8 +12,6 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -29,15 +27,13 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 1000000) Acc.emptyAccounts) .
-    (blockBank . Rew.totalGTU .~ 1000000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount 1000000 Acc.emptyAccounts 1000000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -84,27 +80,28 @@ transactionsInput =
          }
   ]
 
-testSimpleTransfers ::
-  PR.Context Core.UA
-    IO
-    ([(Types.BareTransaction, Types.ValidResult)],
-     [(Types.BareTransaction, Types.FailureKind)],
-     BlockState)
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   BlockState)
+
+testSimpleTransfers ::  PR.Context Core.UA IO TestResult
 testSimpleTransfers = do
     source <- liftIO $ TIO.readFile "test/contracts/SimpleContractTransfers.acorn"
     (_, _) <- PR.processModule source -- execute only for effect on global state
-    transactions <- processTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), endState) =
+    transactions <- processUngroupedTransactions transactionsInput
+    let (Sch.FilteredTransactions{..}, finState) =
             Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
               dummySpecialBetaAccounts
               Types.dummyChainMeta
+              maxBound
               initialBlockState
+    let endState = finState ^. Types.ssBlockState
     case invariantBlockState endState of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show endState
         _ -> return ()
-    return (ftAdded, ftFailed, endState)
+    return (getResults ftAdded, ftFailed, endState)
 
-checkSimpleTransfersResult :: ([(a, Types.ValidResult)], [b], BlockState) -> Bool
+checkSimpleTransfersResult :: TestResult -> Bool
 checkSimpleTransfersResult (suc, fails, gs) =
   null fails && -- should be no failed transactions
   null reject &&

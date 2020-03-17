@@ -8,12 +8,13 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
-import Concordium.GlobalState.BlockState 
-import Concordium.GlobalState.Classes
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.Types
 import Concordium.Skov.Monad
 import Concordium.TimeMonad
 import Concordium.Afgjort.Finalize.Types
@@ -52,7 +53,7 @@ getFinalizationContext FinalizationRecord{..} = do
           Nothing -> return Nothing
 
 -- |Select the finalization committee based on bakers from the given block.
-getFinalizationCommittee :: SkovQueryMonad m => BlockPointer m -> m FinalizationCommittee
+getFinalizationCommittee :: SkovQueryMonad m => BlockPointerType m -> m FinalizationCommittee
 getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
        blockState <- queryBlockState bp

@@ -17,6 +17,7 @@ import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 import Control.Monad.Trans.State
+import Data.Functor.Identity
 
 import Concordium.Crypto.SHA256
 
@@ -26,9 +27,13 @@ import Concordium.Types.HashableTo
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
-import qualified Concordium.GlobalState.Basic.Block as B
+import qualified Concordium.GlobalState.Block as B
+import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Basic.BlockPointer
+import qualified Concordium.GlobalState.Basic.BlockPointer as BP
 import qualified Concordium.GlobalState.Basic.BlockState as BState
-import qualified Concordium.GlobalState.Basic.BlockPointer as BS
+import qualified Concordium.GlobalState.BlockPointer as BS
+import Concordium.GlobalState.BlockPointer (bpHash, bpHeight)
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -48,6 +53,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.FinalizationQueue
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
@@ -68,6 +74,11 @@ import Test.Hspec
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
+type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
+type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
+
+type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
 finalizationParameters = FinalizationParameters 2
 
@@ -80,19 +91,15 @@ defaultMaxFinComSize = 1000
 maxFinComSizeChangingFinCommittee :: FinalizationCommitteeSize
 maxFinComSizeChangingFinCommittee = 10
 
-type Trs = HM.HashMap TransactionHash (Transaction, Slot)
-type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
-
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
-
 invariantSkovData :: TS.SkovData BState.BlockState -> Either String ()
-invariantSkovData TS.SkovData{..} = do
+invariantSkovData TS.SkovData{..} = addContext $ do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
         (finMap, lastFin, _) <- foldM checkFin (HM.empty, _genesisBlockPointer, 0) _finalizationList
         -- Live blocks
         (liveFinMap, _) <- foldM checkLive (finMap, [lastFin]) _branches
-        unless (HM.filter notDeadOrPending _blockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
+        checkBinary (==) (HM.filter notDeadOrPending _blockTable) liveFinMap "==" "non-dead/pending blocks" "finalized and branch blocks"
+        -- unless (HM.filter notDeadOrPending _blockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
         unless (checkLastNonEmpty _branches) $ Left $ "Last element of branches was empty. branches: " ++ show _branches
         -- Pending blocks
         queue <- foldM (checkPending (blockSlot lastFin)) (Set.empty) (HM.toList _possiblyPendingTable)
@@ -103,10 +110,28 @@ invariantSkovData TS.SkovData{..} = do
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
         -- Transactions
         (nonFinTrans, anftNonces) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty)
-        let anft' = foldr (\(tr, _) nft -> nft & at (transactionSender tr) . non emptyANFT . anftMap . at (transactionNonce tr) . non Set.empty %~ Set.insert tr) anftNonces nonFinTrans
+        let anft' = foldr (\(bi, _) ->
+                             case bi of
+                               WithMetadata{wmdData=NormalTransaction tr,..} ->
+                                 at (transactionSender tr)
+                                 . non emptyANFT
+                                 . anftMap
+                                 . at (transactionNonce tr)
+                                 . non Set.empty %~ Set.insert WithMetadata{wmdData=tr,..}
+                               _ -> id
+                          )
+                          anftNonces
+                          nonFinTrans
         unless (anft' == _ttNonFinalizedTransactions _transactionTable) $ Left "Incorrect non-finalized transactions"
         (pendingTrans, pendingNonces) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces
-        let ptt = foldr (\(tr, _) -> checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr) emptyPendingTransactionTable pendingTrans
+        let ptt = foldr (\(bi, _) ->
+                           case wmdData bi of
+                             NormalTransaction tr ->
+                               checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
+                             CredentialDeployment _ -> extendPendingTransactionTable' (wmdHash bi)
+                        )
+                        emptyPendingTransactionTable
+                        pendingTrans
         checkBinary (==) ptt _pendingTransactions "==" "expected pending transactions" "recorded pending transactions"
         checkEpochs _focusBlock
     where
@@ -121,13 +146,13 @@ invariantSkovData TS.SkovData{..} = do
             let overAncestors a m
                     | a == lastFin = return m
                     | a == _genesisBlockPointer = Left $ "Finalized block" ++ show bp ++ "does not descend from previous finalized block " ++ show lastFin
-                    | otherwise = overAncestors (bpParent a) (HM.insert (bpHash a) (TreeState.BlockFinalized a fr) m)
-            finMap' <- overAncestors (bpParent bp) (HM.insert (bpHash bp) (TreeState.BlockFinalized bp fr) finMap)
+                    | otherwise = overAncestors (runIdentity $ BS._bpParent a) (HM.insert (bpHash a) (TreeState.BlockFinalized a fr) m)
+            finMap' <- overAncestors (runIdentity $ BS._bpParent bp) (HM.insert (bpHash bp) (TreeState.BlockFinalized bp fr) finMap)
             return (finMap', bp, i+1)
         checkLive (liveMap, parents) l = do
             forM_ l $ \b -> do
-                unless (bpParent b `elem` parents) $ Left $ "Block in branches with invalid parent: " ++ show b
-                checkBinary (==) (bpHeight b) (bpHeight (bpParent b) + 1) "==" "block height" "1 + parent height"
+                unless ((runIdentity $ BS._bpParent b) `elem` parents) $ Left $ "Block in branches with invalid parent: " ++ show b
+                checkBinary (==) (bpHeight b) (bpHeight (runIdentity $ BS._bpParent b) + 1) "==" "block height" "1 + parent height"
             let liveMap' = foldr (\b -> HM.insert (bpHash b) (TreeState.BlockAlive b)) liveMap l
             return (liveMap', l)
         checkLastNonEmpty Seq.Empty = True -- catches cases where branches is empty
@@ -152,22 +177,29 @@ invariantSkovData TS.SkovData{..} = do
         walkTransactions src dest trMap anfts
             | src == dest = return (trMap, anfts)
             | otherwise = do
-                (trMap', anfts') <- walkTransactions src (bpParent dest) trMap anfts
+                (trMap', anfts') <- walkTransactions src (runIdentity $ BS._bpParent dest) trMap anfts
                 foldM checkTransaction (trMap', anfts') (blockTransactions dest)
-        checkTransaction :: (Trs, ANFTS) -> Transaction -> Either String (Trs, ANFTS)
-        checkTransaction (trMap, anfts) tr = do
-            let updMap Nothing = Left $ "Transaction missing: " ++ show tr
+        checkTransaction :: (Trs, ANFTS) -> BlockItem -> Either String (Trs, ANFTS)
+        checkTransaction (trMap, anfts) bi = do
+            let updMap Nothing = Left $ "Transaction missing: " ++ show bi
                 updMap (Just _) = Right Nothing
-            trMap' <- (at (transactionHash tr)) updMap trMap
-            let updNonce n = if n == transactionNonce tr then Right (n + 1) else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
-            anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
-            return (trMap', anfts')
+            trMap' <- (at (getHash bi)) updMap trMap
+            case wmdData bi of
+              NormalTransaction tr ->
+                let updNonce n =
+                      if n == transactionNonce tr then Right (n + 1)
+                      else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
+                in do anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
+                      return (trMap', anfts')
+              _ -> do
+                return (trMap', anfts)
+
         notDeadOrPending TreeState.BlockDead = False
         notDeadOrPending (TreeState.BlockPending {}) = False
         notDeadOrPending _ = True
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
-        checkEpochs :: BS.BasicBlockPointer BState.BlockState -> Either String ()
+        checkEpochs :: BasicBlockPointer BState.BlockState -> Either String ()
         checkEpochs bp = do
             let params = BState._blockBirkParameters (BS._bpState bp)
             let currentEpoch = epoch $ _birkSeedState params
@@ -177,7 +209,7 @@ invariantSkovData TS.SkovData{..} = do
             -- The slot of the block should be in the epoch of its parameters:
             unless (currentEpoch == theSlot (currentSlot `div` epochLength (_birkSeedState params))) $
                 Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
-            let parentParams = BState._blockBirkParameters (BS._bpState (bpParent bp))
+            let parentParams = BState._blockBirkParameters (BS._bpState (runIdentity $ BS._bpParent bp))
             let parentEpoch = epoch $ _birkSeedState parentParams
             unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch
@@ -188,13 +220,15 @@ invariantSkovData TS.SkovData{..} = do
             let futureLotteryBakers = _birkLotteryBakers nextEpochParams
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
+        addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
+        addContext r = r
 
 invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
-invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker maxFinComSize = do
+invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
-        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
+        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
         let prevState  = BS._bpState lfb
             prevBakers = _birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ BState._blockBank prevState
@@ -207,8 +241,8 @@ invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} 
         where bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
               bakerEqParty PartyInfo{..} = bakerInfoToVoterInfo baker == VoterInfo partySignKey partyVRFKey partyWeight partyBlsKey
 
-invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BS.BasicBlockPointer BState.BlockState -> Either String ()
-invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _) lfr lfb =
+invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BP.BasicBlockPointer BState.BlockState -> Either String ()
+invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _ _) lfr lfb = do
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
             checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
             unless (popCount (toInteger roundDelta) == 1) $ Left $ "Round delta (" ++ show roundDelta ++ ") is not a power of 2"
@@ -219,13 +253,36 @@ invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationSta
                                     Just bs -> bs
             let
                 nthAncestor 0 b = b
-                nthAncestor n b = nthAncestor (n-1) (bpParent b)
+                nthAncestor n b = nthAncestor (n-1) (runIdentity $ BS._bpParent b)
             let eligibleBlocks = Set.fromList $ bpHash . nthAncestor roundDelta <$> descendants
             let justifiedProposals = Map.keysSet $ Map.filter fst $ _proposals $ _freezeState $ roundWMVBA
             checkBinary (==) justifiedProposals eligibleBlocks "==" "nominally justified finalization blocks" "actually justified finalization blocks"
             case roundInput of
                 Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
                 Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
+        -- The finalization queue should include all finalizations back from the last one
+        -- that are not contained in finalized blocks.
+        let finQLF Seq.Empty l = l
+            finQLF (q Seq.:|> (fr, b)) l
+                | bpHash b == BS.bpLastFinalizedHash lfb = l
+                | otherwise = finQLF q ((fr, b) Seq.<| l)
+            finQ = finQLF _finalizationList Seq.empty
+        checkBinary (==) (_fqFirstIndex _finsQueue) (maybe 1 (finalizationIndex . fst) (finQ Seq.!? 0) ) "==" ("finalization queue first index (from " ++ show _finsQueue ++ ")") ("expected value (from " ++ show finQ ++ " and last fin's last fin: " ++ show (BS.bpLastFinalizedHash lfb) ++ ")")
+        -- Check that everything in finQLF is actually in the finalization queue
+        -- and check that there is at most one extra record which is for an unknown block
+        let
+            checkFinQ Seq.Empty Seq.Empty = return ()
+            checkFinQ Seq.Empty (fp Seq.:<| Seq.Empty) = case HM.lookup (fpBlock fp) _blockTable of
+                    Nothing -> return ()
+                    Just (TreeState.BlockPending _) -> return ()
+                    Just s -> Left $ "Status of residual finalization proof should be Nothing or BlockPending, but was " ++ show s
+            checkFinQ Seq.Empty s = Left $ "There should be at most 1 residual finalization proof, but there were " ++ show (Seq.length s)
+            checkFinQ ((fr, _) Seq.:<| fl') (fp Seq.:<| fps') = do
+                checkBinary (==) (finalizationBlockPointer fr) (fpBlock fp) "==" "finalization list block" "finalization queue block"
+                checkBinary (==) (finalizationIndex fr) (fpIndex fp) "==" "finalization list index" "finalization queue index"
+                checkFinQ fl' fps'
+            checkFinQ _ _ = Left $ "Finalization queue is missing finalization"
+        checkFinQ finQ (_fqProofs _finsQueue)
 
 checkBinary :: (Show x, Show y, Monad m) => (x -> y -> Bool) -> x -> y -> String -> String -> String -> m ()
 checkBinary bop x y sbop sx sy =
@@ -258,7 +315,7 @@ type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT ExecState 
 data Event
     = EBake Slot
     | EBlock B.BakedBlock
-    | ETransaction Transaction
+    | ETransaction BlockItem
     | EFinalization FinalizationPseudoMessage
     | EFinalizationRecord FinalizationRecord
     | ETimer Integer (SkovT MyHandlers (Config DummyTimer) (StateT ExecState LogIO) ())
@@ -342,7 +399,7 @@ runKonsensusTest maxFinComSize collectedFinComParties steps g states es
             let es1 = es & esEventPool .~ events'
             let (bkr, bkrInfo, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
-            let continue fs'@(SkovState _ fState _) es' = case invariantSkovFinalization fs' bkrInfo maxFinComSize of
+            let continue fs'@(SkovState _ fState _ _) es' = case invariantSkovFinalization fs' bkrInfo maxFinComSize of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                     Right _ -> do
                         let states' = states & ix rcpt . _5 .~ fs'
@@ -356,7 +413,7 @@ runKonsensusTest maxFinComSize collectedFinComParties steps g states es
                     (mb, fs', es2) <- myRunSkovT (bakeForSlot bkr sl) handlers fi fs es1
                     case mb of
                         Nothing -> continue fs' (es2 & esEventPool %~ ((rcpt, EBake (sl + 1)) Seq.<|))
-                        Just (BS.BasicBlockPointer {_bpBlock = B.NormalBlock b}) ->
+                        Just (BS.BlockPointer {_bpBlock = B.NormalBlock b}) ->
                             continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                         Just _ -> error "Baked genesis block"
 
@@ -388,7 +445,7 @@ runKonsensusTestDefault = runKonsensusTest defaultMaxFinComSize Nothing
 nAccounts :: Int
 nAccounts = 2
 
-genTransactions :: Int -> Gen [BareTransaction]
+genTransactions :: Int -> Gen [BlockItem]
 genTransactions n = mapM gent (take n [minNonce..])
     where
         gent nnce = do
@@ -398,9 +455,9 @@ genTransactions n = mapM gent (take n [minNonce..])
 
 -- Generate transactions that transfer between `minAmount` and `maxAmount` of GTU among accounts specified in
 -- `kpAccountPairs`.
-genTransferTransactions :: GTU -> GTU -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BareTransaction]
+genTransferTransactions :: GTU -> GTU -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BlockItem]
 genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromList $ zip (snd <$> kpAccountPairs) $ repeat minNonce
-  where gtt :: [BareTransaction] -> Map.Map AccountAddress Nonce -> Int -> Gen [BareTransaction]
+  where gtt :: [BlockItem] -> Map.Map AccountAddress Nonce -> Int -> Gen [BlockItem]
         gtt ts _ 0          = return ts
         gtt ts accToNonce m = do
           amount  <- Amount <$> choose (minAmount, maxAmount)
@@ -459,7 +516,7 @@ createInitStates bis maxFinComSize specialAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
             bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10
+            gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig
@@ -493,8 +550,8 @@ withInitialStatesTransactions n trcount maxFinComSize r = monadicIO $ do
         s0 <- initialiseStates n maxFinComSize
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO getTransactionTime
-        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
+        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)
+                                                                            | x <- [0..n-1], tr <- trs])
 
 withInitialStatesTransferTransactions :: Int -> Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesTransferTransactions n trcount maxFinComSize r = monadicIO $ do
@@ -507,8 +564,8 @@ withInitialStatesTransferTransactions n trcount maxFinComSize r = monadicIO $ do
         let kpAddressPairs = Vec.toList $ (\(_, binfo, kp, _, _) -> (kp, _bakerAccount binfo)) <$> s0
         trs <- pick . genTransferTransactions minTransferAmount maxTransferAmount kpAddressPairs $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO getTransactionTime
-        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n - 1], tr <- trs])
+        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)
+                                                                            | x <- [0..n-1], tr <- trs])
 
 withInitialStatesDoubleTransactions :: Int -> Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStatesDoubleTransactions n trcount maxFinComSize r = monadicIO $ do
@@ -516,8 +573,8 @@ withInitialStatesDoubleTransactions n trcount maxFinComSize r = monadicIO $ do
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
-        now <- liftIO getTransactionTime
-        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
+        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)
+                                                                            | x <- [0..n-1], tr <- trs])
 
 
 tests :: Word -> Spec
@@ -527,5 +584,4 @@ tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 defaultMaxFinComSize $ runKonsensusTestDefault 1000
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 100
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 10000
-    it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 defaultMaxFinComSize $ runKonsensusTestDefault 10000
-    it "10 parties, 10000 steps, 15 transfer transactions, check every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 15 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000
+    it "10 parties, 10000 steps, 15 transfer transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 15 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000

@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
     (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction, createCustomAccount,
@@ -93,8 +94,9 @@ initSimpleCounter n = Runner.signTx
 
 
 {-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
-makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
-makeTransaction inc ca n = Runner.signTx mateuszKP header payload
+-- All transactions have the same arrival time (0)
+makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BlockItem
+makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -108,8 +110,9 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                               [Core.Literal (Core.Int64 10)])
                                                     )
 {-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
-makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BareTransaction
-makeTransferTransaction (fromKP, fromAddress) toAddress amount n = Runner.signTx fromKP header payload
+makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BlockItem
+makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
+  fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx fromKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -160,6 +163,11 @@ initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
-        gs' = Types.execSI (execTransactions (initialTrans n)) Types.emptySpecialBetaAccounts Types.dummyChainMeta gs
+        finState = Types.execSI (execTransactions (map (fmap Types.NormalTransaction . Types.fromBareTransaction 0) (initialTrans n)))
+                                Types.emptySpecialBetaAccounts
+                                Types.dummyChainMeta
+                                maxBound
+                                gs
+        gs' = finState ^. Types.ssBlockState
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.

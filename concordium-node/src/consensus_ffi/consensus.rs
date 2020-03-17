@@ -1,9 +1,10 @@
 use crate::blockchain_types::BakerId;
-use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
+use concordium_common::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::Fallible;
 use std::{
     collections::HashMap,
     convert::TryFrom,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex,
@@ -55,7 +56,7 @@ pub struct ConsensusInboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Arc<Condvar>,
+    pub signaler:               Condvar,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -79,7 +80,7 @@ pub struct ConsensusOutboundQueues {
     pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
-    pub signaler:               Arc<Condvar>,
+    pub signaler:               Condvar,
 }
 
 impl Default for ConsensusOutboundQueues {
@@ -99,20 +100,15 @@ impl Default for ConsensusOutboundQueues {
 }
 
 pub struct ConsensusQueues {
-    pub inbound:                ConsensusInboundQueues,
-    pub outbound:               ConsensusOutboundQueues,
-    pub receiver_peer_notifier: Mutex<QueueReceiver<()>>,
-    pub sender_peer_notifier:   QueueSyncSender<()>,
+    pub inbound:  ConsensusInboundQueues,
+    pub outbound: ConsensusOutboundQueues,
 }
 
 impl Default for ConsensusQueues {
     fn default() -> Self {
-        let (sender_peer_notifier, receiver_peer_notifier) = crossbeam_channel::bounded(100);
         Self {
-            inbound: Default::default(),
+            inbound:  Default::default(),
             outbound: Default::default(),
-            receiver_peer_notifier: Mutex::new(receiver_peer_notifier),
-            sender_peer_notifier,
         }
     }
 }
@@ -183,20 +179,15 @@ impl ConsensusQueues {
                 q.try_iter().count()
             );
         }
-        if let Ok(ref mut q) = self.receiver_peer_notifier.try_lock() {
-            debug!(
-                "Drained the Consensus peers notification control queue for {} element(s)",
-                q.try_iter().count()
-            );
-        }
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.outbound.sender_low_priority.send_stop())?;
-        into_err!(self.outbound.sender_high_priority.send_stop())?;
-        into_err!(self.inbound.sender_low_priority.send_stop())?;
-        into_err!(self.inbound.sender_high_priority.send_stop())?;
-        into_err!(self.sender_peer_notifier.send_stop())?;
+        self.outbound.sender_low_priority.send_stop()?;
+        self.outbound.sender_high_priority.send_stop()?;
+        self.outbound.signaler.notify_one();
+        self.inbound.sender_low_priority.send_stop()?;
+        self.inbound.sender_high_priority.send_stop()?;
+        self.inbound.signaler.notify_one();
         Ok(())
     }
 }
@@ -225,22 +216,24 @@ impl std::fmt::Display for ConsensusType {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub max_block_size: u64,
-    pub baker_id:       Option<BakerId>,
-    pub is_baking:      Arc<AtomicBool>,
-    pub consensus:      Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:        Arc<[u8]>,
-    pub consensus_type: ConsensusType,
+    pub max_block_size:          u64,
+    pub baker_id:                Option<BakerId>,
+    pub is_baking:               Arc<AtomicBool>,
+    pub consensus:               Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:                 Arc<[u8]>,
+    pub consensus_type:          ConsensusType,
+    pub database_connection_url: String,
 }
 
 impl ConsensusContainer {
     pub fn new(
         max_block_size: u64,
-        enable_transfer_logging: bool,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
         max_log_level: ConsensusLogLevel,
+        appdata_dir: &PathBuf,
+        database_connection_url: &str,
     ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
 
@@ -252,10 +245,11 @@ impl ConsensusContainer {
 
         match get_consensus_ptr(
             max_block_size,
-            enable_transfer_logging,
             genesis_data.clone(),
             private_data,
             max_log_level,
+            appdata_dir,
+            database_connection_url,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 max_block_size,
@@ -264,6 +258,7 @@ impl ConsensusContainer {
                 consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
                 genesis: Arc::from(genesis_data),
                 consensus_type,
+                database_connection_url: database_connection_url.to_owned(),
             }),
             Err(e) => Err(e),
         }
