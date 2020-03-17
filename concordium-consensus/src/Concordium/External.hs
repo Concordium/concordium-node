@@ -345,7 +345,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                         connString
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
@@ -411,7 +411,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                     finconfig = NoFinalization genData
                     hconfig = HookLogHandler Nothing
