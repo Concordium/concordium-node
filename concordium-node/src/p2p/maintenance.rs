@@ -226,7 +226,7 @@ impl P2PNode {
         };
 
         info!("My Node ID is {}", id);
-        debug!("Listening on {}:{}", ip.to_string(), conf.common.listen_port);
+        debug!("Listening on {}:{}", ip, conf.common.listen_port);
 
         let poll = Poll::new().expect("Couldn't create poll");
         let mut server = TcpListener::bind(addr).expect("Couldn't listen on port");
@@ -607,7 +607,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             });
 
             for peer in applicable_candidates {
-                trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
+                trace!("Got info for peer {} ({})", peer.id, peer.addr);
                 if connect(node, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                     new_peers += 1;
                 }
@@ -620,7 +620,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::Expulsion(token) => {
             if let Some(conn) = node.remove_connection(token) {
                 let ip = conn.remote_addr().ip();
-                warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
                     BanId::Ip(ip),
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),

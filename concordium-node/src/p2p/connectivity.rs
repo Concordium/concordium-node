@@ -232,7 +232,7 @@ impl P2PNode {
                 if let Err(e) =
                     conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
                 {
-                    error!("[send] {}", e);
+                    error!("[sending to {}] {}", conn, e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
                         self.register_conn_change(ConnChange::Removal(conn.token));
                     } else {
@@ -243,7 +243,7 @@ impl P2PNode {
 
                 if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
                     if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
-                        error!("[receive] {}", e);
+                        error!("[receiving from {}] {}", conn, e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
                         } else {
@@ -275,7 +275,6 @@ impl P2PNode {
 
 /// Accept an incoming network connection.
 pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
-    let self_peer = node.self_peer;
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
 
@@ -289,25 +288,25 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
             if node.self_peer.peer_type == PeerType::Node
                 && candidates_lock.len() + conn_read_lock.len() >= limit as usize
             {
-                bail!("Too many connections, rejecting attempt from {:?}", addr);
+                bail!("Too many connections, rejecting attempt from {}", addr);
             }
         }
 
         if candidates_lock.values().any(|conn| conn.remote_addr() == addr)
             || conn_read_lock.values().any(|conn| conn.remote_addr() == addr)
         {
-            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            bail!("Duplicate connection attempt from {}; rejecting", addr);
         }
 
         if read_or_die!(node.connection_handler.soft_bans)
             .keys()
             .any(|ip| *ip == BanId::Ip(addr.ip()))
         {
-            bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
+            bail!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
         }
     }
 
-    debug!("Accepting a connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
+    debug!("Accepting a connection from {}", addr);
 
     let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 

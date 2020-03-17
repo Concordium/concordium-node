@@ -232,11 +232,10 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>)
         {
             Ok(addrs) => {
                 for addr in addrs {
-                    info!("Connecting to peer {}", &connect_to);
-                    connect(node, PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
+                    let _ = connect(node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
                 }
             }
-            Err(err) => error!("Can't parse data for node to connect to {}", err),
+            Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
         }
     }
 }
