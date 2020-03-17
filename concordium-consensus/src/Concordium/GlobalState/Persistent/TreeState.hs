@@ -38,6 +38,7 @@ import Lens.Micro.Platform
 import System.Mem.Weak
 import Concordium.GlobalState.SQLiteATI
 import Data.Time.Clock
+import Data.Foldable as Fold (foldl')
 -- * SkovPersistentData definition
 
 data PersistenBlockStatus ati bs =
@@ -295,7 +296,7 @@ purgeTransactionTable = do
          allDeletes = concatMap (\(x,_,_) -> x) results
          !newNFT = fromList $ Prelude.map (\(_, y, _) -> y) results
          highestNonces = Prelude.map (\(_,_,z) -> z) results
-         !newTMap = foldl' (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
+         !newTMap = Fold.foldl' (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
      transactionTable .= TransactionTable{_ttHashMap = newTMap, _ttNonFinalizedTransactions = newNFT}
      return highestNonces
 
