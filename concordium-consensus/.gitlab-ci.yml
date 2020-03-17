@@ -7,10 +7,11 @@ stages:
 
 .generic:
   variables:
-    GIT_SUBMODULE_STRATEGY: none
+    GIT_SUBMODULE_STRATEGY: recursive
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
     LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:$LD_LIBRARY_PATH"
+    GIT_SUBMODULE_STRATEGY: recursive
     RUSTFLAGS: -Dwarnings
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
   cache:
