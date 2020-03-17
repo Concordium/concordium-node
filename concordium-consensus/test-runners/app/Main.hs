@@ -39,6 +39,7 @@ import Concordium.Birk.Bake
 import Concordium.Scheduler.Utils.Init.Example as Example
 --import Debug.Trace
 import Concordium.Startup
+import Concordium.Crypto.DummyData (mateuszKP)
 
 nContracts :: Int
 nContracts = 2
@@ -47,7 +48,7 @@ transactions :: StdGen -> [BlockItem]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (_ : _ : rs) = Example.makeTransferTransaction n : trs (n+1) rs
+        trs n (_ : _ : rs) = Example.makeTransferTransaction (mateuszKP, mateuszAccount) mateuszAccount 123 n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
