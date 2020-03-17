@@ -874,7 +874,7 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
               let csize = size + fromIntegral wmdSize
                   energyCost = Cost.deployCredential
                   cenergy = totalEnergyUsed + fromIntegral energyCost
-              if csize <= maxSize && cenergy <= maxEnergy thenNoted
+              if csize <= maxSize && cenergy <= maxEnergy then
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
                       runNext maxEnergy csize valid ((c, reason) : failedC) failedT unprocC unprocT remainingCreds transactions
@@ -914,6 +914,7 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
                    -- one single too-big transaction.
                 let remainingTrans = insertTrans ts remainingTransactions
                 in runNext maxEnergy size valid failedC failedT unprocC (t : unprocT) credentials remainingTrans
+            runTransactionFromGroup [] _ _ = error "Unreachable. We don't run a transaction from an empty group"
            -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
            -- with a SuccessorOfInvalidTransaction failure
             invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
