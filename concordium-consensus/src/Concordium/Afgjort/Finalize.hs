@@ -344,7 +344,8 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
 
 -- |Handle when a finalization proof is generated:
 --  * Notify Skov of finalization ('trustedFinalize').
---  * If the finalized block is known, 
+--  * If the finalized block is known to Skov, handle this new finalization ('finalizationBlockFinal').
+--  * If the block is not known, add the finalization to the queue ('addQueuedFinalization').
 handleFinalizationProof :: (FinalizationMonad m, SkovMonad m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
 handleFinalizationProof sessId fIndex delta committee (finB, (parties, sig)) = do
         let finRec = FinalizationRecord {

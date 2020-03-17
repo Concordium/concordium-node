@@ -326,7 +326,7 @@ tryAddQueuedWitness msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{
 tryAddQueuedWitness _ = return ResultStale
 
 -- |If there is a queued finalization for the given index, return the
--- the finalization proof without attempting to add any further signatures.
+-- finalization proof without attempting to add any further signatures.
 -- This function is used for determining when we have a finalization proof but
 -- do not have the associated block, and subsequently triggering finalization
 -- in that case.
