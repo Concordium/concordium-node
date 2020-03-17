@@ -309,6 +309,11 @@ then
     ARGS="$ARGS --no-rebroadcast-consensus-validation"
 fi
 
+if [ -n "$BOOTSTRAP_SERVER" ];
+then
+    ARGS="$ARGS --bootstrap-server $BOOTSTRAP_SERVER"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
