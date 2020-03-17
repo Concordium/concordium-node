@@ -38,6 +38,7 @@ import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationIn
 import Concordium.Birk.Bake
 
 import Concordium.Startup
+import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize, dummyCryptographicParameters)
 
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig

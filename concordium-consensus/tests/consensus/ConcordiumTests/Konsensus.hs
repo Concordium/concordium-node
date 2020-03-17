@@ -59,10 +59,11 @@ import Concordium.TimeMonad
 
 import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParameters)
 
-import Concordium.Startup (makeBakerAccountKP, dummyCryptographicParameters)
+import Concordium.Startup (makeBakerAccountKP)
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
+import Concordium.GlobalState.DummyData(dummyCryptographicParameters)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic

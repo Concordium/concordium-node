@@ -35,7 +35,7 @@ import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
-import Concordium.Startup(dummyCryptographicParameters)
+import Concordium.GlobalState.DummyData(dummyCryptographicParameters)
 import Concordium.Types (Energy(..))
 
 import Test.QuickCheck
