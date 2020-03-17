@@ -23,11 +23,8 @@ import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
--- import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.TreeState as TS
 
-import Concordium.Types
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Birk.Bake

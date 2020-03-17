@@ -81,6 +81,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
     (TJSON meta UndelegateStake keys) ->
       return $ signTx keys meta (Types.encodePayload Types.UndelegateStake)
+    (TJSON meta UpdateElectionDifficulty{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.UpdateElectionDifficulty{..})
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -147,6 +149,9 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      dsID :: !BakerId
                      }
                  | UndelegateStake
+                 | UpdateElectionDifficulty {
+                     uedDifficulty :: !Double
+                     }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {
