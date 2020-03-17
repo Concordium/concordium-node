@@ -55,6 +55,9 @@ dummyIdentityProviders =
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
 
+dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
+dummyFinalizationCommitteeMaxSize = 1000
+
 {-# WARNING makeFakeBakers "Do not use in production" #-}
 makeFakeBakers :: Word -> [(BakerInfo, Account)]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
