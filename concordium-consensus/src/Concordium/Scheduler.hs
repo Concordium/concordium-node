@@ -28,6 +28,7 @@ import qualified Concordium.Scheduler.Cost as Cost
 
 import Control.Applicative
 import Control.Monad.Except
+import Control.Exception
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust, isJust)
 import qualified Data.Set as Set
@@ -756,7 +757,7 @@ handleUpdateElectionDifficulty wtc uedDifficulty =
           specialBetaAccounts <- getSpecialBetaAccounts
           if HashSet.member senderAddr specialBetaAccounts
           then do
-            unless (isValidElectionDifficulty uedDifficulty) $ error $ "Invalid election dificulty: " ++ show uedDifficulty
+            assert (isValidElectionDifficulty uedDifficulty) $ return ()
             updateElectionDifficulty uedDifficulty
             return $! (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
           else return $! (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
