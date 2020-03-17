@@ -7,8 +7,6 @@
 module Concordium.Startup {-# WARNING "This module should not be used in production code." #-} where
 
 import System.Random
-import qualified Data.ByteString.Lazy.Char8 as BSL
-import Data.Maybe
 import qualified Data.PQueue.Prio.Max as Queue
 
 
@@ -27,8 +25,6 @@ import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyMaxExpiryTime)
-
-import TH.RelativePaths
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
@@ -98,17 +94,3 @@ makeGenesisData
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
-
--- Need to return string because Bytestring does not implement Lift
-dummyCryptographicParametersFile :: String
-dummyCryptographicParametersFile = $(do
-  fileContents <- qReadFileString "../scheduler/testdata/global.json"
-  [| fileContents |])
-
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-  fromMaybe (error "Could not read crypto params.") $
-    readCryptographicParameters (BSL.pack dummyCryptographicParametersFile)
-
-dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
-dummyFinalizationCommitteeMaxSize = 1000

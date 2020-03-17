@@ -19,6 +19,9 @@ import System.Random
 import Control.Monad.Trans.State
 import Data.Functor.Identity
 
+import qualified Data.ByteString.Lazy as BSL
+import System.IO.Unsafe
+
 import Concordium.Crypto.SHA256
 
 import Concordium.Afgjort.Finalize.Types
@@ -59,7 +62,7 @@ import Concordium.TimeMonad
 
 import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParameters)
 
-import Concordium.Startup (makeBakerAccountKP, dummyCryptographicParameters)
+import Concordium.Startup (makeBakerAccountKP)
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
@@ -67,6 +70,15 @@ import Concordium.Types.DummyData (mateuszAccount)
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
+
+
+{-# NOINLINE dummyCryptographicParameters #-}
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+  case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
+    Nothing -> error "Could not read cryptographic parameters."
+    Just params -> params
+
 
 -- import Debug.Trace
 
