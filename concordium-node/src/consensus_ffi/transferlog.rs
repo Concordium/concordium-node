@@ -1,7 +1,7 @@
 use crate::blockchain_types::{
     AccountAddress, Amount, BakerId, BlockHash, ContractAddress, Slot, TransactionHash,
 };
-use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
+use concordium_common::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::{format_err, Fallible};
 
 use crossbeam_channel;
@@ -26,13 +26,10 @@ impl Default for TransactionLogQueue {
 
 impl TransactionLogQueue {
     pub fn send_message(&self, message: TransactionLogMessage) -> Fallible<()> {
-        into_err!(self.sender.send_blocking_msg(message))
+        self.sender.send_blocking_msg(message).map_err(|e| e.into())
     }
 
-    pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.sender.send_stop())?;
-        Ok(())
-    }
+    pub fn stop(&self) -> Fallible<()> { self.sender.send_stop().map_err(|e| e.into()) }
 }
 
 lazy_static! {

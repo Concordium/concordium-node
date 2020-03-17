@@ -16,15 +16,14 @@ import Data.Maybe
 
 import Concordium.Crypto.SHA256
 
-import qualified Concordium.GlobalState.Basic.Block as B
-import qualified Concordium.GlobalState.Basic.BlockPointer as BS
+import Concordium.GlobalState.Block as B
+import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
 
@@ -35,6 +34,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 import Concordium.Startup(dummyCryptographicParameters)
+import Concordium.Types (Energy(..))
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -59,7 +59,7 @@ runKonsensus steps g states es
                     (mb, fs', es2) <- myRunSkovT (bakeForSlot bkr sl) handlers fi fs es1
                     case mb of
                         Nothing -> continue fs' (es2 & esEventPool %~ ((rcpt, EBake (sl + 1)) Seq.<|))
-                        Just BS.BasicBlockPointer{_bpBlock = B.NormalBlock b} ->
+                        Just BlockPointer{_bpBlock = NormalBlock b} ->
                             continue fs' (es2 & esEventPool %~ (<> Seq.fromList ((rcpt, EBake (sl + 1)) : [(r, EBlock b) | r <- btargets])))
                         Just _ -> error "Baked genesis block"
 
@@ -91,7 +91,7 @@ initialiseStatesDictator n = do
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             fps = FinalizationParameters [VoterInfo vvk vrfk 1 vblspk | (_, (BakerInfo vrfk vvk vblspk _ _, _, _)) <- take 1 bis] 2
             bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
+            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
@@ -171,7 +171,7 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
                         testList knownBlocks knownFin ((MessageBlock, runGet (B.getBlock 0) -> Right (B.NormalBlock bp)) : rs) = do
                             checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
-                            -- checkBinary Set.member (bpHash (bpLastFinalized bp)) knownFin "in" "block parent" "known finalized blocks"
+                            -- checkBinary Set.member (bpLastFinalizedHash bp) knownFin "in" "block parent" "known finalized blocks"
                             testList (Set.insert (getHash bp) knownBlocks) knownFin rs
                         testList _ _ _ = error "Serialization failure"
                     -- Check that blocks and finalization records are ordered correctly in the following sense:

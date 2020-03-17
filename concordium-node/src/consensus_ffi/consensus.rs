@@ -1,9 +1,10 @@
 use crate::blockchain_types::BakerId;
-use concordium_common::{into_err, QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
+use concordium_common::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
 use failure::Fallible;
 use std::{
     collections::HashMap,
     convert::TryFrom,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex,
@@ -192,11 +193,11 @@ impl ConsensusQueues {
     }
 
     pub fn stop(&self) -> Fallible<()> {
-        into_err!(self.outbound.sender_low_priority.send_stop())?;
-        into_err!(self.outbound.sender_high_priority.send_stop())?;
-        into_err!(self.inbound.sender_low_priority.send_stop())?;
-        into_err!(self.inbound.sender_high_priority.send_stop())?;
-        into_err!(self.sender_peer_notifier.send_stop())?;
+        self.outbound.sender_low_priority.send_stop()?;
+        self.outbound.sender_high_priority.send_stop()?;
+        self.inbound.sender_low_priority.send_stop()?;
+        self.inbound.sender_high_priority.send_stop()?;
+        self.sender_peer_notifier.send_stop()?;
         Ok(())
     }
 }
@@ -225,22 +226,24 @@ impl std::fmt::Display for ConsensusType {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub max_block_size: u64,
-    pub baker_id:       Option<BakerId>,
-    pub is_baking:      Arc<AtomicBool>,
-    pub consensus:      Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:        Arc<[u8]>,
-    pub consensus_type: ConsensusType,
+    pub max_block_size:          u64,
+    pub baker_id:                Option<BakerId>,
+    pub is_baking:               Arc<AtomicBool>,
+    pub consensus:               Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:                 Arc<[u8]>,
+    pub consensus_type:          ConsensusType,
+    pub database_connection_url: String,
 }
 
 impl ConsensusContainer {
     pub fn new(
         max_block_size: u64,
-        enable_transfer_logging: bool,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
         baker_id: Option<BakerId>,
         max_log_level: ConsensusLogLevel,
+        appdata_dir: &PathBuf,
+        database_connection_url: &str,
     ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
 
@@ -252,10 +255,11 @@ impl ConsensusContainer {
 
         match get_consensus_ptr(
             max_block_size,
-            enable_transfer_logging,
             genesis_data.clone(),
             private_data,
             max_log_level,
+            appdata_dir,
+            database_connection_url,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 max_block_size,
@@ -264,6 +268,7 @@ impl ConsensusContainer {
                 consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
                 genesis: Arc::from(genesis_data),
                 consensus_type,
+                database_connection_url: database_connection_url.to_owned(),
             }),
             Err(e) => Err(e),
         }

@@ -14,10 +14,8 @@ import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import qualified Concordium.GlobalState.Rewards as Rew
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.VRF as VRF
@@ -32,17 +30,16 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
-                      (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount
+    100000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    200000
 
 baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 alesAccount
@@ -53,12 +50,16 @@ baker1 = mkFullBaker 1 alesAccount
 baker2 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker2 = mkFullBaker 2 thomasAccount
 
+baker3 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
+baker3 = mkFullBaker 3 alesAccount
+
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = AddBaker (baker0 ^. _1 . bakerElectionVerifyKey)
                                 (baker0 ^. _2)
                                 (baker0 ^. _1 . bakerSignatureVerifyKey)
                                 (baker0 ^. _1 . bakerAggregationVerifyKey)
+                                (baker0 ^. _4)
                                 (baker0 ^. _3)
                                 alesAccount
                                 alesKP
@@ -69,6 +70,7 @@ transactionsInput =
                                 (baker1 ^. _2)
                                 (baker1 ^. _1 . bakerSignatureVerifyKey)
                                 (baker1 ^. _1 . bakerAggregationVerifyKey)
+                                (baker1 ^. _4)
                                 (baker1 ^. _3)
                                 alesAccount
                                 alesKP
@@ -79,14 +81,26 @@ transactionsInput =
                                 (baker2 ^. _2)
                                 (baker2 ^. _1 . bakerSignatureVerifyKey)
                                 (baker2 ^. _1 . bakerAggregationVerifyKey)
+                                (baker2 ^. _4)
                                 (baker2 ^. _3)
                                 thomasAccount
                                 thomasKP
            , metadata = makeDummyHeader alesAccount 3 10000
            , keypair = alesKP
            },
-     TJSON { payload = RemoveBaker 1 "<dummy proof>"
+     TJSON { payload = AddBaker (baker3 ^. _1 . bakerElectionVerifyKey)
+                                (baker3 ^. _2)
+                                (baker3 ^. _1 . bakerSignatureVerifyKey)
+                                (baker3 ^. _1 . bakerAggregationVerifyKey)
+                                (baker0 ^. _4) -- WRONG KEY, intentional! We want this to fail
+                                (baker3 ^. _3)
+                                alesAccount
+                                alesKP
            , metadata = makeDummyHeader alesAccount 4 10000
+           , keypair = alesKP
+           },
+     TJSON { payload = RemoveBaker 1 "<dummy proof>"
+           , metadata = makeDummyHeader alesAccount 5 10000
            , keypair = alesKP
            },
      TJSON { payload = UpdateBakerAccount 2 alesAccount alesKP
@@ -95,27 +109,31 @@ transactionsInput =
            -- baker 2's account is Thomas account, so only it can update it
            },
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
-           , metadata = makeDummyHeader alesAccount 5 10000
+           , metadata = makeDummyHeader alesAccount 6 10000
            , keypair = alesKP
            -- baker 0's account is Thomas account, so only it can update it
            }
     ]
 
-runWithIntermediateStates :: PR.Context Core.UA IO ([([(Types.BareTransaction, Types.ValidResult)],
-                                                     [(Types.BareTransaction, Types.FailureKind)],
-                                                     Types.BirkParameters)], BlockState)
+type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
+                     [(Types.Transaction, Types.FailureKind)],
+                     Types.BirkParameters)],
+                    BlockState)
+
+runWithIntermediateStates :: PR.Context Core.UA IO TestResult
 runWithIntermediateStates = do
-  txs <- processTransactions transactionsInput
+  txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
-                            let ((Sch.FilteredTransactions{..}, _), st') =
+                            let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize [tx])
+                                    (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
                                     Set.empty -- special beta accounts
                                     Types.dummyChainMeta
+                                    maxBound
                                     st
-                            in (acc ++ [(ftAdded, ftFailed, st' ^. blockBirkParameters)], st'))
+                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState))
                          ([], initialBlockState)
-                         txs
+                         (Types.perAccountTransactions txs)
   return (res, state)
 
 tests :: Spec
@@ -130,24 +148,30 @@ tests = do
         length results == length transactionsInput
     specify "Adding three bakers from initial empty state" $
         case take 3 results of
-          [([(_,Types.TxSuccess [Types.BakerAdded 0] _ _)],[],bps1),
-           ([(_,Types.TxSuccess [Types.BakerAdded 1] _ _)],[],bps2),
-           ([(_,Types.TxSuccess [Types.BakerAdded 2] _ _)],[],bps3)] ->
+          [([(_,Types.TxSuccess [Types.BakerAdded 0])],[],bps1),
+           ([(_,Types.TxSuccess [Types.BakerAdded 1])],[],bps2),
+           ([(_,Types.TxSuccess [Types.BakerAdded 2])],[],bps3)] ->
             Map.keys (bps1 ^. Types.birkCurrentBakers . bakerMap) == [0] &&
             Map.keys (bps2 ^. Types.birkCurrentBakers . bakerMap) == [0,1] &&
             Map.keys (bps3 ^. Types.birkCurrentBakers . bakerMap) == [0,1,2]
           _ -> False
 
-    specify "Remove second baker." $
+    specify "Attempt to add baker with incorrect proof of knowledge of aggregation secret key" $
       case results !! 3 of
-        ([(_,Types.TxSuccess [Types.BakerRemoved 1] _ _)], [], bps4) ->
+        ([(_, Types.TxReject Types.InvalidProof)], [], bps) ->
+          Map.keys (bps ^. Types.birkCurrentBakers . bakerMap) == [0,1,2]
+        _ -> False
+
+    specify "Remove second baker." $
+      case results !! 4 of
+        ([(_,Types.TxSuccess [Types.BakerRemoved 1])], [], bps4) ->
             Map.keys (bps4 ^. Types.birkCurrentBakers . bakerMap) == [0,2]
         _ -> False
 
     specify "Update third baker's account." $
       -- first check that before the account was thomasAccount, and now it is alesAccount
-      case (results !! 3, results !! 4) of
-        ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _] _ _)], [], bps5)) ->
+      case (results !! 4, results !! 5) of
+        ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _])], [], bps5)) ->
           Map.keys (bps5 ^. Types.birkCurrentBakers . bakerMap) == [0,2] &&
           let b2 = (bps5 ^. Types.birkCurrentBakers . bakerMap) Map.! 2
           in b2 ^. bakerAccount == alesAccount &&
@@ -156,8 +180,8 @@ tests = do
 
 
     specify "Update first baker's sign key." $
-      case (results !! 4, results !! 5) of
-        ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _] _ _)], [], bps6)) ->
+      case (results !! 5, results !! 6) of
+        ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
           Map.keys (bps6 ^. Types.birkCurrentBakers . bakerMap) == [0,2] &&
           let b0 = (bps6 ^. Types.birkCurrentBakers . bakerMap) Map.! 0
           in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&

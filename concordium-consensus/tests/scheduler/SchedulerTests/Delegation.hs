@@ -19,8 +19,6 @@ import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
@@ -36,6 +34,8 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 staticKeys :: [(KeyPair, AccountAddress)]
 staticKeys = ks (mkStdGen 1333)
     where
@@ -47,11 +47,9 @@ numAccounts :: Int
 numAccounts = 10
 
 initialBlockState :: BlockState
-initialBlockState =
-    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-        (blockAccounts .~ foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys)) .
-        (blockBank . Rew.totalGTU .~ fromIntegral numAccounts * initBal) .
-        (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = createBlockState
+    (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
+    (fromIntegral numAccounts * initBal)
     where
         addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal )
         initBal = 10^(12::Int) :: Amount
@@ -79,13 +77,14 @@ addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
         -- FIXME: Once we require proof of knowledge of this key the last secret aggregation key
         -- will be needed.
-        let (bkr, electionSecretKey, signKey, _aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
+        let (bkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
             payload = AddBaker
                       (bkr ^. bakerElectionVerifyKey)
                       electionSecretKey
                       (bkr ^. bakerSignatureVerifyKey)
                       (bkr ^. bakerAggregationVerifyKey)
+                      aggregationKey
                       signKey
                       bkrAcct
                       kp,
@@ -162,14 +161,16 @@ testTransactions :: Property
 testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.initialContextData . tt)
     where
         tt tl = do
-            transactions <- processTransactions tl
-            let ((Sch.FilteredTransactions{..}, _), gs) =
+            transactions <- processUngroupedTransactions tl
+            let (Sch.FilteredTransactions{..}, finState) =
                   EI.runSI
                     (Sch.filterTransactions dummyBlockSize transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
+                    maxBound
                     initialBlockState
-            let rejs = [(z, decodePayload (btrPayload z), rr) | (z, TxReject rr _ _) <- ftAdded]
+            let gs = finState ^. EI.ssBlockState
+            let rejs = [(z, decodePayload (btrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
             case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of
                 Left f -> return $ counterexample f False

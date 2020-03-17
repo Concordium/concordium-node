@@ -8,6 +8,7 @@ use std::{
     ffi::{CStr, CString},
     io::{Cursor, Write},
     os::raw::{c_char, c_int},
+    path::PathBuf,
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -36,7 +37,7 @@ pub fn start_haskell(
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
-    profile_sampling_interval: f64,
+    profile_sampling_interval: &str,
 ) {
     START_ONCE.call_once(|| {
         start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
@@ -62,12 +63,12 @@ fn start_haskell_init(
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
-    profile_sampling_interval: f64,
+    profile_sampling_interval: &str,
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
-    let mut args = vec![program_name.to_owned()];
+    let mut args = vec![program_name];
 
-    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != 0.1 {
+    if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
     }
@@ -91,7 +92,7 @@ fn start_haskell_init(
         }
     }
 
-    if profile_sampling_interval != 0.1 {
+    if profile_sampling_interval != "0.1" {
         args.push(format!("-i{}", profile_sampling_interval));
     }
 
@@ -99,8 +100,8 @@ fn start_haskell_init(
         args.push("-p".to_owned());
     }
 
-    if gc_log.is_some() {
-        args.push(format!("-S{}", gc_log.unwrap()));
+    if let Some(log) = gc_log {
+        args.push(format!("-S{}", log));
     }
 
     if exceptions {
@@ -192,8 +193,6 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type TransferLogCallback =
-    unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
@@ -211,8 +210,10 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
-        transfer_log_enabled: u8,
-        transfer_log_callback: TransferLogCallback,
+        appdata_dir: *const u8,
+        appdata_dir_len: i64,
+        database_connection_url: *const u8,
+        database_connection_url_len: i64,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         max_block_size: u64,
@@ -221,6 +222,10 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
+        appdata_dir: *const u8,
+        appdata_dir_len: i64,
+        database_connection_url: *const u8,
+        database_connection_url_len: i64,
     ) -> *mut consensus_runner;
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
@@ -291,10 +296,6 @@ extern "C" {
         block_hash: *const u8,
         delta: Delta,
     ) -> *const u8;
-    pub fn hookTransaction(
-        consensus: *mut consensus_runner,
-        transaction_hash: *const u8,
-    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
     pub fn receiveCatchUpStatus(
@@ -307,28 +308,45 @@ extern "C" {
     ) -> i64;
     pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
+    pub fn getAccountNonFinalizedTransactions(
+        consensus: *mut consensus_runner,
+        account_address: *const u8,
+    ) -> *const c_char;
+    pub fn getBlockSummary(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getTransactionStatus(
+        consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getTransactionStatusInBlock(
+        consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getNextAccountNonce(
+        consensus: *mut consensus_runner,
+        account_address: *const u8,
+    ) -> *const c_char;
 }
 
 pub fn get_consensus_ptr(
     max_block_size: u64,
-    enable_transfer_logging: bool,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
+    appdata_dir: &PathBuf,
+    database_connection_url: &str,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
-
-    // private_data appears to (might be too early to deserialize yet) contain:
-    // a u64 BakerId
-    // 3 32B-long ByteStrings (with u64 length prefixes), the latter 2 of which are
-    // 32B of unknown content
-    // 2x identical 32B-long byte sequences
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
 
     let consensus_ptr = match private_data {
         Some(ref private_data_bytes) => {
             let private_data_len = private_data_bytes.len();
+            let appdata_buf = appdata_dir.as_path().to_str().unwrap();
             unsafe {
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
@@ -343,23 +361,32 @@ pub fn get_consensus_ptr(
                     catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
-                    if enable_transfer_logging { 1 } else { 0 },
-                    on_transfer_log_emitted,
+                    appdata_buf.as_ptr() as *const u8,
+                    appdata_buf.len() as i64,
+                    database_connection_url.as_ptr() as *const u8,
+                    database_connection_url.len() as i64,
                 )
             }
         }
-        None => unsafe {
-            {
-                startConsensusPassive(
-                    max_block_size,
-                    c_string_genesis.as_ptr() as *const u8,
-                    genesis_data_len as i64,
-                    catchup_status_callback,
-                    maximum_log_level as u8,
-                    on_log_emited,
-                )
+        None => {
+            let appdata_buf = appdata_dir.as_path().to_str().unwrap();
+            unsafe {
+                {
+                    startConsensusPassive(
+                        max_block_size,
+                        c_string_genesis.as_ptr() as *const u8,
+                        genesis_data_len as i64,
+                        catchup_status_callback,
+                        maximum_log_level as u8,
+                        on_log_emited,
+                        appdata_buf.as_ptr() as *const u8,
+                        appdata_buf.len() as i64,
+                        database_connection_url.as_ptr() as *const u8,
+                        database_connection_url.len() as i64,
+                    )
+                }
             }
-        },
+        }
     };
 
     if consensus_ptr.is_null() {
@@ -401,14 +428,6 @@ impl ConsensusContainer {
 
     pub fn get_consensus_status(&self) -> String {
         wrap_c_call_string!(self, consensus, |consensus| getConsensusStatus(consensus))
-    }
-
-    pub fn hook_transaction(&self, transaction_hash: &str) -> String {
-        let c_str = CString::new(transaction_hash).unwrap();
-        wrap_c_call_string!(self, consensus, |consensus| hookTransaction(
-            consensus,
-            c_str.as_ptr() as *const u8
-        ))
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> String {
@@ -472,7 +491,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getRewardStatus(
             consensus,
-            block_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
@@ -480,7 +499,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getBirkParameters(
             consensus,
-            block_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
@@ -488,7 +507,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getModuleList(
             consensus,
-            block_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
@@ -518,7 +537,7 @@ impl ConsensusContainer {
         wrap_c_call_payload!(
             self,
             |consensus| getCatchUpStatus(consensus),
-            &(PacketType::CatchUpStatus as u16).to_be_bytes()
+            &(PacketType::CatchUpStatus as u8).to_be_bytes()
         )
     }
 
@@ -544,6 +563,51 @@ impl ConsensusContainer {
 
     pub fn in_finalization_committee(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
+    }
+
+    pub fn get_account_non_finalized_transactions(&self, account_address: &str) -> String {
+        let account_address = CString::new(account_address).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| {
+            getAccountNonFinalizedTransactions(consensus, account_address.as_ptr() as *const u8)
+        })
+    }
+
+    pub fn get_block_summary(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getBlockSummary(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_transaction_status(&self, transaction_hash: &str) -> String {
+        let transaction_hash = CString::new(transaction_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getTransactionStatus(
+            consensus,
+            transaction_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_transaction_status_in_block(
+        &self,
+        transaction_hash: &str,
+        block_hash: &str,
+    ) -> String {
+        let transaction_hash = CString::new(transaction_hash).unwrap();
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getTransactionStatusInBlock(
+            consensus,
+            transaction_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_next_account_nonce(&self, account_address: &str) -> String {
+        let account_address = CString::new(account_address).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
+            consensus,
+            account_address.as_ptr() as *const u8
+        ))
     }
 }
 
@@ -572,8 +636,8 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
-        let mut full_payload = Vec::with_capacity(2 + payload.len());
-        (msg_variant as u16).serial(&mut full_payload);
+        let mut full_payload = Vec::with_capacity(1 + payload.len());
+        (msg_variant as u8).serial(&mut full_payload);
 
         full_payload.write_all(&payload).unwrap(); // infallible
         let full_payload = Arc::from(full_payload);
@@ -612,8 +676,8 @@ macro_rules! sending_callback {
             };
 
             let payload = slice::from_raw_parts($msg as *const u8, $msg_length as usize);
-            let mut full_payload = Vec::with_capacity(2 + payload.len());
-            (msg_variant as u16).serial(&mut full_payload);
+            let mut full_payload = Vec::with_capacity(1 + payload.len());
+            (msg_variant as u8).serial(&mut full_payload);
             full_payload.write_all(&payload).unwrap(); // infallible
             let full_payload = Arc::from(full_payload);
 

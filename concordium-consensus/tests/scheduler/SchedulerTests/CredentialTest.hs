@@ -4,8 +4,9 @@ module SchedulerTests.CredentialTest where
 import Test.Hspec
 import Test.HUnit
 
-import Lens.Micro.Platform
 import Control.Monad.IO.Class
+
+import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -15,8 +16,6 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
-import Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Rewards as Rew
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -27,16 +26,16 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+import SchedulerTests.Helpers
+
 -- Test that sending to and from an account without credentials fails.
 
 -- Create initial state where alesAccount has a credential, but thomasAccount does not.
 initialBlockState :: BlockState
-initialBlockState =
-  emptyBlockState emptyBirkParameters dummyCryptographicParameters &
-    (blockAccounts .~ Acc.putAccountWithRegIds (mkAccount alesVK alesAccount 100000)
-                      (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)) .
-    (blockBank . Rew.totalGTU .~ 200000) .
-    (blockModules .~ (let (_, _, gs) = Init.baseState in Mod.fromModuleList (Init.moduleList gs)))
+initialBlockState = blockStateWithAlesAccount
+    100000
+    (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    200000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
@@ -58,28 +57,27 @@ transactionsInput =
          }
   ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   [Types.Transaction])
 
-testCredentialCheck
-  :: PR.Context Core.UA
-       IO
-       ([(Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)],
-        [Types.BareTransaction])
+testCredentialCheck :: PR.Context Core.UA IO TestResult
+       
 testCredentialCheck = do
-    transactions <- processTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
+    transactions <- processUngroupedTransactions transactionsInput
+    let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded, ftFailed, transactions)
+    return (getResults ftAdded, ftFailed, concat (Types.perAccountTransactions transactions))
 
-checkCredentialCheckResult :: ([(Types.BareTransaction, Types.ValidResult)],
-                               [(Types.BareTransaction, Types.FailureKind)],
-                               [Types.BareTransaction]) -> Expectation
+checkCredentialCheckResult :: TestResult -> Expectation
 checkCredentialCheckResult (suc, fails, transactions) =
   failsCheck >> rejectCheck >> nonrejectCheck
   where
@@ -92,13 +90,13 @@ checkCredentialCheckResult (suc, fails, transactions) =
         xs -> assertFailure $ "List should be a singleton:" ++ show xs
     rejectCheck =
       case last suc of
-        (tx, Types.TxReject (Types.ReceiverAccountNoCredential _) _ _) ->
-          assertEqual "The second transaction should be rejected." tx (transactions !! 1)
+        (tx, Types.TxReject (Types.ReceiverAccountNoCredential _)) ->
+          assertEqual "The second transaction should be rejected." tx (Types.NormalTransaction <$> (transactions !! 1))
         other -> assertFailure $ "Last recorded transaction should fail with no account credential: " ++ show other
     nonrejectCheck =
       case head suc of
         (tx, Types.TxSuccess{}) ->
-          assertEqual "The first transaction should be successful." tx (transactions !! 0)
+          assertEqual "The first transaction should be successful." tx (Types.NormalTransaction <$> (transactions !! 0))
         other -> assertFailure $ "First recorded transaction should be successful: " ++ show other
 
 

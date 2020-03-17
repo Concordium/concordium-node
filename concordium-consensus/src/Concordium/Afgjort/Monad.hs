@@ -3,7 +3,7 @@ module Concordium.Afgjort.Monad where
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Block
+import Concordium.GlobalState.Types
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Skov.Monad (UpdateResult)
@@ -18,13 +18,13 @@ class FinalizationOutputMonad m where
 class (Monad m) => FinalizationMonad m where
     -- |Notify finalization that a new block has been added to
     -- the block tree.
-    finalizationBlockArrival :: (BlockPointerData bp) => bp -> m ()
+    finalizationBlockArrival :: BlockPointerType m -> m ()
     -- |Notify finalization that a new block has become final.
     -- This should never be called with the genesis block. The
     -- block that is passed in must be the block that is finalized
     -- by the finalization record. This should only be called once
     -- per finalization, and finalizations must occur in order.
-    finalizationBlockFinal :: (BlockPointerData bp) => FinalizationRecord -> bp -> m ()
+    finalizationBlockFinal :: FinalizationRecord -> BlockPointerType m -> m ()
     -- |Notify finalization that a finalization message has been received.
     -- The result can be one of the following:
     --
