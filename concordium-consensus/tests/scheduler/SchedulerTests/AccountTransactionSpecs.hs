@@ -33,39 +33,15 @@ initialAmount = 0
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
 
-deployAccountCost :: Types.Energy
-deployAccountCost = Cost.deployCredential + Cost.checkHeader
-
-transactionsInput :: [TransactionJSON]
-transactionsInput =
-  [TJSON { payload = DeployCredential cdi1
-         , metadata = makeDummyHeader alesAccount 1 deployAccountCost
-         , keypair = alesKP
-         }
-  ,TJSON { payload = DeployCredential cdi2
-         , metadata = makeDummyHeader alesAccount 2 deployAccountCost
-         , keypair = alesKP
-         }
-  ,TJSON { payload = DeployCredential cdi3
-         , metadata = makeDummyHeader alesAccount 3 deployAccountCost
-         , keypair = alesKP
-         }
-  ,TJSON { payload = DeployCredential cdi4 -- should fail because repeated credential ID
-         , metadata = makeDummyHeader alesAccount 4 deployAccountCost
-         , keypair = alesKP
-         }
-  ,TJSON { payload = DeployCredential cdi5
-         , metadata = makeDummyHeader alesAccount 5 deployAccountCost
-         , keypair = alesKP
-         }
-  ,TJSON { payload = DeployCredential cdi6 -- deploy just a new predicate
-         , metadata = makeDummyHeader alesAccount 6 deployAccountCost
-         , keypair = alesKP
-         }
-  ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
-         , metadata = makeDummyHeader alesAccount 7 Cost.checkHeader
-         , keypair = alesKP
-         }
+transactionsInput :: [Types.CredentialDeploymentWithMeta]
+transactionsInput = map (Types.fromCDI 0) $ [
+  cdi1,
+  cdi2,
+  cdi3,
+  cdi4, -- should fail because repeated credential ID
+  cdi5,
+  cdi6, -- deploy just a new predicate
+  cdi7  -- should run out of gas (see initial amount on the sender account)
   ]
 
 testAccountCreation ::

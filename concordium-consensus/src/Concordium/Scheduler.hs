@@ -189,31 +189,31 @@ dispatch msg = do
                    -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
                    Transfer toaddr amount ->
                      handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
-
+       
                    Update amount cref maybeMsg ->
                      -- the payload size includes amount + address + message, but since the first two fields are
                      -- fixed size this is OK.
                      let msgSize = fromIntegral (thPayloadSize meta)
                      in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
-
+       
                    DeployEncryptionKey encKey ->
                      handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
-
+       
                    AddBaker{..} ->
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
-
+       
                    RemoveBaker{..} ->
                      handleRemoveBaker (mkWTC TTRemoveBaker) rbId rbProof
-
+       
                    UpdateBakerAccount{..} ->
                      handleUpdateBakerAccount (mkWTC TTUpdateBakerAccount) ubaId ubaAddress ubaProof
-
+       
                    UpdateBakerSignKey{..} ->
                      handleUpdateBakerSignKey (mkWTC TTUpdateBakerSignKey) ubsId ubsKey ubsProof
-
+       
                    DelegateStake{..} ->
                      handleDelegateStake (mkWTC TTDelegateStake) (Just dsID)
-
+       
                    UndelegateStake ->
                      handleDelegateStake (mkWTC TTUndelegateStake) Nothing
                    UpdateElectionDifficulty{..} ->
@@ -231,7 +231,7 @@ handleDeployModule ::
   -> m (Maybe TransactionSummary)
 handleDeployModule wtc psize mod =
   withDeposit wtc c k
-  where
+  where 
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
@@ -497,7 +497,7 @@ runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f =
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
-
+       
 handleDeployEncryptionKey ::
   SchedulerMonad m
     => WithDepositContext
@@ -764,7 +764,7 @@ handleUpdateElectionDifficulty wtc uedDifficulty =
 
 -- *Transactions without a sender
 handleDeployCredential ::
-  SchedulerMonad m =>
+  SchedulerMonad m => 
   -- |Credentials to deploy.
   ID.CredentialDeploymentInformation ->
   TransactionHash ->
@@ -926,7 +926,7 @@ filterTransactions maxSize inputTxs = do
                               ftUnprocessedCredentials = unprocessedCred,
                               ftFailedCredentials = invalidCred
                             }
-                  in return txs
+                  in return txs         
                 -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
                 -- with a SuccessorOfInvalidTransaction failure
                 invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
@@ -949,7 +949,7 @@ runTransactions = go []
                 go ((bi, summary):valid) ts
               (Just (TxInvalid reason), _) -> return (Left (Just reason))
               (Nothing, _) -> return (Left Nothing)
-
+          
           go valid [] = return (Right (reverse valid))
 
           predispatch :: BlockItem -> m (Maybe TxResult)

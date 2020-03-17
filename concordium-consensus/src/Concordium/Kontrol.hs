@@ -8,13 +8,13 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Rewards
-import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.BlockPointer
 import Concordium.Skov.Monad
 import Concordium.TimeMonad
 import Concordium.Afgjort.Finalize.Types
