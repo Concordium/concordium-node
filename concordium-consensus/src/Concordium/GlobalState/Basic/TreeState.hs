@@ -125,11 +125,6 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
-    importPendingBlock blockBS rectime =
-        case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
-            Left err -> return $ Left $ "Block deserialization failed: " ++ err
-            Right (GenesisBlock {}) -> return $ Left $ "Block deserialization failed: unexpected genesis block"
-            Right (NormalBlock block0) -> return $ Right $ makePendingBlock block0 rectime
     getBlockStatus bh = use (blockTable . at bh)
     makeLiveBlock block parent lastFin st () arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy

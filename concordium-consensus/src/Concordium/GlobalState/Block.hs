@@ -6,6 +6,7 @@ module Concordium.GlobalState.Block(
 
 import Data.Time
 import Data.Serialize
+import qualified Data.ByteString as ByteString
 
 import Concordium.Types
 import Concordium.Types.Transactions
@@ -284,3 +285,10 @@ signBlock key slot parent baker proof bnonce finData transactions
         preBlock sig
     where
         preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
+
+deserializePendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializePendingBlock blockBS rectime =
+    case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
+        Left err -> Left $ "Block deserialization failed: " ++ err
+        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
+        Right (NormalBlock block0) -> Right $ makePendingBlock block0 rectime

@@ -413,13 +413,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
       pb1 <- coerceGSML $ makePendingBlock sk sl parent bid bp bn lf trs1 brtime
       pb2 <- coerceGSMR $ makePendingBlock sk sl parent bid bp bn lf trs2 brtime
       return $ PairBlockData (pb1, pb2)
-    importPendingBlock bs t = do
-        r1 <- coerceGSML $ importPendingBlock bs t
-        r2 <- coerceGSMR $ importPendingBlock bs t
-        case (r1, r2) of
-            (Left e1, Left _) -> return $ Left e1
-            (Right pb1, Right pb2) -> return $ Right $ PairBlockData (pb1, pb2)
-            _ -> error "importPendingBlock (Paired): Only one import failed"
     getBlockStatus bh = do
         bs1 <- coerceGSML $ getBlockStatus bh
         bs2 <- coerceGSMR $ getBlockStatus bh
