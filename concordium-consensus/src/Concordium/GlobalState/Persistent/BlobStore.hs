@@ -1,6 +1,6 @@
 
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FunctionalDependencies, TypeFamilies, FlexibleInstances, QuantifiedConstraints,
-    GeneralizedNewtypeDeriving, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes,
+    GeneralizedNewtypeDeriving, BangPatterns, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes,
     ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable, DerivingStrategies, FlexibleContexts #-}
 {-|
 
@@ -164,7 +164,7 @@ class (MonadBlobStore m ref) => BlobStorable m ref a where
         bs <- loadRaw ref
         case runGet (load (Proxy :: Proxy ref)) bs of
             Left e -> error (e ++ " :: " ++ show bs)
-            Right mv -> mv
+            Right !mv -> mv
 
 newtype SerializeStorable v = SerStore v
     deriving newtype (Eq, Ord, Show, Serialize)
