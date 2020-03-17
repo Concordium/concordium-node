@@ -1,4 +1,4 @@
-  {-# LANGUAGE ConstraintKinds, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
+  {-# LANGUAGE ConstraintKinds, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, BangPatterns, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
 --
 -- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
@@ -309,7 +309,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
              case diskb of
                 Just diskBlock -> return $ Just diskBlock
                 _ -> return Nothing
-          _ -> return Nothing    
+          _ -> return Nothing
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
