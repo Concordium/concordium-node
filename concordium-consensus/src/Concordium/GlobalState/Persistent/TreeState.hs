@@ -249,11 +249,6 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
-    importPendingBlock blockBS rectime =
-        case runGet (getBlock $ utcTimeToTransactionTime rectime) blockBS of
-            Left err -> return $ Left $ "Block deserialization failed: " ++ err
-            Right GenesisBlock {} -> return $ Left "Block deserialization failed: unexpected genesis block"
-            Right (NormalBlock block0) -> return $ Right $  makePendingBlock block0 rectime
     getBlockStatus bh = do
       st <- use (blockTable . at bh)
       case st of

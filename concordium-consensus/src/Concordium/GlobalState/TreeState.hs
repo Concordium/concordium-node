@@ -97,14 +97,6 @@ class (Eq (BlockPointerType m),
         -> [BlockItem]      -- ^List of transactions
         -> UTCTime          -- ^Block receive time
         -> m (PendingBlockType m)
-    -- |Create a 'PendingBlock' from the raw block data.
-    -- If deserialisation fails, it returns an error.
-    -- Otherwise, it returns the block.
-    importPendingBlock ::
-        ByteString.ByteString
-                            -- ^Block data
-        -> UTCTime          -- ^Block received time
-        -> m (Either String PendingBlock)
 
     -- * Operations on the block table
     -- |Get the current status of a block.
@@ -279,7 +271,6 @@ class (Eq (BlockPointerType m),
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
-    importPendingBlock bdata rectime = lift $ importPendingBlock bdata rectime
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time energy = lift $ makeLiveBlock b parent lastFin st ati time energy
     markDead = lift . markDead
@@ -317,7 +308,6 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getRuntimeParameters = lift getRuntimeParameters
 
     {-# INLINE makePendingBlock #-}
-    {-# INLINE importPendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
     {-# INLINE markDead #-}
