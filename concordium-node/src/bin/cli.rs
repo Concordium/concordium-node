@@ -138,8 +138,6 @@ async fn main() -> Fallible<()> {
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
-    info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
-
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
         establish_connections(&conf, &node);

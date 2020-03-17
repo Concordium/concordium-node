@@ -496,6 +496,14 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
     info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
+    info!(
+        "Network: {}",
+        if conf.cli.no_network {
+            "disabled"
+        } else {
+            "enabled"
+        }
+    );
     info!("Log level: {}", log_lvl);
 
     Ok((conf, app_prefs))
