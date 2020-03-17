@@ -45,7 +45,7 @@ specialBetaAccounts = Set.fromList [alesAccount]
 testCasesSuccess :: [(TransactionJSON, (Double, [Types.Event]))]
 testCasesSuccess =
     let nonces = [1..]
-        legalElectionDifficulties = [0, 0.0001, 0.5, 0.99999, 1]
+        legalElectionDifficulties = [0, 0.0001, 0.5, 0.99999]
     in
       zip nonces legalElectionDifficulties <&> \(n, d) ->
       ( TJSON { payload = UpdateElectionDifficulty d
@@ -60,8 +60,8 @@ testCasesReject :: [(TransactionJSON, Types.RejectReason)]
 testCasesReject =
     let nonces = [1..]
         legalElectionDifficulty = 0.527583
-        illegalElectionDifficulties = [-0.00001, -0.5, -0.99999, -1, -2, -1000
-                                      ,1.000001, 1.5, 2.0, 3000]
+        illegalElectionDifficulties = [-0.00001, -0.5, -0.99999, -1, -2, -1000,
+                                        1, 1.000001, 1.5, 2.0, 3000]
     in zipWith (\n tc -> tc n) nonces
       (illegalElectionDifficulties <&> \d n ->
           ( TJSON { payload = UpdateElectionDifficulty d
