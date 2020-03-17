@@ -40,7 +40,7 @@ import Concordium.Scheduler.Utils.Init.Example as Example
 --import Debug.Trace
 import Concordium.Startup
 import Concordium.Crypto.DummyData (mateuszKP)
-import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize, dummyCryptographicParameters)
+import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
 
 nContracts :: Int
 nContracts = 2

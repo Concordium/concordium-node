@@ -9,6 +9,8 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 import System.Random
 import qualified Data.PQueue.Prio.Max as Queue
 
+import qualified Data.ByteString.Lazy.Char8 as BSL
+import System.IO.Unsafe
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -94,3 +96,11 @@ makeGenesisData
                           (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
+
+
+{-# WARNING dummyCryptographicParameters "Do not use in production" #-}
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+  case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "scheduler/testdata/global.json") of
+    Nothing -> error "Could not read cryptographic parameters."
+    Just params -> params
