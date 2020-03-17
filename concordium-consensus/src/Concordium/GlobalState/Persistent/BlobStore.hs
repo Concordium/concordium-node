@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FunctionalDependencies, TypeFamilies, FlexibleInstances, QuantifiedConstraints,
     GeneralizedNewtypeDeriving, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes,
     ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable, DerivingStrategies, FlexibleContexts #-}
-{-| 
+{-|
 
 -}
 module Concordium.GlobalState.Persistent.BlobStore where
@@ -48,22 +48,20 @@ class HasBlobStore a where
 instance HasBlobStore BlobStore where
     blobStore = id
 
-createTempBlobStore :: IO BlobStore
-createTempBlobStore = do
-    tempDir <- getTemporaryDirectory
-    (tempFP, h) <- openBinaryTempFile tempDir "blb.dat"
-    mv <- newMVar h
-    return $! BlobStore mv tempFP
+createTempBlobStore :: FilePath -> IO BlobStore
+createTempBlobStore blobStoreFilePath = do
+    h <- openBinaryFile blobStoreFilePath ReadWriteMode
+    blobStoreFile <- newMVar h
+    return $! BlobStore{..}
 
 destroyTempBlobStore :: BlobStore -> IO ()
 destroyTempBlobStore BlobStore{..} = do
     h <- takeMVar blobStoreFile
     hClose h
-    removeFile blobStoreFilePath
 
 runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
 runBlobStoreTemp dir a = bracket openf closef usef
-    where 
+    where
         openf = openBinaryTempFile dir "blb.dat"
         closef (tempFP, h) = do
             hClose h
@@ -292,7 +290,7 @@ uncacheBuffered b = return b
 
 
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f)) }
-    
+
 deriving instance (forall a. Serialize (ref a)) => Serialize (Blobbed ref f)
 
 instance (MonadBlobStore m ref) => BlobStorable m ref (Blobbed ref f)
@@ -398,4 +396,3 @@ instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicPa
 -- This is potentially quite wasteful when only small changes are made.
 instance (MonadBlobStore m ref) => BlobStorable m ref Account
 instance (MonadBlobStore m ref) => BlobStorable m ref Word64
-

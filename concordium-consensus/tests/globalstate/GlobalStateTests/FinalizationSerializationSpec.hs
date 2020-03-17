@@ -12,10 +12,8 @@ import qualified Data.Serialize.Put as P
 import qualified Data.Serialize.Get as G
 import Data.ByteString.Lazy as LBS
 import Concordium.Crypto.SHA256(Hash(..))
-import Concordium.Crypto.BlockSignature(Signature(..), signatureLength)
 import Concordium.Crypto.BlsSignature as Bls
 import Data.FixedByteString as FBS
-import qualified Data.ByteString.Short as BSS
 
 import Concordium.Types
 import Concordium.GlobalState.Finalization
@@ -37,7 +35,6 @@ genFinalizationRecord = do
     l <- choose (0,200) -- between 0 and 200 parties, inclusive
     parties <- replicateM l $ do
       party <- arbitrary
-      bs <- BSS.pack <$> vector signatureLength
       return party
     return (parties, makesig l)
   finalizationDelay <- BlockHeight <$> arbitrary
