@@ -29,8 +29,6 @@ stages:
   before_script:
     - rustc --version && cargo --version
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
-    - git submodule sync --recursive
-    - git submodule update --init --remote --recursive
 
 .generic-haskell-build:
   extends: .generic
