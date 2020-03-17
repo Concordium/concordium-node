@@ -260,11 +260,12 @@ purgeTransactionTable :: (MonadIO (PersistentTreeStateMonad ati bs m),
 purgeTransactionTable = do
   purgeCount <- use transactionTablePurgeCounter
   RuntimeParameters{..} <- use runtimeParameters
-  when (purgeCount `rem` rpInsertionsBeforeTransactionPurge == 0) $ do
+  when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
     tt <- use transactionTable
     pt <- use pendingTransactions
     txHighestNonces <- removeTransactions tt rpTransactionsKeepAliveTime
     pendingTransactions .= rollbackNonces txHighestNonces pt
+    transactionTablePurgeCounter .= 0
  where
    removeTransactions TransactionTable{..} kat = do
      tm <- liftIO (utcTimeToTransactionTime <$> getCurrentTime)
@@ -294,7 +295,7 @@ purgeTransactionTable = do
          allDeletes = concatMap (\(x,_,_) -> x) results
          !newNFT = fromList $ Prelude.map (\(_, y, _) -> y) results
          highestNonces = Prelude.map (\(_,_,z) -> z) results
-         !newTMap = foldl (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
+         !newTMap = foldl' (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
      transactionTable .= TransactionTable{_ttHashMap = newTMap, _ttNonFinalizedTransactions = newNFT}
      return highestNonces
 
