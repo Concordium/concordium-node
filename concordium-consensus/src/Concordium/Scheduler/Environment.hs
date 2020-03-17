@@ -389,7 +389,7 @@ runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEn
   (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
   return (a, s')
 
-  where ctx = TransactionContext{..}
+  where !ctx = TransactionContext{..}
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
@@ -549,7 +549,7 @@ instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
       Just (_, viface) -> return $ Map.lookup n (viDefs viface)
 
   tryGetLinkedExpr mref n = liftLocal (smTryGetLinkedExpr mref n)
-    
+
   putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
 
 
@@ -610,7 +610,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   getCurrentAccountAmount acc = do
     let addr = acc ^. accountAddress
     let amnt = acc ^. accountAmount
-    txCtx <- ask
+    !txCtx <- ask
     -- additional delta that arises due to the deposit
     let additionalDelta =
           if txCtx ^. tcTxSender == addr
@@ -660,7 +660,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
             return linked
           Just cv -> return cv
       Just cv -> return cv
-      
+
   {-# INLINE getEnergy #-}
   getEnergy = use energyLeft
 
