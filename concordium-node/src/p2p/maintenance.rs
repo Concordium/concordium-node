@@ -203,7 +203,7 @@ impl P2PNode {
                 .expect("Port not properly formatted. Crashing.")
         };
 
-        trace!("Creating new P2PNode");
+        trace!("Creating a new P2PNode");
 
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy)
@@ -211,8 +211,6 @@ impl P2PNode {
         } else {
             P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
-
-        debug!("Listening on {}:{}", ip.to_string(), conf.common.listen_port);
 
         let id = if let Some(s) = supplied_id {
             if s.chars().count() != 16 {
@@ -228,6 +226,7 @@ impl P2PNode {
         };
 
         info!("My Node ID is {}", id);
+        debug!("Listening on {}:{}", ip.to_string(), conf.common.listen_port);
 
         let poll = Poll::new().expect("Couldn't create poll");
         let mut server = TcpListener::bind(addr).expect("Couldn't listen on port");
@@ -526,7 +525,6 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
             // perform socket reads and writes in parallel across connections
             // check for new connections
             let _new_conn = if events.iter().any(|event| event.token() == SELF_TOKEN) {
-                debug!("Got a new connection!");
                 accept(&node).map_err(|e| error!("{}", e)).ok()
             } else {
                 None

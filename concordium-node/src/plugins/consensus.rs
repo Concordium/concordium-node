@@ -379,7 +379,7 @@ fn send_catch_up_status(
 
 /// Updates the peer list upon changes to the list of peer nodes.
 pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
-    debug!("The peers have changed; updating the catch-up peer list");
+    trace!("The peers have changed; updating the catch-up peer list");
 
     let peer_ids = node.get_node_peer_ids();
 
