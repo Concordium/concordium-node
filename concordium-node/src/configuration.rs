@@ -140,6 +140,18 @@ pub struct BakerConfig {
     )]
     pub maximum_block_size: u32,
     #[structopt(
+        long = "transaction-insertions-before-purge",
+        help = "Number of transaction insertions between purges on the transaction table",
+        default_value = "1000"
+    )]
+    pub transaction_insertions_before_purge: u32,
+    #[structopt(
+        long = "transaction_keep_alive",
+        help = "Time during which a transaction can not be purged in seconds",
+        default_value = "600"
+    )]
+    pub transaction_keep_alive: u32,
+    #[structopt(
         long = "scheduler-outcome-logging",
         help = "Enable outcome of finalized baked blocks from the scheduler"
     )]
