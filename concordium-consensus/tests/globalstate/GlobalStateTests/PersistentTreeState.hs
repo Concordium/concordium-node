@@ -20,7 +20,6 @@ import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
-import Concordium.Startup
 import Concordium.Types
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Time.Clock.POSIX
