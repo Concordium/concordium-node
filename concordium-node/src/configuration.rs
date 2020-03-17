@@ -575,6 +575,15 @@ pub fn parse_config() -> Fallible<Config> {
         }
     }
 
+    #[cfg(feature = "instrumentation")]
+    {
+        ensure!(
+            conf.prometheus.prometheus_server || conf.prometheus.prometheus_push_gateway.is_some(),
+            "The instrumentation feature requires either prometheus-server or \
+             prometheus-push-gateway argument to be set"
+        );
+    }
+
     Ok(conf)
 }
 

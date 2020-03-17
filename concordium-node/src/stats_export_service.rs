@@ -516,8 +516,7 @@ pub fn instantiate_stats_export_engine(
         info!("Enabling prometheus push gateway at {}", push_gateway);
         StatsExportService::new()?
     } else {
-        warn!("Couldn't instantiate prometheus due to lacking config flags");
-        StatsExportService::new()?
+        unreachable!(); // ensured in configuration.rs
     };
     Ok(Arc::new(prom))
 }
