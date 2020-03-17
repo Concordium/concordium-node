@@ -310,6 +310,11 @@ runWithConsensus PassiveRunnerWithLog{..} = runSkovPassive passiveSyncRunnerWith
 defaultEarlyBlockThreshold :: Timestamp
 defaultEarlyBlockThreshold = 30
 
+-- |Default value for early block threshold.
+-- Set to 30 seconds.
+defaultEarlyBlockThreshold :: Timestamp
+defaultEarlyBlockThreshold = 30
+
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
