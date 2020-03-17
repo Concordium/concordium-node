@@ -508,7 +508,7 @@ pub fn send_direct_message(
     target_id: P2PNodeId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
-) {
+) -> usize {
     send_message_over_network(node, Some(target_id), vec![], network_id, msg)
 }
 
@@ -519,7 +519,7 @@ pub fn send_broadcast_message(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
-) {
+) -> usize {
     send_message_over_network(node, None, dont_relay_to, network_id, msg)
 }
 
@@ -530,7 +530,7 @@ fn send_message_over_network(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     message: Arc<[u8]>,
-) {
+) -> usize {
     let destination = if let Some(target_id) = target_id {
         PacketDestination::Direct(target_id)
     } else {
@@ -556,8 +556,10 @@ fn send_message_over_network(
         if sent_packets > 0 {
             trace!("{} peer(s) will receive the packet", sent_packets);
         }
+        sent_packets
     } else {
         error!("Couldn't send a packet");
+        0
     }
 }
 
