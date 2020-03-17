@@ -41,6 +41,7 @@ import Concordium.GlobalState
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
@@ -53,7 +54,7 @@ import Concordium.TimeMonad
 
 import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParameters)
 
-import Concordium.Startup(makeBakerAccount, dummyCryptographicParameters)
+import Concordium.Startup (makeBakerAccountKP, dummyCryptographicParameters)
 
 import Concordium.Crypto.DummyData
 
@@ -66,8 +67,14 @@ import Test.Hspec
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-finalizationParameters :: FinalizationParameters
-finalizationParameters = FinalizationParameters 2 1000
+finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
+finalizationParameters = FinalizationParameters 2
+
+defaultMaxFinComSize :: FinalizationCommitteeSize
+defaultMaxFinComSize = 1000
+
+maxFinComSizeChangingFinCommittee :: FinalizationCommitteeSize
+maxFinComSizeChangingFinCommittee = 10
 
 type Trs = HM.HashMap TransactionHash (Transaction, Slot)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
@@ -178,8 +185,8 @@ invariantSkovData TS.SkovData{..} = do
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
 
-invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> Either String ()
-invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker = do
+invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
+invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _) baker maxFinComSize = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -187,9 +194,9 @@ invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} 
         let prevState  = BS._bpState lfb
             prevBakers = _birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ BState._blockBank prevState
-        checkBinary (==) _finsCommittee (makeFinalizationCommittee finalizationParameters prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee (finalizationParameters maxFinComSize) prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
-        -- The baker should be a member of the finalization committee if the baker's stake exceeds 0.1% of the total stake
+        -- The baker should be a member of the finalization committee if the baker's stake exceeds 1/maxFinComSize of the total stake
         when bakerInFinCommittee $ do
             when (null _finsCurrentRound) $ Left "No current finalization round"
             invariantSkovFinalizationForFinMember s lfr lfb
@@ -271,7 +278,7 @@ selectFromSeq g s =
 
 newtype DummyTimer = DummyTimer Integer
 
-type States = Vec.Vector (BakerIdentity, BakerInfo, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
+type States = Vec.Vector (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 
 data ExecState = ExecState {
     _esEventPool :: EventPool,
@@ -310,22 +317,27 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
 myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
 
--- TODO (MR) increase number of bakers and create transactions that will make it likely that fin committee changes
+type FinComParties = Set.Set (Set.Set Sig.VerifyKey)
 
-runKonsensusTest :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
-runKonsensusTest steps g states es
-        | steps <= 0 = return $ label ("fin length: " ++ show (maximum $ (\s -> s ^. _4 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
+runKonsensusTest :: RandomGen g => FinalizationCommitteeSize -> Maybe FinComParties -> Int -> g -> States -> ExecState -> IO Property
+runKonsensusTest maxFinComSize collectedFinComParties steps g states es
+        | steps <= 0 = return $
+            if any ((1 >=) . Set.size) collectedFinComParties
+            then counterexample "Parties of finalization committee should change at least once." False
+            else label ("fin length: " ++ show (maximum $ (\s -> s ^. _5 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
-            let (bkr, bkrInfo, fi, fs) = states Vec.! rcpt
+            let (bkr, bkrInfo, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
-            let continue fs' es' = case invariantSkovFinalization fs' bkrInfo of
+            let continue fs'@(SkovState _ fState _) es' = case invariantSkovFinalization fs' bkrInfo maxFinComSize of
                     Left err -> return $ counterexample ("Invariant failed: " ++ err) False
                     Right _ -> do
-                        let states' = states & ix rcpt . _4 .~ fs'
-                        runKonsensusTest (steps - 1) g' states' es'
+                        let states' = states & ix rcpt . _5 .~ fs'
+                            newCollectedFinComParties = collectedFinComParties <&>
+                              Set.insert (Set.fromList $ partySignKey <$> (Vec.toList . parties) (_finsCommittee fState))
+                        runKonsensusTest maxFinComSize newCollectedFinComParties (steps - 1) g' states' es'
             let handlers = dummyHandlers rcpt btargets
             case ev of
                 EBake sl -> do
@@ -350,10 +362,16 @@ runKonsensusTest steps g states es
                     continue fs' es'
                 ETimer t timerEvent -> do
                     if t `Set.member` (es ^. esCancelledTimers) then
-                        runKonsensusTest steps g' states (es1 & esCancelledTimers %~ Set.delete t)
+                        runKonsensusTest maxFinComSize collectedFinComParties steps g' states (es1 & esCancelledTimers %~ Set.delete t)
                     else do
                         (_, fs', es') <- myRunSkovT timerEvent handlers fi fs es1
                         continue fs' es'
+
+runKonsensusTestForChangingFinCommittee :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
+runKonsensusTestForChangingFinCommittee = runKonsensusTest maxFinComSizeChangingFinCommittee (Just Set.empty)
+
+runKonsensusTestDefault :: RandomGen g => Int -> g -> States -> ExecState -> IO Property
+runKonsensusTestDefault = runKonsensusTest defaultMaxFinComSize Nothing
 
 nAccounts :: Int
 nAccounts = 2
@@ -366,19 +384,31 @@ genTransactions n = mapM gent (take n [minNonce..])
             g <- arbitrary
             return $ Example.makeTransaction f (ContractAddress (fromIntegral $ g `mod` nAccounts) 0) nnce
 
+genTransferTransactions :: GTU -> GTU -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BareTransaction]
+genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromList $ zip (snd <$> kpAccountPairs) $ repeat minNonce
+  where gtt :: [BareTransaction] -> Map.Map AccountAddress Nonce -> Int -> Gen [BareTransaction]
+        gtt ts _ 0          = return ts
+        gtt ts accToNonce m = do
+          amount  <- Amount <$> choose (minAmount, maxAmount)
+          fromAcc <- elements kpAccountPairs
+          toAcc   <- elements kpAccountPairs `suchThat` (/= fromAcc)
+          let fromAddress = snd fromAcc
+              nonce = accToNonce Map.! fromAddress
+              t = Example.makeTransferTransaction fromAcc (snd toAcc) amount nonce
+          gtt (t : ts) (Map.insert fromAddress (nonce + 1) accToNonce) (m - 1)
 
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
-makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account)
+makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account, SigScheme.KeyPair)
 makeBaker bid initAmount = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- genBlockKeyPair
         blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
-        let account = makeBakerAccount bid initAmount
-        return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account)
+        let (account, kp) = makeBakerAccountKP bid initAmount
+        return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account, kp)
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
@@ -386,24 +416,48 @@ dummyIdentityProviders = []
 mateuszAmount :: Amount
 mateuszAmount = Amount (2 ^ (40 :: Int))
 
-initialiseStates :: Int -> PropertyM IO States
-initialiseStates n = do
+initialiseStates :: Int -> FinalizationCommitteeSize -> PropertyM IO States
+initialiseStates n maxFinComSize = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i (mateuszAmount * 4))) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] finalizationParameters dummyCryptographicParameters dummyIdentityProviders 10
-        res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
+            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
+            gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10
+        res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts mateuszAmount))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts mateuszAmount))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config
-                                return (bid, binfo, initCtx, initState)
+                                return (bid, binfo, kp, initCtx, initState)
                              ) bis
         return $ Vec.fromList res
+
+initialiseStatesTransferTransactions :: Int -> Int -> Amount -> Amount -> FinalizationCommitteeSize -> PropertyM IO States
+initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = do
+        let fs          = [0..fromIntegral f - 1]
+            bs          = fromIntegral <$> [fromIntegral f..f + b - 1]
+            finComStake = averageStake + stakeDiff
+            restStake   = averageStake - stakeDiff
+            bakers s    = mapM (\i -> (i,) <$> pick (makeBaker i s))
+        finBs    <- bakers finComStake fs
+        nonFinBs <- bakers restStake bs
+        let bis = finBs ++ nonFinBs
+            genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
+            bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
+            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
+            gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10
+            createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
+                                       let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
+                                           config = SkovConfig
+                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts []))
+                                               (ActiveFinalization fininst gen)
+                                               NoHandler
+                                       (initCtx, initState) <- liftIO $ initialiseSkov config
+                                       return (bid, binfo, kp, initCtx, initState))
+        Vec.fromList <$> createStates bis
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
@@ -417,23 +471,37 @@ instance Show SkovActiveState where
     show sfs = show (sfs ^. TS.skov)
 -}
 
-withInitialStates :: Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
-withInitialStates n r = monadicIO $ do
-        s0 <- initialiseStates n
+withInitialStates :: Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
+withInitialStates n maxFinComSize r = monadicIO $ do
+        s0 <- initialiseStates n maxFinComSize
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (makeExecState $ initialEvents s0)
 
-withInitialStatesTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
-withInitialStatesTransactions n trcount r = monadicIO $ do
-        s0 <- initialiseStates n
+withInitialStatesTransactions :: Int -> Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
+withInitialStatesTransactions n trcount maxFinComSize r = monadicIO $ do
+        s0 <- initialiseStates n maxFinComSize
         trs <- pick . genTransactions $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
         now <- liftIO getTransactionTime
         liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n-1], tr <- trs])
 
-withInitialStatesDoubleTransactions :: Int -> Int -> (StdGen -> States -> ExecState -> IO Property) -> Property
-withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
-        s0 <- initialiseStates n
+withInitialStatesTransferTransactions :: Int -> Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
+withInitialStatesTransferTransactions n trcount maxFinComSize r = monadicIO $ do
+        let finComSize = n `div` 2
+            averageStake = 10 ^ (15 :: Int)
+            stakeDiff = 500
+            minTransferAmount = 10 ^ (3 :: Int)
+            maxTransferAmount = 10 ^ (6 :: Int)
+        s0 <- initialiseStatesTransferTransactions finComSize (n - finComSize) averageStake stakeDiff maxFinComSize
+        let kpAddressPairs = Vec.toList $ (\(_, binfo, kp, _, _) -> (kp, _bakerAccount binfo)) <$> s0
+        trs <- pick . genTransferTransactions minTransferAmount maxTransferAmount kpAddressPairs $ trcount
+        gen <- pick $ mkStdGen <$> arbitrary
+        now <- liftIO getTransactionTime
+        liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction (fromBareTransaction now tr)) | x <- [0..n - 1], tr <- trs])
+
+withInitialStatesDoubleTransactions :: Int -> Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
+withInitialStatesDoubleTransactions n trcount maxFinComSize r = monadicIO $ do
+        s0 <- initialiseStates n maxFinComSize
         trs0 <- pick . genTransactions $ trcount
         trs <- (trs0 ++) <$> pick (genTransactions trcount)
         gen <- pick $ mkStdGen <$> arbitrary
@@ -443,9 +511,10 @@ withInitialStatesDoubleTransactions n trcount r = monadicIO $ do
 
 tests :: Word -> Spec
 tests lvl = parallel $ describe "Concordium.Konsensus" $ do
-    it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 $ runKonsensusTest 100
-    it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 $ runKonsensusTest 100
-    it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 $ runKonsensusTest 1000
-    it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 $ runKonsensusTest 100
-    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 $ runKonsensusTest 10000
-    it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 $ runKonsensusTest 10000
+    it "2 parties, 100 steps, 20 transactions with duplicates, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesDoubleTransactions 2 10 defaultMaxFinComSize $ runKonsensusTestDefault 100
+    it "2 parties, 100 steps, 10 transactions, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStatesTransactions 2 10 defaultMaxFinComSize $ runKonsensusTestDefault 100
+    it "2 parties, 1000 steps, 50 transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransactions 2 50 defaultMaxFinComSize $ runKonsensusTestDefault 1000
+    it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 100
+    it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 10000
+    it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 defaultMaxFinComSize $ runKonsensusTestDefault 10000
+    it "10 parties, 10000 steps, 15 transfer transactions, check every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 15 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000

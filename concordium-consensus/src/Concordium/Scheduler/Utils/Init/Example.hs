@@ -2,7 +2,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
-    (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
+    (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction,
+     mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
 
 import qualified Data.HashMap.Strict as Map
 
@@ -106,6 +107,31 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
                                                               [Core.Literal (Core.Int64 10)])
                                                     )
+{-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
+makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BareTransaction
+makeTransferTransaction (fromKP, fromAddress) toAddress amount n = Runner.signTx fromKP header payload
+    where
+        header = Runner.TransactionHeader{
+            thNonce = n,
+            thSender = fromAddress,
+            thEnergyAmount = fromIntegral amount + 1000000, -- TODO (MR) Is that a good idea?
+            thExpiry = dummyMaxTransactionExpiryTime
+        }
+        payload = Types.encodePayload (Types.Transfer (AddressAccount toAddress) amount)
+
+initialStateWithMateuszAccount :: BirkParameters
+                               -> CryptographicParameters
+                               -> [Account]
+                               -> [Types.IpInfo]
+                               -> Int
+                               -> Amount
+                               -> BlockState.BlockState
+initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amount =
+  initialState birkParams cryptoParams bakerAccounts ips n [createCustomAccount amount mateuszKP mateuszAccount]
+    where createCustomAccount amnt kp address =
+              newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address
+                  & (accountAmount .~ amnt)
+                  . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime))
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}
@@ -114,17 +140,14 @@ initialState :: BirkParameters
              -> [Account]
              -> [Types.IpInfo]
              -> Int
-             -> Amount
+             -> [Account]
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n mateuszAmount =
+initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
-                          & (accountAmount .~ mateuszAmount)
-                          . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential mateuszAccount dummyMaxExpiryTime))]
         allAccounts = customAccounts ++ bakerAccounts
         initAccount = foldl (flip Acc.putAccountWithRegIds)
                             Acc.emptyAccounts

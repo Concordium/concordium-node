@@ -128,7 +128,7 @@ dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Example.initialState
+genesisState genData = Example.initialStateWithMateuszAccount
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)

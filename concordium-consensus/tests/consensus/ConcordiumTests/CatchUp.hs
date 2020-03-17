@@ -15,6 +15,7 @@ import Data.Serialize
 import Data.Maybe
 
 import Concordium.Crypto.SHA256
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 
 import qualified Concordium.GlobalState.Basic.Block as B
 import qualified Concordium.GlobalState.Basic.BlockPointer as BS
@@ -49,10 +50,10 @@ runKonsensus steps g states es
     | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
-            let (bkr, _, fi, fs) = states Vec.! rcpt
+            let (bkr, _, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             let continue fs' es' = do
-                        let states' = states & ix rcpt . _4 .~ fs'
+                        let states' = states & ix rcpt . _5 .~ fs'
                         runKonsensus (steps - 1) g' states' es'
             let handlers = dummyHandlers rcpt btargets
             case ev of
@@ -91,16 +92,16 @@ initialiseStatesDictator n = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
             fps = FinalizationParameters 2 1000
-            bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
+            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10
-        res <- liftIO $ mapM (\(_, (binfo, bid, _)) -> do
+        res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config
-                                return (bid, binfo, initCtx, initState)
+                                return (bid, binfo, kp, initCtx, initState)
                              ) bis
         return $ Vec.fromList res
 
@@ -125,8 +126,8 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
-catchUpCheck :: (BakerIdentity, BakerInfo, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, BakerInfo, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
-catchUpCheck (_, _, c1, s1) (_, _, c2, s2) = do
+catchUpCheck :: (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
+catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request) c2 s2
         monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show response ++ "\n"

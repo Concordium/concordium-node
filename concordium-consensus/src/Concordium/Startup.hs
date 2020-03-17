@@ -45,11 +45,12 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 account = makeBakerAccount bid 1000000000000
 
 -- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
-makeBakerAccount :: BakerId -> Amount -> Account
-makeBakerAccount bid amount =
-    acct {_accountAmount = amount,
-          _accountStakeDelegate = Just bid,
-          _accountCredentials = credentialList}
+makeBakerAccountKP :: BakerId -> Amount -> (Account, SigScheme.KeyPair)
+makeBakerAccountKP bid amount =
+    (acct {_accountAmount = amount,
+           _accountStakeDelegate = Just bid,
+           _accountCredentials = credentialList},
+     kp)
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credentialList = Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime)
@@ -58,6 +59,9 @@ makeBakerAccount bid amount =
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
+
+makeBakerAccount :: BakerId -> Amount -> Account
+makeBakerAccount bid = fst . makeBakerAccountKP bid
 
 makeGenesisData ::
     Timestamp -- ^Genesis time
