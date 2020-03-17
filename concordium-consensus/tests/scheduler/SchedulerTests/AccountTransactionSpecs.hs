@@ -9,7 +9,6 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState
@@ -29,7 +28,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialAmount :: Types.Amount
-initialAmount = fromIntegral (6 * Cost.deployCredential + 7 * Cost.checkHeader)
+initialAmount = 0
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
@@ -37,15 +36,36 @@ initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts in
 deployAccountCost :: Types.Energy
 deployAccountCost = Cost.deployCredential + Cost.checkHeader
 
-transactionsInput :: [Types.CredentialDeploymentWithMeta]
-transactionsInput = map (Types.fromCDI 0) $ [
-  cdi1,
-  cdi2,
-  cdi3,
-  cdi4, -- should fail because repeated credential ID
-  cdi5,
-  cdi6, -- deploy just a new predicate
-  cdi7  -- should run out of gas (see initial amount on the sender account)
+transactionsInput :: [TransactionJSON]
+transactionsInput =
+  [TJSON { payload = DeployCredential cdi1
+         , metadata = makeDummyHeader alesAccount 1 deployAccountCost
+         , keypair = alesKP
+         }
+  ,TJSON { payload = DeployCredential cdi2
+         , metadata = makeDummyHeader alesAccount 2 deployAccountCost
+         , keypair = alesKP
+         }
+  ,TJSON { payload = DeployCredential cdi3
+         , metadata = makeDummyHeader alesAccount 3 deployAccountCost
+         , keypair = alesKP
+         }
+  ,TJSON { payload = DeployCredential cdi4 -- should fail because repeated credential ID
+         , metadata = makeDummyHeader alesAccount 4 deployAccountCost
+         , keypair = alesKP
+         }
+  ,TJSON { payload = DeployCredential cdi5
+         , metadata = makeDummyHeader alesAccount 5 deployAccountCost
+         , keypair = alesKP
+         }
+  ,TJSON { payload = DeployCredential cdi6 -- deploy just a new predicate
+         , metadata = makeDummyHeader alesAccount 6 deployAccountCost
+         , keypair = alesKP
+         }
+  ,TJSON { payload = DeployCredential cdi7  -- should run out of gas (see initial amount on the sender account)
+         , metadata = makeDummyHeader alesAccount 7 Cost.checkHeader
+         , keypair = alesKP
+         }
   ]
 
 testAccountCreation ::
@@ -87,6 +107,7 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
   length fails == 1 && -- all but the 4'th transaction should fail.
   txsuc &&
   txstateAccs &&
+  noCost &&
   stateInvariant
   where txsuc = case suc of
           [(_, a11), (_, a12),(_, a13),(_, a15),(_, a16),(_, a17)] |
@@ -100,6 +121,7 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
         txstateAccs = case stateAccs of
                         [Just _, Just _, Just _, Just _, Just _] -> True
                         _ -> False
+        noCost = stateAles ^. Types.accountAmount == initialAmount && bankState ^. Types.executionCost == 0
         stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
 
 tests :: Spec

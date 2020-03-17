@@ -30,7 +30,6 @@ import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Block as B
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Basic.BlockPointer
-import qualified Concordium.GlobalState.Basic.BlockPointer as BP
 import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.BlockPointer (bpHash, bpHeight)
@@ -241,7 +240,7 @@ invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} 
         where bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
               bakerEqParty PartyInfo{..} = bakerInfoToVoterInfo baker == VoterInfo partySignKey partyVRFKey partyWeight partyBlsKey
 
-invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BP.BasicBlockPointer BState.BlockState -> Either String ()
+invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BasicBlockPointer BState.BlockState -> Either String ()
 invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _ _) lfr lfb = do
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
             checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
@@ -314,7 +313,7 @@ type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT ExecState 
 
 data Event
     = EBake Slot
-    | EBlock B.BakedBlock
+    | EBlock BakedBlock
     | ETransaction BlockItem
     | EFinalization FinalizationPseudoMessage
     | EFinalizationRecord FinalizationRecord

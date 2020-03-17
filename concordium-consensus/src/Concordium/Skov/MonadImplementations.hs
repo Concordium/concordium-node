@@ -32,8 +32,8 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update

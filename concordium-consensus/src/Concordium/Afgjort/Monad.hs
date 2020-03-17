@@ -3,7 +3,7 @@ module Concordium.Afgjort.Monad where
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Types
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Skov.Monad (UpdateResult)

@@ -28,9 +28,11 @@ import qualified Concordium.Scheduler.Cost as Cost
 
 import Control.Applicative
 import Control.Monad.Except
+import Control.Exception
 import qualified Data.HashMap.Strict as Map
 import Data.Maybe(fromJust, isJust)
 import qualified Data.Set as Set
+import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
@@ -61,11 +63,19 @@ existsValidCredential cm acc = do
 --  * the transaction is not expired.
 -- The valid sender means that the sender account has at least one valid credential,
 -- where currently valid means non-expired.
-checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m Account
+--
+-- Before any other checks this checks wheter the amount deposited is enough to cover
+-- the cost that will be charged for checking the header.
+--
+-- Returns the sender account and the cost to be charged for checking the header.
+checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m (Account, Energy)
 checkHeader meta = do
-  unless (transactionGasAmount meta >= Cost.minimumDeposit) $ throwError (Just DepositInsufficient)
+  -- Before even checking the header we calculate the cost that will be charged to do so
+  -- and check that at least that much energy is deposited.
+  let cost = Cost.checkHeader (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
+  unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
   remainingBlockEnergy <- lift getRemainingEnergy
-  unless (remainingBlockEnergy >= Cost.minimumDeposit) $ throwError Nothing
+  unless (remainingBlockEnergy >= cost) $ throwError Nothing
   macc <- lift (getAccount (transactionSender meta))
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
@@ -87,7 +97,7 @@ checkHeader meta = do
       unless (txnonce == nextNonce) (throwError . Just $ (NonSequentialNonce nextNonce))
       let sigCheck = verifyTransaction (acc ^. accountVerificationKeys) meta
       unless sigCheck (throwError . Just $ IncorrectSignature)
-      return acc
+      return (acc, cost)
 
 -- TODO: When we have policies checking one sensible approach to rewarding
 -- identity providers would be as follows.
@@ -117,7 +127,7 @@ dispatch msg = do
   case validMeta of
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
-    Right senderAccount -> do
+    Right (senderAccount, cost) -> do
       -- at this point the transaction is going to be commited to the block.
       -- It could be that the execution exceeds maximum block energy allowed, but in that case
       -- the whole block state will be removed, and thus this operation will have no effect anyhow.
@@ -135,15 +145,14 @@ dispatch msg = do
       -- account. This is deducted prior to execution and refunded at the end,
       -- if there is any left.
       let psize = payloadSize (transactionPayload msg)
-      -- TODO: Charge a small amount based just on transaction size.
+      -- TODO: Check whether the cost for deserializing the transaction is sufficiently covered
+      -- by the cost for checking the header (which is linear in the transaction size).
 
       tsIndex <- bumpTransactionIndex
       case decodePayload (transactionPayload msg) of
         Left _ -> do
           -- in case of serialization failure we charge the sender for checking
           -- the header and reject the transaction
-          -- FIXME: Add charge based on transaction size.
-          let cost = Cost.checkHeader
           payment <- energyToGtu cost
           chargeExecutionCost (transactionHash msg) senderAccount payment
           return $! Just $! TxValid $! TransactionSummary{
@@ -161,8 +170,9 @@ dispatch msg = do
                 _wtcSenderAccount = senderAccount,
                 _wtcTransactionHash = transactionHash msg,
                 _wtcTransactionHeader = meta,
+                _wtcTransactionCheckHeaderCost = cost,
                 -- NB: We already account for the cost we used here.
-                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + Cost.checkHeader,
+                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + cost,
                 _wtcTransactionIndex = tsIndex,
                 ..}
           res <- case payload of
@@ -179,34 +189,35 @@ dispatch msg = do
                    -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
                    Transfer toaddr amount ->
                      handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
-       
+
                    Update amount cref maybeMsg ->
                      -- the payload size includes amount + address + message, but since the first two fields are
                      -- fixed size this is OK.
                      let msgSize = fromIntegral (thPayloadSize meta)
                      in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
-       
+
                    DeployEncryptionKey encKey ->
                      handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
-       
+
                    AddBaker{..} ->
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
-       
+
                    RemoveBaker{..} ->
                      handleRemoveBaker (mkWTC TTRemoveBaker) rbId rbProof
-       
+
                    UpdateBakerAccount{..} ->
                      handleUpdateBakerAccount (mkWTC TTUpdateBakerAccount) ubaId ubaAddress ubaProof
-       
+
                    UpdateBakerSignKey{..} ->
                      handleUpdateBakerSignKey (mkWTC TTUpdateBakerSignKey) ubsId ubsKey ubsProof
-       
+
                    DelegateStake{..} ->
                      handleDelegateStake (mkWTC TTDelegateStake) (Just dsID)
-       
+
                    UndelegateStake ->
                      handleDelegateStake (mkWTC TTUndelegateStake) Nothing
-          
+                   UpdateElectionDifficulty{..} ->
+                     handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
           case res of
             Nothing -> return Nothing
             Just summary -> return $! Just $! TxValid summary
@@ -220,7 +231,7 @@ handleDeployModule ::
   -> m (Maybe TransactionSummary)
 handleDeployModule wtc psize mod =
   withDeposit wtc c k
-  where 
+  where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
@@ -460,6 +471,7 @@ handleTransferAccount ::
   -> Amount -- amount that was sent in the transaction
   -> m [Event]
 handleTransferAccount _origin accAddr txsender transferamount = do
+  tickEnergy Cost.transferAccount
   -- the sender must have the amount available.
   -- Otherwise we reject the transaction immediately.
   senderamount <- getCurrentAmount txsender
@@ -485,7 +497,7 @@ runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f =
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
-       
+
 handleDeployEncryptionKey ::
   SchedulerMonad m
     => WithDepositContext
@@ -725,10 +737,34 @@ handleDelegateStake wtc targetBaker =
             return $! (TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
+-- |Update the election difficulty birk parameter.
+-- The given difficulty
+handleUpdateElectionDifficulty
+  :: SchedulerMonad m
+  => WithDepositContext
+  -> ElectionDifficulty
+  -> m (Maybe TransactionSummary)
+handleUpdateElectionDifficulty wtc uedDifficulty =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        senderAddr = senderAccount ^. accountAddress
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.updateElectionDifficulty
+        k ls _ = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+          specialBetaAccounts <- getSpecialBetaAccounts
+          if HashSet.member senderAddr specialBetaAccounts
+          then do
+            assert (isValidElectionDifficulty uedDifficulty) $ return ()
+            updateElectionDifficulty uedDifficulty
+            return $! (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
+          else return $! (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
 
 -- *Transactions without a sender
 handleDeployCredential ::
-  SchedulerMonad m => 
+  SchedulerMonad m =>
   -- |Credentials to deploy.
   ID.CredentialDeploymentInformation ->
   TransactionHash ->
@@ -890,7 +926,7 @@ filterTransactions maxSize inputTxs = do
                               ftUnprocessedCredentials = unprocessedCred,
                               ftFailedCredentials = invalidCred
                             }
-                  in return txs         
+                  in return txs
                 -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
                 -- with a SuccessorOfInvalidTransaction failure
                 invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
@@ -913,7 +949,7 @@ runTransactions = go []
                 go ((bi, summary):valid) ts
               (Just (TxInvalid reason), _) -> return (Left (Just reason))
               (Nothing, _) -> return (Left Nothing)
-          
+
           go valid [] = return (Right (reverse valid))
 
           predispatch :: BlockItem -> m (Maybe TxResult)
