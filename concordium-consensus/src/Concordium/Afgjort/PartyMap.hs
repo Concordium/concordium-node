@@ -49,6 +49,15 @@ insert p vp a m
             partyMap = Map.insert p a (partyMap m)
         }
 
+delete :: Party -> VoterPower -> PartyMap a -> PartyMap a
+{-# INLINE delete #-}
+delete p vp m
+    | member p m = m {
+            weight = weight m - vp,
+            partyMap = Map.delete p (partyMap m)
+        }
+    | otherwise = m
+
 empty :: PartyMap a
 empty = PartyMap 0 Map.empty
 

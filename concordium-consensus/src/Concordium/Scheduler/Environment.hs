@@ -19,7 +19,6 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
@@ -74,7 +73,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- existed. Also store the code of the module for archival purposes.
   commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Module -> m Bool
 
-  -- |Check whehter we already cache the expression in a linked format.
+  -- |Check whether we already cache the expression in a linked format.
   -- It is valid for the implementation to always return 'Nothing', although this
   -- will affect memory use since linked expressions will not be shared.
   smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps NoAnnot))
@@ -134,7 +133,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- account and should be rewarded because of it.
   notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
 
-  -- |Convert the given energy amount into a the amount of GTU. The exchange
+  -- |Convert the given energy amount into an amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
   -- TODO: In this setup the exchange rate is determined by the blockchain, and
   -- the user (aka sender of the transaction) cannot choose to pay more to have
@@ -170,6 +169,9 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- if the delegation was successful, and 'False' if the baker is
   -- not valid.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
+
+  -- |Update the election difficulty (birk parameter) in the global state.
+  updateElectionDifficulty :: ElectionDifficulty -> m ()
 
   -- *Other metadata.
 
@@ -387,7 +389,7 @@ runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEn
   (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
   return (a, s')
 
-  where ctx = TransactionContext{..}
+  where !ctx = TransactionContext{..}
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
@@ -431,6 +433,8 @@ data WithDepositContext = WithDepositContext{
   -- ^Hash of the top-level transaction.
   _wtcTransactionHeader :: !TransactionHeader,
   -- ^Header of the transaction we are running.
+  _wtcTransactionCheckHeaderCost :: !Energy,
+  -- ^Cost to be charged for checking the transaction header.
   _wtcCurrentlyUsedBlockEnergy :: !Energy,
   -- ^Energy currently used by the block.
   _wtcTransactionIndex :: !TransactionIndex
@@ -448,7 +452,7 @@ makeLenses ''WithDepositContext
 --
 --   * The account exists in the account database.
 --   * The deposited amount exists in the public account value.
---   * The deposited amount is __at least__ Cost.checkHeader (i.e., minimum transaction cost).
+--   * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
   SchedulerMonad m
   => WithDepositContext
@@ -468,12 +472,14 @@ withDeposit wtc comp k = do
   -- - here is safe due to precondition that currently used energy is less than the maximum block energy
   let beLeft = maxEnergy - wtc ^. wtcCurrentlyUsedBlockEnergy
   -- we assume we have already checked the header, so we have a bit less left over
-  let energy = totalEnergyToUse - Cost.checkHeader
+  let energy = totalEnergyToUse - wtc ^. wtcTransactionCheckHeaderCost
   -- record how much we have deposited. This cannot be touched during execution.
   depositedAmount <- energyToGtu totalEnergyToUse
   (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy beLeft
   case res of
+    -- Failure: maximum block energy exceeded
     Left Nothing -> return Nothing
+    -- Failure: transaction fails (out of energy or actual failure by transaction logic)
     Left (Just reason) -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
@@ -488,8 +494,9 @@ withDeposit wtc comp k = do
         tsIndex = wtc ^. wtcTransactionIndex,
         ..
         }
+    -- Computation successful
     Right a -> do
-      -- in this case we invoke the continuation
+      -- In this case we invoke the continuation, which should charge for the used energy.
       (tsResult, tsCost, tsEnergyCost) <- k ls a
       return $! Just $! TransactionSummary{
         tsSender = Just (thSender txHeader),
@@ -542,7 +549,7 @@ instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
       Just (_, viface) -> return $ Map.lookup n (viDefs viface)
 
   tryGetLinkedExpr mref n = liftLocal (smTryGetLinkedExpr mref n)
-    
+
   putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
 
 
@@ -603,7 +610,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   getCurrentAccountAmount acc = do
     let addr = acc ^. accountAddress
     let amnt = acc ^. accountAmount
-    txCtx <- ask
+    !txCtx <- ask
     -- additional delta that arises due to the deposit
     let additionalDelta =
           if txCtx ^. tcTxSender == addr
@@ -653,7 +660,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
             return linked
           Just cv -> return cv
       Just cv -> return cv
-      
+
   {-# INLINE getEnergy #-}
   getEnergy = use energyLeft
 
