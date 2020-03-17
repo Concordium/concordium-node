@@ -302,12 +302,14 @@ pub struct CommonConfig {
     pub listen_port: u16,
     #[structopt(long = "listen-address", short = "l", help = "Address to listen on")]
     pub listen_address: Option<String>,
-    #[structopt(long = "debug", short = "d", help = "Debug mode")]
+    #[structopt(long = "debug", short = "d", help = "DEBUG-level logging mode")]
     pub debug: bool,
-    #[structopt(long = "trace", help = "Trace mode")]
+    #[structopt(long = "trace", help = "TRACE-level logging mode")]
     pub trace: bool,
-    #[structopt(long = "info", help = "Info mode")]
+    #[structopt(long = "info", help = "INFO-level logging mode")]
     pub info: bool,
+    #[structopt(long = "no-consensus-logs", help = "Disables consensus logs except for ERRORs")]
+    pub no_consensus_logs: bool,
     #[structopt(
         long = "network-id",
         short = "n",

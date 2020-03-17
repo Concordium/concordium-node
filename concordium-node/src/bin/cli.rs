@@ -116,7 +116,9 @@ async fn main() -> Fallible<()> {
         &conf.cli.baker,
         gen_data,
         priv_data,
-        if conf.common.trace {
+        if conf.common.no_consensus_logs {
+            ConsensusLogLevel::Error
+        } else if conf.common.trace {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
             ConsensusLogLevel::Debug
