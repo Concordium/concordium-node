@@ -811,6 +811,10 @@ handleDeployCredential cdi cdiHash = do
 -- order of their arrival time. Picking the next transaction to process is done
 -- by picking the earliest transaction amongst the heads of the grouped transaction lists
 -- and credential deployments
+-- NOTICE: For processing the transactions and credentials in order of arrival times
+-- it is a precondition that the credentials are sorted by arrival time AND that
+-- the grouped transaction are sorted by arrival time of the head of each grouped
+-- transaction list.
 -- This function assumes that the transactions appear grouped by their associated account address,
 -- and that each transaction group is ordered by transaction nonce.
 -- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
@@ -841,19 +845,10 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
   maxEnergy <- getMaxBlockEnergy
   -- We sort the lists of grouped transactions by the arrival time of the first element of the list
   -- We maintain this as an invariant during the filtering
-  let sortedGroupedTrans = sortOn (\x -> (fmap (wmdArrivalTime . (^. _1)) (uncons x))) perAccountTransactions
-      sortedCredentialDeployments = sortOn wmdArrivalTime credentialDeployments
-  runNext maxEnergy 0 [] [] [] [] [] sortedCredentialDeployments sortedGroupedTrans
+  -- let sortedGroupedTrans = sortOn (\x -> (fmap (wmdArrivalTime . (^. _1)) (uncons x))) perAccountTransactions
+  --     sortedCredentialDeployments = sortOn wmdArrivalTime credentialDeployments
+  runNext maxEnergy 0 [] [] [] [] [] credentialDeployments perAccountTransactions
   where
-        insertTrans [] [] = []
-        insertTrans [] trans = trans
-        insertTrans (t1:ts1) [] = [(t1:ts1)]
-        insertTrans (t1:ts1) (group:groups) = case group of
-          (t2:ts2) -> if wmdArrivalTime t1 <= wmdArrivalTime t2
-                      then (t1:ts1) : ((t2:ts2) : groups)
-                      else (t2:ts2) : (insertTrans (t1:ts1) groups)
-          [] -> insertTrans (t1:ts1) groups
-
         runNext maxEnergy size valid failedC failedT unprocC unprocT = go
           where
             go [] [] = return $ FilteredTransactions{
@@ -879,7 +874,7 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
               let csize = size + fromIntegral wmdSize
                   energyCost = Cost.deployCredential
                   cenergy = totalEnergyUsed + fromIntegral energyCost
-              if csize <= maxSize && cenergy <= maxEnergy then
+              if csize <= maxSize && cenergy <= maxEnergy thenNoted
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
                       runNext maxEnergy csize valid ((c, reason) : failedC) failedT unprocC unprocT remainingCreds transactions
@@ -922,6 +917,18 @@ filterTransactions maxSize inputTxs@GroupedTransactions{..} = do
            -- Maps an invalid transaction t to its failure reason and appends the remaining transactions in the group
            -- with a SuccessorOfInvalidTransaction failure
             invalidTs t failure ts = (++) ((t, failure) : map (, SuccessorOfInvalidTransaction) ts)
+            -- insert a grouped transaction list into the already sorted list of
+            -- grouped transaction lists, mainting the ordering by arrival time of the
+            -- head of each grouped transaction list, while eliminating empty grouped
+            -- transaction lists when encountered
+            insertTrans [] [] = []
+            insertTrans [] trans = trans
+            insertTrans (t1:ts1) [] = [(t1:ts1)]
+            insertTrans (t1:ts1) (group:groups) = case group of
+              (t2:ts2) -> if wmdArrivalTime t1 <= wmdArrivalTime t2
+                          then (t1:ts1) : ((t2:ts2) : groups)
+                          else (t2:ts2) : (insertTrans (t1:ts1) groups)
+              [] -> insertTrans (t1:ts1) groups
 
 -- |Execute transactions in sequence. Returns
 --
