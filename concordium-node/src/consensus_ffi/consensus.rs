@@ -228,6 +228,8 @@ pub struct ConsensusContainer {
 }
 
 impl ConsensusContainer {
+    // TODO : Simplify arguments to function, or group with struct
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         max_block_size: u64,
         insertions_before_purging: u64,
