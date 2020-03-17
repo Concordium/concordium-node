@@ -270,38 +270,49 @@ purgeTransactionTable = do
  where
    removeTransactions TransactionTable{..} kat = do
      tm <- liftIO (utcTimeToTransactionTime <$> getCurrentTime)
-     let removeTxs :: [(Nonce, Set.Set T.Transaction)] -> ([T.Transaction], Map.Map Nonce (Set.Set T.Transaction), Nonce)
+     let removeTxs :: [(Nonce, Set.Set T.Transaction)] -> ([Set.Set T.Transaction], Map.Map Nonce (Set.Set T.Transaction), Nonce)
          removeTxs ncs = (\(x, y, h) -> (x, Map.fromList y, h)) $ removeTxs' ncs 0
 
-         removeTxs' :: [(Nonce, Set.Set T.Transaction)] -> Nonce -> ([T.Transaction], [(Nonce, Set.Set T.Transaction)], Nonce)
+         removeTxs' :: [(Nonce, Set.Set T.Transaction)] -> Nonce -> ([Set.Set T.Transaction], [(Nonce, Set.Set T.Transaction)], Nonce)
          removeTxs' [] h = ([], [], h)
          removeTxs' ((n, txs):ncs) hn =
-           let (toDrop, nn) = Set.partition (\t -> (case snd <$> (_ttHashMap ^. at (biHash t)) of
-                                                      Just Received{} -> True
-                                                      _ -> False) && biArrivalTime t + kat < tm) txs in -- split in old and still valid transactions
+           -- We can only remove transactions which are not committed to any blocks.
+           -- Otherwise we would break many invariants.
+           let toRemove t =
+                 case _ttHashMap ^? ix (biHash t) . _2 of
+                   Just Received{} -> True
+                   _ -> False
+               (toDrop, nn) =
+                 Set.partition (\t -> biArrivalTime t + kat < tm && toRemove t) txs in -- split in old and still valid transactions
              if Set.size nn == 0
-             -- if all are old, remove all the next txs and return previous nonce
-             then (Set.toList toDrop ++ concatMap (Set.toList . snd) ncs, [], hn)
+             -- if all are to be removed, remove all the next txs and return previous nonce
+             then (toDrop : fmap snd ncs, [], hn)
              else let (nextToDrop, nextToKeep, nextHn) = removeTxs' ncs n in
                -- else combine the transactions to drop and the transactions to keep with the ones from the next step
-               (Set.toList toDrop ++ nextToDrop, (n, nn) : nextToKeep, nextHn)
+               (toDrop : nextToDrop, (n, nn) : nextToKeep, nextHn)
 
-         processANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce))
+         processANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([Set.Set T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce))
          processANFT (acc, AccountNonFinalizedTransactions{..}) =
-           -- we need to get a sorted list in order to do only one pass over the nonces if we ever hit a nonce that gets emptied
-           let (removed, kept, hn) = removeTxs (sortBy (\(n1, _) (n2, _) -> compare n1 n2) $ Map.toList _anftMap) in
+           -- we need to get a list in ascending order
+           -- in order to do only one pass over the nonces if we ever hit a nonce that gets emptied
+           let (removed, kept, hn) = removeTxs (Map.toAscList _anftMap) in
              (removed, (acc, AccountNonFinalizedTransactions{_anftMap = kept, ..}), (acc, hn))
 
-         results = Prelude.map processANFT (HM.toList $ _ttNonFinalizedTransactions)
-         allDeletes = concatMap (\(x,_,_) -> x) results
-         !newNFT = fromList $ Prelude.map (\(_, y, _) -> y) results
-         highestNonces = Prelude.map (\(_,_,z) -> z) results
-         !newTMap = Fold.foldl' (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
+         results = fmap processANFT (HM.toList $ _ttNonFinalizedTransactions)
+         allDeletes = fmap (^. _1) results
+         !newNFT = fromList $ fmap (^. _2) results
+         highestNonces = fmap (^. _3) results
+         !newTMap = Fold.foldl' (Fold.foldl' (Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)))) _ttHashMap allDeletes
      transactionTable .= TransactionTable{_ttHashMap = newTMap, _ttNonFinalizedTransactions = newNFT}
      return highestNonces
 
    rollbackNonces :: [(AccountAddress, Nonce)] -> PendingTransactionTable -> PendingTransactionTable
-   rollbackNonces e PTT{..} = PTT {_pttWithSender = let !v = foldl (\pt (acc, n) -> update (\(n1, n2) -> if n2 > n then Just (n1, n) else Just (n1, n2)) acc pt) _pttWithSender e in v,
+   rollbackNonces e PTT{..} = PTT {_pttWithSender =
+                                   let !v = Fold.foldl' (\pt (acc, n) ->
+                                                           update (\(n1, n2) ->
+                                                                     if n2 > n && n >= n1 then Just (n1, n)
+                                                                     else if n2 > n then Nothing
+                                                                     else Just (n1, n2)) acc pt) _pttWithSender e in v,
                                    ..}
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
