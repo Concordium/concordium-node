@@ -15,6 +15,7 @@ module Concordium.GlobalState.Persistent.LMDB (
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Types
@@ -68,12 +69,9 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   liftIO $ transaction _storeEnv (L.put _blockStore (getHash gb) (Just $ runPut (do
+                                                                                    S.put (_bpInfo gb)
                                                                                     putBlock gb
-                                                                                    serState
-                                                                                    S.put (0 :: Int)
-                                                                                    S.put (0 :: Int)
-                                                                                    S.put (0 :: Energy)
-                                                                                    S.put (BlockHeight 0))))
+                                                                                    serState)))
   liftIO $ transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
   return $ DatabaseHandlers {..}
 
