@@ -37,6 +37,7 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Mem.Weak
 import Concordium.GlobalState.SQLiteATI
+import Data.Time.Clock
 -- * SkovPersistentData definition
 
 data PersistenBlockStatus ati bs =
