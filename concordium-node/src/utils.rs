@@ -493,6 +493,10 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
 
     setup_logger_env(env, conf.common.no_log_timestamp);
 
+    if conf.common.print_config {
+        info!("Config:{:?}\n", conf);
+    }
+
     info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());

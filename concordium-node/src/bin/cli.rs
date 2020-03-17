@@ -50,9 +50,6 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
-    if conf.common.print_config {
-        info!("{:?}", conf);
-    }
 
     #[cfg(feature = "beta")]
     {
