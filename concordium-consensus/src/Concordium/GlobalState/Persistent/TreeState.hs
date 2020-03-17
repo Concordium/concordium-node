@@ -1,4 +1,4 @@
-  {-# LANGUAGE ConstraintKinds, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, BangPatterns, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
+  {-# LANGUAGE ConstraintKinds, BangPatterns, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
 --
 -- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
@@ -292,14 +292,14 @@ purgeTransactionTable = do
 
          results = Prelude.map processANFT (HM.toList $ _ttNonFinalizedTransactions)
          allDeletes = concatMap (\(x,_,_) -> x) results
-         newNFT = fromList $ Prelude.map (\(_, y, _) -> y) results
+         !newNFT = fromList $ Prelude.map (\(_, y, _) -> y) results
          highestNonces = Prelude.map (\(_,_,z) -> z) results
-         newTMap = foldl (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
+         !newTMap = foldl (\h tx -> HM.delete (biHash tx) h) _ttHashMap allDeletes
      transactionTable .= TransactionTable{_ttHashMap = newTMap, _ttNonFinalizedTransactions = newNFT}
      return highestNonces
 
    rollbackNonces :: [(AccountAddress, Nonce)] -> PendingTransactionTable -> PendingTransactionTable
-   rollbackNonces e PTT{..} = PTT {_pttWithSender = foldl (\pt (acc, n) -> update (\(n1, n2) -> if n2 > n then Just (n1, n) else Just (n1, n2)) acc pt) _pttWithSender e,
+   rollbackNonces e PTT{..} = PTT {_pttWithSender = let !v = foldl (\pt (acc, n) -> update (\(n1, n2) -> if n2 > n then Just (n1, n) else Just (n1, n2)) acc pt) _pttWithSender e in v,
                                    ..}
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
