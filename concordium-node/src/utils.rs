@@ -91,6 +91,7 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
     log_builder.filter(Some(&"hyper"), LevelFilter::Error);
     log_builder.filter(Some(&"reqwest"), LevelFilter::Error);
     log_builder.filter(Some(&"gotham"), LevelFilter::Error);
+    log_builder.filter(Some(&"h2"), LevelFilter::Error);
     log_builder.init();
 }
 
@@ -482,21 +483,32 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
     );
 
     // Prepare the logger
-    let env = if conf.common.trace {
-        Env::default().filter_or("LOG_LEVEL", "trace")
+    let (env, log_lvl) = if conf.common.trace {
+        (Env::default().filter_or("LOG_LEVEL", "trace"), "trace")
     } else if conf.common.debug {
-        Env::default().filter_or("LOG_LEVEL", "debug")
-    } else if conf.common.info {
-        Env::default().filter_or("LOG_LEVEL", "info")
+        (Env::default().filter_or("LOG_LEVEL", "debug"), "debug")
     } else {
-        Env::default().filter_or("LOG_LEVEL", "warn")
+        (Env::default().filter_or("LOG_LEVEL", "info"), "info")
     };
 
     setup_logger_env(env, conf.common.no_log_timestamp);
 
+    if conf.common.print_config {
+        info!("Config:{:?}\n", conf);
+    }
+
     info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
+    info!(
+        "Network: {}",
+        if conf.cli.no_network {
+            "disabled"
+        } else {
+            "enabled"
+        }
+    );
+    info!("Log level: {}", log_lvl);
 
     Ok((conf, app_prefs))
 }

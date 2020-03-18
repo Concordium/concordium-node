@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -11,9 +11,9 @@ COPY ./scripts/start.sh ./start.sh
 COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN --mount=type=ssh ./init.build.env.sh 
+RUN --mount=type=ssh ./init.build.env.sh
 # Build P2P client
-RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
+RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
     strip /build-project/target/release/p2p_client-cli && \
     strip /build-project/target/release/node-collector && \
     cp /build-project/target/release/p2p_client-cli /build-project/ && \
@@ -21,16 +21,17 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,beta" release && \
     cd /build-project/genesis-data && \
     tar -xf 20-bakers.tar.gz && \
     cd genesis_data && \
+    sha256sum genesis.dat && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.10 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and simple-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout 2fd629913d34c86a21d0dbcd5cf8f364ecd7a46b && \
+    git checkout a4ce016ca9f6e8e51a787eb0f0298e65f7f599ce && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
@@ -50,14 +51,14 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
 # Middleware and simple-client is now built
 
 # Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.7 as oak-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
-RUN git checkout d3253ddac357069422b87a9201ee19860dd8fedd
-RUN --mount=type=ssh ci/dynamic-deps.sh 
+RUN git checkout abbca874a8dea95c37830d4e8d1d43df48fddf13
+RUN --mount=type=ssh ci/dynamic-deps.sh
 ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 RUN stack build --copy-bins --ghc-options -j4
 
@@ -77,19 +78,20 @@ EXPOSE 8888
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
-ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.test.concordium.com:8888
+ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.staging.concordium.com:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
-ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
-ENV GRPC_HOST=localhost:10000
+ENV COLLECTORD_URL=https://dashboard.eu.staging.concordium.com/nodes/post
+ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 postgresql-server-dev-11
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 libpq-dev liblmdb-dev
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
+RUN sha256sum /genesis.dat
 COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
 COPY --from=haskell-build /simple-client-bin /usr/local/bin/simple-client
@@ -98,9 +100,9 @@ COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
-RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default 
+RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default
 RUN ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6.1 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
-COPY ./scripts/beta-client.sh /beta-client.sh
-ENTRYPOINT [ "/beta-client.sh" ]
+COPY ./scripts/staging-net-client.sh /staging-net-client.sh
+ENTRYPOINT [ "/staging-net-client.sh" ]

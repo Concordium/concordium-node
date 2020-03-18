@@ -11,7 +11,7 @@ use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use digest::Digest;
 use failure::Fallible;
-use mio::{tcp::TcpStream, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpStream, Token};
 use priority_queue::PriorityQueue;
 use twox_hash::XxHash64;
 
@@ -43,7 +43,7 @@ use std::{
     io::Cursor,
     net::SocketAddr,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, RwLock,
     },
     time::Instant,
@@ -86,12 +86,11 @@ impl DeduplicationQueues {
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     pub created:           u64,
-    pub last_ping_sent:    AtomicU64,
     pub last_seen:         AtomicU64,
+    pub last_ping:         AtomicU64,
+    pub last_pong:         AtomicU64,
     pub messages_sent:     AtomicU64,
     pub messages_received: AtomicU64,
-    pub valid_latency:     AtomicBool,
-    pub last_latency:      AtomicU64,
     pub bytes_received:    AtomicU64,
     pub bytes_sent:        AtomicU64,
 }
@@ -169,9 +168,8 @@ impl Connection {
             created:           get_current_stamp(),
             messages_received: Default::default(),
             messages_sent:     Default::default(),
-            valid_latency:     Default::default(),
-            last_latency:      Default::default(),
-            last_ping_sent:    AtomicU64::new(curr_stamp),
+            last_ping:         Default::default(),
+            last_pong:         Default::default(),
             last_seen:         AtomicU64::new(curr_stamp),
             bytes_received:    Default::default(),
             bytes_sent:        Default::default(),
@@ -188,22 +186,16 @@ impl Connection {
         }
     }
 
-    /// Get the connection's latest latency value.
-    pub fn get_last_latency(&self) -> u64 { self.stats.last_latency.load(Ordering::Relaxed) }
+    /// Obtain the connection's latency.
+    pub fn get_latency(&self) -> u64 {
+        let last_ping = self.stats.last_ping.load(Ordering::SeqCst);
+        let last_pong = self.stats.last_pong.load(Ordering::SeqCst);
 
-    /// Set the connection's latest latency value.
-    pub fn set_last_latency(&self, value: u64) {
-        self.stats.last_latency.store(value, Ordering::Relaxed);
-    }
-
-    /// Get the timestamp of when the latest ping request was sent to the
-    /// connection.
-    pub fn get_last_ping_sent(&self) -> u64 { self.stats.last_ping_sent.load(Ordering::Relaxed) }
-
-    /// Set the timestamp of when the latest ping request was sent to the
-    /// connection.
-    fn set_last_ping_sent(&self) {
-        self.stats.last_ping_sent.store(get_current_stamp(), Ordering::Relaxed);
+        if last_ping > 0 && last_pong > 0 && last_pong > last_ping {
+            last_pong - last_ping
+        } else {
+            0
+        }
     }
 
     /// Obtain the node id related to the connection, if available.
@@ -220,18 +212,6 @@ impl Connection {
 
     /// Obtain the timestamp of when the connection was interacted with last.
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
-
-    /// It registers the connection's socket for read and write ops using *edge*
-    /// notifications.
-    #[inline]
-    pub fn register(&self, poll: &Poll) -> Fallible<()> {
-        into_err!(poll.register(
-            &self.low_level.socket,
-            self.token,
-            Ready::readable() | Ready::writable(),
-            PollOpt::edge()
-        ))
-    }
 
     #[inline]
     fn is_packet_duplicate(
@@ -332,6 +312,7 @@ impl Connection {
         ));
         self.populate_remote_end_networks(remote_peer, nets);
         self.handler.bump_last_peer_update();
+        debug!("Concluded handshake with peer {}", id);
     }
 
     /// Queues a message to be sent to the connection.
@@ -398,7 +379,7 @@ impl Connection {
         ping.serialize(&mut serialized)?;
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-        self.set_last_ping_sent();
+        self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
 
         Ok(())
     }
@@ -426,15 +407,19 @@ impl Connection {
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
-                let get_100_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
-                    Ok(safe_read!(self.handler.buckets())?
-                        .get_random_nodes(&requestor, 100, &nets, partition))
+                let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
+                    Ok(read_or_die!(self.handler.buckets()).get_random_nodes(
+                        &requestor,
+                        self.handler.config.bootstrapper_peer_list_size,
+                        &nets,
+                        partition,
+                    ))
                 };
                 let random_nodes = match self.handler.config.partition_network_for_time {
                     Some(time) if (self.handler.get_uptime() as usize) < time => {
-                        get_100_random_nodes(true)?
+                        get_random_nodes(true)?
                     }
-                    _ => get_100_random_nodes(false)?,
+                    _ => get_random_nodes(false)?,
                 };
 
                 if !random_nodes.is_empty()
@@ -487,18 +472,16 @@ impl Connection {
                 self
             );
 
-            if let Err(err) = self.low_level.write_to_socket(msg.clone()) {
-                bail!("Can't send a raw network request: {}", err);
-            } else {
-                self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
-                self.handler.stats.pkt_sent_inc();
-                self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-                self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+            self.low_level.write_to_socket(msg.clone())?;
 
-                #[cfg(feature = "network_dump")]
-                {
-                    self.send_to_dump(msg, false);
-                }
+            self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+            self.handler.stats.pkt_sent_inc();
+            self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
+            self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+
+            #[cfg(feature = "network_dump")]
+            {
+                self.send_to_dump(msg, false);
             }
         }
 

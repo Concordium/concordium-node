@@ -11,7 +11,7 @@ use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
 extern crate log;
-use concordium_common::{read_or_die, safe_read, safe_write, spawn_or_die, write_or_die};
+use concordium_common::{read_or_die, spawn_or_die, write_or_die};
 use futures::prelude::*;
 use gotham::{
     handler::{HandlerFuture, IntoHandlerError, IntoResponse},
@@ -63,6 +63,8 @@ struct ConfigCli {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
+    #[structopt(long = "info", help = "Info mode")]
+    pub info: bool,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
 }
@@ -106,8 +108,10 @@ pub fn main() -> Fallible<()> {
         Env::default().filter_or("LOG_LEVEL", "trace")
     } else if conf.debug {
         Env::default().filter_or("LOG_LEVEL", "debug")
-    } else {
+    } else if conf.info {
         Env::default().filter_or("LOG_LEVEL", "info")
+    } else {
+        Env::default().filter_or("LOG_LEVEL", "warn")
     };
 
     setup_logger_env(env, conf.no_log_timestamp);
@@ -129,7 +133,7 @@ pub fn main() -> Fallible<()> {
     let _node_info_map_clone = Arc::clone(&node_info_map);
     let _cleanup_interval = conf.cleanup_interval;
     #[allow(unreachable_code)] // the loop never breaks on its own
-    let _ = spawn_or_die!("Cleanup thread", {
+    let _ = spawn_or_die!("collector backend cleanup", {
         loop {
             thread::sleep(Duration::from_millis(_cleanup_interval));
             info!("Running cleanup");
@@ -192,8 +196,8 @@ fn nodes_block_info(state: State) -> (State, JSONStringResponse) {
     (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
-fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
-    trace!("Processing a nodes beta users info request");
+fn nodes_staging_users_info(state: State) -> (State, JSONStringResponse) {
+    trace!("Processing a nodes staging net users info request");
     let state_data = CollectorStateData::borrow_from(&state);
     let mut response = Vec::new();
     {
@@ -203,7 +207,7 @@ fn nodes_beta_users_info(state: State) -> (State, JSONStringResponse) {
             if i != 0 {
                 response.extend(b",");
             }
-            serde_json::to_writer(&mut response, &NodeInfoBetaUsers::from(node_info)).unwrap()
+            serde_json::to_writer(&mut response, &NodeInfoStagingNetUsers::from(node_info)).unwrap()
         }
         response.extend(b"]");
     }
@@ -254,8 +258,8 @@ pub fn router(
         route.get("/data/nodesSummary").to(nodes_summary);
         route.get("/nodesBlocksInfo").to(nodes_block_info);
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
-        route.get("/nodesBetaUsers").to(nodes_beta_users_info);
-        route.get("/data/nodesBetaUsers").to(nodes_beta_users_info);
+        route.get("/nodesStagingNetUsers").to(nodes_staging_users_info);
+        route.get("/data/nodesStagingNetUsers").to(nodes_staging_users_info);
         route.post("/nodes/post").to(nodes_post_handler);
         route.post("/post/nodes").to(nodes_post_handler);
     })

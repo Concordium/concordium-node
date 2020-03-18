@@ -19,7 +19,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.1", "0.2.0"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.2", "0.2.1"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
@@ -140,6 +140,18 @@ pub struct BakerConfig {
     )]
     pub maximum_block_size: u32,
     #[structopt(
+        long = "transaction-insertions-before-purge",
+        help = "Number of transaction insertions between purges on the transaction table",
+        default_value = "1000"
+    )]
+    pub transaction_insertions_before_purge: u32,
+    #[structopt(
+        long = "transaction_keep_alive",
+        help = "Time during which a transaction can not be purged in seconds",
+        default_value = "600"
+    )]
+    pub transaction_keep_alive: u32,
+    #[structopt(
         long = "scheduler-outcome-logging",
         help = "Enable outcome of finalized baked blocks from the scheduler"
     )]
@@ -240,9 +252,10 @@ pub struct ConnectionConfig {
     pub max_latency: Option<u64>,
     #[structopt(
         long = "hard-connection-limit",
-        help = "Maximum connections to keep open at any time"
+        help = "Maximum connections to keep open at any time",
+        default_value = "50"
     )]
-    pub hard_connection_limit: Option<u16>,
+    pub hard_connection_limit: u16,
     #[structopt(
         long = "catch-up-batch-limit",
         help = "The maximum batch size for a catch-up round (0 = no limit)",
@@ -302,12 +315,14 @@ pub struct CommonConfig {
     pub listen_port: u16,
     #[structopt(long = "listen-address", short = "l", help = "Address to listen on")]
     pub listen_address: Option<String>,
-    #[structopt(long = "debug", short = "d", help = "Debug mode")]
+    #[structopt(long = "debug", short = "d", help = "DEBUG-level logging mode")]
     pub debug: bool,
-    #[structopt(long = "trace", help = "Trace mode")]
+    #[structopt(long = "trace", help = "TRACE-level logging mode")]
     pub trace: bool,
-    #[structopt(long = "info", help = "Info mode")]
+    #[structopt(long = "info", help = "INFO-level logging mode")]
     pub info: bool,
+    #[structopt(long = "no-consensus-logs", help = "Disables consensus logs except for ERRORs")]
+    pub no_consensus_logs: bool,
     #[structopt(
         long = "network-id",
         short = "n",
@@ -364,9 +379,9 @@ pub struct CliConfig {
         default_value = "http://127.0.0.1:9200"
     )]
     pub elastic_logging_url: String,
-    #[cfg(feature = "beta")]
-    #[structopt(long = "beta-token", help = "Beta client token")]
-    pub beta_token: String,
+    #[cfg(feature = "staging_net")]
+    #[structopt(long = "staging-net-token", help = "Staging network client token")]
+    pub staging_net_token: String,
     #[structopt(
         long = "timeout-bucket-entry-period",
         help = "Timeout an entry in the buckets after a given period (in ms), 0 means never",
@@ -463,6 +478,12 @@ pub struct BootstrapperConfig {
         help = "Partition the network for a set amount of time since startup (in ms)"
     )]
     pub partition_network_for_time: Option<usize>,
+    #[structopt(
+        long = "peer-list-size",
+        help = "The number of random peers shared by a bootstrapper in a PeerList",
+        default_value = "10"
+    )]
+    pub peer_list_size: usize,
 }
 
 /// The main configuration object.
@@ -515,12 +536,10 @@ pub fn parse_config() -> Fallible<Config> {
         );
     }
 
-    if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
-        ensure!(
-            hard_connection_limit >= conf.connection.desired_nodes,
-            "Hard connection limit can't be less than what desired nodes is set to"
-        );
-    }
+    ensure!(
+        conf.connection.hard_connection_limit >= conf.connection.desired_nodes,
+        "Hard connection limit can't be less than what desired nodes is set to"
+    );
 
     ensure!(
         conf.connection.relay_broadcast_percentage >= 0.0
@@ -557,11 +576,25 @@ pub fn parse_config() -> Fallible<Config> {
          or disabled together"
     );
 
+    ensure!(
+        conf.bootstrapper.wait_until_minimum_nodes as usize <= conf.bootstrapper.peer_list_size,
+        "wait-until-minimum-nodes must be lower than or equal to peer-list-size"
+    );
+
     if let Some(ref breakage_type) = conf.cli.breakage_type {
         ensure!(["spam", "fuzz"].contains(&breakage_type.as_str()), "Unsupported breakage-type");
         if let Some(breakage_target) = conf.cli.breakage_target {
             ensure!([0, 1, 2, 3, 4, 99].contains(&breakage_target), "Unsupported breakage-target");
         }
+    }
+
+    #[cfg(feature = "instrumentation")]
+    {
+        ensure!(
+            conf.prometheus.prometheus_server || conf.prometheus.prometheus_push_gateway.is_some(),
+            "The instrumentation feature requires either prometheus-server or \
+             prometheus-push-gateway argument to be set"
+        );
     }
 
     Ok(conf)
