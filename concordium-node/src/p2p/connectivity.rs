@@ -284,12 +284,11 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     {
         let conn_read_lock = read_or_die!(node.connections());
 
-        if let Some(limit) = node.config.hard_connection_limit {
-            if node.self_peer.peer_type == PeerType::Node
-                && candidates_lock.len() + conn_read_lock.len() >= limit as usize
-            {
-                bail!("Too many connections, rejecting attempt from {}", addr);
-            }
+        if node.self_peer.peer_type == PeerType::Node
+            && candidates_lock.len() + conn_read_lock.len()
+                >= node.config.hard_connection_limit as usize
+        {
+            bail!("Too many connections, rejecting attempt from {}", addr);
         }
 
         if candidates_lock.values().any(|conn| conn.remote_addr() == addr)
