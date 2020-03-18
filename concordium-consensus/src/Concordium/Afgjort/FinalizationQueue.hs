@@ -10,7 +10,6 @@ import Data.Foldable
 import Control.Monad.State.Class
 import Control.Monad
 import qualified Data.Vector as Vector
-import Control.Exception(assert)
 
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
@@ -261,7 +260,7 @@ addNewQueuedFinalization :: (MonadState s m, FinalizationQueueLenses s)
     -> m ()
 addNewQueuedFinalization sessId fc fr@FinalizationRecord{..} ow = do
         FinalizationQueue{..} <- use finQueue
-        assert (finalizationIndex == _fqFirstIndex + fromIntegral (Seq.length _fqProofs)) $ do
+        when (finalizationIndex == _fqFirstIndex + fromIntegral (Seq.length _fqProofs)) $ do
             finQueue . fqProofs %= (Seq.|> newFinalizationProvenWithWitnesses sessId fc fr ow)
 
 -- |Get a finalization record for a given index, if it is available.
