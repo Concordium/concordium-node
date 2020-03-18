@@ -66,7 +66,7 @@ pub struct NodeConfig {
     pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
-    pub hard_connection_limit: Option<u16>,
+    pub hard_connection_limit: u16,
     pub catch_up_batch_limit: u64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,

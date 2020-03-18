@@ -252,9 +252,10 @@ pub struct ConnectionConfig {
     pub max_latency: Option<u64>,
     #[structopt(
         long = "hard-connection-limit",
-        help = "Maximum connections to keep open at any time"
+        help = "Maximum connections to keep open at any time",
+        default_value = "50"
     )]
-    pub hard_connection_limit: Option<u16>,
+    pub hard_connection_limit: u16,
     #[structopt(
         long = "catch-up-batch-limit",
         help = "The maximum batch size for a catch-up round (0 = no limit)",
@@ -535,12 +536,10 @@ pub fn parse_config() -> Fallible<Config> {
         );
     }
 
-    if let Some(hard_connection_limit) = conf.connection.hard_connection_limit {
-        ensure!(
-            hard_connection_limit >= conf.connection.desired_nodes,
-            "Hard connection limit can't be less than what desired nodes is set to"
-        );
-    }
+    ensure!(
+        conf.connection.hard_connection_limit >= conf.connection.desired_nodes,
+        "Hard connection limit can't be less than what desired nodes is set to"
+    );
 
     ensure!(
         conf.connection.relay_broadcast_percentage >= 0.0
