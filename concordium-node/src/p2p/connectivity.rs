@@ -101,9 +101,9 @@ impl P2PNode {
         debug!("Measuring connection latencies");
 
         for conn in write_or_die!(self.connections()).values_mut() {
-            // don't send pings to unresponsive connections so
-            // that the latency calculation is not off
-            if conn.last_seen() > conn.get_last_ping_sent() {
+            if conn.stats.last_pong.load(Ordering::SeqCst)
+                >= conn.stats.last_ping.load(Ordering::SeqCst)
+            {
                 if let Err(e) = conn.send_ping() {
                     error!("Can't send a ping to {}: {}", conn, e);
                 }
@@ -118,30 +118,35 @@ impl P2PNode {
 
     /// Shut down connection with the given poll token.
     pub fn remove_connection(&self, token: Token) -> Option<Connection> {
+        let removed_cand = lock_or_die!(self.conn_candidates()).remove(&token);
         let removed_conn = write_or_die!(self.connections()).remove(&token);
 
-        if removed_conn.is_some() {
+        if removed_cand.is_some() {
+            removed_cand
+        } else if removed_conn.is_some() {
             self.bump_last_peer_update();
+            removed_conn
+        } else {
+            None
         }
-
-        removed_conn
     }
 
     /// Shut down connections with the given poll tokens.
-    pub fn remove_connections(&self, tokens: &[Token]) -> bool {
+    pub fn remove_connections(&self, tokens: &[Token]) {
+        let conn_candidates = &mut lock_or_die!(self.conn_candidates());
         let connections = &mut write_or_die!(self.connections());
 
         let mut removed = 0;
         for token in tokens {
-            if connections.remove(&token).is_some() {
+            if conn_candidates.remove(&token).is_some() {
+                continue;
+            } else if connections.remove(&token).is_some() {
                 removed += 1;
             }
         }
         if removed > 0 {
             self.bump_last_peer_update();
         }
-
-        removed == tokens.len()
     }
 
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
@@ -227,7 +232,7 @@ impl P2PNode {
                 if let Err(e) =
                     conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
                 {
-                    error!("{}", e);
+                    error!("[sending to {}] {}", conn, e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
                         self.register_conn_change(ConnChange::Removal(conn.token));
                     } else {
@@ -236,12 +241,9 @@ impl P2PNode {
                     return;
                 }
 
-                if events
-                    .iter()
-                    .any(|event| event.token() == conn.token && event.readiness().is_readable())
-                {
+                if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
                     if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
-                        error!("{}", e);
+                        error!("[receiving from {}] {}", conn, e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
                         } else {
@@ -273,7 +275,6 @@ impl P2PNode {
 
 /// Accept an incoming network connection.
 pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
-    let self_peer = node.self_peer;
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
 
@@ -283,29 +284,28 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     {
         let conn_read_lock = read_or_die!(node.connections());
 
-        if let Some(limit) = node.config.hard_connection_limit {
-            if node.self_peer.peer_type == PeerType::Node
-                && candidates_lock.len() + conn_read_lock.len() >= limit as usize
-            {
-                bail!("Too many connections, rejecting attempt from {:?}", addr);
-            }
+        if node.self_peer.peer_type == PeerType::Node
+            && candidates_lock.len() + conn_read_lock.len()
+                >= node.config.hard_connection_limit as usize
+        {
+            bail!("Too many connections, rejecting attempt from {}", addr);
         }
 
         if candidates_lock.values().any(|conn| conn.remote_addr() == addr)
             || conn_read_lock.values().any(|conn| conn.remote_addr() == addr)
         {
-            bail!("Duplicate connection attempt from {:?}; rejecting", addr);
+            bail!("Duplicate connection attempt from {}; rejecting", addr);
         }
 
         if read_or_die!(node.connection_handler.soft_bans)
             .keys()
             .any(|ip| *ip == BanId::Ip(addr.ip()))
         {
-            bail!("Connection attempt from a soft-banned IP ({:?}); rejecting", addr.ip());
+            bail!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
         }
     }
 
-    debug!("Accepting a connection from {:?} to {:?}:{}", addr, self_peer.ip(), self_peer.port());
+    debug!("Accepting a connection from {}", addr);
 
     let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
@@ -316,8 +316,8 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
         peer_type: PeerType::Node,
     };
 
-    let conn = Connection::new(node, socket, token, remote_peer, false);
-    conn.register(&node.poll)?;
+    let mut conn = Connection::new(node, socket, token, remote_peer, false);
+    node.register_conn(&mut conn)?;
     candidates_lock.insert(conn.token, conn);
 
     Ok(token)
@@ -385,7 +385,7 @@ pub fn connect(
         }
     }
 
-    match TcpStream::connect(&peer_addr) {
+    match TcpStream::connect(peer_addr) {
         Ok(socket) => {
             node.stats.conn_received_inc();
 
@@ -398,8 +398,8 @@ pub fn connect(
                 peer_type,
             };
 
-            let conn = Connection::new(node, socket, token, remote_peer, true);
-            conn.register(&node.poll)?;
+            let mut conn = Connection::new(node, socket, token, remote_peer, true);
+            node.register_conn(&mut conn)?;
             candidates_lock.insert(conn.token, conn);
 
             if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
@@ -415,7 +415,7 @@ pub fn connect(
                     Instant::now() + Duration::from_secs(config::UNREACHABLE_EXPIRATION_SECS),
                 );
             }
-            into_err!(Err(e))
+            bail!(e)
         }
     }
 }
@@ -429,7 +429,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
 
     let is_conn_faulty = |conn: &Connection| -> bool {
         if let Some(max_latency) = node.config.max_latency {
-            conn.get_last_latency() >= max_latency
+            conn.get_latency() >= max_latency
         } else {
             false
         }
@@ -507,7 +507,7 @@ pub fn send_direct_message(
     target_id: P2PNodeId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
-) {
+) -> usize {
     send_message_over_network(node, Some(target_id), vec![], network_id, msg)
 }
 
@@ -518,7 +518,7 @@ pub fn send_broadcast_message(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
-) {
+) -> usize {
     send_message_over_network(node, None, dont_relay_to, network_id, msg)
 }
 
@@ -529,7 +529,7 @@ fn send_message_over_network(
     dont_relay_to: Vec<P2PNodeId>,
     network_id: NetworkId,
     message: Arc<[u8]>,
-) {
+) -> usize {
     let destination = if let Some(target_id) = target_id {
         PacketDestination::Direct(target_id)
     } else {
@@ -555,8 +555,10 @@ fn send_message_over_network(
         if sent_packets > 0 {
             trace!("{} peer(s) will receive the packet", sent_packets);
         }
+        sent_packets
     } else {
         error!("Couldn't send a packet");
+        0
     }
 }
 

@@ -22,7 +22,18 @@
 # Notes NixOS : Everything is wrapped in a nix-shell
 # when the functions are used on a NixOS distro.
 #
+# The default setting for where the application data
+# directory is (can be overriden by setting 
+# CONCORDIUM_P2P_DATA_DIR):
+# $HOME/.local/share/ConcordiumP2P
+#
 #####
+
+if [[ -n "$CONCORDIUM_P2P_DATA_DIR" ]]; then
+  CONCORDIUM_P2P_APPDATA_DIR="$CONCORDIUM_P2P_DATA_DIR"
+else
+  CONCORDIUM_P2P_APPDATA_DIR="$HOME/.local/share/ConcordiumP2P"
+fi
 
 if [[ "$OSTYPE" == "darwin"* ]]; then
   CONCORDIUM_GHC_PLATFORM="osx"
@@ -144,13 +155,21 @@ function testnet_node() {
       --id $(printf '%016d\n' $(($instanceid))) \
       --rpc-server-port $((10000+$instanceid))"
     for n ({1..$bootstrappercount})
-      do
+    do
         cmd="${cmd} --bootstrap-node 127.0.0.1:$(($n+10900))"
-      done
+    done
+
+    # Allocate a temporary directory for data storage for the instance
+    RUNNER_DATA_PATH=$(mktemp -d /tmp/p2p-client.XXXXXXXXXXXXXXXX)
+    cp -R $CONCORDIUM_P2P_APPDATA_DIR/* $RUNNER_DATA_PATH/
+
+    cmd="${cmd} --override-data-dir $RUNNER_DATA_PATH"
+    
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
 
+    
     if (( $NIXOS == 1 ))  && [[ "$IN_NIX_SHELL" == "" ]]  ; then
       cmd="nix-shell --run '$cmd'"
     fi
@@ -239,9 +258,9 @@ testnet_copy_baker_data() {
     GENESIS_DATA_VERSION=$(cat ${CONCORDIUM_P2P_DIR}/scripts/GENESIS_DATA_VERSION)
     GENESIS_FILE_NAME="${baker_count}-bakers-${GENESIS_DATA_VERSION}.tar.gz" 
     GENESIS_FILE_URL="https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/${GENESIS_FILE_NAME}"
-    rm -rf $HOME/.local/share/ConcordiumP2P &&
-    mkdir -p $HOME/.local/share/ConcordiumP2P &&
-    cd $HOME/.local/share/ConcordiumP2P  &&
+    rm -rf $CONCORDIUM_P2P_APPDATA_DIR &&
+    mkdir -p $CONCORDIUM_P2P_APPDATA_DIR &&
+    cd  $CONCORDIUM_P2P_APPDATA_DIR &&
     curl -s $GENESIS_FILE_URL > $GENESIS_FILE_NAME &&
     tar xzf $GENESIS_FILE_NAME &&
     mv genesis_data/* . &&

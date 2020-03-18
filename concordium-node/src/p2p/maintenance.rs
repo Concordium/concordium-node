@@ -7,14 +7,14 @@ use failure::Fallible;
 use get_if_addrs;
 #[cfg(target_os = "windows")]
 use ipconfig;
-use mio::{net::TcpListener, Events, Poll, PollOpt, Ready, Token};
+use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rkv::{Manager, Rkv};
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::{create_dump_thread, DumpItem};
-#[cfg(feature = "beta")]
-use crate::plugins::beta::get_username_from_jwt;
+#[cfg(feature = "staging_net")]
+use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
@@ -66,12 +66,12 @@ pub struct NodeConfig {
     pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
-    pub hard_connection_limit: Option<u16>,
+    pub hard_connection_limit: u16,
     pub catch_up_batch_limit: u64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,
-    #[cfg(feature = "beta")]
-    pub beta_username: String,
+    #[cfg(feature = "staging_net")]
+    pub staging_net_username: String,
     pub thread_pool_size: usize,
     pub dedup_size_long: usize,
     pub dedup_size_short: usize,
@@ -81,6 +81,7 @@ pub struct NodeConfig {
     pub drop_rebroadcast_probability: Option<f64>,
     pub partition_network_for_time: Option<usize>,
     pub breakage: Option<(String, u8, usize)>,
+    pub bootstrapper_peer_list_size: usize,
 }
 
 /// The collection of connections to peer nodes.
@@ -88,8 +89,8 @@ pub type Connections = HashMap<Token, Connection, BuildNoHashHasher<usize>>;
 
 /// Intercepts changes to connections and provides change notifiers.
 pub struct ConnChanges {
-    changes:  Receiver<ConnChange>,
-    notifier: Sender<ConnChange>,
+    pub changes: Receiver<ConnChange>,
+    notifier:    Sender<ConnChange>,
 }
 
 /// The set of objects related to node's connections.
@@ -165,8 +166,8 @@ pub struct P2PNode {
     pub self_peer: P2PPeer,
     /// Holds the handles to threads spawned by the node.
     pub threads: RwLock<Vec<JoinHandle<()>>>,
-    /// The handle to the poll for the connection event loop.
-    pub poll: Poll,
+    /// The handle to the poll registry.
+    pub poll_registry: Registry,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
     pub network_dumper: NetworkDumper,
@@ -181,14 +182,14 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    /// Creates a new node.
+    /// Creates a new node and its Poll.
     pub fn new(
         supplied_id: Option<String>,
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         data_dir_path: Option<PathBuf>,
-    ) -> Arc<Self> {
+    ) -> (Arc<Self>, Poll) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
                 warn!("Supplied listen address coulnd't be parsed");
@@ -202,7 +203,7 @@ impl P2PNode {
                 .expect("Port not properly formatted. Crashing.")
         };
 
-        trace!("Creating new P2PNode");
+        trace!("Creating a new P2PNode");
 
         let ip = if let Some(ref addy) = conf.common.listen_address {
             IpAddr::from_str(addy)
@@ -210,8 +211,6 @@ impl P2PNode {
         } else {
             P2PNode::get_ip().expect("Couldn't retrieve my own ip")
         };
-
-        debug!("Listening on {}:{}", ip.to_string(), conf.common.listen_port);
 
         let id = if let Some(s) = supplied_id {
             if s.chars().count() != 16 {
@@ -227,15 +226,14 @@ impl P2PNode {
         };
 
         info!("My Node ID is {}", id);
+        debug!("Listening on {}:{}", ip, conf.common.listen_port);
 
-        let poll = Poll::new().unwrap_or_else(|err| panic!("Couldn't create poll {:?}", err));
-
-        let server =
-            TcpListener::bind(&addr).unwrap_or_else(|_| panic!("Couldn't listen on port!"));
-
-        if poll.register(&server, SELF_TOKEN, Ready::readable(), PollOpt::level()).is_err() {
-            panic!("Couldn't register server with poll!")
-        };
+        let poll = Poll::new().expect("Couldn't create poll");
+        let mut server = TcpListener::bind(addr).expect("Couldn't listen on port");
+        let poll_registry = poll.registry().try_clone().expect("Can't clone the poll registry");
+        poll_registry
+            .register(&mut server, SELF_TOKEN, Interest::READABLE)
+            .expect("Couldn't register server with poll!");
 
         let own_peer_port = if let Some(own_port) = conf.common.external_port {
             own_port
@@ -292,8 +290,8 @@ impl P2PNode {
                 conf.cli.timeout_bucket_entry_period
             },
             bucket_cleanup_interval: conf.common.bucket_cleanup_interval,
-            #[cfg(feature = "beta")]
-            beta_username: get_username_from_jwt(&conf.cli.beta_token),
+            #[cfg(feature = "staging_net")]
+            staging_net_username: get_username_from_jwt(&conf.cli.staging_net_token),
             thread_pool_size: conf.connection.thread_pool_size,
             dedup_size_long: conf.connection.dedup_size_long,
             dedup_size_short: conf.connection.dedup_size_short,
@@ -309,6 +307,7 @@ impl P2PNode {
                 _ => None,
             },
             breakage,
+            bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
@@ -321,7 +320,7 @@ impl P2PNode {
             .unwrap();
 
         let node = Arc::new(P2PNode {
-            poll,
+            poll_registry,
             start_time: Utc::now(),
             threads: Default::default(),
             config,
@@ -336,7 +335,7 @@ impl P2PNode {
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
-        node
+        (node, poll)
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
@@ -369,6 +368,13 @@ impl P2PNode {
     /// A convenience method for accessing the collection of  node's buckets.
     #[inline]
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
+
+    /// It registers a connection's socket with the poll.
+    pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
+        self.poll_registry
+            .register(&mut conn.low_level.socket, conn.token, Interest::READABLE)
+            .map_err(|e| e.into())
+    }
 
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
@@ -406,16 +412,6 @@ impl P2PNode {
     /// Stop dumping network data to the disk.
     #[cfg(feature = "network_dump")]
     pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
-
-    /// Waits for `P2PNode` termination (`P2PNode::close` shuts it down).
-    pub fn join(&self) -> Fallible<()> {
-        for handle in mem::replace(&mut *write_or_die!(self.threads), Default::default()) {
-            if let Err(e) = handle.join() {
-                error!("Can't join a node thread: {:?}", e);
-            }
-        }
-        Ok(())
-    }
 
     /// Get the node's client version.
     pub fn get_version(&self) -> String { crate::VERSION.to_string() }
@@ -480,9 +476,18 @@ impl P2PNode {
 
     /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
-        info!("P2PNode shutting down.");
         self.is_terminated.store(true, Ordering::Relaxed);
         CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
+    }
+
+    /// Joins the threads spawned by the node.
+    pub fn join(&self) -> Fallible<()> {
+        for handle in mem::take(&mut *write_or_die!(self.threads)) {
+            if let Err(e) = handle.join() {
+                error!("Can't join a node thread: {:?}", e);
+            }
+        }
+        Ok(())
     }
 
     /// Shut the node down gracefully and terminate its threads.
@@ -493,30 +498,26 @@ impl P2PNode {
 }
 
 /// Spawn the node's poll thread.
-pub fn spawn(node: &Arc<P2PNode>) {
-    let self_clone = Arc::clone(node);
-    let poll_thread = spawn_or_die!("Poll thread", {
+pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
+    let node = Arc::clone(node_ref);
+    let poll_thread = spawn_or_die!("poll loop", move || {
         let mut events = Events::with_capacity(10);
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
 
-        let deduplication_queues = DeduplicationQueues::new(
-            self_clone.config.dedup_size_long,
-            self_clone.config.dedup_size_short,
-        );
+        let deduplication_queues =
+            DeduplicationQueues::new(node.config.dedup_size_long, node.config.dedup_size_short);
 
-        let num_socket_threads = match self_clone.self_peer.peer_type {
+        let num_socket_threads = match node.self_peer.peer_type {
             PeerType::Bootstrapper => 1,
-            PeerType::Node => self_clone.config.thread_pool_size,
+            PeerType::Node => node.config.thread_pool_size,
         };
         let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
+        let poll_interval = Duration::from_millis(node.config.poll_interval);
 
         loop {
             // check for new events or wait
-            if let Err(e) = self_clone
-                .poll
-                .poll(&mut events, Some(Duration::from_millis(self_clone.config.poll_interval)))
-            {
+            if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);
                 continue;
             }
@@ -524,53 +525,57 @@ pub fn spawn(node: &Arc<P2PNode>) {
             // perform socket reads and writes in parallel across connections
             // check for new connections
             let _new_conn = if events.iter().any(|event| event.token() == SELF_TOKEN) {
-                debug!("Got a new connection!");
-                accept(&self_clone).map_err(|e| error!("{}", e)).ok()
+                accept(&node).map_err(|e| error!("{}", e)).ok()
             } else {
                 None
             };
 
-            for conn_change in self_clone.connection_handler.conn_changes.changes.try_iter() {
-                process_conn_change(&self_clone, conn_change)
+            for conn_change in node.connection_handler.conn_changes.changes.try_iter() {
+                process_conn_change(&node, conn_change)
             }
 
-            pool.install(|| self_clone.process_network_events(&events, &deduplication_queues));
+            pool.install(|| node.process_network_events(&events, &deduplication_queues));
 
             // Run periodic tasks
             let now = Instant::now();
             if now.duration_since(log_time)
-                >= Duration::from_secs(self_clone.config.housekeeping_interval)
+                >= Duration::from_secs(node.config.housekeeping_interval)
             {
+                if cfg!(test) && read_or_die!(node.connections()).is_empty() {
+                    panic!("the test timed out: no valid connections available");
+                }
+
                 // Check the termination switch
-                if self_clone.is_terminated.load(Ordering::Relaxed) {
+                if node.is_terminated.load(Ordering::Relaxed) {
+                    info!("Shutting down");
                     break;
                 }
 
-                connection_housekeeping(&self_clone);
-                if self_clone.peer_type() != PeerType::Bootstrapper {
-                    self_clone.measure_connection_latencies();
+                connection_housekeeping(&node);
+                if node.peer_type() != PeerType::Bootstrapper {
+                    node.measure_connection_latencies();
                 }
 
-                let peer_stat_list = self_clone.get_peer_stats(Some(PeerType::Node));
-                check_peers(&self_clone, &peer_stat_list);
-                self_clone.measure_throughput(&peer_stat_list);
+                let peer_stat_list = node.get_peer_stats(None);
+                check_peers(&node, &peer_stat_list);
+                node.measure_throughput(&peer_stat_list);
 
                 log_time = now;
             }
 
-            if self_clone.is_bucket_cleanup_enabled()
+            if node.is_bucket_cleanup_enabled()
                 && now.duration_since(last_buckets_cleaned)
-                    >= Duration::from_millis(self_clone.config.bucket_cleanup_interval)
+                    >= Duration::from_millis(node.config.bucket_cleanup_interval)
             {
-                write_or_die!(self_clone.buckets())
-                    .clean_buckets(self_clone.config.timeout_bucket_entry_period);
+                write_or_die!(node.buckets())
+                    .clean_buckets(node.config.timeout_bucket_entry_period);
                 last_buckets_cleaned = now;
             }
         }
     });
 
     // Register info about thread into P2PNode.
-    write_or_die!(node.threads).push(poll_thread);
+    write_or_die!(node_ref.threads).push(poll_thread);
 }
 
 /// Process a major change to a connection.
@@ -602,7 +607,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             });
 
             for peer in applicable_candidates {
-                trace!("Got info for peer {}/{}/{}", peer.id, peer.ip(), peer.port());
+                trace!("Got info for peer {} ({})", peer.id, peer.addr);
                 if connect(node, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                     new_peers += 1;
                 }
@@ -615,7 +620,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::Expulsion(token) => {
             if let Some(conn) = node.remove_connection(token) {
                 let ip = conn.remote_addr().ip();
-                warn!("Soft-banning {:?} due to a breach of protocol", ip);
+                warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
                     BanId::Ip(ip),
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),

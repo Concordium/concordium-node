@@ -34,7 +34,7 @@ pub struct NodeInfo {
     pub bakingCommitteeMember: bool,
     pub finalizationCommitteeMember: bool,
     pub ancestorsSinceBestBlock: Option<Vec<String>>,
-    pub betaUsername: Option<String>,
+    pub stagingNetUsername: Option<String>,
     pub transactionsPerBlockEMA: Option<f64>,
     pub transactionsPerBlockEMSD: Option<f64>,
     pub bestBlockTransactionsSize: Option<f64>,
@@ -117,7 +117,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
             peersList: &other.peersList,
             bestBlock: &other.bestBlock,
             bestBlockHeight: other.bestBlockHeight,
-            bestArrivedTime: other.bestArrivedTime.as_ref().map(|s| s.as_str()),
+            bestArrivedTime: other.bestArrivedTime.as_deref(),
             blockArrivePeriodEMA: other.blockArrivePeriodEMA,
             blockArrivePeriodEMSD: other.blockArrivePeriodEMSD,
             blockArriveLatencyEMA: other.blockArriveLatencyEMA,
@@ -128,7 +128,7 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
             blockReceiveLatencyEMSD: other.blockReceiveLatencyEMSD,
             finalizedBlock: &other.finalizedBlock,
             finalizedBlockHeight: other.finalizedBlockHeight,
-            finalizedTime: other.finalizedTime.as_ref().map(|s| s.as_str()),
+            finalizedTime: other.finalizedTime.as_deref(),
             finalizationPeriodEMA: other.finalizationPeriodEMA,
             finalizationPeriodEMSD: other.finalizationPeriodEMSD,
             packetsSent: other.packetsSent,
@@ -177,26 +177,26 @@ impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
             bestBlockHeight:         other.bestBlockHeight,
             finalizedBlock:          &other.finalizedBlock,
             finalizedBlockHeight:    other.finalizedBlockHeight,
-            ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_ref().map(|s| s.as_slice()),
+            ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_deref(),
         }
     }
 }
 
-/// Contains node details available in `nodes_beta_users_info`.
+/// Contains node details available in `nodes_staging_net_users_info`.
 #[allow(non_snake_case)]
 #[derive(Serialize)]
-pub struct NodeInfoBetaUsers<'a> {
-    pub nodeName:     &'a str,
-    pub nodeId:       &'a str,
-    pub betaUsername: Option<&'a str>,
+pub struct NodeInfoStagingNetUsers<'a> {
+    pub nodeName:           &'a str,
+    pub nodeId:             &'a str,
+    pub stagingNetUsername: Option<&'a str>,
 }
 
-impl<'a> From<&'a NodeInfo> for NodeInfoBetaUsers<'a> {
+impl<'a> From<&'a NodeInfo> for NodeInfoStagingNetUsers<'a> {
     fn from(other: &'a NodeInfo) -> Self {
         Self {
-            nodeName:     &other.nodeName,
-            nodeId:       &other.nodeId,
-            betaUsername: other.betaUsername.as_ref().map(|s| s.as_str()),
+            nodeName:           &other.nodeName,
+            nodeId:             &other.nodeId,
+            stagingNetUsername: other.stagingNetUsername.as_deref(),
         }
     }
 }

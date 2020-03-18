@@ -7,6 +7,11 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
+use failure::Fallible;
+use mio::Poll;
+use parking_lot::Mutex as ParkingMutex;
+use rkv::{Manager, Rkv};
+
 use concordium_common::{spawn_or_die, QueueMsg};
 use consensus_rust::{
     consensus::{
@@ -30,13 +35,9 @@ use p2p_client::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
-use parking_lot::Mutex as ParkingMutex;
-
-use failure::Fallible;
-use rkv::{Manager, Rkv};
 
 use std::{
-    sync::Arc,
+    sync::{atomic::Ordering, Arc},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -49,24 +50,19 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
-    if conf.common.print_config {
-        info!("{:?}", conf);
-    }
 
-    #[cfg(feature = "beta")]
+    #[cfg(feature = "staging_net")]
     {
         use failure::bail;
-        if !p2p_client::plugins::beta::authenticate(&conf.cli.beta_token) {
-            bail!("Beta client authentication failed");
+        if !p2p_client::plugins::staging_net::authenticate(&conf.cli.staging_net_token) {
+            bail!("Staging network client authentication failed");
         }
     }
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
-    info!("Debugging enabled: {}", conf.common.debug);
-
     // The P2PNode thread
-    let node = instantiate_node(&conf, &mut app_prefs, stats_export_service);
+    let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
     #[cfg(feature = "instrumentation")]
     {
@@ -86,7 +82,7 @@ async fn main() -> Fallible<()> {
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
     // The P2P node event loop thread
-    spawn(&node);
+    spawn(&node, poll);
 
     let is_baker = conf.cli.baker.baker_id.is_some();
 
@@ -120,14 +116,14 @@ async fn main() -> Fallible<()> {
         &conf.cli.baker,
         gen_data,
         priv_data,
-        if conf.common.trace {
+        if conf.common.no_consensus_logs {
+            ConsensusLogLevel::Error
+        } else if conf.common.trace {
             ConsensusLogLevel::Trace
         } else if conf.common.debug {
             ConsensusLogLevel::Debug
-        } else if conf.common.info {
-            ConsensusLogLevel::Info
         } else {
-            ConsensusLogLevel::Warning
+            ConsensusLogLevel::Info
         },
         &data_dir_path,
         &consensus_database_url,
@@ -138,8 +134,6 @@ async fn main() -> Fallible<()> {
 
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
-
-    info!("Concordium P2P layer. Network disabled: {}", conf.cli.no_network);
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -182,7 +176,7 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
-) -> Arc<P2PNode> {
+) -> (Arc<P2PNode>, Poll) {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
             None => {
@@ -238,11 +232,10 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>)
         {
             Ok(addrs) => {
                 for addr in addrs {
-                    info!("Connecting to peer {}", &connect_to);
-                    connect(node, PeerType::Node, addr, None).unwrap_or_else(|e| debug!("{}", e));
+                    let _ = connect(node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
                 }
             }
-            Err(err) => error!("Can't parse data for node to connect to {}", err),
+            Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
         }
     }
 }
@@ -259,9 +252,7 @@ fn start_consensus_message_threads(
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
     let consensus_ref = consensus.clone();
-    threads.push(spawn_or_die!("Peers status notifier thread for consensus", {
-        let peer_stats_notifier_control_queue_receiver =
-            CALLBACK_QUEUE.receiver_peer_notifier.lock().unwrap();
+    threads.push(spawn_or_die!("consensus peer list handling", {
         let mut last_peer_list_update = 0;
         loop {
             if node_ref.last_peer_update() > last_peer_list_update {
@@ -271,10 +262,8 @@ fn start_consensus_message_threads(
 
             check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref);
 
-            if let Ok(msg) = peer_stats_notifier_control_queue_receiver.try_recv() {
-                if let QueueMsg::Stop = msg {
-                    break;
-                }
+            if node_ref.is_terminated.load(Ordering::Relaxed) {
+                break;
             }
 
             thread::sleep(Duration::from_millis(200));
@@ -284,12 +273,12 @@ fn start_consensus_message_threads(
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
     let consensus_ref = consensus.clone();
-    threads.push(spawn_or_die!("Process inbound consensus requests", {
+    threads.push(spawn_or_die!("inbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
-        let cvar = &*CALLBACK_QUEUE.inbound.signaler;
+        let cvar = &CALLBACK_QUEUE.inbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
         let mut exhausted: bool;
@@ -342,13 +331,12 @@ fn start_consensus_message_threads(
     }));
 
     let node_ref = Arc::clone(node);
-    let peers_ref = Arc::clone(&peers);
-    threads.push(spawn_or_die!("Process outbound consensus requests", {
+    threads.push(spawn_or_die!("outbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.outbound.receiver_low_priority.lock().unwrap();
-        let cvar = &*CALLBACK_QUEUE.outbound.signaler;
+        let cvar = &CALLBACK_QUEUE.outbound.signaler;
         let lock = ParkingMutex::new(false);
         let mut lock_guard = lock.lock();
         let mut exhausted: bool;
@@ -367,7 +355,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
+                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -381,7 +369,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers_ref)
+                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -410,7 +398,7 @@ where
             }
         }
         QueueMsg::Stop => {
-            warn!("Closing the {} consensus channel", dir);
+            debug!("Closing the {} consensus channel", dir);
             return false;
         }
     }
@@ -427,7 +415,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
             error!("{}", e);
         }
     }
-    spawn_or_die!("Process transfer log messages", {
+    spawn_or_die!("transfer log", {
         let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             match receiver.recv() {
@@ -452,7 +440,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
 
 #[cfg(not(feature = "elastic_logging"))]
 fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
-    spawn_or_die!("Process transfer log messages", {
+    spawn_or_die!("transfer log", {
         let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             match receiver.recv() {

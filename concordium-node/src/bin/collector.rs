@@ -74,6 +74,8 @@ struct ConfigCli {
     pub debug: bool,
     #[structopt(long = "trace", help = "Trace mode")]
     pub trace: bool,
+    #[structopt(long = "info", help = "Info mode")]
+    pub info: bool,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
     #[structopt(
@@ -105,8 +107,10 @@ async fn main() {
         Env::default().filter_or("LOG_LEVEL", "trace")
     } else if conf.debug {
         Env::default().filter_or("LOG_LEVEL", "debug")
-    } else {
+    } else if conf.info {
         Env::default().filter_or("LOG_LEVEL", "info")
+    } else {
+        Env::default().filter_or("LOG_LEVEL", "warn")
     };
 
     setup_logger_env(env, conf.no_log_timestamp);
@@ -217,7 +221,7 @@ async fn collect_data<'a>(
 
     let node_info_reply = node_info_reply.get_ref();
     let node_id = node_info_reply.node_id.to_owned().unwrap();
-    let beta_username = node_info_reply.beta_username.to_owned();
+    let staging_net_username = node_info_reply.staging_net_username.to_owned();
     let peer_type = node_info_reply.peer_type.to_owned();
     let baker_committee = node_info_reply.consensus_baker_committee;
     let finalization_committee = node_info_reply.consensus_finalizer_committee;
@@ -229,10 +233,9 @@ async fn collect_data<'a>(
 
     let node_peer_stats_reply = node_peer_stats_reply.get_ref();
     let peer_stats = &node_peer_stats_reply.peerstats;
-    let peers_summed_latency =
-        peer_stats.iter().map(|element| element.measured_latency).sum::<u64>() as f64;
+    let peers_summed_latency = peer_stats.iter().map(|element| element.latency).sum::<u64>() as f64;
     let peers_with_valid_latencies_count =
-        peer_stats.iter().filter(|element| element.valid_latency).count();
+        peer_stats.iter().filter(|element| element.latency > 0).count();
 
     let avg_bps_in = node_peer_stats_reply.avg_bps_in;
     let avg_bps_out = node_peer_stats_reply.avg_bps_out;
@@ -363,7 +366,7 @@ async fn collect_data<'a>(
         bakingCommitteeMember: baker_committee,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,
-        betaUsername: beta_username,
+        stagingNetUsername: staging_net_username,
         last_updated: 0,
         transactionsPerBlockEMA: transactions_per_block_ema,
         transactionsPerBlockEMSD: transactions_per_block_emsd,

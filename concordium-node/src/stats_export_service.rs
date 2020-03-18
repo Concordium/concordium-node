@@ -480,7 +480,7 @@ impl StatsExportService {
         prometheus_push_password: Option<String>,
     ) {
         let metrics_families = self.registry.gather();
-        let _th = spawn_or_die!("Prometheus push", move || loop {
+        let _th = spawn_or_die!("Prometheus", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
                 prometheus_push_password.clone().map(|password| prometheus::BasicAuthentication {
@@ -516,8 +516,7 @@ pub fn instantiate_stats_export_engine(
         info!("Enabling prometheus push gateway at {}", push_gateway);
         StatsExportService::new()?
     } else {
-        warn!("Couldn't instantiate prometheus due to lacking config flags");
-        StatsExportService::new()?
+        unreachable!(); // ensured in configuration.rs
     };
     Ok(Arc::new(prom))
 }

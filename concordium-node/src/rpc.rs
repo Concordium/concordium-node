@@ -290,10 +290,9 @@ impl P2p for RpcServerImpl {
             })
             .map(|peer| peer_stats_response::PeerStats {
                 node_id:          format!("{:0>16x}", peer.id),
-                packets_sent:     peer.sent,
-                packets_received: peer.received,
-                valid_latency:    peer.valid_latency,
-                measured_latency: peer.measured_latency,
+                packets_sent:     peer.msgs_sent,
+                packets_received: peer.msgs_received,
+                latency:          peer.latency,
             })
             .collect();
 
@@ -326,7 +325,7 @@ impl P2p for RpcServerImpl {
 
         Ok(Response::new(PeerListResponse {
             peer_type: self.node.peer_type().to_string(),
-            peer:      list,
+            peers:     list,
         }))
     }
 
@@ -336,12 +335,12 @@ impl P2p for RpcServerImpl {
         let peer_type = self.node.peer_type().to_string();
         let current_localtime =
             SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs();
-        let beta_username = {
-            #[cfg(feature = "beta")]
+        let staging_net_username = {
+            #[cfg(feature = "staging_net")]
             {
-                Some(self.node.config.beta_username.clone())
+                Some(self.node.config.staging_net_username.clone())
             }
-            #[cfg(not(feature = "beta"))]
+            #[cfg(not(feature = "staging_net"))]
             {
                 None
             }
@@ -357,7 +356,7 @@ impl P2p for RpcServerImpl {
                 consensus_baker_committee: consensus.in_baking_committee()
                     == ConsensusIsInCommitteeResponse::ActiveInCommittee,
                 consensus_finalizer_committee: consensus.in_finalization_committee(),
-                beta_username,
+                staging_net_username,
             },
             None => NodeInfoResponse {
                 node_id,
@@ -368,7 +367,7 @@ impl P2p for RpcServerImpl {
                 consensus_type: "Inactive".to_owned(),
                 consensus_baker_committee: false,
                 consensus_finalizer_committee: false,
-                beta_username,
+                staging_net_username,
             },
         }))
     }
@@ -622,6 +621,16 @@ impl P2p for RpcServerImpl {
         )
     }
 
+    async fn get_next_account_nonce(
+        &self,
+        req: Request<AccountAddress>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetNextAccountNonce", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_next_account_nonce(&req.get_ref().account_address)
+        })
+    }
+
     async fn get_block_summary(
         &self,
         req: Request<BlockHash>,
@@ -647,7 +656,7 @@ impl P2p for RpcServerImpl {
         req: Request<Empty>,
     ) -> Result<Response<PeerListResponse>, Status> {
         authenticate!(req, self.access_token);
-        let peer = if let Ok(banlist) = self.node.get_banlist() {
+        let peers = if let Ok(banlist) = self.node.get_banlist() {
             banlist
                 .into_iter()
                 .map(|banned_node| {
@@ -673,7 +682,7 @@ impl P2p for RpcServerImpl {
         };
 
         Ok(Response::new(PeerListResponse {
-            peer,
+            peers,
             peer_type: "Node".to_owned(),
         }))
     }
@@ -950,7 +959,7 @@ mod tests {
             },
             TOKEN
         );
-        let rcv = client.peer_list(req).await.unwrap().get_ref().peer.clone();
+        let rcv = client.peer_list(req).await.unwrap().get_ref().peers.clone();
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         let elem = rcv[0].clone();

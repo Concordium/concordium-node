@@ -6,6 +6,8 @@ set -e
 # Retrieve genesis data sha
 GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
 
+echo $GENESIS_VERSION
+
 # Setup directory we expect them to be in
 mkdir -p genesis-data
 

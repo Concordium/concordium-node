@@ -64,6 +64,8 @@ pub fn start_consensus_layer(
 
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
+        u64::from(conf.transaction_insertions_before_purge),
+        u64::from(conf.transaction_keep_alive),
         genesis_data,
         private_data,
         conf.baker_id,
@@ -333,24 +335,25 @@ fn send_consensus_msg_to_net(
     network_id: NetworkId,
     (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) {
-    if let Some(target_id) = target_id {
-        send_direct_message(node, target_id, network_id, payload);
+    let sent = if let Some(target_id) = target_id {
+        send_direct_message(node, target_id, network_id, payload)
     } else {
         send_broadcast_message(
             node,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
             network_id,
             payload,
-        );
-    }
-
-    let target_desc = if let Some(id) = target_id {
-        format!("direct message to peer {}", id)
-    } else {
-        "broadcast".to_string()
+        )
     };
 
-    info!("Sent a {} containing a {}", target_desc, msg_desc);
+    if sent > 0 {
+        let target_desc = if let Some(id) = target_id {
+            format!("direct message to peer {}", id)
+        } else {
+            "broadcast".to_string()
+        };
+        info!("Sent a {} containing a {}", target_desc, msg_desc);
+    }
 }
 
 fn send_catch_up_status(
@@ -379,15 +382,14 @@ fn send_catch_up_status(
 
 /// Updates the peer list upon changes to the list of peer nodes.
 pub fn update_peer_list(node: &P2PNode, peers_lock: &RwLock<PeerList>) {
-    debug!("The peers have changed; updating the catch-up peer list");
+    trace!("The peers have changed; updating the catch-up peer list");
 
     let peer_ids = node.get_node_peer_ids();
 
     let mut peers = write_or_die!(peers_lock);
     // remove global state peers whose connections were dropped
-    for (live_peer, state) in mem::replace(&mut peers.peers, Default::default())
-        .into_iter()
-        .filter(|(id, _)| peer_ids.contains(&id))
+    for (live_peer, state) in
+        mem::take(&mut peers.peers).into_iter().filter(|(id, _)| peer_ids.contains(&id))
     {
         peers.peers.push(live_peer, state);
     }

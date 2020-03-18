@@ -5,7 +5,7 @@
 This repository relies on git submodules for internal component dependencies, so do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
 
 ## Dependencies to build the project
-* Rust (stable 1.37+, and stable 1.41.0 (5e1a79984 2020-01-27) for using static libraries)
+* Rust (stable 1.37+, and stable 1.42.0 (b8cedc004 2020-03-09) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
 * flatc >= 1.11.0
@@ -29,7 +29,7 @@ This repository relies on git submodules for internal component dependencies, so
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
 * elastic_logging - enable ability to log transaction events to elastic search
 * collector - enables the build of the node-collector and backend
-* beta - enables special beta only features like client username/password validation
+* staging_net - enables special staging network only features like client username/password validation
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).
@@ -95,7 +95,7 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up 
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
 
-## PostGreSQL in local development mode
+## Middleware local development mode
 The PostGreSQL instance is exposed on port 5432/tcp and the username is `concordium`, password: `concordium`, and database name is `concordium`.
 
 ### Running the local development version from the stable master branch
@@ -106,10 +106,10 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml 
 
 Remember to clean out PostGreSQL data between runs using
 ```bash
-$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml down
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.middleware.yml down
 ```
 
-### Running the local development version from the unstable develop branch
+### Running the local development version from the unstable develop branch (middleware)
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
 ```bash
 $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middleware.yml up --scale baker=5 --force-recreate
@@ -122,3 +122,34 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.middlew
 
 ### Delay baker startup if PostGreSQL starts too slowly
 If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP`
+
+
+## Wallet local development mode
+The PostGreSQL instance is exposed on port 5432/tcp and the username is `concordium`, password: `concordium`, and database name is `concordium`.
+The wallet-proxy is mapped on port 14000/tcp, and the wallet-server is mapped on 13000/tcp.
+
+### Running the local development version from the stable master branch
+Use docker-compose if you only need a middle-ware enabled set of nodes to test on
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.wallet-dev.yml up --scale baker=5 --force-recreate
+```
+
+Remember to clean out PostGreSQL data between runs using
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.wallet-dev.yml down
+```
+
+### Running the local development version from the unstable develop branch
+Use docker-compose if you only need a middle-ware enabled set of nodes to test on
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.wallet-dev.yml up --scale baker=5 --force-recreate
+```
+
+Remember to clean out PostGreSQL data between runs using
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.wallet-dev.yml down
+```
+
+### Delay baker startup if PostGreSQL starts too slowly
+If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP` (the wallet-proxy and wallet-server has a default value of 30 set to delay start until PostGreSQL is up).
+
