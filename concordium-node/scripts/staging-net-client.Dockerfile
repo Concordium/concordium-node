@@ -21,6 +21,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
     cd /build-project/genesis-data && \
     tar -xf 20-bakers.tar.gz && \
     cd genesis_data && \
+    sha256sum genesis.dat && \
     cp genesis.dat /build-project/
 # P2P client is now built
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as haskell-build
@@ -77,19 +78,20 @@ EXPOSE 8888
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
-ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.test.concordium.com:8888
+ENV BOOTSTRAP_FIRST_NODE=bootstrap.eu.staging.concordium.com:8888
 ENV DATA_DIR=/var/lib/concordium/data
 ENV CONFIG_DIR=/var/lib/concordium/config
 ENV EXTRA_ARGS="--no-dnssec"
 ENV NODE_URL=localhost:10000
-ENV COLLECTORD_URL=https://dashboard.eu.prod.concordium.com/nodes/post
-ENV GRPC_HOST=localhost:10000
+ENV COLLECTORD_URL=https://dashboard.eu.staging.concordium.com/nodes/post
+ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 postgresql-server-dev-11
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 libpq-dev liblmdb-dev
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
+RUN sha256sum /genesis.dat
 COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
 COPY --from=haskell-build /simple-client-bin /usr/local/bin/simple-client
