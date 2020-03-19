@@ -297,7 +297,7 @@ addBlock block = do
                 NoFinalizationData -> tryAddParentLastFin parentP =<< bpLastFinalized parentP
                 -- If the block contains a finalization record...
                 BlockFinalizationData finRec@FinalizationRecord{..} -> do
-                    -- send it to for finalization processing
+                    -- send it for finalization processing
                     finOK <- finalizationReceiveRecord True finRec >>= \case
                         ResultSuccess ->
                             -- In this event, we can be sure that the finalization record
