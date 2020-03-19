@@ -415,8 +415,6 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
--- NB: This method should also ensure that it records that the given transaction
--- affected the given account, using the same mechanism that commitChanges does.
 chargeExecutionCost :: SchedulerMonad m => TransactionHash -> Account -> Amount -> m ()
 chargeExecutionCost txHash acc amnt =
     let balance = acc ^. accountAmount

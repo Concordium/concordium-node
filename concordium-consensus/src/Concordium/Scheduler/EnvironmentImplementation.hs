@@ -29,7 +29,7 @@ import Concordium.GlobalState.Bakers as Bakers
 import qualified Acorn.Core as Core
 
 -- |Chain metadata together with a set of special accounts which have special
--- rights during the beta phase, as well as 
+-- rights during the beta phase, as well as
 data ContextState = ContextState{
   _specialBetaAccounts :: !(Set.HashSet AccountAddress),
   _chainMetadata :: !ChainMetadata,
@@ -185,6 +185,9 @@ instance (MonadReader ContextState m,
   increaseAccountNonce acc = do
     s <- use schedulerBlockState
     let nonce = acc ^. accountNonce
+    -- This would fail if the account doesn't exist in the state.
+    -- The only call to this fun is done after checking the existence
+    -- of the sender.
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
     schedulerBlockState .= s'
 
@@ -193,6 +196,9 @@ instance (MonadReader ContextState m,
   {-# INLINE addAccountCredential #-}
   addAccountCredential !acc !cdi = do
     s <- use schedulerBlockState
+    -- This would fail if the account doesn't exist in the state.
+    -- This func is either preceded by a creation of the account of by a query
+    -- for the account.
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
     schedulerBlockState .= s'
 
@@ -207,9 +213,13 @@ instance (MonadReader ContextState m,
     s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
                       s
                       (Map.toList (cs ^. instanceUpdates)))
-    -- Notify account transfers, but also 
+    -- Notify account transfers, but also
     s'' <- lift (foldM (\curState accUpdate -> do
                            tell (logAccount (accUpdate ^. auAddress))
+                           -- this will fail if the account doesn't exist in the state.
+                           -- We just call commit changes either when we initialize a contract (not in RC1)
+                           -- or when we `chargeExecutionCost` that gets the sender from `mkWTC` that previously
+                           -- checks that such sender exists.
                            bsoModifyAccount curState accUpdate
                        )
                   s'
@@ -270,8 +280,9 @@ instance (MonadReader ContextState m,
   {-# INLINE updateBakerAccount #-}
   updateBakerAccount bid bacc = do
     s <- use schedulerBlockState
+    -- if the baker doesn't exist it will be a noop
+    -- if the baker exists, setting the account can't fail
     (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
-    -- updating the account cannot fail, so we ignore the return value.
     schedulerBlockState .= s'
 
   {-# INLINE delegateStake #-}
