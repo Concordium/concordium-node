@@ -18,6 +18,7 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 import Control.Monad.Trans.State
 import Data.Functor.Identity
+import Data.Either (isRight)
 
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe
@@ -233,7 +234,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         addContext r = r
 
 invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
-invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
+invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -243,16 +244,11 @@ invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} 
             prevGTU    = _totalGTU $ BState._blockBank prevState
         checkBinary (==) _finsCommittee (makeFinalizationCommittee (finalizationParameters maxFinComSize) prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
-        -- The baker should be a member of the finalization committee if the baker's stake exceeds 1/maxFinComSize of the total stake
-        when bakerInFinCommittee $ do
-            when (null _finsCurrentRound) $ Left "No current finalization round"
-            invariantSkovFinalizationForFinMember s lfr lfb
-        where bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
-              bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
-
-invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BasicBlockPointer BState.BlockState -> Either String ()
-invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _ _) lfr lfb = do
+        let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
+            bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
+        checkBinary (==) bakerInFinCommittee (isRight _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+            -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
             checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
             unless (popCount (toInteger roundDelta) == 1) $ Left $ "Round delta (" ++ show roundDelta ++ ") is not a power of 2"
             -- Determine which blocks are valid candidates for finalization
