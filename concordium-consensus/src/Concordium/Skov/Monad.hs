@@ -132,8 +132,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- Note that this function is indended to be called by the finalization implemention,
     -- and will not call the finalization implementation itself.
     trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
-    -- TODO: change signature - logging can be used instead of returning a string; could return UpdateResult
-    -- receiveCatchUpStatus :: CatchUpStatus -> m (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CatchUpStatus), Bool))
+    -- |Handle a catch-up status message.
     handleCatchUpStatus :: CatchUpStatus -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
@@ -200,13 +199,3 @@ getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime (fromIntegral (genesisTime genData + genesisSlotDuration genData * fromIntegral s))
-
-receiveBlock :: (SkovMonad m) => ByteString -> m UpdateResult
-receiveBlock blockBS = do
-        now <- currentTime
-        case deserializePendingBlock blockBS now of
-            Left err -> do
-                logEvent External LLDebug err
-                return ResultSerializationFail
-            Right pb -> storeBlock pb
-

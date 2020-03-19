@@ -8,7 +8,6 @@ import Control.Monad
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import Data.Foldable
-import Data.Maybe
 
 import GHC.Stack
 
@@ -306,8 +305,16 @@ addBlock block = do
                             -- finalizes is the named one.
                             -- Check that the parent block is still live: potentially, the
                             -- block might not be descended from the one it has a finalization
-                            -- record for.
-                            isJust <$> resolveBlock (bpHash parentP)
+                            -- record for.  Furthermore, if the parent block is finalized now,
+                            -- it has to be the last finalized block.
+                            getBlockStatus (bpHash parentP) >>= \case
+                                Just (BlockAlive{}) -> return True
+                                Just (BlockFinalized{}) -> do
+                                    -- The last finalized block may have changed as a result
+                                    -- of the call to finalizationReceiveRecord.
+                                    (lf, _) <- getLastFinalized
+                                    return (parentP == lf)
+                                _ -> return False
                         ResultDuplicate -> return True
                         _ -> return False
                     check finOK $ do
