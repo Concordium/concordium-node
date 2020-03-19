@@ -81,9 +81,6 @@ async fn main() -> Fallible<()> {
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    // The P2P node event loop thread
-    spawn(&node, poll);
-
     let is_baker = conf.cli.baker.baker_id.is_some();
 
     let data_dir_path = app_prefs.get_user_app_dir();
@@ -150,10 +147,16 @@ async fn main() -> Fallible<()> {
         info!("RPC server started");
     };
 
+    // The P2P node event loop thread
+    spawn(&node, poll);
+
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
         establish_connections(&conf, &node);
     }
+
+    // start baking
+    consensus.start_baker();
 
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
@@ -272,7 +275,6 @@ fn start_consensus_message_threads(
 
     let node_ref = Arc::clone(node);
     let peers_ref = Arc::clone(&peers);
-    let consensus_ref = consensus.clone();
     threads.push(spawn_or_die!("inbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
@@ -297,13 +299,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(
-                            &node_ref,
-                            nid,
-                            &consensus_ref,
-                            msg,
-                            &peers_ref,
-                        )
+                        handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -317,7 +313,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, nid, &consensus_ref, msg, &peers_ref)
+                    handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -381,9 +377,6 @@ fn start_consensus_message_threads(
             }
         }
     }));
-
-    // start baking
-    consensus.start_baker();
 
     threads
 }
