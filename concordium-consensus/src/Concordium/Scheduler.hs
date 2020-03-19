@@ -61,23 +61,27 @@ existsValidCredential cm acc = do
 
 -- |Check that
 --  * the transaction has a valid sender,
---  * the amount they have deposited is on their account,
---  * the transaction is not expired.
--- The valid sender means that the sender account has at least one valid credential,
+--  * the amount corresponding to the deposited energy is on their account,
+--  * the transaction is not expired,
+--  * the transaction nonce is the account's next nonce,
+--  * the transaction is signed with the account's verification keys.
+-- The valid sender means that the sender account exists and has at least one valid credential,
 -- where currently valid means non-expired.
 --
--- Before any other checks this checks wheter the amount deposited is enough to cover
+-- Before any other checks this checks whether the amount deposited is enough to cover
 -- the cost that will be charged for checking the header.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
 checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m (Account, Energy)
 checkHeader meta = do
-  -- Before even checking the header we calculate the cost that will be charged to do so
-  -- and check that at least that much energy is deposited.
+  -- Before even checking the header we calculate the cost that will be charged for this
+  -- and check that at least that much energy is deposited and remaining from the maximum block energy.
   let cost = Cost.checkHeader (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
   unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
   remainingBlockEnergy <- lift getRemainingEnergy
   unless (remainingBlockEnergy >= cost) $ throwError Nothing
+
+  -- Now check whether the specified sender exists, and only then do all remaining checks.
   macc <- lift (getAccount (transactionSender meta))
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
@@ -91,14 +95,17 @@ checkHeader meta = do
       when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
       unless (existsValidCredential cm acc) $ throwError . Just $ NoValidCredential
 
-      -- after the credential check is done we check the amount
+      -- After the successful credential check we check that the sender's account
+      -- has enough GTU to cover the deposited energy.
       depositedAmount <- lift (energyToGtu (transactionGasAmount meta))
-
-      -- check they have enough funds to cover the deposit
       unless (depositedAmount <= amnt) (throwError . Just $ InsufficientFunds)
+
       unless (txnonce == nextNonce) (throwError . Just $ (NonSequentialNonce nextNonce))
+
+      -- Finally do the signature verification, the computationally most expensive part.
       let sigCheck = verifyTransaction (acc ^. accountVerificationKeys) meta
       unless sigCheck (throwError . Just $ IncorrectSignature)
+
       return (acc, cost)
 
 -- TODO: When we have policies checking one sensible approach to rewarding
