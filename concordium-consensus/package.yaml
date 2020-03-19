@@ -70,8 +70,8 @@ library:
       - -Werror=missing-fields
       - -Werror=missing-methods
       - -Wredundant-constraints
-      - -fno-ignore-asserts
       - -O2
+      - -fno-ignore-asserts
   when:
     - condition: os(windows)
       then:
