@@ -53,10 +53,9 @@ async fn main() -> Fallible<()> {
 
     #[cfg(feature = "staging_net")]
     {
-        use failure::bail;
-        if !p2p_client::plugins::staging_net::authenticate(&conf.cli.staging_net_token) {
-            bail!("Staging network client authentication failed");
-        }
+        p2p_client::plugins::staging_net::authenticate(&conf.cli.staging_net_token)
+            .await
+            .expect("Staging network client authentication failed");
     }
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
