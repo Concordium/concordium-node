@@ -135,11 +135,6 @@ async fn main() -> Fallible<()> {
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
 
-    // Connect to nodes (args and bootstrap)
-    if !conf.cli.no_network {
-        establish_connections(&conf, &node);
-    }
-
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(
@@ -154,6 +149,11 @@ async fn main() -> Fallible<()> {
         });
         info!("RPC server started");
     };
+
+    // Connect to nodes (args and bootstrap)
+    if !conf.cli.no_network {
+        establish_connections(&conf, &node);
+    }
 
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
