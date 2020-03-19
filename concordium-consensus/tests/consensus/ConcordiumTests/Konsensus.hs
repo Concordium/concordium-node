@@ -71,6 +71,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
+-- import Debug.Trace
 
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
@@ -78,9 +79,6 @@ dummyCryptographicParameters =
   case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
-
-
--- import Debug.Trace
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -250,7 +248,7 @@ invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} 
             when (null _finsCurrentRound) $ Left "No current finalization round"
             invariantSkovFinalizationForFinMember s lfr lfb
         where bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
-              bakerEqParty PartyInfo{..} = bakerInfoToVoterInfo baker == VoterInfo partySignKey partyVRFKey partyWeight partyBlsKey
+              bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
 
 invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BasicBlockPointer BState.BlockState -> Either String ()
 invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _ _) lfr lfb = do
@@ -393,17 +391,15 @@ type FinComPartiesSet = Set.Set (Set.Set Sig.VerifyKey)
 
 -- The `collectedFinComParties` parameter should be Nothing if we don't care about changing the finalization committee members.
 -- Otherwise, it carries a set of finalization-committee-member sets. In each round of finalization, we add the
--- set of parties to this set. In the end, we ensure that the size of this set is greater than 1, which means that
+-- set of parties to this set. In the end, we want this set to be greater than 1, which means that
 -- there have been at least two different sets of committee members.
 runKonsensusTest :: RandomGen g => FinalizationCommitteeSize -> Maybe FinComPartiesSet -> Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest maxFinComSize collectedFinComParties steps g states es
         | steps <= 0 = return $
-            -- If we run this test from `runKonsensusTestForChangingFinCommittee`, we want to ensure that the members of
-            -- the finalization committee change. To do that, this ensures that the size of the finalization-committee-members set
-            -- is greater than 1.
-            if any ((1 >=) . Set.size) collectedFinComParties
-            then counterexample "Parties of finalization committee should change at least once." False
-            else label ("fin length: " ++ show (maximum $ (\s -> s ^. _5 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
+            let finReport = "fin length: " ++ show (maximum $ (\s -> s ^. _5 . to ssGSState . TS.finalizationList . to Seq.length) <$> states ) in
+            case collectedFinComParties of
+              Just ps -> label (finReport ++ "; number of distinct finalization committees: " ++ show (Set.size ps)) $ property True
+              Nothing -> label finReport $ property True
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
@@ -596,4 +592,4 @@ tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 100
     it "2 parties, 1000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 10000
     it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl `div` 20) $ withInitialStates 4 defaultMaxFinComSize $ runKonsensusTestDefault 10000
-    it "10 parties, 10000 steps, 15 transfer transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 15 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000
+    it "10 parties, 10000 steps, 30 transfer transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 30 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000
