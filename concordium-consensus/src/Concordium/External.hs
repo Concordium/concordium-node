@@ -41,7 +41,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, receiveBlock, MessageType)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, MessageType)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
