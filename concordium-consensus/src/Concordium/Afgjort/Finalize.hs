@@ -689,9 +689,12 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finCommittee <~ getFinalizationCommittee bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
-        forM_ mMyParty $ \myParty -> do
+        case mMyParty of
+          Just myParty -> do
             finFailedRounds .= []
             newRound newFinDelay myParty
+          Nothing ->
+            finCurrentRound .= Left initialPassiveFinalizationRound
 
 nextFinalizationDelay :: FinalizationRecord -> BlockHeight
 nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
