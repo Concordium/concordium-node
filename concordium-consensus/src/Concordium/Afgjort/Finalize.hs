@@ -271,6 +271,15 @@ nextRound oldFinIndex oldDelta = do
                 finFailedRounds %= (wmvbaWADBot (roundWMVBA r) :)
                 newRound (2 * oldDelta) (roundMe r)
 
+pendingToFinMsg :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> PendingMessage -> FinalizationMessage
+pendingToFinMsg sessId finIx delta (PendingMessage src msg sig) =
+     let msgHdr party = FinalizationMessageHeader {
+             msgSessionId = sessId,
+             msgFinalizationIndex = finIx,
+             msgDelta = delta,
+             msgSenderIndex = party
+         }
+     in FinalizationMessage (msgHdr src) msg sig
 
 newRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
@@ -287,16 +296,9 @@ newRound newDelta me = do
         finIx <- use finIndex
         committee <- use finCommittee
         sessId <- use finSessionId
-        let
-            msgHdr src = FinalizationMessageHeader {
-                msgSessionId = sessId,
-                msgFinalizationIndex = finIx,
-                msgDelta = newDelta,
-                msgSenderIndex = src
-            }
-            toFinMsg (PendingMessage src msg sig) = FinalizationMessage (msgHdr src) msg sig
         -- Filter the messages that have valid signatures and reference legitimate parties
         -- TODO: Drop pending messages for this round, because we've handled them
+        let toFinMsg = pendingToFinMsg sessId finIx newDelta
         pmsgs <- finPendingMessages . atStrict finIx . non Map.empty . atStrict newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
         forM_ justifiedInputs $ \i -> do
@@ -308,6 +310,28 @@ newRound newDelta me = do
             simpleWMVBA $ receiveWMVBAMessage src sig msg
         tryNominateBlock
 
+-- TODO (MR) If this code is correct, consider reducing duplication with `receiveFinalizationMessage`
+newPassiveRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> BlockPointerType m -> m ()
+newPassiveRound newDelta bp = do
+    nextFinHeight <- nextFinalizationHeight newDelta bp
+    finCom        <- use finCommittee
+    finInd        <- use finIndex
+    sessionId     <- use finSessionId
+    maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty 
+                                           . atStrict nextFinHeight . non Set.empty 
+                                           <%= Set.filter (checkMessage finCom . pendingToFinMsg sessionId finInd newDelta)
+    let finParties = parties finCom
+        partyInfo party = finParties Vec.! fromIntegral party
+        pWeight = partyWeight . partyInfo
+        pVRFKey = partyVRFKey . partyInfo
+        pBlsKey = partyBlsKey . partyInfo
+        baid = roundBaid sessionId finInd newDelta
+        maxParty = fromIntegral $ Vec.length finParties - 1
+        inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
+    forM_ maybeWitnessMsgs $ \(PendingMessage src msg _) -> do
+            let (mProof, _) = runState (passiveReceiveWMVBAMessage inst src msg) initialWMVBAPassiveState
+            forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
+            finCurrentRound .= Left initialPassiveFinalizationRound
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
@@ -685,16 +709,16 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         nfh <- nextFinalizationHeight fs bp
         finHeight .= nfh
         finIndexInitialDelta .= newFinDelay
+        finFailedRounds .= []
         -- Update finalization committee for the new round
         finCommittee <~ getFinalizationCommittee bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         case mMyParty of
-          Just myParty -> do
-            finFailedRounds .= []
+          Just myParty ->
             newRound newFinDelay myParty
           Nothing ->
-            finCurrentRound .= Left initialPassiveFinalizationRound
+            newPassiveRound newFinDelay bp
 
 nextFinalizationDelay :: FinalizationRecord -> BlockHeight
 nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
