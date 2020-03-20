@@ -329,9 +329,9 @@ newPassiveRound newDelta bp = do
         maxParty = fromIntegral $ Vec.length finParties - 1
         inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
     forM_ maybeWitnessMsgs $ \(PendingMessage src msg _) -> do
-            let (mProof, _) = runState (passiveReceiveWMVBAMessage inst src msg) initialWMVBAPassiveState
-            forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
-            finCurrentRound .= Left initialPassiveFinalizationRound
+        let (mProof, _) = runState (passiveReceiveWMVBAMessage inst src msg) initialWMVBAPassiveState
+        forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
+    finCurrentRound .= Left initialPassiveFinalizationRound
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
