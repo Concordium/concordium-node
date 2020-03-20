@@ -33,7 +33,7 @@ module Concordium.Afgjort.WMVBA (
     getOutputWitnesses,
     uncheckedOutputWitnesses,
     -- * Passive
-    WMVBAPassiveState,
+    WMVBAPassiveState(..),
     initialWMVBAPassiveState,
     passiveReceiveWMVBAMessage,
     passiveGetOutputWitnesses,

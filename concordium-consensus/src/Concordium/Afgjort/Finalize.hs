@@ -45,6 +45,7 @@ import qualified Data.Set as Set
 import Data.Set(Set)
 import Data.Maybe
 import Lens.Micro.Platform
+import Control.Applicative ((<|>))
 import Control.Monad.State.Class
 import Control.Monad.State.Strict (runState)
 import Control.Monad.Reader.Class
@@ -317,8 +318,8 @@ newPassiveRound newDelta bp = do
     finCom        <- use finCommittee
     finInd        <- use finIndex
     sessionId     <- use finSessionId
-    maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty 
-                                           . atStrict nextFinHeight . non Set.empty 
+    maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty
+                                           . atStrict nextFinHeight . non Set.empty
                                            <%= Set.filter (checkMessage finCom . pendingToFinMsg sessionId finInd newDelta)
     let finParties = parties finCom
         partyInfo party = finParties Vec.! fromIntegral party
@@ -328,10 +329,13 @@ newPassiveRound newDelta bp = do
         baid = roundBaid sessionId finInd newDelta
         maxParty = fromIntegral $ Vec.length finParties - 1
         inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
-    forM_ maybeWitnessMsgs $ \(PendingMessage src msg _) -> do
-        let (mProof, _) = runState (passiveReceiveWMVBAMessage inst src msg) initialWMVBAPassiveState
-        forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
-    finCurrentRound .= Left initialPassiveFinalizationRound
+        (mProof, passiveStates) = foldr (\(PendingMessage src msg _) (prevProofM, st@(WMVBAPassiveState oldState)) ->
+                                            let (proofM, WMVBAPassiveState newState) = runState (passiveReceiveWMVBAMessage inst src msg) st
+                                            in (proofM <|> prevProofM, WMVBAPassiveState (oldState `Map.union` newState)))
+                                        (Nothing, initialWMVBAPassiveState)
+                                        (Set.toList maybeWitnessMsgs)
+    forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
+    finCurrentRound .= Left (PassiveFinalizationRound $ (passiveWitnesses initialPassiveFinalizationRound) & atStrict newDelta ?~ passiveStates)
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
