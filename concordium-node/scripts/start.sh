@@ -5,6 +5,33 @@ export LD_LIBRARY_PATH=/usr/local/lib
 
 ARGS=""
 
+# Set overrides for configuration and data store paths
+if [ -n "$CONFIG_DIR" ];
+then
+    ARGS="$ARGS --override-config-dir $CONFIG_DIR"
+    mkdir -p $CONFIG_DIR
+fi
+
+if [ -n "$DATA_DIR" ];
+then
+    ARGS="$ARGS --override-data-dir $DATA_DIR"
+    mkdir -p $DATA_DIR
+    cd $DATA_DIR
+fi
+
+# Unwrap proper genesis bundle
+if [ -n "$NUM_BAKERS" ];
+then
+    if [ -n "$DATA_DIR" ];
+    then
+        cd /genesis-data
+        tar -xvf $NUM_BAKERS-bakers.tar.gz
+        cd genesis_data/
+        cp * $DATA_DIR/
+        cd $DATA_DIR
+    fi
+fi
+
 # Determine what arguments to pass to the binary
 if [ -n "$ID" ];
 then
@@ -32,7 +59,11 @@ fi
 if [ -n "$BAKER_ID" ];
 then
     REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
-    ARGS="$ARGS --baker-id $REAL_BAKER_ID"
+    BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
+    if [ -f $BAKER_CREDENTIALS_FILE ]; 
+    then
+        ARGS="$ARGS --baker-id $REAL_BAKER_ID"
+    fi
     if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
         ARGS="$ARGS --transaction-outcome-logging"
@@ -72,31 +103,6 @@ fi
 if [ -n "$PROMETHEUS_METRICS_IP" ];
 then
     ARGS="$ARGS --prometheus-listen-addr $PROMETHEUS_METRICS_IP"
-fi
-
-if [ -n "$CONFIG_DIR" ];
-then
-    ARGS="$ARGS --override-config-dir $CONFIG_DIR"
-    mkdir -p $CONFIG_DIR
-fi
-
-if [ -n "$DATA_DIR" ];
-then
-    ARGS="$ARGS --override-data-dir $DATA_DIR"
-    mkdir -p $DATA_DIR
-    cd $DATA_DIR
-fi
-
-if [ -n "$NUM_BAKERS" ];
-then
-    if [ -n "$DATA_DIR" ];
-    then
-        cd /genesis-data
-        tar -xvf $NUM_BAKERS-bakers.tar.gz
-        cd genesis_data/
-        cp * $DATA_DIR/
-        cd $DATA_DIR
-    fi
 fi
 
 if [ -n "$BOOTSTRAP_FIRST_NODE" ];
