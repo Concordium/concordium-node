@@ -332,11 +332,19 @@ newPassiveRound newDelta = do
         maxParty = fromIntegral $ Vec.length finParties - 1
         mergeSignatures = Map.unionWith (\(pm1, ps1) (pm2, ps2) -> (PM.union pWeight pm1 pm2, PS.union pWeight ps1 ps2))
         inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
-        (mProof, passiveStates) = foldr (\(PendingMessage src msg _) (prevProofM, st@(WMVBAPassiveState oldState)) ->
-                                            let (proofM, WMVBAPassiveState newState) = runState (passiveReceiveWMVBAMessage inst src msg) st
+        -- Maps block hashes to `PartyMap`s
+        blockToMsgs = foldr (\(PendingMessage src wm _) m ->
+                        case wm of
+                            WMVBAWitnessCreatorMessage (bh, sig) ->
+                                let newPartyMap = PM.singleton src (pWeight src) sig
+                                in Map.insertWith (PM.union pWeight) bh newPartyMap m
+                            _ -> m
+               ) Map.empty $ Set.toList maybeWitnessMsgs
+        (mProof, passiveStates) = foldr (\(v, partyMap) (prevProofM, st@(WMVBAPassiveState oldState)) ->
+                                            let (proofM, WMVBAPassiveState newState) = runState (passiveReceiveWMVBASignatures inst v partyMap pWeight) st
                                             in (proofM <|> prevProofM, WMVBAPassiveState (mergeSignatures oldState newState)))
                                         (Nothing, initialWMVBAPassiveState)
-                                        (Set.toList maybeWitnessMsgs)
+                                        $ Map.toList blockToMsgs
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
     finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & atStrict newDelta ?~ passiveStates)
 
