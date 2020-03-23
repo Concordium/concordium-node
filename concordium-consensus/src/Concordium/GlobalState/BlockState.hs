@@ -523,7 +523,7 @@ resultToReasons bp TransactionSummary{..} =
         extractReason (CredentialDeployed regid address) =
           Just (CredentialDeployment tsHash address regid)
         extractReason _ = Nothing
-        
+
         baker = blockBaker bp
 
 specialToReason :: SpecialTransactionOutcome -> TransferReason

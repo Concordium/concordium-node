@@ -12,6 +12,7 @@ import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Trans
 import Control.Monad
 import Lens.Micro.Platform
+import Concordium.Utils
 import qualified Data.Set as Set
 import Data.Maybe
 import Data.Functor.Identity
@@ -179,7 +180,7 @@ makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePo
         , bspCryptographicParameters = BRMemory $! _blockCryptographicParameters
         , bspTransactionOutcomes = _blockTransactionOutcomes
         }
-    
+
 initialPersistentState :: MonadIO m => BirkParameters
              -> CryptographicParameters
              -> [Account]
@@ -412,11 +413,11 @@ doRegIdExists pbs regid = do
         fst <$> Account.regIdExists regid (bspAccounts bsp)
 
 doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
-doPutNewAccount pbs acct = do 
+doPutNewAccount pbs acct = do
         bsp <- loadPBS pbs
         (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
         (res,) <$> storePBS pbs (bsp {bspAccounts = accts'})
-    
+
 doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
@@ -517,7 +518,7 @@ doDelegateStake pbs aaddr target = do
         bsp <- loadPBS pbs
         let targetValid = case target of
                 Nothing -> True
-                Just bid -> isJust $ bspBirkParameters bsp ^. birkCurrentBakers . bakerMap . at bid
+                Just bid -> isJust $ bspBirkParameters bsp ^. birkCurrentBakers . bakerMap . at' bid
         if targetValid then do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
                                 acct & accountStakeDelegate .~ target)
@@ -563,7 +564,7 @@ doNotifyExecutionCost pbs amnt = do
 doNotifyIdentityIssuerCredential :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m PersistentBlockState
 doNotifyIdentityIssuerCredential pbs idk = do
         bsp <- loadPBS pbs
-        storePBS pbs bsp{bspBank = bspBank bsp & (Rewards.identityIssuersRewards . at idk . non 0) +~ 1}
+        storePBS pbs bsp{bspBank = bspBank bsp & (Rewards.identityIssuersRewards . at' idk . non 0) +~ 1}
 
 doGetExecutionCost :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Amount
 doGetExecutionCost pbs = (^. Rewards.executionCost) . bspBank <$> loadPBS pbs
@@ -723,5 +724,5 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         (inner', ref) <- flushBufferedRef inner
         liftIO $ writeIORef pbs inner'
         return (put ref)
-    
+
     getBlockState = liftIO . newIORef . BRBlobbed <$> get
