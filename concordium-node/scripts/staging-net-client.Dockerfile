@@ -31,7 +31,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout b9fe47bbe27572b56e12295f6f68622aa964bc59 && \
+    git checkout 4aff66ba6ea14fe2fe92cedbb14d1e1ae22667bf && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
