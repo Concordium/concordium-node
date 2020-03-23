@@ -312,14 +312,14 @@ newRound newDelta me = do
         tryNominateBlock
 
 -- TODO (MR) If this code is correct, consider reducing duplication with `receiveFinalizationMessage`
-newPassiveRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> BlockPointerType m -> m ()
-newPassiveRound newDelta bp = do
-    nextFinHeight <- nextFinalizationHeight newDelta bp
+newPassiveRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> m ()
+newPassiveRound newDelta = do
+    fHeight       <- use finHeight
     finCom        <- use finCommittee
     finInd        <- use finIndex
     sessionId     <- use finSessionId
     maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty
-                                           . atStrict nextFinHeight . non Set.empty
+                                           . atStrict fHeight . non Set.empty
                                            <%= Set.filter (checkMessage finCom . pendingToFinMsg sessionId finInd newDelta)
     let finParties = parties finCom
         partyInfo party = finParties Vec.! fromIntegral party
@@ -335,7 +335,7 @@ newPassiveRound newDelta bp = do
                                         (Nothing, initialWMVBAPassiveState)
                                         (Set.toList maybeWitnessMsgs)
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
-    finCurrentRound .= Left (PassiveFinalizationRound $ (passiveWitnesses initialPassiveFinalizationRound) & atStrict newDelta ?~ passiveStates)
+    finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & atStrict newDelta ?~ passiveStates)
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
@@ -722,7 +722,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
           Just myParty ->
             newRound newFinDelay myParty
           Nothing ->
-            newPassiveRound newFinDelay bp
+            newPassiveRound newFinDelay
 
 nextFinalizationDelay :: FinalizationRecord -> BlockHeight
 nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
