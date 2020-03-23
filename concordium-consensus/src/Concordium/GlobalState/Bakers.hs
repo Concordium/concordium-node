@@ -9,6 +9,7 @@ import qualified Data.List as List
 import Data.Serialize
 import Data.Ratio
 import Lens.Micro.Platform
+import Concordium.Utils
 
 import Concordium.Types
 
@@ -51,7 +52,7 @@ instance Serialize Bakers where
         _nextBakerId <- get
         let
             (_bakersByKey, _bakerTotalStake) = Map.foldrWithKey deriv (Map.empty, 0) _bakerMap
-            deriv bid BakerInfo{..} (m, t) = (m & at (_bakerSignatureVerifyKey) ?~ bid,
+            deriv bid BakerInfo{..} (m, t) = (m & at' (_bakerSignatureVerifyKey) ?~ bid,
                                                 t + _bakerStake)
         return Bakers{..}
 
@@ -82,18 +83,18 @@ bakersFromList bkrs = (
                     bkrs
 
 bakerData :: BakerId -> Bakers -> Maybe (BakerInfo, LotteryPower)
-bakerData bid bkrs = (bkrs ^. bakerMap . at bid) <&>
+bakerData bid bkrs = (bkrs ^. bakerMap . at' bid) <&>
                         \bkr -> (bkr, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
 
 -- |Add a baker to the set of known bakers. If a baker with the given signing
 -- key already exists then return 'Nothing', otherwise assign it a fresh id and add it to the set of known bakers.
 createBaker :: BakerCreationInfo -> Bakers -> Maybe (BakerId, Bakers)
 createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
-  case bkrs ^. bakersByKey . at _bakerSignatureVerifyKey of
+  case bkrs ^. bakersByKey . at' _bakerSignatureVerifyKey of
     Nothing -> -- key does not yet exist, insert it
         Just (bid, bkrs
-                   & bakerMap . at bid ?~ BakerInfo{..}
-                   & bakersByKey . at _bakerSignatureVerifyKey ?~ bid
+                   & bakerMap . at' bid ?~ BakerInfo{..}
+                   & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                    & nextBakerId .~ bid + 1)
       where
         _bakerStake = 0
@@ -128,26 +129,26 @@ updateBaker !BakerUpdate{..} !bakers =
              Just (bakers & bakerMap %~ Map.insert _buId (binfo & bakerAccount .~ bacc))
            Just newSignKey ->
              -- new signing key, make sure it is new
-             case bakers ^. bakersByKey . at newSignKey of
+             case bakers ^. bakersByKey . at' newSignKey of
                Just _ -> -- existing signing key
                  Nothing
                Nothing -> -- fresh signing key
                  Just (bakers
                        & bakerMap %~ Map.insert _buId (binfo & bakerSignatureVerifyKey .~ newSignKey)
-                       & bakersByKey . at (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
-                       & bakersByKey . at newSignKey .~ Just _buId) -- and add new identification
+                       & bakersByKey . at' (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
+                       & bakersByKey . at' newSignKey .~ Just _buId) -- and add new identification
 
 removeBaker :: BakerId -> Bakers -> (Bool, Bakers)
 removeBaker bid !bakers =
-    case bakers ^. bakerMap . at bid of
+    case bakers ^. bakerMap . at' bid of
         Nothing -> (False, bakers)
         Just bkr -> (True, bakers
-                            & (bakerMap . at bid .~ Nothing)
-                            & bakersByKey . at (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as wel.
+                            & (bakerMap . at' bid .~ Nothing)
+                            & bakersByKey . at' (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as wel.
                             & (bakerTotalStake %~ subtract (bkr ^. bakerStake)))
 
 modifyStake :: Maybe BakerId -> AmountDelta -> Bakers -> Bakers
-modifyStake (Just bid) delta bakers = case bakers ^. bakerMap . at bid of
+modifyStake (Just bid) delta bakers = case bakers ^. bakerMap . at' bid of
         Nothing -> bakers
         Just _ -> bakers & bakerMap . ix bid . bakerStake %~ applyAmountDelta delta
                     & bakerTotalStake %~ applyAmountDelta delta
