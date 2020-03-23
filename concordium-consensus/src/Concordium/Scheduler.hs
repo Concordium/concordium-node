@@ -3,6 +3,31 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall #-}
+
+{-|
+The scheduler executes transactions, updating the block state. It can be used to simply execute a given
+list of transactions in sequence until failure ('runTransactions' / 'execTransactions') and to select
+transactions from a list to create a new block ('filterTransactions').
+
+  * Processing happens in the 'SchedulerMonad'. The implementation from
+    'Concordium.Scheduler.EnvironmentImplementation' works on the global state (block state).
+
+  * The processing of a single transaction can end in three different ways
+
+      1. Maximum block energy exceeded: the (remaining) block energy is exceeded by the energy to
+         be charged for this transaction and thus it cannot be part of a block. In this case no
+         state is changed.
+      2. Maximum block energy not exceeded - a 'ValidResult' is returned and the transaction can be
+         part of a block. The block state is updated with the effects of the transaction (including
+         the sender being charged for execution).
+
+          2a. The transaction is executed successfully - 'TxSuccess' with a list of events is returned
+
+          2b. The transaction fails - 'TxReject' with the reason (see 'RejectReason') is returned.
+                This can for example happen when the deposited energy is not sufficient to cover the
+                execution cost of the transaction ('OutOfEnergy') or some specific conditions of the
+                respective transaction are not satisfied.
+-}
 module Concordium.Scheduler
   (filterTransactions
   ,runTransactions
@@ -978,17 +1003,18 @@ filterTransactions maxSize GroupedTransactions{..} = do
                  (currentFts { ftFailed =  (t, failure) : map (, SuccessorOfInvalidTransaction) ts ++ ftFailed currentFts}, [])
                 _ -> (currentFts { ftFailed = (t, failure) : ftFailed currentFts }, ts)
 
--- |Execute transactions in sequence. Returns
+-- |Execute transactions in sequence, collecting the outcomes of each transaction.
 --
--- * 'Left Nothing' if maximum block energy limit was exceeded
--- * 'Left (Just fk)' if a transaction failed with the given failure kind
--- * 'Right outcomes' if all transactions are successful, with given outcomes.
-runTransactions :: forall m .
-                (SchedulerMonad m)
+-- Returns
+--
+-- * @Left Nothing@ if maximum block energy limit was exceeded
+-- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
+-- * @Right outcomes@ if all transactions are successful, with given outcomes.
+runTransactions :: forall m . (SchedulerMonad m)
                 => [BlockItem]
                 -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
-    where go valid (bi:ts) = do
+    where go valid (bi:ts) =
             observeTransactionFootprint (predispatch bi) >>= \case
               (Just (TxValid summary), fp) -> do
                 markEnergyUsed (tsEnergyCost summary)
@@ -1003,15 +1029,22 @@ runTransactions = go []
           predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
           predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
 
--- |Execute transactions in sequence only for sideffects on global state.
--- Returns @Right energy@ if block executed successfully (where energy is the
--- used energy), and 'Left' 'FailureKind' at first failed transaction. This is
--- more efficient than 'runTransactions' since it does not have to build a list
+-- |Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
+--
+-- Returns
+--
+-- * @Left Nothing@ if maximum block energy limit was exceeded
+-- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
+-- * @Right ()@ if all transactions are successful.
+--
+-- This is more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
 execTransactions :: forall m . (SchedulerMonad m)
                  => [BlockItem]
                  -> m (Either (Maybe FailureKind) ())
 execTransactions = go
+  -- Same implementation as 'runTransactions', just that valid block items
+  -- and transaction summaries are not collected.
   where go (bi:ts) =
           observeTransactionFootprint (predispatch bi) >>= \case
             (Nothing, _) -> return (Left Nothing)

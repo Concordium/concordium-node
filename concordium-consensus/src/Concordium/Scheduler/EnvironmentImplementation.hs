@@ -29,7 +29,7 @@ import Concordium.GlobalState.Bakers as Bakers
 import qualified Acorn.Core as Core
 
 -- |Chain metadata together with a set of special accounts which have special
--- rights during the beta phase, as well as
+-- rights during the beta phase, as well as the maximum allowed block energy.
 data ContextState = ContextState{
   _specialBetaAccounts :: !(Set.HashSet AccountAddress),
   _chainMetadata :: !ChainMetadata,
