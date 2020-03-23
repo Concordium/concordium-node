@@ -64,6 +64,13 @@ then
     then
         ARGS="$ARGS --baker-id $REAL_BAKER_ID"
     fi
+    if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
+        if [ $(($REAL_BAKER_ID % 2 )) == 0 ]; then
+            ARGS="$ARGS --trace"
+        else
+            ARGS="$ARGS --info"
+        fi
+    fi
     if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
         ARGS="$ARGS --transaction-outcome-logging"
