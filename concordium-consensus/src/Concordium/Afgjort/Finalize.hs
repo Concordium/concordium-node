@@ -72,6 +72,8 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Afgjort.FinalizationQueue
+import qualified Concordium.Afgjort.PartyMap as PM
+import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
 import Concordium.Afgjort.Finalize.Types
@@ -328,10 +330,11 @@ newPassiveRound newDelta = do
         pBlsKey = partyBlsKey . partyInfo
         baid = roundBaid sessionId finInd newDelta
         maxParty = fromIntegral $ Vec.length finParties - 1
+        mergeSignatures = Map.unionWith (\(pm1, ps1) (pm2, ps2) -> (PM.union pWeight pm1 pm2, PS.union pWeight ps1 ps2))
         inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
         (mProof, passiveStates) = foldr (\(PendingMessage src msg _) (prevProofM, st@(WMVBAPassiveState oldState)) ->
                                             let (proofM, WMVBAPassiveState newState) = runState (passiveReceiveWMVBAMessage inst src msg) st
-                                            in (proofM <|> prevProofM, WMVBAPassiveState (oldState `Map.union` newState)))
+                                            in (proofM <|> prevProofM, WMVBAPassiveState (mergeSignatures oldState newState)))
                                         (Nothing, initialWMVBAPassiveState)
                                         (Set.toList maybeWitnessMsgs)
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
