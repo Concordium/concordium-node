@@ -73,8 +73,8 @@ impl NetworkMessage {
 // deserialization
 
 fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
-    if buffer.is_empty() {
-        bail!("empty buffer received")
+    if buffer.len() < 12 {
+        bail!("the buffer is too small")
     }
 
     if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {
