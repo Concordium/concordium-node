@@ -1,5 +1,6 @@
+use failure::{format_err, Fallible};
 use jsonwebtoken::dangerous_unsafe_decode;
-use reqwest::blocking::Client;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 /// The ClientLogin struct holds information about
@@ -70,7 +71,7 @@ pub fn get_username_from_jwt(token: &str) -> String {
 /// supplying the JWT and then responds back if authentication
 /// was successful or not
 
-pub fn authenticate(token: &str) -> bool {
+pub async fn authenticate(token: &str) -> Fallible<()> {
     let client = Client::new();
     let login_details = ClientLogin {
         token:   token.to_owned(),
@@ -80,34 +81,24 @@ pub fn authenticate(token: &str) -> bool {
         .post(AUTH_URL)
         .json(&login_details)
         .send()
+        .await
+        .map_err(|s| format_err!("Failed to post to authentication server due to {}", s))?
+        .json::<ClientLoginResponse>()
+        .await
         .map_err(|s| {
-            error!("Failed to post to authentication server due to {}", s);
-        })
-        .ok()
-        .and_then(|s| {
-            s.json::<ClientLoginResponse>()
-                .map_err(|s| {
-                    error!("Failed to deserialize response from authentication server {}", s);
-                })
-                .ok()
-        });
+            format_err!("Failed to deserialize response from authentication server {}", s)
+        })?;
 
-    if let Some(response) = response {
-        match response.status {
-            ClientLoginReturnStatus::OK => true,
-            ClientLoginReturnStatus::WrongAuth => {
-                error!("Could not log you in with those details. Please try again");
-                false
-            }
-            ClientLoginReturnStatus::WrongVersion => {
-                error!(
-                    "You need to redownload the staging net client as the currently installed \
-                     version is not allowed"
-                );
-                false
-            }
+    match response.status {
+        ClientLoginReturnStatus::OK => Ok(()),
+        ClientLoginReturnStatus::WrongAuth => {
+            bail!("Could not log you in with those details. Please try again");
         }
-    } else {
-        false
+        ClientLoginReturnStatus::WrongVersion => {
+            bail!(
+                "You need to redownload the staging net client as the currently installed version \
+                 is not allowed"
+            );
+        }
     }
 }

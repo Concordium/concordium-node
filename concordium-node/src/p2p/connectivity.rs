@@ -387,6 +387,7 @@ pub fn connect(
 
     match TcpStream::connect(peer_addr) {
         Ok(socket) => {
+            trace!("Connected to {}", peer_addr);
             node.stats.conn_received_inc();
 
             let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
