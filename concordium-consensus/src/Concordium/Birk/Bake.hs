@@ -129,7 +129,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- of reuse of RegId then this could be due to somebody else deploying that credential,
     -- and therefore that is block dependent, and we should perhaps not remove the credential.
     -- However modulo crypto breaking, this can only happen if the user has tried to deploy duplicate
-    -- credentials (with high probability), so it is likely fine to
+    -- credentials (with high probability), so it is likely fine to remove it.
     let purgeCredential cpt cred = do
           b <- purgeTransaction (CredentialDeployment <$> cred)
           if b then return cpt
@@ -203,6 +203,11 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     return newbp
 
 class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
+    -- |Create a block pointer for the given slot
+    -- This function is in charge of accumulating the pending transactions and
+    -- credential deployments, construct the block and update the transaction table,
+    -- pending transaction table and block table. It will also update the foxus block
+    -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
 instance (FinalizationMonad (SkovT h c m), MonadIO m, TreeStateMonad (SkovT h c m), SkovMonad (SkovT h c m)) =>
