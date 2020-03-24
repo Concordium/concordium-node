@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.2.2"
+version = "0.2.3"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -74,7 +74,7 @@ gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c9
 gotham_derive = { version = "0.4", optional = true }
 http = { version = "0.2", optional = true }
 hyper = { version = "0.13", optional = true }
-reqwest = { version = "0.10", default-features = false, optional = true, features = ["default-tls", "stream", "json", "blocking"] }
+reqwest = { version = "0.10", default-features = false, optional = true, features = ["default-tls", "stream", "json"] }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
 flatc-rust = { version = "^0.1", optional = true }

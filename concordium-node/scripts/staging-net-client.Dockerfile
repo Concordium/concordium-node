@@ -26,12 +26,12 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
 # P2P client is now built
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
-# Build middleware and simple-client
+# Build middleware and concordium-client
 RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout a4ce016ca9f6e8e51a787eb0f0298e65f7f599ce && \
+    git checkout 701685449588cbc447577daf0003126dbb2bda61 && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
@@ -45,19 +45,20 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     mkdir -p /libs && \
     cp extra-libs/* /libs/ && \
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
-    cp .stack-work/dist/*/*/build/simple-client/simple-client /simple-client-bin && \
+    cp .stack-work/dist/*/*/build/concordium-client/concordium-client /concordium-client-bin && \
     strip /middleware && \
-    strip /simple-client-bin
-# Middleware and simple-client is now built
+    strip /concordium-client-bin
+# Middleware and concordium-client is now built
 
 # Build oak compiler
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
-RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/oak/oak-compiler.git
+RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
-RUN git checkout abbca874a8dea95c37830d4e8d1d43df48fddf13
+RUN git checkout 7daba809397756b91f171568c46c26e9503e3956
+RUN --mount=type=ssh git submodule update --init --recursive
 RUN --mount=type=ssh ci/dynamic-deps.sh
 ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 RUN stack build --copy-bins --ghc-options -j4
@@ -94,7 +95,7 @@ COPY --from=build /build-project/genesis.dat /genesis.dat
 RUN sha256sum /genesis.dat
 COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
-COPY --from=haskell-build /simple-client-bin /usr/local/bin/simple-client
+COPY --from=haskell-build /concordium-client-bin /usr/local/bin/concordium-client
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
