@@ -547,9 +547,9 @@ receiveFinalization bptr cstr l = do
             logm External LLDebug "Finalization message deserialized."
             case c of
                 BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
-                PassiveRunner{..} -> return ResultSuccess
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
                 BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
-                PassiveRunnerWithLog{..} -> return ResultSuccess
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,

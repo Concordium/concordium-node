@@ -269,6 +269,10 @@ syncPassiveReceiveBlock spr block = do
 syncPassiveReceiveTransaction :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => SyncPassiveRunner c -> BlockItem -> IO UpdateResult
 syncPassiveReceiveTransaction spr trans = runSkovPassive spr (receiveTransaction trans)
 
+syncPassiveReceiveFinalizationMessage :: (FinalizationMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
+    => SyncPassiveRunner c -> FinalizationPseudoMessage -> IO UpdateResult
+syncPassiveReceiveFinalizationMessage spr finMsg = runSkovPassive spr (finalizationReceiveMessage finMsg)
+
 syncPassiveReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => SyncPassiveRunner c -> FinalizationRecord -> IO UpdateResult
 syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizationReceiveRecord False finRec)
 
