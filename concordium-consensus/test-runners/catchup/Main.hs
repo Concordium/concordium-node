@@ -31,7 +31,7 @@ import Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
-import Concordium.Skov hiding (genesisState)
+import Concordium.Skov
 -- import Concordium.Skov.CatchUp
 import Concordium.Getters
 import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))

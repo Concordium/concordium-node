@@ -156,13 +156,13 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) Hoo
 
 main :: IO ()
 main = do
-    let n = 5
+    let n = 6
     now <- truncate <$> getPOSIXTime
     let (gen, bis) = makeGenesisData now n 1 0.5 0
-                     dummyFinalizationCommitteeMaxSize
+                     (fromIntegral n + 1) -- dummyFinalizationCommitteeMaxSize
                      dummyCryptographicParameters
                      dummyIdentityProviders
-                     [createCustomAccount (2^(40 :: Int)) mateuszKP mateuszAccount] (Energy maxBound)
+                     [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
