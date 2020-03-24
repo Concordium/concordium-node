@@ -73,7 +73,6 @@ import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Afgjort.FinalizationQueue
 import qualified Concordium.Afgjort.PartyMap as PM
-import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
 import Concordium.Afgjort.Finalize.Types
@@ -330,7 +329,6 @@ newPassiveRound newDelta = do
         pBlsKey = partyBlsKey . partyInfo
         baid = roundBaid sessionId finInd newDelta
         maxParty = fromIntegral $ Vec.length finParties - 1
-        mergeSignatures = Map.unionWith (\(pm1, ps1) (pm2, ps2) -> (PM.union pWeight pm1 pm2, PS.union pWeight ps1 ps2))
         inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
         -- Maps block hashes to `PartyMap`s
         blockToMsgs = foldr (\(PendingMessage src wm _) m ->
@@ -340,9 +338,9 @@ newPassiveRound newDelta = do
                                 in Map.insertWith (PM.union pWeight) bh newPartyMap m
                             _ -> m
                ) Map.empty $ Set.toList maybeWitnessMsgs
-        (mProof, passiveStates) = foldr (\(v, partyMap) (prevProofM, st@(WMVBAPassiveState oldState)) ->
-                                            let (proofM, WMVBAPassiveState newState) = runState (passiveReceiveWMVBASignatures inst v partyMap pWeight) st
-                                            in (proofM <|> prevProofM, WMVBAPassiveState (mergeSignatures oldState newState)))
+        (mProof, passiveStates) = foldr (\(v, partyMap) (prevProofM, oldState) ->
+                                            let (proofM, newState) = runState (passiveReceiveWMVBASignatures inst v partyMap pWeight) oldState
+                                            in (proofM <|> prevProofM, newState))
                                         (Nothing, initialWMVBAPassiveState)
                                         $ Map.toList blockToMsgs
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
