@@ -38,6 +38,7 @@ import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
@@ -262,6 +263,15 @@ type CatchUpStatusCallback = CString -> Int64 -> IO ()
 foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> CatchUpStatusCallback
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
+
+
+genesisState :: GenesisData -> Basic.BlockState
+genesisState genData = Basic.initialState
+                       (genesisBirkParameters genData)
+                       (genesisCryptographicParameters genData)
+                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisIdentityProviders genData)
+                       (genesisMintPerSlot genData)
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
