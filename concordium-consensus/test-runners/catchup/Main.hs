@@ -197,15 +197,15 @@ gsToString gs = intercalate "\\l" . map show $ keys
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Example.initialStateWithMateuszAccount
+genesisState genData = Example.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        2
-                       (Amount (2 ^ (62 :: Int)))
-                       -- (genesisMintPerSlot genData)
+                       (genesisSpecialBetaAccounts genData)
 
 main :: IO ()
 main = do
