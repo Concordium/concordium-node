@@ -83,8 +83,7 @@ data GenesisData = GenesisData {
     genesisSlotDuration :: Duration,
     genesisBirkParameters :: BirkParameters,
     genesisAccounts :: [Account],
-    -- |Special admin accounts used during beta for chain management, e.g.,
-    -- adding, removing bakers.
+    -- |Special account that will have additional rights initially.
     genesisSpecialBetaAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
@@ -94,6 +93,10 @@ data GenesisData = GenesisData {
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
+
+genesisTotalGTU :: GenesisData -> Amount
+genesisTotalGTU GenesisData{..} =
+  sum (_accountAmount <$> (genesisAccounts ++ genesisSpecialBetaAccounts))
 
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
