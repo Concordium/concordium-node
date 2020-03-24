@@ -29,8 +29,8 @@ impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available
     pub fn deserialize(buffer: &[u8]) -> Fallible<Self> {
         match panic::catch_unwind(|| _deserialize(buffer)) {
-            Ok(nm) => nm,
-            Err(e) => bail!("can't deserialize a network message: {:?}", e),
+            Ok(msg) => msg,
+            Err(_) => bail!("caught a panic: received a mangled buffer"),
         }
     }
 
@@ -73,8 +73,8 @@ impl NetworkMessage {
 // deserialization
 
 fn _deserialize(buffer: &[u8]) -> Fallible<NetworkMessage> {
-    if buffer.is_empty() {
-        bail!("empty buffer received")
+    if buffer.len() < 12 {
+        bail!("the buffer is too small")
     }
 
     if !network::network_message_size_prefixed_buffer_has_identifier(buffer) {

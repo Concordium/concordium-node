@@ -32,7 +32,7 @@ let
 
 in rustPlatform.buildRustPackage rec {
   name = "concordium-p2p-client-${version}";
-  version = "0.2.2.0";
+  version = "0.2.3.0";
   src = ./.;
   RUST_BACKTRACE = 1;
   hardeningDisable = [ "all" ];
