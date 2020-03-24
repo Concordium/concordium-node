@@ -5,14 +5,14 @@
 {-# OPTIONS_GHC -Wall #-}
 
 {-|
-The scheduler executes transactions, updating the block state. It can be used to simply execute a given
+The scheduler executes transactions (including credential deployment), updating the block state. It can be used to simply execute a given
 list of transactions in sequence until failure ('runTransactions' / 'execTransactions') and to select
-transactions from a list to create a new block ('filterTransactions').
+transactions from groups of transactions to create a new block ('filterTransactions').
 
   * Processing happens in the 'SchedulerMonad'. The implementation from
     'Concordium.Scheduler.EnvironmentImplementation' works on the global state (block state).
 
-  * The processing of a single transaction can end in three different ways
+  * The processing of a single transaction can end in three different ways:
 
       1. Maximum block energy exceeded: the (remaining) block energy is exceeded by the energy to
          be charged for this transaction and thus it cannot be part of a block. In this case no
@@ -21,12 +21,12 @@ transactions from a list to create a new block ('filterTransactions').
          part of a block. The block state is updated with the effects of the transaction (including
          the sender being charged for execution).
 
-          2a. The transaction is executed successfully - 'TxSuccess' with a list of events is returned
+          2a. The transaction is executed successfully - 'TxSuccess' with a list of events is returned.
 
           2b. The transaction fails - 'TxReject' with the reason (see 'RejectReason') is returned.
-                This can for example happen when the deposited energy is not sufficient to cover the
-                execution cost of the transaction ('OutOfEnergy') or some specific conditions of the
-                respective transaction are not satisfied.
+              This can for example happen when the deposited energy is not sufficient to cover the
+              execution cost of the transaction ('OutOfEnergy') or some specific conditions of the
+              respective transaction are not satisfied.
 -}
 module Concordium.Scheduler
   (filterTransactions
