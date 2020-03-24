@@ -45,6 +45,7 @@ import qualified Data.Set as Set
 import Data.Set(Set)
 import Data.Maybe
 import Lens.Micro.Platform
+import Control.Applicative ((<|>))
 import Control.Monad.State.Class
 import Control.Monad.State.Strict (runState)
 import Control.Monad.Reader.Class
@@ -71,6 +72,7 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Freeze (FreezeMessage(..))
 import Concordium.Afgjort.FinalizationQueue
+import qualified Concordium.Afgjort.PartyMap as PM
 import Concordium.Kontrol.BestBlock
 import Concordium.Logger
 import Concordium.Afgjort.Finalize.Types
@@ -271,6 +273,15 @@ nextRound oldFinIndex oldDelta = do
                 finFailedRounds %= (wmvbaWADBot (roundWMVBA r) :)
                 newRound (2 * oldDelta) (roundMe r)
 
+pendingToFinMsg :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> PendingMessage -> FinalizationMessage
+pendingToFinMsg sessId finIx delta (PendingMessage src msg sig) =
+     let msgHdr party = FinalizationMessageHeader {
+             msgSessionId = sessId,
+             msgFinalizationIndex = finIx,
+             msgDelta = delta,
+             msgSenderIndex = party
+         }
+     in FinalizationMessage (msgHdr src) msg sig
 
 newRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
@@ -287,16 +298,9 @@ newRound newDelta me = do
         finIx <- use finIndex
         committee <- use finCommittee
         sessId <- use finSessionId
-        let
-            msgHdr src = FinalizationMessageHeader {
-                msgSessionId = sessId,
-                msgFinalizationIndex = finIx,
-                msgDelta = newDelta,
-                msgSenderIndex = src
-            }
-            toFinMsg (PendingMessage src msg sig) = FinalizationMessage (msgHdr src) msg sig
         -- Filter the messages that have valid signatures and reference legitimate parties
         -- TODO: Drop pending messages for this round, because we've handled them
+        let toFinMsg = pendingToFinMsg sessId finIx newDelta
         pmsgs <- finPendingMessages . atStrict finIx . non Map.empty . atStrict newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
         forM_ justifiedInputs $ \i -> do
@@ -308,6 +312,39 @@ newRound newDelta me = do
             simpleWMVBA $ receiveWMVBAMessage src sig msg
         tryNominateBlock
 
+-- TODO (MR) If this code is correct, consider reducing duplication with `receiveFinalizationMessage`
+newPassiveRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> m ()
+newPassiveRound newDelta = do
+    fHeight       <- use finHeight
+    finCom        <- use finCommittee
+    finInd        <- use finIndex
+    sessionId     <- use finSessionId
+    maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty
+                                           . atStrict fHeight . non Set.empty
+                                           <%= Set.filter (checkMessage finCom . pendingToFinMsg sessionId finInd newDelta)
+    let finParties = parties finCom
+        partyInfo party = finParties Vec.! fromIntegral party
+        pWeight = partyWeight . partyInfo
+        pVRFKey = partyVRFKey . partyInfo
+        pBlsKey = partyBlsKey . partyInfo
+        baid = roundBaid sessionId finInd newDelta
+        maxParty = fromIntegral $ Vec.length finParties - 1
+        inst = WMVBAInstance baid (totalWeight finCom) (corruptWeight finCom) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
+        -- Maps block hashes to `PartyMap`s
+        blockToMsgs = foldr (\(PendingMessage src wm _) m ->
+                        case wm of
+                            WMVBAWitnessCreatorMessage (bh, sig) ->
+                                let newPartyMap = PM.singleton src (pWeight src) sig
+                                in Map.insertWith (PM.union pWeight) bh newPartyMap m
+                            _ -> m
+               ) Map.empty $ Set.toList maybeWitnessMsgs
+        (mProof, passiveStates) = foldr (\(v, partyMap) (prevProofM, oldState) ->
+                                            let (proofM, newState) = runState (passiveReceiveWMVBASignatures inst v partyMap pWeight) oldState
+                                            in (proofM <|> prevProofM, newState))
+                                        (Nothing, initialWMVBAPassiveState)
+                                        $ Map.toList blockToMsgs
+    forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
+    finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & atStrict newDelta ?~ passiveStates)
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
@@ -685,13 +722,16 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         nfh <- nextFinalizationHeight fs bp
         finHeight .= nfh
         finIndexInitialDelta .= newFinDelay
+        finFailedRounds .= []
         -- Update finalization committee for the new round
         finCommittee <~ getFinalizationCommittee bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
-        forM_ mMyParty $ \myParty -> do
-            finFailedRounds .= []
+        case mMyParty of
+          Just myParty ->
             newRound newFinDelay myParty
+          Nothing ->
+            newPassiveRound newFinDelay
 
 nextFinalizationDelay :: FinalizationRecord -> BlockHeight
 nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1

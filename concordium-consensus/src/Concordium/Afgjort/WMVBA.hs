@@ -33,9 +33,10 @@ module Concordium.Afgjort.WMVBA (
     getOutputWitnesses,
     uncheckedOutputWitnesses,
     -- * Passive
-    WMVBAPassiveState,
+    WMVBAPassiveState(..),
     initialWMVBAPassiveState,
     passiveReceiveWMVBAMessage,
+    passiveReceiveWMVBASignatures,
     passiveGetOutputWitnesses,
     -- * For testing
     _freezeState,
@@ -535,6 +536,23 @@ makeLenses ''WMVBAPassiveState
 initialWMVBAPassiveState :: WMVBAPassiveState
 initialWMVBAPassiveState = WMVBAPassiveState Map.empty
 
+passiveReceiveWMVBASignatures :: (MonadState WMVBAPassiveState m)
+    => WMVBAInstance
+    -> Val
+    -> PM.PartyMap Bls.Signature
+    -> (Party -> VoterPower)
+    -> m (Maybe (Val, ([Party], Bls.Signature)))
+passiveReceiveWMVBASignatures wi@WMVBAInstance{..} v partyMap voterPower = do
+        (newJV, badJV) <- passiveWitnesses . at v . non (PM.empty, PS.empty) <%= (_1 %~ PM.union voterPower partyMap)
+        -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
+        -- we can attempt to create the bls aggregate signature
+        if PM.weight newJV - PS.weight badJV > corruptWeight then do
+            let (proofData, newBadJV) = createAggregateSig wi v newJV badJV
+            passiveWitnesses . at v . non (PM.empty, PS.empty) . _2 .= newBadJV
+            return $ (v,) <$> proofData
+        else
+            return Nothing
+
 passiveReceiveWMVBAMessage :: (MonadState WMVBAPassiveState m)
     => WMVBAInstance
     -> Party
@@ -542,16 +560,8 @@ passiveReceiveWMVBAMessage :: (MonadState WMVBAPassiveState m)
     -> WMVBAMessage
     -- ^Message
     -> m (Maybe (Val, ([Party], Bls.Signature)))
-passiveReceiveWMVBAMessage wi@WMVBAInstance{..} src (WMVBAWitnessCreatorMessage (v, blssig)) = do
-        (newJV, badJV) <- passiveWitnesses . at v . non (PM.empty, PS.empty) <%= (_1 %~ PM.insert src (partyWeight src) blssig)
-        -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
-        -- we can attempt to create the bls aggregate signature
-        if ((PM.weight newJV) - (PS.weight badJV) > corruptWeight) then do
-            let (proofData, newBadJV) = createAggregateSig wi v newJV badJV
-            passiveWitnesses . at v . non (PM.empty, PS.empty) . _2 .= newBadJV
-            return $ (v,) <$> proofData
-        else
-            return Nothing
+passiveReceiveWMVBAMessage wi@WMVBAInstance{..} src (WMVBAWitnessCreatorMessage (v, blssig)) =
+    passiveReceiveWMVBASignatures wi v (PM.singleton src (partyWeight src) blssig) partyWeight
 passiveReceiveWMVBAMessage _ _ _ = return Nothing
 
 passiveGetOutputWitnesses :: Val -> WMVBAPassiveState -> OutputWitnesses
