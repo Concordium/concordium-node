@@ -46,16 +46,19 @@ dummyChainMeta = ChainMetadata { slotNumber = 0
                                }
 
 
--- |Result type when constructing a block.
+-- |Result of constructing a block from 'GroupedTransactions'.
 data FilteredTransactions = FilteredTransactions {
-  -- |Transactions which have been added to the block, with results.
+  -- |Transactions which have been added to the block, in the order added, with results.
   ftAdded :: [(BlockItem, TransactionSummary)],
   -- |Transactions which failed. No order is guaranteed.
   ftFailed :: [(Transaction, FailureKind)],
+  -- |Credential deployments which failed. No order is guaranteed.
   ftFailedCredentials :: [(CredentialDeploymentWithMeta, FailureKind)],
-  -- |Transactions which were not processed since we reached block size limit.
-  -- No order is guaranteed.
+  -- |Transactions which were not processed because they would have resulted in exceeding
+  -- the block size or energy limited at the point they were considered. No order is guaranteed.
   ftUnprocessed :: [Transaction],
+  -- |Credentials which were not processed because they would have resulted in exceeding
+  -- the block size or energy limited at the point they were considered. No order is guaranteed.
   ftUnprocessedCredentials :: [CredentialDeploymentWithMeta]
   }
 
