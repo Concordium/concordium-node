@@ -842,35 +842,65 @@ handleDeployCredential cdi cdiHash = do
                   else return $ Just (TxInvalid AccountCredentialInvalid)
 
 
--- *Exposed methods.
+-- * Exposed methods.
+
 -- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size and block energy limit. The GroupedTransactions are processed in
--- order of their arrival time. Picking the next transaction is done by comparing the
--- arrival time of the head of the head of the grouped transactions list and the
--- head of the credential list, picking whichever is earliest. The entire group is
--- processed if it is earliest.
--- This function assumes that the transactions appear grouped by their associated account address,
--- and that each transaction group is ordered by transaction nonce.
--- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
--- all following transactions T_i+1, ..., T_n are also rejected with a SuccessorOfInvalidTransaction failure.
--- It will not be checked whether
--- 1. the accounts of the rejected transactions are the same as of T_i,
--- 2. the nonces of the rejected transactions are greater than T_i's nonce, or
--- 3. there is a single group for each account.
--- If there are multiple transaction groups G1 and G2 that are associated with the same account,
--- and there is an invalid transaction in the first group G1, the transactions in G2 will still be processed
--- and will not automatically fail with a SuccessorOfInvalidTransaction reason.
--- It is the task of the caller to ensure that the above properties hold if it is important to reject successors
--- of transactions. However, this might not be important for testing purposes.
--- The return value is a FilteredTransactions object where
+-- maximum block size and block energy limit.
 --
---   * @ftAdded@ is the list of transactions that should appear on the block in
---     the order they should appear
---   * @ftFailed@ is a list of invalid transactions. The order these transactions
---     appear is arbitrary (i.e., they do not necessarily appear in the same order
---     as in the input).
---   * @ftUnprocessed@ is a list of transactions which were not
---     processed due to size restrictions.
+-- The preconditions of this function (which are not checked) are:
+--
+-- * The transactions appear grouped by their associated account address,
+--   and the transactions in each group are ordered by increasing transaction nonce.
+-- * Each transaction's nonce is equal or higher than the next nonce of the specified sender's
+--   account (if the account it exists).
+--
+-- The 'GroupedTransactions' ('perAccountTransactions'
+-- and 'credentialDeployments') are processed in order of their arrival time, assuming that both lists
+-- are ordered by arrival time from earliest to latest. For each group in 'perAccountTransactions', only the time of the first transaction in the group is considered and the entire group is processed in one sequence.
+--
+-- = Processing of transactions
+--
+-- Processing starts with an initial remaining block energy being the maximum block energy
+-- (birk parameter) and the remaining block size being as specified by the parameter to this function.
+--
+-- Each transaction or credential deployment is processed as follows:
+--
+-- * It is checked whether the deposited energy (or in case of credential deployment the respective energy cost) is not greater than the maximum block energy (in which case the transaction fails with 'ExceedsMaxBlockEnergy').
+-- * It is checked whether the deposited energy (or, in case of credential deployment, the respective
+--   energy cost) and the transaction size is not greater than the remaining block energy / block size
+-- (in which case the transaction is skipped and added to the list of unprocessed transactions/credentials).
+-- * If the previous checks passed, the transaction is executed.
+--
+--     * If execution fails with another 'FailureKind', the transaction / credential deployment is added
+--       to the list of failed transactions/credentials.
+--     * If execution succeeds ('TxValid'), the transaction / credential deployment is added to the list
+--       of added transactions and the actual energy used by the transaction as well as the transaction
+--       size is deducted from the remaining block energy / block size.
+--
+-- Only added transactions have an effect on the block state.
+--
+-- = Transaction groups
+-- Groups allow early failure of transactions with a repeated nonce after a successful transaction
+-- as well as a special failure kind ('SuccessorOfInvalidTransaction') for transactions which cannot
+-- be accepted because a predecessor transaction (with a lower nonce) failed and no other transaction
+-- with the same nonce was added.
+--
+-- The processing of transactions within a group has the following additional properties:
+--
+-- * If a transaction fails with a different failure kind than 'NonSequentialNonce', and none
+--   of the following transactions replace it (having the same nonce and being valid),
+--   all transactions with a higher nonce than that of the failed
+--   will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce'.
+-- * If a transaction fails with 'NonSequentialNonce' (that is, by precondition,
+--   it has a higher nonce than the expected nonce), all following transactions with an
+--   incorrect nonce will also fail with 'NonSequentialNonce'.
+-- * Transactions with the same nonce as a previously failed transaction are processed normally.
+--
+-- Note that this behaviour relies on the precondition of transactions within a group coming from the same account and being ordered by increasing nonce.
+--
+-- = Result
+-- The order of transactions in 'ftAdded' (this includes credential deployments) is in the order of processing as described above.
+-- However, there is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed` and `ftUnprocessedCredentials`.
 filterTransactions :: forall m . (SchedulerMonad m)
                    => Integer -- ^Maximum block size in bytes.
                    -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
