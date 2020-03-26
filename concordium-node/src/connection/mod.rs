@@ -216,14 +216,14 @@ impl Connection {
     #[inline]
     fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> Fallible<bool> {
         ensure!(!packet.message.is_empty());
-        let destination = PacketType::try_from(
+        let packet_type = PacketType::try_from(
             u8::deserial(&mut Cursor::new(&packet.message[..1]))
                 .expect("Writing to buffer is safe."),
         );
 
         let deduplication_queues = &self.handler.connection_handler.deduplication_queues;
 
-        let is_duplicate = match destination {
+        let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => {
                 dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.finalizations))?
             }
