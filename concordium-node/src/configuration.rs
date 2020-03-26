@@ -141,6 +141,12 @@ pub struct BakerConfig {
     #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
     #[structopt(
+        long = "haskell-rts-flags",
+        help = "Haskell RTS flags to pass to consensus.",
+        default_value = ""
+    )]
+    pub rts_flags: String,
+    #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",
         default_value = "12582912"
