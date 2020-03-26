@@ -93,7 +93,6 @@ cd /build
 
 stack ls dependencies > /dev/null # to generate the cabal files
 
-rm *.freeze
 cabal freeze
 while IFS= read -r line
 do
