@@ -82,8 +82,8 @@ tar -xf stack-$STACK_VERSION-linux-x86_64-static.tar.gz
 mkdir -p $HOME/.stack/bin
 mv stack-$STACK_VERSION-linux-x86_64-static/stack $HOME/.stack/bin
 export PATH=$PATH:$HOME/.stack/bin
+echo "system-ghc: true" > ~/.stack/config.yaml
 stack update
-echo "system-ghc: true" >> ~/.stack/config.yaml
 
 for f in $(find /build -type f -name package.yaml); do
    sed -i -e 's/[\s]*ld-options://g' -e 's/[\s]*- -static//g' $f
