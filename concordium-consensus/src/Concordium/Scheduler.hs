@@ -1019,7 +1019,6 @@ filterTransactions maxSize GroupedTransactions{..} = do
               let nextNonce = transactionNonce t + 1
               let newFts =
                     currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
-                                            -- TODO use fold to make it more efficient
                                             ++ ftFailed currentFts
                                , ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts
                                }
