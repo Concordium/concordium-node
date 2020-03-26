@@ -983,10 +983,11 @@ filterTransactions maxSize GroupedTransactions{..} = do
                      markEnergyUsed (tsEnergyCost summary)
                      tlNotifyAccountEffect fp summary
                      -- All following transactions from this group with the same nonce are invalid.
-                     -- NOTE: It is necessary that we process those invalid transactions directly, because while 'invalidTs' would
-                     -- classify them as 'NonSequentialNonce' as well, it would reject following valid
-                     -- transactions with a higher but correct nonce. The next transaction with a higher nonce
-                     -- (head of ts') should thus be processed with 'runNext'.
+                     -- NOTE: It is necessary that we process those invalid transactions directly,
+                     -- because while 'invalidTs' would classify them as 'NonSequentialNonce' as well,
+                     -- it would reject following valid transactions with a higher but correct nonce.
+                     -- The next transaction with a higher nonce (head of ts') should thus be processed
+                     -- with 'runNext'.
                      let (invalid, ts') = span ((== transactionNonce t) . transactionNonce) ts
                      let nextNonce = transactionNonce t + 1
                      let newFts =
