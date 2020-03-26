@@ -58,30 +58,31 @@ data ExpectedResult
   | Unprocessed
   deriving (Eq,Show)
 
--- | Make a test transaction (simple transfer) to own account.
-tokay :: Amount -> Nonce -> TransactionJSON
-tokay amount nonce = tokayE amount nonce simpleTransferCost
+-- | Make an (in itself valid ("okay")) test transaction (simple transfer with given amount to own
+-- account).
+tOkay :: Amount -> Nonce -> TransactionJSON
+tOkay amount nonce = tOkayE amount nonce simpleTransferCost
 
--- | Make a test transaction (simple transfer) to own account with sepcifying
--- the energy to be deposited.
-tokayE :: Amount -> Nonce -> Energy -> TransactionJSON
-tokayE amount nonce energy =
+-- | Make an (in itself valid ("okay")) test transaction (simple transfer with given amount to own
+-- account) with sepcifying the energy to be deposited.
+tOkayE :: Amount -> Nonce -> Energy -> TransactionJSON
+tOkayE amount nonce energy =
   TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
         , metadata = makeDummyHeader alesAccount nonce energy
         , keypair = alesKP
         }
 
--- | Make a test transaction thet will fail with 'tfailkind'.
-tfail :: Amount -> Nonce -> TransactionJSON
-tfail amount nonce =
+-- | Make a test transaction (simple transfer with given amount) that will fail with 'tFailKind'.
+tFail :: Amount -> Nonce -> TransactionJSON
+tFail amount nonce =
   TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
         , metadata = makeDummyHeader alesAccount nonce 0 -- will result in DepositInsufficient failure
         , keypair = alesKP
         }
 
--- | 'FailureKind' of 'tfail'.
-tfailkind :: FailureKind
-tfailkind = DepositInsufficient
+-- | 'FailureKind' of 'tFail'.
+tFailKind :: FailureKind
+tFailKind = DepositInsufficient
 
 -- | Runs of groups of transactions with expected result.
 -- Currently does /not/ test
@@ -101,160 +102,160 @@ testCases =
     , []
     ])
   , ( "Single group, single added transaction",
-    [ [ (tokay 1 1, Added)
+    [ [ (tOkay 1 1, Added)
       ]
     ])
   , ( "Single group, single failed transaction",
-    [ [ (tfail 1 1, Failed tfailkind)
+    [ [ (tFail 1 1, Failed tFailKind)
       ]
     ])
   , ( "Single group, single failed transaction (non-sequential nonce 1)",
-    [ [ (tokay 1 2, Failed (NonSequentialNonce 1))
+    [ [ (tOkay 1 2, Failed (NonSequentialNonce 1))
       ]
     ])
   , ( "Single group, single failed transaction (non-sequential nonce 2)",
-    [ [ (tokay 1 500, Failed (NonSequentialNonce 1))
+    [ [ (tOkay 1 500, Failed (NonSequentialNonce 1))
       ]
     ])
   , ( "Added transaction after non-sequential nonce",
-    [ [ (tokay 1 1, Added)
-      , (tokay 2 1, Failed (NonSequentialNonce 2))
-      , (tokay 3 2, Added) -- correct nonce
+    [ [ (tOkay 1 1, Added)
+      , (tOkay 2 1, Failed (NonSequentialNonce 2))
+      , (tOkay 3 2, Added) -- correct nonce
       ]
     ])
   , ( "Many added transactions in different sized groups",
-    [ [ (tokay 1 1, Added)
+    [ [ (tOkay 1 1, Added)
       ]
-    , [ (tokay 2 2, Added)
-      , (tokay 3 3, Added)
+    , [ (tOkay 2 2, Added)
+      , (tOkay 3 3, Added)
       ]
     , [] -- emtpy group
-    , [ (tokay 4 4, Added)
-      , (tokay 5 5, Added)
-      , (tokay 6 6, Added)
+    , [ (tOkay 4 4, Added)
+      , (tOkay 5 5, Added)
+      , (tOkay 6 6, Added)
       ]
     ])
   , ( "Many added transactions in different sized groups, with non-sequential nonce in middle of last group",
-    [ [ (tokay 1 1, Added)
+    [ [ (tOkay 1 1, Added)
       ]
-    , [ (tokay 2 2, Added)
-      , (tokay 3 3, Added)
+    , [ (tOkay 2 2, Added)
+      , (tOkay 3 3, Added)
       ]
     , [] -- emtpy group
-    , [ (tokay 4 4, Added)
-      , (tokay 5 6, Failed (NonSequentialNonce 5))
-      , (tokay 6 5, Added) -- correct nonce
+    , [ (tOkay 4 4, Added)
+      , (tOkay 5 6, Failed (NonSequentialNonce 5))
+      , (tOkay 6 5, Added) -- correct nonce
       ]
     ])
   , ( "Many added transactions in different sized groups, with non-sequential nonce in middle group (beginning)",
-    [ [ (tokay 1 1, Added)
+    [ [ (tOkay 1 1, Added)
       ]
-    , [ (tokay 2 3, Failed (NonSequentialNonce 2))
-      , (tokay 3 2, Added) -- correct nonce
-      , (tokay 4 3, Added)
+    , [ (tOkay 2 3, Failed (NonSequentialNonce 2))
+      , (tOkay 3 2, Added) -- correct nonce
+      , (tOkay 4 3, Added)
       ]
     , [] -- emtpy group
-    , [ (tokay 5 4, Added)
-      , (tokay 6 5, Added)
-      , (tokay 7 6, Added)
+    , [ (tOkay 5 4, Added)
+      , (tOkay 6 5, Added)
+      , (tOkay 7 6, Added)
       ]
     ])
   , ( "Many added transactions in different sized groups, with non-sequential nonce in middle group (middle)",
-    [ [ (tokay 1 1, Added)
+    [ [ (tOkay 1 1, Added)
       ]
-    , [ (tokay 2 2, Added)
-      , (tokay 3 4, Failed (NonSequentialNonce 3))
-      , (tokay 4 3, Added) -- correc tnonce
+    , [ (tOkay 2 2, Added)
+      , (tOkay 3 4, Failed (NonSequentialNonce 3))
+      , (tOkay 4 3, Added) -- correc tnonce
       ]
     , [] -- emtpy group
-    , [ (tokay 5 4, Added)
-      , (tokay 6 5, Added)
-      , (tokay 7 6, Added)
+    , [ (tOkay 5 4, Added)
+      , (tOkay 6 5, Added)
+      , (tOkay 7 6, Added)
       ]
     ])
   , ( "Transaction failure, with following successor in same group",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tokay 2 2, Failed SuccessorOfInvalidTransaction)
+        (tFail 1 1, Failed tFailKind)
+      , (tOkay 2 2, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Transaction failure, with following successor (but incorrect nonce) in same group",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tokay 2 3, Failed SuccessorOfInvalidTransaction)
+        (tFail 1 1, Failed tFailKind)
+      , (tOkay 2 3, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Transaction failure, with following same nonce in same group, then non-sequential nonce",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tokay 2 1, Added)
-      , (tokay 3 3, Failed (NonSequentialNonce 2))
+        (tFail 1 1, Failed tFailKind)
+      , (tOkay 2 1, Added)
+      , (tOkay 3 3, Failed (NonSequentialNonce 2))
     ] ])
   , ( "Transaction failure, with following successor (but incorrect nonce) in same group, then non-sequential nonce",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tokay 2 3, Failed SuccessorOfInvalidTransaction)
-      , (tokay 3 3, Failed SuccessorOfInvalidTransaction)
+        (tFail 1 1, Failed tFailKind)
+      , (tOkay 2 3, Failed SuccessorOfInvalidTransaction)
+      , (tOkay 3 3, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Transaction failure, with many otherwise valid successors",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tokay 2 2, Failed SuccessorOfInvalidTransaction)
-      , (tokay 3 3, Failed SuccessorOfInvalidTransaction)
-      , (tokay 4 4, Failed SuccessorOfInvalidTransaction)
+        (tFail 1 1, Failed tFailKind)
+      , (tOkay 2 2, Failed SuccessorOfInvalidTransaction)
+      , (tOkay 3 3, Failed SuccessorOfInvalidTransaction)
+      , (tOkay 4 4, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Transaction failure, with many following invalid successors",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tfail 2 2, Failed SuccessorOfInvalidTransaction)
-      , (tfail 3 3, Failed SuccessorOfInvalidTransaction)
-      , (tfail 4 3, Failed SuccessorOfInvalidTransaction)
-      , (tfail 5 4, Failed SuccessorOfInvalidTransaction)
+        (tFail 1 1, Failed tFailKind)
+      , (tFail 2 2, Failed SuccessorOfInvalidTransaction)
+      , (tFail 3 3, Failed SuccessorOfInvalidTransaction)
+      , (tFail 4 3, Failed SuccessorOfInvalidTransaction)
+      , (tFail 5 4, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Transaction failure, with many following invalid and otherwise valid successors",
     [ [
-        (tfail 1 1, Failed tfailkind)
-      , (tokay 2 2, Failed SuccessorOfInvalidTransaction)
-      , (tfail 3 3, Failed SuccessorOfInvalidTransaction)
-      , (tfail 4 4, Failed SuccessorOfInvalidTransaction)
-      , (tokay 5 5, Failed SuccessorOfInvalidTransaction)
+        (tFail 1 1, Failed tFailKind)
+      , (tOkay 2 2, Failed SuccessorOfInvalidTransaction)
+      , (tFail 3 3, Failed SuccessorOfInvalidTransaction)
+      , (tFail 4 4, Failed SuccessorOfInvalidTransaction)
+      , (tOkay 5 5, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Transaction failure, with following successor in other group",
     [ [
-        (tfail 1 1, Failed tfailkind)
+        (tFail 1 1, Failed tFailKind)
       ]
-    , [ (tokay 2 2, Failed (NonSequentialNonce 1))
+    , [ (tOkay 2 2, Failed (NonSequentialNonce 1))
     ] ])
   , ( "Transaction failure, with following same nonce in other group",
     [ [
-        (tfail 1 1, Failed tfailkind)
+        (tFail 1 1, Failed tFailKind)
       ]
-    , [ (tokay 2 1, Added)
+    , [ (tOkay 2 1, Added)
     ] ])
   -- Tests with exceeding max block energy
   , ( "Single transaction exceeding max block energy",
     [ [
-        (tokayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
+        (tOkayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
     ] ])
   , ( "Single transaction exceeding max block energy, with following successor in same group",
     [ [
-        (tokayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
-      , (tokay 2 2, Failed SuccessorOfInvalidTransaction)
+        (tOkayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
+      , (tOkay 2 2, Failed SuccessorOfInvalidTransaction)
     ] ])
   , ( "Single transaction exceeding max block energy, with following same nonce in same group",
     [ [
-        (tokayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
-      , (tokay 2 1, Added)
+        (tOkayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
+      , (tOkay 2 1, Added)
     ] ])
   , ( "Single transaction exceeding max block energy, with following successor in other group",
     [ [
-        (tokayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
+        (tOkayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
       ]
-    , [ (tokay 2 2, Failed (NonSequentialNonce 1))
+    , [ (tOkay 2 2, Failed (NonSequentialNonce 1))
     ] ])
   , ( "Single transaction exceeding max block energy, with following same nonce in other group",
     [ [
-        (tokayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
+        (tOkayE 1 1 (maxBlockEnergy+1), Failed ExceedsMaxBlockEnergy)
       ]
-    , [ (tokay 2 1, Added)
+    , [ (tOkay 2 1, Added)
     ] ])
   ]
 
