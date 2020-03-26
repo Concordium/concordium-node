@@ -73,13 +73,13 @@ impl DeduplicationQueues {
     /// Creates the deduplication queues of specified sizes: short for blocks
     /// and finalization records and long for finalization messages and
     /// transactions.
-    pub fn new(long_size: usize, short_size: usize) -> Arc<Self> {
-        Arc::new(Self {
+    pub fn new(long_size: usize, short_size: usize) -> Self {
+        Self {
             finalizations: RwLock::new(CircularQueue::with_capacity(long_size)),
             transactions:  RwLock::new(CircularQueue::with_capacity(long_size)),
             blocks:        RwLock::new(CircularQueue::with_capacity(short_size)),
             fin_records:   RwLock::new(CircularQueue::with_capacity(short_size)),
-        })
+        }
     }
 }
 
@@ -214,16 +214,14 @@ impl Connection {
     pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
 
     #[inline]
-    fn is_packet_duplicate(
-        &self,
-        packet: &mut NetworkPacket,
-        deduplication_queues: &DeduplicationQueues,
-    ) -> Fallible<bool> {
+    fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> Fallible<bool> {
         ensure!(!packet.message.is_empty());
         let destination = PacketType::try_from(
             u8::deserial(&mut Cursor::new(&packet.message[..1]))
                 .expect("Writing to buffer is safe."),
         );
+
+        let deduplication_queues = &self.handler.connection_handler.deduplication_queues;
 
         let is_duplicate = match destination {
             Ok(PacketType::FinalizationMessage) => {
@@ -247,28 +245,17 @@ impl Connection {
     /// Keeps reading from the socket as long as there is data to be read
     /// and the operation is not blocking.
     #[inline]
-    pub fn read_stream(
-        &mut self,
-        dedup_queues: &DeduplicationQueues,
-        conn_stats: &[PeerStats],
-    ) -> Fallible<()> {
+    pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> Fallible<()> {
         loop {
             match self.low_level.read_from_socket()? {
-                ReadResult::Complete(msg) => {
-                    self.process_message(Arc::from(msg), dedup_queues, conn_stats)?
-                }
+                ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
                 ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
             }
         }
     }
 
     #[inline]
-    fn process_message(
-        &mut self,
-        bytes: Arc<[u8]>,
-        deduplication_queues: &DeduplicationQueues,
-        conn_stats: &[PeerStats],
-    ) -> Fallible<()> {
+    fn process_message(&mut self, bytes: Arc<[u8]>, conn_stats: &[PeerStats]) -> Fallible<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
         self.stats.bytes_received.fetch_add(bytes.len() as u64, Ordering::Relaxed);
@@ -288,7 +275,7 @@ impl Connection {
                 return Ok(());
             }
             // deduplicate the incoming packet payload
-            if self.is_packet_duplicate(packet, deduplication_queues)? {
+            if self.is_packet_duplicate(packet)? {
                 return Ok(());
             }
         }

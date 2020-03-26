@@ -105,6 +105,7 @@ pub struct ConnectionHandler {
     pub conn_changes: ConnChanges,
     pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
     pub networks: RwLock<Networks>,
+    pub deduplication_queues: DeduplicationQueues,
     pub last_bootstrap: AtomicU64,
     pub last_peer_update: AtomicU64,
     pub total_received: AtomicU64,
@@ -120,6 +121,11 @@ impl ConnectionHandler {
             notifier: sndr,
         };
 
+        let deduplication_queues = DeduplicationQueues::new(
+            conf.connection.dedup_size_long,
+            conf.connection.dedup_size_short,
+        );
+
         ConnectionHandler {
             socket_server,
             next_token: AtomicUsize::new(1),
@@ -131,6 +137,7 @@ impl ConnectionHandler {
             conn_changes,
             soft_bans: Default::default(),
             networks: RwLock::new(networks),
+            deduplication_queues,
             last_bootstrap: Default::default(),
             last_peer_update: Default::default(),
             total_received: Default::default(),
@@ -505,9 +512,6 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
 
-        let deduplication_queues =
-            DeduplicationQueues::new(node.config.dedup_size_long, node.config.dedup_size_short);
-
         let num_socket_threads = match node.self_peer.peer_type {
             PeerType::Bootstrapper => 1,
             PeerType::Node => node.config.thread_pool_size,
@@ -534,7 +538,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
                 process_conn_change(&node, conn_change)
             }
 
-            pool.install(|| node.process_network_events(&events, &deduplication_queues));
+            pool.install(|| node.process_network_events(&events));
 
             // Run periodic tasks
             let now = Instant::now();
