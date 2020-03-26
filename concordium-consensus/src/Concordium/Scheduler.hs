@@ -854,9 +854,11 @@ handleDeployCredential cdi cdiHash = do
 -- * Each transaction's nonce is equal or higher than the next nonce of the specified sender's
 --   account (if the account it exists).
 --
--- The 'GroupedTransactions' ('perAccountTransactions'
--- and 'credentialDeployments') are processed in order of their arrival time, assuming that both lists
--- are ordered by arrival time from earliest to latest. For each group in 'perAccountTransactions', only the time of the first transaction in the group is considered and the entire group is processed in one sequence.
+-- The 'GroupedTransactions' ('perAccountTransactions' and 'credentialDeployments') are processed in
+-- order of their arrival time, assuming that both lists are ordered by arrival time from earliest to
+-- latest. For each group in 'perAccountTransactions', only the time of the first transaction in the
+-- group is considered and the entire group is processed
+-- in one sequence.
 --
 -- = Processing of transactions
 --
@@ -865,10 +867,13 @@ handleDeployCredential cdi cdiHash = do
 --
 -- Each transaction or credential deployment is processed as follows:
 --
--- * It is checked whether the deposited energy (or in case of credential deployment the respective energy cost) is not greater than the maximum block energy (in which case the transaction fails with 'ExceedsMaxBlockEnergy').
+-- * It is checked whether the deposited energy (or in case of credential deployment the respective
+--   energy cost) is not greater than the maximum block energy (in which case the transaction fails
+--   with 'ExceedsMaxBlockEnergy').
 -- * It is checked whether the deposited energy (or, in case of credential deployment, the respective
 --   energy cost) and the transaction size is not greater than the remaining block energy / block size
--- (in which case the transaction is skipped and added to the list of unprocessed transactions/credentials).
+--   (in which case the transaction is skipped and added to the list of unprocessed
+--   transactions/credentials).
 -- * If the previous checks passed, the transaction is executed.
 --
 --     * If execution fails with another 'FailureKind', the transaction / credential deployment is added
@@ -896,11 +901,14 @@ handleDeployCredential cdi cdiHash = do
 --   incorrect nonce will also fail with 'NonSequentialNonce'.
 -- * Transactions with the same nonce as a previously failed transaction are processed normally.
 --
--- Note that this behaviour relies on the precondition of transactions within a group coming from the same account and being ordered by increasing nonce.
+-- Note that this behaviour relies on the precondition of transactions within a group coming from the
+-- same account and being ordered by increasing nonce.
 --
 -- = Result
--- The order of transactions in 'ftAdded' (this includes credential deployments) is in the order of processing as described above.
--- However, there is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed` and `ftUnprocessedCredentials`.
+-- The order of transactions in 'ftAdded' (this includes credential deployments) is in the order of
+-- processing as described above.
+-- However, there is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
+-- and `ftUnprocessedCredentials`.
 filterTransactions :: forall m . (SchedulerMonad m)
                    => Integer -- ^Maximum block size in bytes.
                    -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
