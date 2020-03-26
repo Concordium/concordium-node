@@ -82,8 +82,8 @@ fn start_haskell_init(
 
     // We don't check for stack here because it should only be enabled if
     // heap profiling is enabled.
-    args.push("+RTS".to_owned());
     if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
+        args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
     }
 
@@ -137,12 +137,20 @@ fn start_haskell_init(
         args.push("-xc".to_owned());
     }
 
-    for s in rts_flags.split(" ") {
-        // hacky
-        args.push(s.to_owned());
+    if args.len() == 1 && !rts_flags.trim().is_empty() {
+        args.push("+RTS".to_owned())
     }
 
-    args.push("-RTS".to_owned());
+    for s in rts_flags.split(" ") {
+        // hacky
+        if !s.is_empty() {
+            args.push(s.to_owned());
+        }
+    }
+
+    if args.len() > 1 {
+        args.push("-RTS".to_owned());
+    }
 
     info!(
         "Starting consensus with the following profiling arguments {:?}",
@@ -166,12 +174,17 @@ fn start_haskell_init(
 #[cfg(all(not(windows), not(feature = "profiling")))]
 fn start_haskell_init(rts_flags: &str) {
     let program_name = std::env::args().take(1).next().unwrap();
-    let mut args = vec![program_name, "+RTS".to_owned()];
-    for s in rts_flags.split(" ") {
-        // hacky
-        args.push(s.to_owned());
+    let mut args = vec![program_name];
+    if !rts_flags.trim().is_empty() {
+        args.push("+RTS".to_owned());
+        for s in rts_flags.split(" ") {
+            // hacky
+            if !s.is_empty() {
+                args.push(s.to_owned());
+            }
+        }
+        args.push("-RTS".to_owned());
     }
-    args.push("-RTS".to_owned());
     let args = args
         .iter()
         .map(|arg| CString::new(arg.as_bytes()).unwrap())
