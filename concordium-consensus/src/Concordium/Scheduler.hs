@@ -892,14 +892,15 @@ handleDeployCredential cdi cdiHash = do
 --
 -- The processing of transactions within a group has the following additional properties:
 --
--- * If a transaction fails with a different failure kind than 'NonSequentialNonce', and none
---   of the following transactions replace it (having the same nonce and being valid),
---   all transactions with a higher nonce than that of the failed
---   will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce'.
--- * If a transaction fails with 'NonSequentialNonce' (that is, by precondition,
---   it has a higher nonce than the expected nonce), all following transactions with an
---   incorrect nonce will also fail with 'NonSequentialNonce'.
--- * Transactions with the same nonce as a previously failed transaction are processed normally.
+-- * After an added transactions, all following transactions with the same nonce directly fail with
+--   'NonSequentialNonce' (whereas when processed individually, it might fail for another reason).
+--   The next transaction with a higher nonce is processed normally.
+-- * If a transaction fails and the next transaction has the same nonce, it is processed normally
+--   (and will thus "replace" the failed transaction if it is valid).
+-- * If a transaction fails and the next transaction has a higher nonce all remaining transactions in
+--   the group will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce' (or the
+--   failure it would fail with if processed individually). Note that because transactions are ordered
+--   by nonce, all those remaining transactions are invalid at least because of a non-sequential nonce.
 --
 -- Note that this behaviour relies on the precondition of transactions within a group coming from the
 -- same account and being ordered by increasing nonce.
