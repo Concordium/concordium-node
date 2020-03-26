@@ -34,13 +34,21 @@ pub type Delta = u64;
 #[cfg(all(not(windows), feature = "profiling"))]
 pub fn start_haskell(
     heap: &str,
+    stack: bool,
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
 ) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
+        start_haskell_init(
+            heap,
+            stack,
+            time,
+            exceptions,
+            gc_log,
+            profile_sampling_interval,
+        );
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -60,6 +68,7 @@ pub fn start_haskell() {
 #[cfg(all(not(windows), feature = "profiling"))]
 fn start_haskell_init(
     heap: &str,
+    stack: bool,
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
@@ -68,6 +77,8 @@ fn start_haskell_init(
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
 
+    // We don't check for stack here because it should only be enabled if
+    // heap profiling is enabled.
     if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
@@ -76,15 +87,27 @@ fn start_haskell_init(
     match heap {
         "cost" => {
             args.push("-hc".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "module" => {
             args.push("-hm".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "description" => {
             args.push("-hd".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "type" => {
             args.push("-hy".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "none" => {}
         _ => {
