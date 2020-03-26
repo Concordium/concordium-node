@@ -311,7 +311,9 @@ tests =
                 assertEqual "Test setup does not change number of transactions" (length input) (length tsjson)
                 length valid + length invalid + length unproc `shouldBe` length input
 
-              -- NOTE: For the valid transactions, also the order is guaranteed
+              -- NOTE: For the valid transactions, also the order is guaranteed (TODO the specification
+              -- does not guarantee this; check whether other properties should be checked or whether
+              -- just the membership in `ftAdded` is sufficient).
               specify "List of valid transactions correct, including order" $ validTs `shouldBe` eValid
 
               -- NOTE: This only tests whether all transactions appear in the result if
