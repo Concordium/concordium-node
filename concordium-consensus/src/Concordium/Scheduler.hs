@@ -895,8 +895,7 @@ handleDeployCredential cdi cdiHash = do
 -- * After an added transactions, all following transactions with the same nonce directly fail with
 --   'NonSequentialNonce' (whereas when processed individually, it might fail for another reason).
 --   The next transaction with a higher nonce is processed normally.
--- * If a transaction fails and the next transaction has the same nonce, it is processed normally
---   (and will thus "replace" the failed transaction if it is valid).
+-- * If a transaction fails and the next transaction has the same nonce, it is processed normally.
 -- * If a transaction fails and the next transaction has a higher nonce all remaining transactions in
 --   the group will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce' (or the
 --   failure it would fail with if processed individually). Note that because transactions are ordered
