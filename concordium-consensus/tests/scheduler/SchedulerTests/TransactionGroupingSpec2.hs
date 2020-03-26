@@ -58,9 +58,12 @@ data ExpectedResult
   | Unprocessed
   deriving (Eq,Show)
 
+-- | Make a test transaction (simple transfer) to own account.
 tokay :: Amount -> Nonce -> TransactionJSON
 tokay amount nonce = tokayE amount nonce simpleTransferCost
 
+-- | Make a test transaction (simple transfer) to own account with sepcifying
+-- the energy to be deposited.
 tokayE :: Amount -> Nonce -> Energy -> TransactionJSON
 tokayE amount nonce energy =
   TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
@@ -68,6 +71,7 @@ tokayE amount nonce energy =
         , keypair = alesKP
         }
 
+-- | Make a test transaction thet will fail with 'tfailkind'.
 tfail :: Amount -> Nonce -> TransactionJSON
 tfail amount nonce =
   TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
@@ -75,6 +79,7 @@ tfail amount nonce =
         , keypair = alesKP
         }
 
+-- | 'FailureKind' of 'tfail'.
 tfailkind :: FailureKind
 tfailkind = DepositInsufficient
 
