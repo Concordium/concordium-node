@@ -48,7 +48,7 @@ pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 /// Maximum time (in ms) a connection can be kept without concluding a
 /// handshake.
-pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
+pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
 /// Maximum time (in s) a soft ban is in force.
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
@@ -239,7 +239,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",
-        default_value = "60"
+        default_value = "30"
     )]
     pub housekeeping_interval: u64,
     #[structopt(
