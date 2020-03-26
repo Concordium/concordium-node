@@ -1,8 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# OPTIONS_GHC -Wall #-}
-{-# LANGUAGE LambdaCase #-}
-{-# OPTIONS_GHC -Wno-deprecations #-}
 
 {-|
 Testing of 'Concordium.Scheduler.filterTransactions'.
@@ -19,6 +15,8 @@ import Test.HUnit
 import Control.Monad.IO.Class
 import qualified Data.Text.IO as TIO
 import Lens.Micro.Platform
+
+import Data.Foldable
 
 import Acorn.Core
 import qualified Acorn.Utils.Init as Init
@@ -281,21 +279,20 @@ testGroups groups = do
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
 
 -- NOTE: In case of failure, this currently does not show the actual lists of invalid and unprocessed
--- transactions, but only the transaction which is not in the expceted list, with its expectation.
+-- transactions, but only the transaction which is not in the expected list, with its expectation.
 -- If needed, write a custom expectation at the end of this function.
 tests :: Spec
-tests = do
+tests =
   describe "Transaction grouping test (2)" $
-    mapM_ (\(name, tc) ->
+    forM_ testCases $ \(name, tc) ->
             describe name $ do
               (valid, invalid, unproc, input) <- runIO $
                 PR.evalContext Init.initialContextData (testGroups $ map (map fst) tc)
               let tsjson = concat tc
               -- NOTE: We do not check as part of this test whether the second component is a 'TxValid'
               let (validTs, _) = unzip valid
-              -- Note that currenly no order about invalid and unprocessed transactions is guaranteed.
-              -- When this, however, is the case, the whole tuple (eValid, eInvalid, eUnproc) can
-              -- be used and the lists compared directly (see below).
+              -- Create expected lists of added, invalid and unprocessed transactions
+              -- (here in order of the input, even if the actual assertion might not check that).
               let (eValid, _, _) =
                     mkExpected (zipWith (\(_, expectedRes) t -> (t, expectedRes)) tsjson input) [] [] []
                     where mkExpected [] ev ei eu = (reverse ev, reverse ei, reverse eu)
@@ -312,11 +309,6 @@ tests = do
               -- NOTE: For the valid transactions, also the order is guaranteed
               specify "List of valid transactions correct, including order" $ validTs `shouldBe` eValid
 
-              -- NOTE: Currently no order for the following is guaranteed, therefore the
-              -- following specifications would be incorrect.
-              -- specify "Invalid transactions" $ invalid `shouldBe` eInvalid
-              -- specify "Unprocessed transactions" $ unproc `shouldBe` eUnproc
-
               -- NOTE: This only tests whether all transactions appear in the result if
               -- all transactions are unique. Therefore the above number check is good to have.
               describe "All transactions sorted to correct list" $
@@ -331,5 +323,3 @@ tests = do
                                 Unprocessed -> t `elem` unproc
                           ) $
                   zipWith3 (\n (_, expectedRes) t -> (n, t, expectedRes)) ([1..] :: [Int]) tsjson input
-        )
-    testCases
