@@ -86,15 +86,18 @@ existsValidCredential cm acc = do
 
 -- |Check that
 --  * the transaction has a valid sender,
---  * the amount corresponding to the deposited energy is on their account,
+--  * the amount corresponding to the deposited energy is on the sender's account,
 --  * the transaction is not expired,
 --  * the transaction nonce is the account's next nonce,
 --  * the transaction is signed with the account's verification keys.
--- The valid sender means that the sender account exists and has at least one valid credential,
+-- "Valid sender" means that the sender account exists and has at least one valid credential,
 -- where currently valid means non-expired.
 --
 -- Before any other checks this checks whether the amount deposited is enough to cover
 -- the cost that will be charged for checking the header.
+--
+-- Throws 'Nothing' if the remaining block energy is not sufficient to cover the cost of checking the
+-- header and @Just fk@ if any of the checks fails, with the respective 'FailureKind'.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
 checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m (Account, Energy)
@@ -151,9 +154,17 @@ checkHeader meta = do
 -- not be. In particular when a transaction is rejected based on transaction
 -- logic that is unrelated to identities.
 
--- This method returns either a Just TxResult if transaction either failed, or
--- was successfully commited to a block, or Nothing, in case the transaction
--- would have pushed the block execution over the limit.
+-- | Execute a transaction on the current block state, charging valid accounts
+-- for the resulting energy cost.
+--
+-- First checks the meta data in the header of the transaction, then decodes the
+-- payload and lets the respective handler execute the actual transaction.
+--
+-- Returns
+--
+-- * @Nothing@ if the transaction would exceed the remaining block energy.
+-- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
+--  ('TxValid', with either 'TxSuccess' or 'TxReject').
 dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m (Maybe TxResult)
 dispatch msg = do
   let meta = transactionHeader msg
@@ -161,8 +172,8 @@ dispatch msg = do
   case validMeta of
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
-    Right (senderAccount, cost) -> do
-      -- at this point the transaction is going to be commited to the block.
+    Right (senderAccount, checkHeaderCost) -> do
+      -- At this point the transaction is going to be commited to the block.
       -- It could be that the execution exceeds maximum block energy allowed, but in that case
       -- the whole block state will be removed, and thus this operation will have no effect anyhow.
       -- Hence we can increase the account nonce of the sender account.
@@ -175,6 +186,7 @@ dispatch msg = do
       -- FIXME: Only consider non-expired credentials.
       mapM_ (notifyIdentityProviderCredential . ID.cdvIpId) (senderAccount ^. accountCredentials)
 
+      -- TODO what does the following comment refer to?
       -- available for execution remaining amount available on the sender's
       -- account. This is deducted prior to execution and refunded at the end,
       -- if there is any left.
@@ -185,12 +197,13 @@ dispatch msg = do
       tsIndex <- bumpTransactionIndex
       case decodePayload (transactionPayload msg) of
         Left _ -> do
-          -- in case of serialization failure we charge the sender for checking
-          -- the header and reject the transaction
-          payment <- energyToGtu cost
+          -- In case of serialization failure we charge the sender for checking
+          -- the header and reject the transaction; we have checked that the amount
+          -- exists on the account with 'checkHeader'.
+          payment <- energyToGtu checkHeaderCost
           chargeExecutionCost (transactionHash msg) senderAccount payment
           return $! Just $! TxValid $! TransactionSummary{
-            tsEnergyCost = cost,
+            tsEnergyCost = checkHeaderCost,
             tsCost = payment,
             tsSender = Just (senderAccount ^. accountAddress),
             tsResult = TxReject SerializationFailure,
@@ -204,9 +217,9 @@ dispatch msg = do
                 _wtcSenderAccount = senderAccount,
                 _wtcTransactionHash = transactionHash msg,
                 _wtcTransactionHeader = meta,
-                _wtcTransactionCheckHeaderCost = cost,
+                _wtcTransactionCheckHeaderCost = checkHeaderCost,
                 -- NB: We already account for the cost we used here.
-                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + cost,
+                _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + checkHeaderCost,
                 _wtcTransactionIndex = tsIndex,
                 ..}
           res <- case payload of
@@ -254,6 +267,7 @@ dispatch msg = do
                    UpdateElectionDifficulty{..} ->
                      handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
           case res of
+            -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
             Just summary -> return $! Just $! TxValid summary
 
@@ -773,7 +787,8 @@ handleDelegateStake wtc targetBaker =
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
 -- |Update the election difficulty birk parameter.
--- The given difficulty
+-- The given difficulty must be valid (see 'isValidElectionDifficulty'), if not, this function
+-- may raise an exception.
 handleUpdateElectionDifficulty
   :: SchedulerMonad m
   => WithDepositContext
@@ -912,6 +927,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
 
   runNext maxEnergy 0 emptyFilteredTransactions credentialDeployments perAccountTransactions
   where
+        -- Run next credential deployment or transaction group, depending on arrival time, and recurse.
         runNext :: Energy -- ^Maximum block energy
                 -> Integer -- ^Current size of transactions in the block.
                 -> FilteredTransactions -- ^Currently accummulated result
@@ -920,8 +936,10 @@ filterTransactions maxSize GroupedTransactions{..} = do
                 -> m FilteredTransactions
         runNext maxEnergy size fts credentials remainingTransactions =
           case (credentials, remainingTransactions) of
+            -- All credentials and transactions processed; Before returning,
             -- need to reverse because we accummulated in reverse (for performance reasons)
             ([], []) -> return fts{ ftAdded = reverse (ftAdded fts )}
+            -- Further credentials or transactions to process
             ([], group : groups) -> runTransactionGroup size fts groups group
             (c:creds, []) -> runCredential creds c
             (cs@(c:creds), group : groups) ->
@@ -932,8 +950,8 @@ filterTransactions maxSize GroupedTransactions{..} = do
                   then runCredential creds c
                   else runTransactionGroup size fts groups group
 
-          where 
-            -- run a single credential and continue
+          where
+            -- Run a single credential and continue with 'runNext'.
             runCredential remainingCreds c@WithMetadata{..} = do
               totalEnergyUsed <- getUsedEnergy
               let csize = size + fromIntegral wmdSize
@@ -959,7 +977,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
                  let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
                  in runNext maxEnergy size newFts remainingCreds remainingTransactions
 
-            -- run all transactions in a group
+            -- Run all transactions in a group and continue with 'runNext'.
             runTransactionGroup :: Integer -- ^Current size of transactions in the block.
                                 -> FilteredTransactions
                                 -> [[Transaction]] -- ^Remaining groups to process.
@@ -970,7 +988,9 @@ filterTransactions maxSize GroupedTransactions{..} = do
               let csize = currentSize + fromIntegral (transactionSize t)
                   tenergy = transactionGasAmount t
                   cenergy = totalEnergyUsed + tenergy
-              if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
+              if csize <= maxSize && cenergy <= maxEnergy then
+                -- The transaction fits regarding both block energy limit and max transaction size.
+                -- Thus try to add the transaction by executing it.
                 observeTransactionFootprint (dispatch t) >>= \case
                    (Just (TxValid summary), fp) -> do
                      markEnergyUsed (tsEnergyCost summary)
@@ -991,7 +1011,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
                 let newFts = currentFts { ftUnprocessed = t : (ftUnprocessed currentFts) }
                 in runTransactionGroup size newFts remainingGroups ts
 
-            -- group processed, continue with the next group or credential
+            -- Group processed, continue with the next group or credential
             runTransactionGroup currentSize currentFts remainingGroups [] =
               runNext maxEnergy currentSize currentFts credentials remainingGroups
 
