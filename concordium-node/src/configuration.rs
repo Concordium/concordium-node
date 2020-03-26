@@ -145,7 +145,7 @@ pub struct BakerConfig {
         help = "Haskell RTS flags to pass to consensus.",
         default_value = ""
     )]
-    pub rts_flags: String,
+    pub rts_flags: Vec<String>,
     #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",
