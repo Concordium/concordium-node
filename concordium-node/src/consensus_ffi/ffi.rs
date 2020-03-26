@@ -39,7 +39,7 @@ pub fn start_haskell(
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
-    rts_flags: &str,
+    rts_flags: &[String],
 ) {
     START_ONCE.call_once(|| {
         start_haskell_init(
@@ -58,7 +58,7 @@ pub fn start_haskell(
 }
 
 #[cfg(not(feature = "profiling"))]
-pub fn start_haskell(rts_flags: &str) {
+pub fn start_haskell(rts_flags: &[String]) {
     START_ONCE.call_once(|| {
         start_haskell_init(rts_flags);
         unsafe {
@@ -75,7 +75,7 @@ fn start_haskell_init(
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
-    rts_flags: &str,
+    rts_flags: &[String],
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
@@ -137,14 +137,13 @@ fn start_haskell_init(
         args.push("-xc".to_owned());
     }
 
-    if args.len() == 1 && !rts_flags.trim().is_empty() {
+    if args.len() == 1 {
         args.push("+RTS".to_owned())
     }
 
-    for s in rts_flags.split(" ") {
-        // hacky
-        if !s.is_empty() {
-            args.push(s.to_owned());
+    for flag in rts_flags {
+        if !flag.trim().is_empty() {
+            args.push(flag.to_owned());
         }
     }
 
@@ -172,15 +171,14 @@ fn start_haskell_init(
 }
 
 #[cfg(all(not(windows), not(feature = "profiling")))]
-fn start_haskell_init(rts_flags: &str) {
+fn start_haskell_init(rts_flags: &[String]) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
     if !rts_flags.trim().is_empty() {
         args.push("+RTS".to_owned());
-        for s in rts_flags.split(" ") {
-            // hacky
-            if !s.is_empty() {
-                args.push(s.to_owned());
+        for flag in rts_flags {
+            if !flag.trim().is_empty() {
+                args.push(flag);
             }
         }
         args.push("-RTS".to_owned());
