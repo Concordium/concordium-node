@@ -174,11 +174,11 @@ fn start_haskell_init(
 fn start_haskell_init(rts_flags: &[String]) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
-    if !rts_flags.trim().is_empty() {
+    if !rts_flags.is_empty() {
         args.push("+RTS".to_owned());
         for flag in rts_flags {
             if !flag.trim().is_empty() {
-                args.push(flag);
+                args.push(flag.to_owned());
             }
         }
         args.push("-RTS".to_owned());
