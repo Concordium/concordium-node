@@ -126,6 +126,13 @@ pub struct BakerConfig {
     pub backtraces_profiling: bool,
     #[cfg(feature = "profiling")]
     #[structopt(
+        long = "stack-profiling",
+        help = "Include memory occupied by threads in the heap profile. Only has effect if \
+                `heap-profiling` is enabled."
+    )]
+    pub stack_profiling: bool,
+    #[cfg(feature = "profiling")]
+    #[structopt(
         long = "profiling-sampling-interval",
         help = "Profile sampling interval in seconds",
         default_value = "0.1"

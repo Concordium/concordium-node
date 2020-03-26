@@ -54,6 +54,7 @@ pub fn start_consensus_layer(
     #[cfg(feature = "profiling")]
     ffi::start_haskell(
         &conf.heap_profiling,
+        conf.stack_profiling,
         conf.time_profiling,
         conf.backtraces_profiling,
         conf.gc_logging.clone(),
