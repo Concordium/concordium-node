@@ -54,11 +54,9 @@ data FilteredTransactions = FilteredTransactions {
   ftFailed :: [(Transaction, FailureKind)],
   -- |Credential deployments which failed. No order is guaranteed.
   ftFailedCredentials :: [(CredentialDeploymentWithMeta, FailureKind)],
-  -- |Transactions which were not processed because they would have resulted in exceeding
-  -- the block size or energy limited at the point they were considered. No order is guaranteed.
+  -- |Transactions which were not processed. No order is guaranteed.
   ftUnprocessed :: [Transaction],
-  -- |Credentials which were not processed because they would have resulted in exceeding
-  -- the block size or energy limited at the point they were considered. No order is guaranteed.
+  -- |Credentials which were not processed. No order is guaranteed.
   ftUnprocessedCredentials :: [CredentialDeploymentWithMeta]
   }
 
