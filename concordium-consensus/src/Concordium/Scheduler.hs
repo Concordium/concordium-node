@@ -981,24 +981,8 @@ filterTransactions maxSize GroupedTransactions{..} = do
                 observeTransactionFootprint (dispatch t) >>= \case
                    -- The transaction was committed, add it to the list of added transactions.
                    (Just (TxValid summary), fp) -> do
-                     markEnergyUsed (tsEnergyCost summary)
-                     tlNotifyAccountEffect fp summary
-                     -- All following transactions from this group with the same nonce are invalid.
-                     -- NOTE: It is necessary that we process those invalid transactions directly,
-                     -- because while 'invalidTs' would classify them as 'NonSequentialNonce' as well,
-                     -- it would reject following valid transactions with a higher but correct nonce.
-                     -- The next transaction with a higher nonce (head of ts') should thus be processed
-                     -- with 'runNext'.
-                     let (invalid, ts') = span ((== transactionNonce t) . transactionNonce) ts
-                     let nextNonce = transactionNonce t + 1
-                     let newFts =
-                           currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
-                                                   -- TODO use fold to make it more efficient
-                                                   ++ ftFailed currentFts
-                                      , ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts
-                                      }
-
-                     runTransactionGroup csize newFts remainingGroups ts'
+                     (newFts, rest) <- validTs t summary fp currentFts ts
+                     runTransactionGroup csize newFts remainingGroups rest
                    -- The transaction failed, add it to the list of failed transactions and
                    -- determine whether following transaction have to fail as well.
                    (Just (TxInvalid reason), _) ->
@@ -1019,6 +1003,27 @@ filterTransactions maxSize GroupedTransactions{..} = do
             -- group processed, continue with the next group or credential
             runTransactionGroup currentSize currentFts remainingGroups [] =
               runNext maxEnergy currentSize currentFts credentials remainingGroups
+
+            -- Add a valid transaction to the list of added transactions, mark used energy and
+            -- notify about the account effects. Then add all following transactions with the
+            -- same nonce to the list of failed transactions, as they are invalid.
+            -- NOTE: It is necessary that we process those invalid transactions directly,
+            -- because while 'invalidTs' would classify them as 'NonSequentialNonce' as well,
+            -- it would reject following valid transactions with a higher but correct nonce.
+            -- The next transaction with a higher nonce (head of ts') should thus be processed
+            -- with 'runNext'.
+            validTs t summary fp currentFts ts = do
+              markEnergyUsed (tsEnergyCost summary)
+              tlNotifyAccountEffect fp summary
+              let (invalid, rest) = span ((== transactionNonce t) . transactionNonce) ts
+              let nextNonce = transactionNonce t + 1
+              let newFts =
+                    currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
+                                            -- TODO use fold to make it more efficient
+                                            ++ ftFailed currentFts
+                               , ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts
+                               }
+              return (newFts, rest)
 
             -- Add a failed transaction (t, failure) to the list of failed transactions and
             -- check whether the remaining transactions from this group (ts) have a nonce
