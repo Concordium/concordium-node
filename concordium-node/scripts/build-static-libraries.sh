@@ -89,9 +89,9 @@ for f in $(find /build -type f -name package.yaml); do
    sed -i -e 's/[\s]*ld-options://g' -e 's/[\s]*- -static//g' $f
 done
 
-stack ls dependencies > /dev/null # to generate the cabal files
-
 cd /build
+
+stack ls dependencies > /dev/null # to generate the cabal files
 
 rm *.freeze
 cabal freeze
