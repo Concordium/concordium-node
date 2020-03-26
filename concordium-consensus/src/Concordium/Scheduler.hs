@@ -905,9 +905,10 @@ handleDeployCredential cdi cdiHash = do
 -- same account and being ordered by increasing nonce.
 --
 -- = Result
--- The order of transactions in 'ftAdded' (this includes credential deployments) is in the order of
--- processing as described above.
--- However, there is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
+-- The order of transactions in 'ftAdded' (this includes credential deployments) corresponds to the
+-- order the transactions should appear on the block (i.e., the order they were executed on the current
+-- block state).
+-- There is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
 -- and `ftUnprocessedCredentials`.
 filterTransactions :: forall m . (SchedulerMonad m)
                    => Integer -- ^Maximum block size in bytes.
