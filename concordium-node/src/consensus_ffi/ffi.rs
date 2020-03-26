@@ -39,6 +39,7 @@ pub fn start_haskell(
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
+    rts_flags: &str,
 ) {
     START_ONCE.call_once(|| {
         start_haskell_init(
@@ -48,6 +49,7 @@ pub fn start_haskell(
             exceptions,
             gc_log,
             profile_sampling_interval,
+            rts_flags,
         );
         unsafe {
             ::libc::atexit(stop_nopanic);
@@ -56,9 +58,9 @@ pub fn start_haskell(
 }
 
 #[cfg(not(feature = "profiling"))]
-pub fn start_haskell() {
+pub fn start_haskell(rts_flags: &str) {
     START_ONCE.call_once(|| {
-        start_haskell_init();
+        start_haskell_init(rts_flags);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -73,14 +75,15 @@ fn start_haskell_init(
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
+    rts_flags: &str,
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
 
     // We don't check for stack here because it should only be enabled if
     // heap profiling is enabled.
+    args.push("+RTS".to_owned());
     if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
-        args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
     }
 
@@ -134,9 +137,12 @@ fn start_haskell_init(
         args.push("-xc".to_owned());
     }
 
-    if args.len() > 1 {
-        args.push("-RTS".to_owned());
+    for s in rts_flags.split(" ") {
+        // hacky
+        args.push(s.to_owned());
     }
+
+    args.push("-RTS".to_owned());
 
     info!(
         "Starting consensus with the following profiling arguments {:?}",
@@ -158,11 +164,17 @@ fn start_haskell_init(
 }
 
 #[cfg(all(not(windows), not(feature = "profiling")))]
-fn start_haskell_init() {
-    let program_name = std::env::args().take(1).next();
-    let args = program_name
-        .into_iter()
-        .map(|arg| CString::new(arg).unwrap())
+fn start_haskell_init(rts_flags: &str) {
+    let program_name = std::env::args().take(1).next().unwrap();
+    let mut args = vec![program_name, "+RTS".to_owned()];
+    for s in rts_flags.split(" ") {
+        // hacky
+        args.push(s.to_owned());
+    }
+    args.push("-RTS".to_owned());
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
         .collect::<Vec<CString>>();
     let c_args = args
         .iter()
