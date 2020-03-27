@@ -319,8 +319,9 @@ newPassiveRound newDelta = do
     finCom        <- use finCommittee
     finInd        <- use finIndex
     sessionId     <- use finSessionId
+    logEvent Afgjort LLDebug $ "Starting passive finalization round: height=" ++ show (theBlockHeight fHeight) ++ " delta=" ++ show (theBlockHeight newDelta)
     maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty
-                                           . atStrict fHeight . non Set.empty
+                                           . atStrict newDelta . non Set.empty
                                            <%= Set.filter (checkMessage finCom . pendingToFinMsg sessionId finInd newDelta)
     let finParties = parties finCom
         partyInfo party = finParties Vec.! fromIntegral party
@@ -343,8 +344,8 @@ newPassiveRound newDelta = do
                                             in (proofM <|> prevProofM, newState))
                                         (Nothing, initialWMVBAPassiveState)
                                         $ Map.toList blockToMsgs
-    forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
     finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & atStrict newDelta ?~ passiveStates)
+    forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
