@@ -34,13 +34,23 @@ pub type Delta = u64;
 #[cfg(all(not(windows), feature = "profiling"))]
 pub fn start_haskell(
     heap: &str,
+    stack: bool,
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
+    rts_flags: &[String],
 ) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
+        start_haskell_init(
+            heap,
+            stack,
+            time,
+            exceptions,
+            gc_log,
+            profile_sampling_interval,
+            rts_flags,
+        );
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -48,9 +58,9 @@ pub fn start_haskell(
 }
 
 #[cfg(not(feature = "profiling"))]
-pub fn start_haskell() {
+pub fn start_haskell(rts_flags: &[String]) {
     START_ONCE.call_once(|| {
-        start_haskell_init();
+        start_haskell_init(rts_flags);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -60,14 +70,18 @@ pub fn start_haskell() {
 #[cfg(all(not(windows), feature = "profiling"))]
 fn start_haskell_init(
     heap: &str,
+    stack: bool,
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
+    rts_flags: &[String],
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
 
+    // We don't check for stack here because it should only be enabled if
+    // heap profiling is enabled.
     if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
@@ -76,15 +90,27 @@ fn start_haskell_init(
     match heap {
         "cost" => {
             args.push("-hc".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "module" => {
             args.push("-hm".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "description" => {
             args.push("-hd".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "type" => {
             args.push("-hy".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "none" => {}
         _ => {
@@ -111,6 +137,16 @@ fn start_haskell_init(
         args.push("-xc".to_owned());
     }
 
+    if args.len() == 1 {
+        args.push("+RTS".to_owned())
+    }
+
+    for flag in rts_flags {
+        if !flag.trim().is_empty() {
+            args.push(flag.to_owned());
+        }
+    }
+
     if args.len() > 1 {
         args.push("-RTS".to_owned());
     }
@@ -135,11 +171,21 @@ fn start_haskell_init(
 }
 
 #[cfg(all(not(windows), not(feature = "profiling")))]
-fn start_haskell_init() {
-    let program_name = std::env::args().take(1).next();
-    let args = program_name
-        .into_iter()
-        .map(|arg| CString::new(arg).unwrap())
+fn start_haskell_init(rts_flags: &[String]) {
+    let program_name = std::env::args().take(1).next().unwrap();
+    let mut args = vec![program_name];
+    if !rts_flags.is_empty() {
+        args.push("+RTS".to_owned());
+        for flag in rts_flags {
+            if !flag.trim().is_empty() {
+                args.push(flag.to_owned());
+            }
+        }
+        args.push("-RTS".to_owned());
+    }
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
         .collect::<Vec<CString>>();
     let c_args = args
         .iter()
