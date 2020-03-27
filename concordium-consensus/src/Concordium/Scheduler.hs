@@ -842,35 +842,74 @@ handleDeployCredential cdi cdiHash = do
                   else return $ Just (TxInvalid AccountCredentialInvalid)
 
 
--- *Exposed methods.
+-- * Exposed methods.
+
 -- |Make a valid block out of a list of transactions, respecting the given
--- maximum block size and block energy limit. The GroupedTransactions are processed in
--- order of their arrival time. Picking the next transaction is done by comparing the
--- arrival time of the head of the head of the grouped transactions list and the
--- head of the credential list, picking whichever is earliest. The entire group is
--- processed if it is earliest.
--- This function assumes that the transactions appear grouped by their associated account address,
--- and that each transaction group is ordered by transaction nonce.
--- In particular, given a transaction group [T1, T2, ..., T_n], once a transaction T_i gets rejected,
--- all following transactions T_i+1, ..., T_n are also rejected with a SuccessorOfInvalidTransaction failure.
--- It will not be checked whether
--- 1. the accounts of the rejected transactions are the same as of T_i,
--- 2. the nonces of the rejected transactions are greater than T_i's nonce, or
--- 3. there is a single group for each account.
--- If there are multiple transaction groups G1 and G2 that are associated with the same account,
--- and there is an invalid transaction in the first group G1, the transactions in G2 will still be processed
--- and will not automatically fail with a SuccessorOfInvalidTransaction reason.
--- It is the task of the caller to ensure that the above properties hold if it is important to reject successors
--- of transactions. However, this might not be important for testing purposes.
--- The return value is a FilteredTransactions object where
+-- maximum block size and block energy limit.
 --
---   * @ftAdded@ is the list of transactions that should appear on the block in
---     the order they should appear
---   * @ftFailed@ is a list of invalid transactions. The order these transactions
---     appear is arbitrary (i.e., they do not necessarily appear in the same order
---     as in the input).
---   * @ftUnprocessed@ is a list of transactions which were not
---     processed due to size restrictions.
+-- The preconditions of this function (which are not checked) are:
+--
+-- * The transactions appear grouped by their associated account address,
+--   and the transactions in each group are ordered by increasing transaction nonce.
+-- * Each transaction's nonce is equal or higher than the next nonce of the specified sender's
+--   account (if the account it exists).
+--
+-- The 'GroupedTransactions' ('perAccountTransactions' and 'credentialDeployments') are processed in
+-- order of their arrival time, assuming that both lists are ordered by arrival time from earliest to
+-- latest. For each group in 'perAccountTransactions', only the time of the first transaction in the
+-- group is considered and the entire group is processed
+-- in one sequence.
+--
+-- = Processing of transactions
+--
+-- Processing starts with an initial remaining block energy being the maximum block energy
+-- (birk parameter) and the remaining block size being as specified by the parameter to this function.
+--
+-- Each transaction or credential deployment is processed as follows:
+--
+-- * It is checked whether the deposited energy (or in case of credential deployment the respective
+--   energy cost) is not greater than the maximum block energy (in which case the transaction fails
+--   with 'ExceedsMaxBlockEnergy').
+-- * It is checked whether the deposited energy (or, in case of credential deployment, the respective
+--   energy cost) and the transaction size is not greater than the remaining block energy / block size
+--   (in which case the transaction is skipped and added to the list of unprocessed
+--   transactions/credentials).
+-- * If the previous checks passed, the transaction is executed.
+--
+--     * If execution fails with another 'FailureKind', the transaction / credential deployment is added
+--       to the list of failed transactions/credentials.
+--     * If execution succeeds ('TxValid'), the transaction / credential deployment is added to the list
+--       of added transactions and the actual energy used by the transaction as well as the transaction
+--       size is deducted from the remaining block energy / block size.
+--
+-- Only added transactions have an effect on the block state.
+--
+-- = Transaction groups
+-- Groups allow early failure of transactions with a repeated nonce after a successful transaction
+-- as well as a special failure kind ('SuccessorOfInvalidTransaction') for transactions which cannot
+-- be accepted because a predecessor transaction (with a lower nonce) failed and no other transaction
+-- with the same nonce was added.
+--
+-- The processing of transactions within a group has the following additional properties:
+--
+-- * After an added transactions, all following transactions with the same nonce directly fail with
+--   'NonSequentialNonce' (whereas when processed individually, it might fail for another reason).
+--   The next transaction with a higher nonce is processed normally.
+-- * If a transaction fails and the next transaction has the same nonce, it is processed normally.
+-- * If a transaction fails and the next transaction has a higher nonce all remaining transactions in
+--   the group will fail with 'SuccessorOfInvalidTransaction' instead of 'NonSequentialNonce' (or the
+--   failure it would fail with if processed individually). Note that because transactions are ordered
+--   by nonce, all those remaining transactions are invalid at least because of a non-sequential nonce.
+--
+-- Note that this behaviour relies on the precondition of transactions within a group coming from the
+-- same account and being ordered by increasing nonce.
+--
+-- = Result
+-- The order of transactions in 'ftAdded' (this includes credential deployments) corresponds to the
+-- order the transactions should appear on the block (i.e., the order they were executed on the current
+-- block state).
+-- There is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
+-- and `ftUnprocessedCredentials`.
 filterTransactions :: forall m . (SchedulerMonad m)
                    => Integer -- ^Maximum block size in bytes.
                    -> GroupedTransactions Transaction -- ^Transactions to make a block out of.
@@ -940,22 +979,24 @@ filterTransactions maxSize GroupedTransactions{..} = do
                   cenergy = totalEnergyUsed + tenergy
               if csize <= maxSize && cenergy <= maxEnergy then -- if the next transaction can fit into a block then add it.
                 observeTransactionFootprint (dispatch t) >>= \case
+                   -- The transaction was committed, add it to the list of added transactions.
                    (Just (TxValid summary), fp) -> do
-                     markEnergyUsed (tsEnergyCost summary)
-                     tlNotifyAccountEffect fp summary
-                     let newFts = currentFts { ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts}
-                     runTransactionGroup csize newFts remainingGroups ts
+                     (newFts, rest) <- validTs t summary fp currentFts ts
+                     runTransactionGroup csize newFts remainingGroups rest
+                   -- The transaction failed, add it to the list of failed transactions and
+                   -- determine whether following transaction have to fail as well.
                    (Just (TxInvalid reason), _) ->
                      let (newFts, rest) = invalidTs t reason currentFts ts
                      in runTransactionGroup size newFts remainingGroups rest
                    (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
-              -- if the stated energy of a single transaction exceeds the block energy limit the transaction is invalid
-              -- don't process any of the rest of the group
+              -- If the stated energy of a single transaction exceeds the block energy limit the
+              -- transaction is invalid. Add it to the list of failed transactions and
+              -- determine whether following transaction have to fail as well.
               else if tenergy > maxEnergy then
                 let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
                 in runTransactionGroup size newFts remainingGroups rest
               else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
-                   -- one single too-big transaction.
+                   -- one single too-big transaction (with same nonce).
                 let newFts = currentFts { ftUnprocessed = t : (ftUnprocessed currentFts) }
                 in runTransactionGroup size newFts remainingGroups ts
 
@@ -963,13 +1004,41 @@ filterTransactions maxSize GroupedTransactions{..} = do
             runTransactionGroup currentSize currentFts remainingGroups [] =
               runNext maxEnergy currentSize currentFts credentials remainingGroups
 
-            -- determine whether there is any point in processing more transactions from this group.
+            -- Add a valid transaction to the list of added transactions, mark used energy and
+            -- notify about the account effects. Then add all following transactions with the
+            -- same nonce to the list of failed transactions, as they are invalid.
+            -- NOTE: It is necessary that we process those invalid transactions directly,
+            -- because while 'invalidTs' would classify them as 'NonSequentialNonce' as well,
+            -- it would reject following valid transactions with a higher but correct nonce.
+            -- The next transaction with a higher nonce (head of ts') should thus be processed
+            -- with 'runNext'.
+            validTs t summary fp currentFts ts = do
+              markEnergyUsed (tsEnergyCost summary)
+              tlNotifyAccountEffect fp summary
+              let (invalid, rest) = span ((== transactionNonce t) . transactionNonce) ts
+              let nextNonce = transactionNonce t + 1
+              let newFts =
+                    currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
+                                            ++ ftFailed currentFts
+                               , ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts
+                               }
+              return (newFts, rest)
+
+            -- Add a failed transaction (t, failure) to the list of failed transactions and
+            -- check whether the remaining transactions from this group (ts) have a nonce
+            -- greater than that of the failed transaction, in which case these are also added to the
+            -- list of failed transactions with a 'SuccessorOfInvalidTransaction' failure.
+            -- Returns the updated 'FilteredTransactions' and the yet to be processed transactions.
             invalidTs t failure currentFts ts =
-              -- FIXME: relying on laziness for the following to not be very expensive
-              case takeWhile ((== transactionNonce t) . transactionNonce) ts of
-                [] -> -- all remaining transactions have higher nonce, all will fail
-                 (currentFts { ftFailed =  (t, failure) : map (, SuccessorOfInvalidTransaction) ts ++ ftFailed currentFts}, [])
-                _ -> (currentFts { ftFailed = (t, failure) : ftFailed currentFts }, ts)
+              let newFailedEntry = (t, failure) in
+                -- NOTE: Following transactions with the same nonce could be valid. Therefore,
+                -- if the next transaction has the same nonce as the failed, we continue with 'runNext'.
+                -- Note that we rely on the precondition of transactions being ordered by nonce.
+                if not (null ts) && transactionNonce (head ts) > transactionNonce t
+                then let failedSuccessors = map (, SuccessorOfInvalidTransaction) ts in
+                       (currentFts { ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts }
+                     , [])
+                else (currentFts { ftFailed = newFailedEntry : ftFailed currentFts }, ts)
 
 -- |Execute transactions in sequence. Returns
 --
