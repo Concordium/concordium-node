@@ -10,6 +10,7 @@ module Concordium.TimerMonad(
 import Data.Time
 #if defined(mingw32_HOST_OS)
 import Control.Concurrent
+import Control.Monad
 import Data.IORef
 #else
 import GHC.Event
@@ -64,7 +65,7 @@ makeThreadTimer timeout action = do
 cancelThreadTimer :: ThreadTimer -> IO ()
 #if defined(mingw32_HOST_OS)
 cancelThreadTimer (ThreadTimer _ enabled) =
-  writeIORef enabled false
+  writeIORef enabled False
 #else
 cancelThreadTimer (ThreadTimer manager key) =
   unregisterTimeout manager key
