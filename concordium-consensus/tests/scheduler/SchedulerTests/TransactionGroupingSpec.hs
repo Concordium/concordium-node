@@ -114,7 +114,7 @@ transactions = [[-- t1: first transaction in group valid
                [],
                [
                -- t9: first transaction in new group valid again
-                TJSON { payload = RemoveBaker 0 "<dummy proof>"
+                TJSON { payload = RemoveBaker 0
                       , metadata = makeDummyHeader alesAccount 4 10000
                       , keypair = alesKP
                       }
