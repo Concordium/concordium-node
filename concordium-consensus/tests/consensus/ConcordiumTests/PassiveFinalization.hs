@@ -6,7 +6,6 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.HashMap.Strict as HM
 import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
@@ -169,7 +168,6 @@ runTest (bid1, fi1, fs1)
                             fail "Finalizer should have active finalization round."
                 ) dummyHandlers fi2 fs2
             return $ property True
-
 
                 where bake bid n = do
                           mb <- bakeForSlot bid n
