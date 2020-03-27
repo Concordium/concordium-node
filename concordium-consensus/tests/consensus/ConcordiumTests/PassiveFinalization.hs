@@ -250,6 +250,6 @@ withInitialStates r = do
     (b1, b2, fs) <- createInitStates
     r b1 b2 fs
 
-tests :: Word -> Spec
-tests lvl = describe "Concordium.PassiveFinalization" $
-    it "non-finalizer creates finalization records out of existing finalizer signatures" $ withMaxSuccess (10^lvl) $ withInitialStates runTest
+tests :: Spec
+tests = describe "Concordium.PassiveFinalization" $
+    it "non-finalizer creates finalization records out of existing finalizer signatures" $ withInitialStates runTest
