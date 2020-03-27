@@ -49,7 +49,6 @@ import Concordium.Startup (makeBakerAccount)
 
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Types.Transactions
 
 -- Test that Concordium.Afgjort.Finalize.newPassiveRound has an effect on finalization;
 -- specifically, that non-finalizers can successfully gather signatures from the pending-
@@ -137,7 +136,7 @@ runTest :: BakerState
         -- ^State for the second baker
         -> BakerState
         -- ^State for the finalization committee member
-        -> IO Property
+        -> IO ()
 runTest (bid1, fi1, fs1)
         (bid2, fi2, fs2)
         (fmId, _, SkovState TS.SkovData{..} FinalizationState{..} _ _) = do
@@ -149,7 +148,7 @@ runTest (bid1, fi1, fs1)
             ((BS.BlockPointer {_bpBlock = NormalBlock block1},
               BS.BlockPointer {_bpBlock = NormalBlock block2}), _, _) <- myRunSkovT (bakeFirstSlots bid1) dummyHandlers fi1 fs1
             -- Baker2 stores baker1's blocks
-            _ <- myRunSkovT (do
+            void $ myRunSkovT (do
                     store block1
                     store block2
                     case _finsCurrentRound of
@@ -167,7 +166,6 @@ runTest (bid1, fi1, fs1)
                         _ ->
                             fail "Finalizer should have active finalization round."
                 ) dummyHandlers fi2 fs2
-            return $ property True
 
                 where bake bid n = do
                           mb <- bakeForSlot bid n
@@ -218,12 +216,12 @@ makeBaker bid initAmount = resize 0x20000000 $ do
         return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account)
 
 -- Create initial states for two bakers and a finalization committee member
-createInitStates :: PropertyM IO (BakerState, BakerState, BakerState)
+createInitStates :: IO (BakerState, BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
-    baker1 <- pick $ makeBaker 0 bakerAmount
-    baker2 <- pick $ makeBaker 1 bakerAmount
-    finMember <- pick $ makeBaker 2 (bakerAmount * 10 ^ (6 :: Int))
+    baker1 <- generate $ makeBaker 0 bakerAmount
+    baker2 <- generate $ makeBaker 1 bakerAmount
+    finMember <- generate $ makeBaker 2 (bakerAmount * 10 ^ (6 :: Int))
     let bis = [baker1, baker2, finMember]
         genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
         bps = BirkParameters 1 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
@@ -248,10 +246,10 @@ instance Show BakerIdentity where
 instance Show FinalizationInstance where
     show _ = "[Finalization Instance]"
 
-withInitialStates :: (BakerState -> BakerState -> BakerState -> IO Property) -> Property
-withInitialStates r = monadicIO $ do
+withInitialStates :: (BakerState -> BakerState -> BakerState -> IO ()) -> IO ()
+withInitialStates r = do
     (b1, b2, fs) <- createInitStates
-    liftIO $ r b1 b2 fs
+    r b1 b2 fs
 
 tests :: Word -> Spec
 tests lvl = describe "Concordium.PassiveFinalization" $
