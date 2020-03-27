@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP, TypeFamilies #-}
 module Concordium.TimerMonad(
     Timeout(..),
     TimerMonad(..),
@@ -8,8 +8,11 @@ module Concordium.TimerMonad(
 ) where
 
 import Data.Time
+#if defined(mingw32_HOST_OS)
+import Control.Concurrent
+#else
 import GHC.Event
-
+#endif
 
 -- |Representation of a waiting period.
 data Timeout
@@ -23,7 +26,11 @@ class Monad m => TimerMonad m where
     onTimeout :: Timeout -> m a -> m (Timer m)
     cancelTimer :: Timer m -> m ()
 
+#if defined(mingw32_HOST_OS)
+data ThreadTimer = ThreadTimer !ThreadId (IORef Bool)
+#else
 data ThreadTimer = ThreadTimer !TimerManager !TimeoutKey
+#endif
 
 -- |Compute a delay in microseconds. This assumes that the delay will
 -- fit into an Int. On 64-bit platforms this means the delay should be no more
@@ -36,14 +43,28 @@ getDelay (DelayUntil t) = do
 
 makeThreadTimer :: Timeout -> IO () -> IO ThreadTimer
 makeThreadTimer timeout action = do
+#if defined(mingw32_HOST_OS)
+  enabled <- newIORef True
+  thread <- forkIO $ do
+    threadDelay =<< (getDelay timeout)
+    continue <- readIORef enabled
+    when continue action
+  return $ ThreadTimer thread enabled
+#else
   manager <- getSystemTimerManager
   micros <- getDelay timeout
   key <- registerTimeout manager micros action
   return $! ThreadTimer manager key
+#endif
 
 -- |Cancel the timer created by 'makeThreadTimer'. Note that if the given
 -- computation (second argument of 'makeThreadTimer') has already started it is
 -- not interrupted.
 cancelThreadTimer :: ThreadTimer -> IO ()
+#if defined(mingw32_HOST_OS)
+cancelThreadTimer (ThreadTimer _ enabled) =
+  writeIORef enabled false
+#else
 cancelThreadTimer (ThreadTimer manager key) =
   unregisterTimeout manager key
+#endif
