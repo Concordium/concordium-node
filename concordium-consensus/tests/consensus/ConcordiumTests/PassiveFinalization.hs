@@ -14,7 +14,6 @@ import System.IO.Unsafe
 import System.Random
 
 import Test.QuickCheck
-import Test.QuickCheck.Monadic
 import Test.Hspec
 
 import Concordium.Afgjort.Finalize
