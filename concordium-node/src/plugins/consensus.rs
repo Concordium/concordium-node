@@ -1,7 +1,9 @@
 //! Consensus layer handling.
 
 use crossbeam_channel::TrySendError;
+use digest::Digest;
 use failure::Fallible;
+use twox_hash::XxHash64;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId},
@@ -272,6 +274,22 @@ pub fn handle_consensus_inbound_msg(
 
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
+
+        // early blocks should be removed from the deduplication queue
+        if consensus_result == ConsensusFfiResponse::BlockTooEarly {
+            let dedup_queues = &node.connection_handler.deduplication_queues;
+
+            let mut hash = [0u8; 8];
+            hash.copy_from_slice(&XxHash64::digest(&request.payload));
+            let num = u64::from_le_bytes(hash);
+
+            if let Some(old_val) =
+                write_or_die!(dedup_queues.blocks).iter_mut().find(|val| **val == num)
+            {
+                // flip all bits in the old hash; we can't just remove the value from the queue
+                *old_val = !*old_val;
+            }
+        }
 
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(node, network_id, peers_lock, &request, consensus_result);
