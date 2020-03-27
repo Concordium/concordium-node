@@ -205,7 +205,7 @@ dispatch msg = do
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
 
                    RemoveBaker{..} ->
-                     handleRemoveBaker (mkWTC TTRemoveBaker) rbId rbProof
+                     handleRemoveBaker (mkWTC TTRemoveBaker) rbId
 
                    UpdateBakerAccount{..} ->
                      handleUpdateBakerAccount (mkWTC TTUpdateBakerAccount) ubaId ubaAddress ubaProof
@@ -605,14 +605,12 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
 -- |Remove a baker from the baker pool.
 -- The current logic is that if the proof validates that the sender of the
 -- transaction is the reward account of the baker.
--- TODO: Need to make sure that this proof is not duplicable (via the challenge prefix I suppose).
 handleRemoveBaker ::
   SchedulerMonad m
     => WithDepositContext
     -> BakerId
-    -> Proof
     -> m (Maybe TransactionSummary)
-handleRemoveBaker wtc rbId _rbProof =
+handleRemoveBaker wtc rbId =
   withDeposit wtc c k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
