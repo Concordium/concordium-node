@@ -3,6 +3,14 @@
 {-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+
+{-|
+Testing of 'Concordium.Scheduler.filterTransactions'.
+See also 'SchedulerTests.TransactionGroupingSpec2'.
+
+TODO These tests need to be updated to the newer specification of
+'Concordium.Scheduler.filterTransactions' or should be removed.
+-}
 module SchedulerTests.TransactionGroupingSpec where
 
 import Test.Hspec
@@ -43,9 +51,6 @@ initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts 200000
 baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
 
--- A list of transactions all of which are valid unless they are expired.
--- This list includes all payload types to ensure that expiry is handled for
--- all types of transactions.
 transactions :: [[TransactionJSON]]
 transactions = [[-- t1: first transaction in group valid
                 TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
@@ -57,8 +62,7 @@ transactions = [[-- t1: first transaction in group valid
                        , metadata = makeDummyHeader alesAccount 3 1000
                        , keypair = alesKP
                        }
-                -- t3: remaining transactions in group invalid (SuccessorOfInvalidTransaction)
-                -- even though they would be valid if they were processed
+                -- t3: remaining transactions in group valid again
                ,TJSON { payload = AddBaker (baker ^. _1 . bakerElectionVerifyKey)
                                            (baker ^. _2)
                                            (baker ^. _1 . bakerSignatureVerifyKey)
@@ -70,6 +74,7 @@ transactions = [[-- t1: first transaction in group valid
                       , metadata = makeDummyHeader alesAccount 2 10000
                       , keypair = alesKP
                       }
+                -- TODO update following
                 -- t4: invalid (SuccessorOfInvalidTransaction)
                ,TJSON { payload = UpdateBakerAccount 0 alesAccount alesKP
                       , metadata = makeDummyHeader alesAccount 2 10000
@@ -113,7 +118,7 @@ transactions = [[-- t1: first transaction in group valid
                       , metadata = makeDummyHeader alesAccount 4 10000
                       , keypair = alesKP
                       }
-               -- t10: unprocessed due to block energy limit
+               -- t10: unprocessed due to block energy limit ('maxEnergy')
                ,TJSON { payload = DeployModule "FibContract"
                       , metadata = makeDummyHeader alesAccount 5 20000
                       , keypair = alesKP
@@ -155,18 +160,18 @@ checkResult (valid, invalid, unproc, [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t
     where
         validCheck = do
           let (validTs, validResults) = unzip valid
-          assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid:" (map (Types.NormalTransaction <$>) [t1, t5, t6, t9, t11]) validTs
-          assertEqual "1st, 5th, 6th, 9th, 11th transactions are valid with TxSuccess result:"
+          assertEqual "1st, 3rd, 5th, 6th, 9th, 11th transactions are valid:" (map (Types.NormalTransaction <$>) [t1, t3, t5, t6, t9, t11]) validTs
+          assertEqual "1st, 3rd, 5th, 6th, 9th, 11th transactions are valid with TxSuccess result:"
             True $ all (\case Types.TxSuccess{} -> True
                               _ -> False) validResults
         invalidCheck = do
-          assertEqual "5 invalid transactions" 5 (length invalid)
+          assertEqual "4 invalid transactions" 4 (length invalid)
           assertEqual "2nd transaction fails with NonSequentialNonce reason:" True $
             (t2, Types.NonSequentialNonce 2) `elem` invalid
           assertEqual "7th transaction fails with DepositInsufficient reason:" True $
             (t7, Types.DepositInsufficient) `elem` invalid
-          assertEqual "3rd, 4th, 8th transactions fail with SuccessorOfInvalidTransaction reason" True $
-            all (`elem` invalid) $ zip [t3, t4, t8] (repeat Types.SuccessorOfInvalidTransaction)
+          assertEqual "4th, 8th transactions fail with SuccessorOfInvalidTransaction reason" True $
+            all (`elem` invalid) $ zip [t4, t8] (repeat Types.SuccessorOfInvalidTransaction)
         unprocessedCheck =
             assertEqual "10th transaction is unprocessed because the block runs out of energy:" [t10] unproc
 checkResult _ = assertFailure "There should be 11 filtered transactions."
@@ -174,5 +179,5 @@ checkResult _ = assertFailure "There should be 11 filtered transactions."
 tests :: Spec
 tests =
   describe "Transaction grouping test:" $
-    specify "5 valid, 5 invalid, 1 unprocessed transaction" $
+    specify "6 valid, 4 invalid, 1 unprocessed transaction" $
         PR.evalContext Init.initialContextData testGrouping >>= checkResult
