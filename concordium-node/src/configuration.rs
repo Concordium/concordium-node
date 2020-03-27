@@ -41,9 +41,8 @@ pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 // connection-related consts
 /// Maximum time (in ms) a node's connection can remain unreachable.
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
-/// Maximum time (in ms) a bootstrapper can hold an inactive connection to a
-/// node.
-pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
+/// Maximum time (in ms) a bootstrapper can hold a connection to a node.
+pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 20_000;
 /// Maximum time (in ms) a node can hold an inactive connection to a peer.
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 /// Maximum time (in ms) a connection can be kept without concluding a
