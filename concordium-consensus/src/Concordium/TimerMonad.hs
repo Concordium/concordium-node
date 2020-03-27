@@ -10,6 +10,7 @@ module Concordium.TimerMonad(
 import Data.Time
 #if defined(mingw32_HOST_OS)
 import Control.Concurrent
+import Data.IORef
 #else
 import GHC.Event
 #endif
