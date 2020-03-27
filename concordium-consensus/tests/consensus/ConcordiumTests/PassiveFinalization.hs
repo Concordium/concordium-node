@@ -250,6 +250,6 @@ withInitialStates r = do
     (b1, b2, fs) <- createInitStates
     r b1 b2 fs
 
-tests :: Spec
-tests = describe "Concordium.PassiveFinalization" $
+test :: Spec
+test = describe "Concordium.PassiveFinalization" $
     it "non-finalizer creates finalization records out of existing finalizer signatures" $ withInitialStates runTest
