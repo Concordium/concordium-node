@@ -98,9 +98,6 @@ dummyCryptographicParameters =
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
-type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
-
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
