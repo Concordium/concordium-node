@@ -99,7 +99,7 @@ transactionsInput =
            , metadata = makeDummyHeader alesAccount 4 10000
            , keypair = alesKP
            },
-     TJSON { payload = RemoveBaker 1 "<dummy proof>"
+     TJSON { payload = RemoveBaker 1
            , metadata = makeDummyHeader alesAccount 5 10000
            , keypair = alesKP
            },
