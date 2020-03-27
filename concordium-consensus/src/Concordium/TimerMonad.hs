@@ -28,7 +28,7 @@ class Monad m => TimerMonad m where
     cancelTimer :: Timer m -> m ()
 
 #if defined(mingw32_HOST_OS)
-data ThreadTimer = ThreadTimer !ThreadId (IORef Bool)
+data ThreadTimer = ThreadTimer !ThreadId !(IORef Bool)
 #else
 data ThreadTimer = ThreadTimer !TimerManager !TimeoutKey
 #endif
