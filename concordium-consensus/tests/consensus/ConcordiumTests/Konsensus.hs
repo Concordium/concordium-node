@@ -458,7 +458,7 @@ genTransactions n = mapM gent (take n [minNonce..])
 
 -- Generate transactions that transfer between `minAmount` and `maxAmount` of GTU among accounts specified in
 -- `kpAccountPairs`.
-genTransferTransactions :: GTU -> GTU -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BlockItem]
+genTransferTransactions :: AmountUnit -> AmountUnit -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BlockItem]
 genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromList $ zip (snd <$> kpAccountPairs) $ repeat minNonce
   where gtt :: [BlockItem] -> Map.Map AccountAddress Nonce -> Int -> Gen [BlockItem]
         gtt ts _ 0          = return ts
