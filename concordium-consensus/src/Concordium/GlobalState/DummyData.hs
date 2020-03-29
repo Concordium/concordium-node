@@ -30,7 +30,7 @@ basicGenesisState :: GenesisData -> Basic.BlockState
 basicGenesisState genData = Basic.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisAccounts genData ++ genesisControlAccounts genData)
                        (genesisIdentityProviders genData)
                        (genesisMintPerSlot genData)
 
@@ -112,7 +112,7 @@ makeTestingGenesisData
   finComMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
-  genesisSpecialBetaAccounts
+  genesisControlAccounts
   genesisMaxBlockEnergy
     = GenesisData{..}
     where
