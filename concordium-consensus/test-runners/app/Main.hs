@@ -137,7 +137,7 @@ genesisState genData = Example.initialState
                        (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        2
-                       (genesisSpecialBetaAccounts genData)
+                       (genesisControlAccounts genData)
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig

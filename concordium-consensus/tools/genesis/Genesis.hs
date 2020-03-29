@@ -9,17 +9,21 @@ import System.Console.CmdArgs
 import qualified Data.ByteString.Lazy as LBS
 import Data.Aeson
 import qualified Data.Serialize as S
+import Control.Monad
+import Text.Printf
 
 import Data.Text
 import qualified Data.HashMap.Strict as Map
 import Concordium.GlobalState.Parameters
+import Concordium.Types
 
 data Genesis
     = GenerateGenesisData {gdSource :: FilePath,
                            gdOutput :: FilePath,
                            gdIdentity :: Maybe FilePath,
                            gdCryptoParams :: Maybe FilePath,
-                           gdBetaAccounts :: Maybe FilePath,
+                           gdAdditionalAccounts :: Maybe FilePath,
+                           gdControlAccounts :: Maybe FilePath,
                            gdBakers :: Maybe FilePath}
     deriving (Typeable, Data)
 
@@ -39,12 +43,18 @@ generateGenesisData = GenerateGenesisData {
                      opt (Nothing :: Maybe FilePath) &=
                      typFile &=
                      help "JSON file with cryptographic parameters for the chain.",
-    gdBetaAccounts = def &=
-                     explicit &=
-                     name "beta-accounts" &=
-                     opt (Nothing :: Maybe FilePath) &=
-                     typFile &=
-                     help "JSON file with special genesis accounts.",
+    gdAdditionalAccounts = def &=
+                           explicit &=
+                           name "additional-accounts" &=
+                           opt (Nothing :: Maybe FilePath) &=
+                           typFile &=
+                           help "JSON file with additional accounts (not baker, not control)",
+    gdControlAccounts = def &=
+                        explicit &=
+                        name "control-accounts" &=
+                        opt (Nothing :: Maybe FilePath) &=
+                        typFile &=
+                        help "JSON file with special control accounts.",
     gdBakers = def &=
                explicit &=
                name "bakers" &=
@@ -78,7 +88,6 @@ maybeModifyValue (Just source) key obj = do
           exitFailure
         Just v -> return v
 
-
 main :: IO ()
 main = cmdArgsRun mode >>=
     \case
@@ -91,13 +100,28 @@ main = cmdArgsRun mode >>=
                 Right v -> do
                   vId <- maybeModifyValue gdIdentity "identityProviders" v
                   vCP <- maybeModifyValue gdCryptoParams "cryptographicParameters" vId
-                  vAcc <- maybeModifyValue gdBetaAccounts "betaAccounts" vCP
+                  vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
+                  vAcc <- maybeModifyValue gdControlAccounts "controlAccounts" vAdditionalAccs
                   value <- maybeModifyValue gdBakers "bakers" vAcc
                   case fromJSON value of
                     Error err -> do
                       putStrLn err
                       exitFailure
                     Success params -> do
-                      LBS.writeFile gdOutput (S.encodeLazy $ parametersToGenesisData params)
+                      let genesisData = parametersToGenesisData params
+                      let totalGTU = genesisTotalGTU genesisData
+                      let showBalance account =
+                            let balance = _accountAmount account
+                            in printf "%d (= %.4f%%)" (toInteger balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
+                      putStrLn "Successfully generated genesis data."
+                      putStrLn $ "There are the following " ++ show (Prelude.length (genesisAccounts genesisData)) ++ " initial accounts in genesis:"
+                      forM_ (genesisAccounts genesisData) $ \account ->
+                        putStrLn $ "\tAccount: " ++ show (_accountAddress account) ++ ", balance = " ++ showBalance account
+
+                      putStrLn $ "\nIn addition there are the following " ++ show (Prelude.length (genesisControlAccounts genesisData)) ++ " control accounts:"
+                      forM_ (genesisControlAccounts genesisData) $ \account ->
+                        putStrLn $ "\tAccount: " ++ show (_accountAddress account) ++ ", balance = " ++ showBalance account
+
+                      LBS.writeFile gdOutput (S.encodeLazy $ genesisData)
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
                       exitSuccess
