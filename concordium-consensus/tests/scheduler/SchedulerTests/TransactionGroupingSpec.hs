@@ -178,6 +178,6 @@ checkResult _ = assertFailure "There should be 11 filtered transactions."
 
 tests :: Spec
 tests =
-  describe "Transaction grouping test:" $
+  xdescribe "Transaction grouping test:" $
     specify "6 valid, 4 invalid, 1 unprocessed transaction" $
         PR.evalContext Init.initialContextData testGrouping >>= checkResult
