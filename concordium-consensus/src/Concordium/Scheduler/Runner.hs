@@ -18,7 +18,6 @@ import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
-import Concordium.Types.Execution(Proof)
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize

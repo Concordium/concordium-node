@@ -205,7 +205,7 @@ genesisState genData = Example.initialState
                        (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        2
-                       (genesisSpecialBetaAccounts genData)
+                       (genesisControlAccounts genData)
 
 main :: IO ()
 main = do
