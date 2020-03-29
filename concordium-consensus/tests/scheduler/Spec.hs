@@ -30,6 +30,6 @@ main = hspec $ do
          SchedulerTests.CredentialTest.tests
          SchedulerTests.TransactionExpirySpec.tests
          SchedulerTests.BlockEnergyLimitSpec.tests
-         -- SchedulerTests.TransactionGroupingSpec.tests
+         SchedulerTests.TransactionGroupingSpec.tests
          SchedulerTests.TransactionGroupingSpec2.tests
          SchedulerTests.UpdateElectionDifficultySpec.tests
