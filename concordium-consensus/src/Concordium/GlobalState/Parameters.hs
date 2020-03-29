@@ -83,8 +83,8 @@ data GenesisData = GenesisData {
     genesisSlotDuration :: Duration,
     genesisBirkParameters :: BirkParameters,
     genesisAccounts :: [Account],
-    -- |Special account that will have additional rights initially.
-    genesisSpecialBetaAccounts :: [Account],
+    -- |Special accounts that will have additional rights initially.
+    genesisControlAccounts :: [Account],
     genesisFinalizationParameters :: FinalizationParameters,
     genesisCryptographicParameters :: CryptographicParameters,
     genesisIdentityProviders :: [IpInfo],
@@ -96,7 +96,7 @@ instance Serialize GenesisData where
 
 genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
-  sum (_accountAmount <$> (genesisAccounts ++ genesisSpecialBetaAccounts))
+  sum (_accountAmount <$> (genesisAccounts ++ genesisControlAccounts))
 
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
@@ -117,7 +117,7 @@ data GenesisBaker = GenesisBaker {
     gbSignatureVerifyKey :: BakerSignVerifyKey,
     -- |The baker's public key for aggregate signatures
     gbAggregationVerifyKey :: BakerAggregationVerifyKey,
-    -- |Address of the baker's account.
+    -- |Baker's account (public data only).
     gbAccount :: GenesisAccount,
     -- |Whether the baker should be included in the initial
     -- finalization committee.
@@ -139,7 +139,6 @@ data GenesisAccount = GenesisAccount {
   gaAddress :: !AccountAddress,
   gaVerifyKeys :: !ID.AccountKeys,
   gaBalance :: !Amount,
-  gaDelegate :: !(Maybe BakerId),
   gaCredential :: !ID.CredentialDeploymentInformation
 }
 
@@ -148,12 +147,14 @@ instance FromJSON GenesisAccount where
     gaAddress <- obj .: "address"
     gaVerifyKeys <- obj .: "accountKeys"
     gaBalance <- Amount <$> obj .: "balance"
-    gaDelegate <- fmap BakerId <$> obj .:? "delegate"
     gaCredential <- obj .: "credential"
     return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
+-- FIXME: We should refactor this so that we have a single list of accounts
+-- which can delegate to whoever they wish, and then we calculate initial balances
+-- for bakers.
 data GenesisParameters = GenesisParameters {
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
@@ -165,7 +166,12 @@ data GenesisParameters = GenesisParameters {
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
-    gpBetaAccounts :: [GenesisAccount],
+    -- |Additional accounts (not baker accounts and not control accounts).
+    -- They cannot delegate to any bakers in genesis.
+    gpInitialAccounts :: [GenesisAccount],
+    -- |Control accounts which have additional rights to update parameters.
+    -- They cannot delegate stake to any bakers in genesis.
+    gpControlAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount,
     -- Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy
@@ -185,7 +191,8 @@ instance FromJSON GenesisParameters where
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
         gpIdentityProviders <- v .:? "identityProviders" .!= []
-        gpBetaAccounts <- v .:? "betaAccounts" .!= []
+        gpInitialAccounts <- v .:? "initialAccounts" .!= []
+        gpControlAccounts <- v .:? "controlAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
@@ -263,17 +270,18 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
 
         mkAccount GenesisAccount{..} =
           (newAccount gaVerifyKeys gaAddress) {_accountAmount = gaBalance,
-                                               _accountStakeDelegate = gaDelegate,
                                                _accountCredentials =
                                                  let cdv = ID.cdiValues gaCredential
                                                  in Queue.singleton (ID.pExpiry (ID.cdvPolicy cdv)) cdv
                                               }
         -- special accounts will have some special privileges during beta.
-        genesisSpecialBetaAccounts = map mkAccount gpBetaAccounts
+        genesisControlAccounts = map mkAccount gpControlAccounts
         -- Baker accounts will have no special privileges.
         -- We ignore any specified delegation target.
         genesisAccounts = [(mkAccount gbAccount) {_accountStakeDelegate = Just bid }
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
+                          -- and add any other initial accounts.
+                          ++ map mkAccount gpInitialAccounts
         genesisFinalizationParameters = FinalizationParameters
                                           gpFinalizationMinimumSkip
                                           gpFinalizationCommitteeMaxSize
