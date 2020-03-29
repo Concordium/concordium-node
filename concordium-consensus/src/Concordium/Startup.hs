@@ -82,7 +82,7 @@ makeGenesisData
         finComMaxSize
         genesisCryptographicParameters
         genesisIdentityProviders
-        genesisSpecialBetaAccounts
+        genesisControlAccounts
         genesisMaxBlockEnergy
     = (GenesisData{..}, bakers)
     where
