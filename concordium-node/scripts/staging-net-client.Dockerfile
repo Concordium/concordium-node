@@ -63,7 +63,7 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
 #ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 #RUN stack build --copy-bins --ghc-options -j4
 
-#FROM node:11 as node-build
+FROM node:11 as node-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
