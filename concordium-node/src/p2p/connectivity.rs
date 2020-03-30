@@ -436,7 +436,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
         (peer_type == PeerType::Node
             && conn.last_seen() + config::MAX_NORMAL_KEEP_ALIVE < curr_stamp)
             || (peer_type == PeerType::Bootstrapper
-                && conn.last_seen() + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
+                && conn.stats.created + config::MAX_BOOTSTRAPPER_KEEP_ALIVE < curr_stamp)
     };
 
     let is_conn_without_handshake = |conn: &Connection| -> bool {

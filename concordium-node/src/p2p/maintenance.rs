@@ -528,11 +528,13 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
 
             // perform socket reads and writes in parallel across connections
             // check for new connections
-            let _new_conn = if events.iter().any(|event| event.token() == SELF_TOKEN) {
-                accept(&node).map_err(|e| error!("{}", e)).ok()
-            } else {
-                None
-            };
+            for i in 0..events.iter().filter(|event| event.token() == SELF_TOKEN).count() {
+                accept(&node).map_err(|e| error!("{}", e)).ok();
+                if i == 9 {
+                    warn!("too many connection attempts received at once; dropping the rest");
+                    break;
+                }
+            }
 
             for conn_change in node.connection_handler.conn_changes.changes.try_iter() {
                 process_conn_change(&node, conn_change)
