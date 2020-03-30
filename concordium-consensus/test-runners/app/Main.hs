@@ -31,7 +31,7 @@ import Concordium.GlobalState
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Runner
-import Concordium.Skov hiding (genesisState)
+import Concordium.Skov
 import Concordium.Getters
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Birk.Bake
@@ -61,7 +61,7 @@ sendTransactions bakerId chan (t : ts) = do
 sendTransactions _ _ _ = return ()
 
 relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "// *** relay thread exited on exception: " ++ show e)
+relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn stderr $ "// *** relay thread exited on exception: " ++ show e)
     where
         loop = do
             msg <- readChan inp
@@ -131,15 +131,13 @@ dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Example.initialStateWithMateuszAccount
+genesisState genData = Example.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        2
-                       (Amount (2 ^ (62 :: Int)))
-                       -- (genesisMintPerSlot genData)
-
+                       (genesisControlAccounts genData)
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -158,9 +156,13 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) Hoo
 
 main :: IO ()
 main = do
-    let n = 5
+    let n = 6
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    let (gen, bis) = makeGenesisData now n 1 0.5 0
+                     (fromIntegral n + 1) -- dummyFinalizationCommitteeMaxSize
+                     dummyCryptographicParameters
+                     dummyIdentityProviders
+                     [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

@@ -18,6 +18,7 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 import Control.Monad.Trans.State
 import Data.Functor.Identity
+import Data.Either (isRight)
 
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe
@@ -71,6 +72,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
+-- import Debug.Trace
 
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
@@ -78,9 +80,6 @@ dummyCryptographicParameters =
   case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
-
-
--- import Debug.Trace
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -235,7 +234,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         addContext r = r
 
 invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
-invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
+invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
         invariantSkovData sd
         let (_ Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -245,16 +244,11 @@ invariantSkovFinalization s@(SkovState sd@TS.SkovData{..} FinalizationState{..} 
             prevGTU    = _totalGTU $ BState._blockBank prevState
         checkBinary (==) _finsCommittee (makeFinalizationCommittee (finalizationParameters maxFinComSize) prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
-        -- The baker should be a member of the finalization committee if the baker's stake exceeds 1/maxFinComSize of the total stake
-        when bakerInFinCommittee $ do
-            when (null _finsCurrentRound) $ Left "No current finalization round"
-            invariantSkovFinalizationForFinMember s lfr lfb
-        where bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
-              bakerEqParty PartyInfo{..} = bakerInfoToVoterInfo baker == VoterInfo partySignKey partyVRFKey partyWeight partyBlsKey
-
-invariantSkovFinalizationForFinMember :: SkovState (Config t) -> FinalizationRecord -> BasicBlockPointer BState.BlockState -> Either String ()
-invariantSkovFinalizationForFinMember (SkovState TS.SkovData{..} FinalizationState{..} _ _) lfr lfb = do
+        let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
+            bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
+        checkBinary (==) bakerInFinCommittee (isRight _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+            -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
             checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
             unless (popCount (toInteger roundDelta) == 1) $ Left $ "Round delta (" ++ show roundDelta ++ ") is not a power of 2"
             -- Determine which blocks are valid candidates for finalization
@@ -393,17 +387,15 @@ type FinComPartiesSet = Set.Set (Set.Set Sig.VerifyKey)
 
 -- The `collectedFinComParties` parameter should be Nothing if we don't care about changing the finalization committee members.
 -- Otherwise, it carries a set of finalization-committee-member sets. In each round of finalization, we add the
--- set of parties to this set. In the end, we ensure that the size of this set is greater than 1, which means that
+-- set of parties to this set. In the end, we want this set to be greater than 1, which means that
 -- there have been at least two different sets of committee members.
 runKonsensusTest :: RandomGen g => FinalizationCommitteeSize -> Maybe FinComPartiesSet -> Int -> g -> States -> ExecState -> IO Property
 runKonsensusTest maxFinComSize collectedFinComParties steps g states es
         | steps <= 0 = return $
-            -- If we run this test from `runKonsensusTestForChangingFinCommittee`, we want to ensure that the members of
-            -- the finalization committee change. To do that, this ensures that the size of the finalization-committee-members set
-            -- is greater than 1.
-            if any ((1 >=) . Set.size) collectedFinComParties
-            then counterexample "Parties of finalization committee should change at least once." False
-            else label ("fin length: " ++ show (maximum $ (\s -> s ^. _5 . to ssGSState . TS.finalizationList . to Seq.length) <$> states )) $ property True
+            let finReport = "fin length: " ++ show (maximum $ (\s -> s ^. _5 . to ssGSState . TS.finalizationList . to Seq.length) <$> states ) in
+            case collectedFinComParties of
+              Just ps -> label (finReport ++ "; number of distinct finalization committees: " ++ show (Set.size ps)) $ property True
+              Nothing -> label finReport $ property True
         | null (es ^. esEventPool) = return $ property True
         | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
@@ -466,7 +458,7 @@ genTransactions n = mapM gent (take n [minNonce..])
 
 -- Generate transactions that transfer between `minAmount` and `maxAmount` of GTU among accounts specified in
 -- `kpAccountPairs`.
-genTransferTransactions :: GTU -> GTU -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BlockItem]
+genTransferTransactions :: AmountUnit -> AmountUnit -> [(SigScheme.KeyPair, AccountAddress)] -> Int -> Gen [BlockItem]
 genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromList $ zip (snd <$> kpAccountPairs) $ repeat minNonce
   where gtt :: [BlockItem] -> Map.Map AccountAddress Nonce -> Int -> Gen [BlockItem]
         gtt ts _ 0          = return ts
@@ -596,4 +588,4 @@ tests lvl = parallel $ describe "Concordium.Konsensus" $ do
     it "2 parties, 100 steps, check at every step" $ withMaxSuccess (10*10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 100
     it "2 parties, 10000 steps, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStates 2 defaultMaxFinComSize $ runKonsensusTestDefault 10000
     it "4 parties, 10000 steps, check every step" $ withMaxSuccess (10^lvl) $ withInitialStates 4 defaultMaxFinComSize $ runKonsensusTestDefault 10000
-    it "10 parties, 10000 steps, 15 transfer transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 15 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000
+    it "10 parties, 10000 steps, 30 transfer transactions, check at every step" $ withMaxSuccess (10^lvl) $ withInitialStatesTransferTransactions 10 30 maxFinComSizeChangingFinCommittee $ runKonsensusTestForChangingFinCommittee 10000

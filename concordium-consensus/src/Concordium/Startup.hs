@@ -40,7 +40,7 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 blspk = Bls.derivePublicKey blssk
                 accAddress = _accountAddress account
                 stake = _accountAmount account
-                account = makeBakerAccount bid 1000000000000
+                account = makeBakerAccount bid (if bid `mod` 2 == 0 then 1200000000000 else 800000000000)
 
 -- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
 makeBakerAccountKP :: BakerId -> Amount -> (Account, SigScheme.KeyPair)
@@ -82,7 +82,7 @@ makeGenesisData
         finComMaxSize
         genesisCryptographicParameters
         genesisIdentityProviders
-        genesisSpecialBetaAccounts
+        genesisControlAccounts
         genesisMaxBlockEnergy
     = (GenesisData{..}, bakers)
     where

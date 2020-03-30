@@ -112,7 +112,7 @@ removeBaker m0 = do
         let (address, srcKp) = m0 ^. mBakerMap . singular (ix bkr)
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
-            payload = RemoveBaker bkr "<dummy proof>",
+            payload = RemoveBaker bkr,
             metadata = makeDummyHeader address srcN energy,
             keypair = srcKp
         }, m0

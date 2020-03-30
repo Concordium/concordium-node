@@ -24,7 +24,6 @@ import Data.Set(toList)
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
@@ -33,7 +32,6 @@ import Concordium.GlobalState
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 import Concordium.Skov.Update
@@ -293,17 +291,8 @@ instance FinalizationConfig (SkovConfig gsconf (NoFinalization t) hconf) where
             genHash = getHash (GenesisBlock genData)
             finParams = genesisFinalizationParameters genData
             genBakers = _birkCurrentBakers $ genesisBirkParameters genData
-            gtu = _totalGTU $ _blockBank $ genesisState genData
+            gtu = genesisTotalGTU genData
     {-# INLINE initialiseFinalization #-}
-
--- TODO (MR) I moved this from Concordium.External to avoid a cyclic import dependency. Should this be somewhere else?
-genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
-                       (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
 
 -- This provides an implementation of FinalizationOutputMonad that does nothing.
 -- This should be fine, because NoFinalization indicates that no participation in
@@ -324,7 +313,7 @@ instance FinalizationConfig (SkovConfig gc (ActiveFinalization t) hc) where
                 genHash = getHash (GenesisBlock genData)
                 finParams = genesisFinalizationParameters genData
                 genBakers = _birkCurrentBakers $ genesisBirkParameters genData
-                gtu = _totalGTU $ _blockBank $ genesisState genData
+                gtu = genesisTotalGTU genData
     {-# INLINE initialiseFinalization #-}
 
 instance (SkovFinalizationHandlers h m, Monad m)
@@ -355,7 +344,7 @@ instance FinalizationConfig (SkovConfig gc (BufferedFinalization t) hc) where
                 genHash = getHash $ GenesisBlock genData
                 finParams = genesisFinalizationParameters genData
                 genBakers = _birkCurrentBakers $ genesisBirkParameters genData
-                gtu = _totalGTU $ _blockBank $ genesisState genData
+                gtu = genesisTotalGTU genData
     {-# INLINE initialiseFinalization #-}
 
 instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, LoggerMonad m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
