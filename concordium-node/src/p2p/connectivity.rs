@@ -12,7 +12,7 @@ use semver::Version;
 use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
-    connection::{ConnChange, Connection, DeduplicationQueues, MessageSendingPriority},
+    connection::{ConnChange, Connection, MessageSendingPriority},
     netmsg,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
@@ -217,11 +217,7 @@ impl P2PNode {
     /// Send queued messages to and then receive any pending messages from all
     /// the node's connections in parallel.
     #[inline]
-    pub fn process_network_events(
-        &self,
-        events: &Events,
-        deduplication_queues: &DeduplicationQueues,
-    ) {
+    pub fn process_network_events(&self, events: &Events) {
         let conn_stats = self.get_peer_stats(Some(PeerType::Node));
 
         lock_or_die!(self.conn_candidates())
@@ -242,7 +238,7 @@ impl P2PNode {
                 }
 
                 if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
-                    if let Err(e) = conn.read_stream(deduplication_queues, &conn_stats) {
+                    if let Err(e) = conn.read_stream(&conn_stats) {
                         error!("[receiving from {}] {}", conn, e);
                         if let Ok(_io_err) = e.downcast::<io::Error>() {
                             self.register_conn_change(ConnChange::Removal(conn.token));
