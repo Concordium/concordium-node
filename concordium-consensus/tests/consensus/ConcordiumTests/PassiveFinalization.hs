@@ -172,7 +172,7 @@ runTest :: Int
         -- ^This sequence indicates for which indices baker2 will receive finalization messages
         --  and which UpdateResult we should expect from the corresponding `finalizationReceiveMessage` call.
         -- For example, if the initial finalization index is 1, a pair (2, ResultSuccess) indicates that for
-        -- round 1+2=3, we expect the receipt of a finalization message to result in ResultSuccess. 
+        -- round 1+2=3, we expect the receipt of a finalization message to result in ResultSuccess.
         -> BakerState
         -- ^Initial state for the first baker
         -> BakerState
@@ -327,5 +327,5 @@ test = describe "Concordium.PassiveFinalization" $ do
     it "2 non-fin bakers, 1 fin member, received fin messages: round 2 -> round 1" $ withInitialStates 0 runTestSimple
     it "2 non-fin bakers, 1 fin member, multiple fin rounds" $ withInitialStates 0 runTestMany
     it "1 non-fin baker, 2 fin bakers, received fin messages by fin member, multiple fin rounds" $ withInitialStates 0 runTestActiveMany
-    it "2 non-fin bakers, 4 fin members, multiple fin rounds" $ withInitialStates 4 runTestMany
-    it "1 non-fin baker, 4 fin bakers, received fin messages by fin member, multiple fin rounds" $ withInitialStates 4 runTestActiveMany
+    it "2 non-fin bakers, 5 fin members, multiple fin rounds" $ withInitialStates 4 runTestMany
+    it "1 non-fin baker, 5 fin bakers, received fin messages by fin member, multiple fin rounds" $ withInitialStates 4 runTestActiveMany
