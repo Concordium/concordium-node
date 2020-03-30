@@ -102,6 +102,7 @@ do
     sed -i "s/any.$p ==.*,/any.$p ==$c,/g" cabal.project.freeze
 done <<< $(stack ls dependencies)
 sed -i 's/Concordium +dynamic/Concordium -dynamic/g' cabal.project.freeze
+sed -i 's/globalstate-types -disable-smart-contracts/globalstate-types +disable-smart-contracts/g' cabal.project.freeze
 
 
 LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
