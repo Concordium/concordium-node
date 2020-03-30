@@ -19,7 +19,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.3", "0.2.2"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.4", "0.2.3"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
@@ -41,14 +41,13 @@ pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 // connection-related consts
 /// Maximum time (in ms) a node's connection can remain unreachable.
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
-/// Maximum time (in ms) a bootstrapper can hold an inactive connection to a
-/// node.
-pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 300_000;
+/// Maximum time (in ms) a bootstrapper can hold a connection to a node.
+pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 20_000;
 /// Maximum time (in ms) a node can hold an inactive connection to a peer.
 pub const MAX_NORMAL_KEEP_ALIVE: u64 = 1_200_000;
 /// Maximum time (in ms) a connection can be kept without concluding a
 /// handshake.
-pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 120_000;
+pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
 /// Maximum time (in s) a soft ban is in force.
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
@@ -126,6 +125,13 @@ pub struct BakerConfig {
     pub backtraces_profiling: bool,
     #[cfg(feature = "profiling")]
     #[structopt(
+        long = "stack-profiling",
+        help = "Include memory occupied by threads in the heap profile. Only has effect if \
+                `heap-profiling` is enabled."
+    )]
+    pub stack_profiling: bool,
+    #[cfg(feature = "profiling")]
+    #[structopt(
         long = "profiling-sampling-interval",
         help = "Profile sampling interval in seconds",
         default_value = "0.1"
@@ -133,6 +139,12 @@ pub struct BakerConfig {
     pub profiling_sampling_interval: String,
     #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
+    #[structopt(
+        long = "haskell-rts-flags",
+        help = "Haskell RTS flags to pass to consensus.",
+        default_value = ""
+    )]
+    pub rts_flags: Vec<String>,
     #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",
@@ -239,7 +251,7 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",
-        default_value = "60"
+        default_value = "30"
     )]
     pub housekeeping_interval: u64,
     #[structopt(

@@ -71,6 +71,13 @@ then
             ARGS="$ARGS --info"
         fi
     fi
+    if [ -n "$ARGS_SPLIT_HALF_AND_HALF" ]; then
+        if [[ $(($REAL_BAKER_ID % 2 )) == 0 && -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_ONE" ]]; then
+            ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_ONE"
+        elif [ -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_TWO" ]; then
+            ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_TWO"
+        fi
+    fi
     if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
     then
         ARGS="$ARGS --transaction-outcome-logging"
