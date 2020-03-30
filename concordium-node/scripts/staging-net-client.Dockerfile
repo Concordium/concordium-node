@@ -52,17 +52,16 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
 # Middleware and concordium-client is now built
 
 # Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
-WORKDIR /
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-
-RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
-WORKDIR /oak-compiler
-RUN git checkout 7daba809397756b91f171568c46c26e9503e3956
-RUN --mount=type=ssh git submodule update --init --recursive
-RUN --mount=type=ssh ci/dynamic-deps.sh
-ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
-RUN stack build --copy-bins --ghc-options -j4
+#FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
+#WORKDIR /
+#RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+#RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
+#WORKDIR /oak-compiler
+#RUN git checkout 7daba809397756b91f171568c46c26e9503e3956
+#RUN --mount=type=ssh git submodule update --init --recursive
+#RUN --mount=type=ssh ci/dynamic-deps.sh
+#ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
+#RUN stack build --copy-bins --ghc-options -j4
 
 FROM node:11 as node-build
 WORKDIR /
@@ -100,7 +99,7 @@ COPY --from=haskell-build /concordium-client-bin /usr/local/bin/concordium-clien
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
 COPY --from=haskell-build  /config-add-account.sh /usr/local/bin/config-add-account.sh
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
-COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
+#COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default
