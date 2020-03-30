@@ -52,10 +52,9 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
 # Middleware and concordium-client is now built
 
 # Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
-WORKDIR /
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-
+#FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
+#WORKDIR /
+#RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 #RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
 #WORKDIR /oak-compiler
 #RUN git checkout 7daba809397756b91f171568c46c26e9503e3956
@@ -64,7 +63,7 @@ RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 #ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
 #RUN stack build --copy-bins --ghc-options -j4
 
-FROM node:11 as node-build
+#FROM node:11 as node-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
