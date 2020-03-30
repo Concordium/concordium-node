@@ -15,6 +15,7 @@ import qualified Data.PQueue.Prio.Max as Queue
 import qualified Concordium.ID.Types as ID
 
 import Concordium.Types
+import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
@@ -117,7 +118,7 @@ makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
         header = Runner.TransactionHeader{
             thNonce = n,
             thSender = fromAddress,
-            thEnergyAmount = fromIntegral amount + 1000000, -- TODO (MR) Is that a good idea?
+            thEnergyAmount = Cost.checkHeader 100 1 + Cost.transferAccount,
             thExpiry = dummyMaxTransactionExpiryTime
         }
         payload = Types.encodePayload (Types.Transfer (AddressAccount toAddress) amount)

@@ -75,3 +75,6 @@ toList = Map.toList . partyMap
 
 fromList :: (Party -> VoterPower) -> [(Party, a)] -> PartyMap a
 fromList power l = PartyMap (sum $ (power . fst) <$> l) (Map.fromList l)
+
+union :: (Party -> VoterPower) -> PartyMap a -> PartyMap a -> PartyMap a
+union pv p1 = foldr (\(p, a) -> insert p (pv p) a) p1 . toList

@@ -38,10 +38,11 @@ import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, receiveBlock, MessageType)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, MessageType)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
@@ -262,6 +263,15 @@ type CatchUpStatusCallback = CString -> Int64 -> IO ()
 foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> CatchUpStatusCallback
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
+
+
+genesisState :: GenesisData -> Basic.BlockState
+genesisState genData = Basic.initialState
+                       (genesisBirkParameters genData)
+                       (genesisCryptographicParameters genData)
+                       (genesisAccounts genData ++ genesisControlAccounts genData)
+                       (genesisIdentityProviders genData)
+                       (genesisMintPerSlot genData)
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
@@ -495,8 +505,7 @@ toReceiveResult ResultEarlyBlock = 11
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
 -- and @ResultStale@.
--- 'receiveBlock' may invoke the callbacks for new finalization messages and finalization records,
--- and missing blocks and finalization records.
+-- 'receiveBlock' may invoke the callbacks for new finalization messages.
 receiveBlock :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr cstr l = do
     c <- deRefStablePtr bptr
@@ -520,9 +529,7 @@ receiveBlock bptr cstr l = do
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@ and
 -- @ResultUnverifiable@.
--- 'receiveFinalization' may invoke the callbacks for new finalization messages and finalization records,
--- and missing blocks and finalization records.
--- If run in passive mode, the message will be discarded after deserialization, returning @ResultSuccess@.
+-- 'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalization :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveFinalization bptr cstr l = do
     c <- deRefStablePtr bptr
@@ -537,16 +544,15 @@ receiveFinalization bptr cstr l = do
             logm External LLDebug "Finalization message deserialized."
             case c of
                 BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
-                PassiveRunner{..} -> return ResultSuccess
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
                 BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
-                PassiveRunnerWithLog{..} -> return ResultSuccess
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, and @ResultStale@.
 -- (Currently, @ResultDuplicate@ cannot happen, although it may be supported in future.)
--- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages and
--- finalization records, and missing blocks and finalization records.
+-- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
 receiveFinalizationRecord :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveFinalizationRecord bptr cstr l = do
     c <- deRefStablePtr bptr

@@ -13,6 +13,7 @@ import qualified ConcordiumTests.Afgjort.WMVBA (tests)
 import qualified ConcordiumTests.Afgjort.Types (tests)
 import qualified ConcordiumTests.Konsensus (tests)
 import qualified ConcordiumTests.CatchUp (tests)
+import qualified ConcordiumTests.PassiveFinalization (test)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -35,3 +36,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.Afgjort.Lottery.tests lvl
     ConcordiumTests.Konsensus.tests lvl
     ConcordiumTests.CatchUp.tests lvl
+    ConcordiumTests.PassiveFinalization.test

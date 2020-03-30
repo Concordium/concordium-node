@@ -74,7 +74,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                         , metadata = makeHeaderWithExpiry alesAccount 6 1000000 t
                         , keypair = alesKP
                         }
-                 ,TJSON { payload = RemoveBaker 0 "<dummy proof>"
+                 ,TJSON { payload = RemoveBaker 0
                       , metadata = makeHeaderWithExpiry alesAccount 7 100000 t
                       , keypair = alesKP
                       }
