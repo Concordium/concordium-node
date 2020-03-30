@@ -47,7 +47,8 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
     cp .stack-work/dist/*/*/build/concordium-client/concordium-client /concordium-client-bin && \
     strip /middleware && \
-    strip /concordium-client-bin
+    strip /concordium-client-bin && \
+    cp scripts/testnet/config-add-account.sh /config-add-account.sh
 # Middleware and concordium-client is now built
 
 # Build oak compiler
@@ -87,7 +88,7 @@ ENV NODE_URL=localhost:10000
 ENV COLLECTORD_URL=https://dashboard.eu.staging.concordium.com/nodes/post
 ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 libpq-dev liblmdb-dev
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 libpq-dev liblmdb-dev jq
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
@@ -97,12 +98,14 @@ COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
 COPY --from=haskell-build /concordium-client-bin /usr/local/bin/concordium-client
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
+COPY --from=haskell-build  /config-add-account.sh /usr/local/bin/config-add-account.sh
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
 COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default
 RUN ln -s /usr/lib/x86_64-linux-gnu/libtinfo.so.6.1 /usr/lib/x86_64-linux-gnu/libtinfo.so.5
+RUN chmod a+x /usr/local/bin/config-add-account.sh
 COPY ./scripts/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/concordium.conf /etc/supervisor/conf.d/concordium.conf
 COPY ./scripts/staging-net-client.sh /staging-net-client.sh
