@@ -3,6 +3,8 @@
 set -e
 GHC_BUILDER_VERSION="8.6.5"
 CABAL_BUILDER_VERSION="3.0.0.0"
+GHC_VERSION="8.6.5"
+STACK_VERSION="2.1.3"
 pacman -Sy
 pacman -S reflector --noconfirm
 reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
@@ -73,33 +75,35 @@ mkdir -p $HOME/.cabal/bin
 chmod +x cabal
 mv cabal $HOME/.cabal/bin/
 export PATH=$PATH:$HOME/.cabal/bin
-
 cabal update
 
-wget https://github.com/sol/hpack/releases/download/0.32.0/hpack_linux.gz
-gzip -d hpack_linux.gz
-chmod +x hpack_linux
-mv hpack_linux $HOME/.cabal/bin/hpack
+wget https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz
+tar -xf stack-$STACK_VERSION-linux-x86_64-static.tar.gz
+mkdir -p $HOME/.stack/bin
+mv stack-$STACK_VERSION-linux-x86_64-static/stack $HOME/.stack/bin
+export PATH=$PATH:$HOME/.stack/bin
+echo "system-ghc: true" > ~/.stack/config.yaml
+stack update
 
 for f in $(find /build -type f -name package.yaml); do
    sed -i -e 's/[\s]*ld-options://g' -e 's/[\s]*- -static//g' $f
 done
 
-(cd /build/acorn
- hpack
- cd /build/Concordium
- hpack
- cd /build/globalstate-mockup/globalstate
- hpack
- cd /build/globalstate-types
- hpack
- cd /build/scheduler
- hpack)
-
 cd /build
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
-               --constraint="Concordium -dynamic"
+stack ls dependencies > /dev/null # to generate the cabal files
+
+cabal freeze
+while IFS= read -r line
+do
+    p=$(echo "$line" | cut -d' ' -f1)
+    c=$(echo "$line" | cut -d' ' -f2)
+    sed -i "s/any.$p ==.*,/any.$p ==$c,/g" cabal.project.freeze
+done <<< $(stack ls dependencies)
+sed -i 's/Concordium +dynamic/Concordium -dynamic/g' cabal.project.freeze
+
+
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all
 
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
@@ -108,7 +112,7 @@ cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 echo "Build the rust utility binaries"
 (
     cd crypto/rust-bins &&
-    cargo build --release 
+    cargo build --release
 )
 cp $(pwd)/crypto/rust-bins/target/release/{client,genesis_tool,generate_testdata,server,wallet_server} /binaries/bin/
 
