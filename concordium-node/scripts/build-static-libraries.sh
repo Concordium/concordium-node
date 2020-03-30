@@ -45,6 +45,7 @@ sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/r
 )
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
+mkdir -p /target/{profiling,vanilla}/concordium/{with-sc,without-sc}
 mkdir -p /binaries/{lib,bin}
 for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*_p.a"); do
     cp $lib /target/profiling/ghc/
@@ -94,20 +95,17 @@ cd /build
 
 stack ls dependencies > /dev/null # to generate the cabal files
 
-cabal freeze
+cabal freeze --constraint="Concordium -dynamic" \
+      --constraint="globalstate-types +disable-smart-contracts"
 while IFS= read -r line
 do
     p=$(echo "$line" | cut -d' ' -f1)
     c=$(echo "$line" | cut -d' ' -f2)
     sed -i "s/any.$p ==.*,/any.$p ==$c,/g" cabal.project.freeze
 done <<< $(stack ls dependencies)
-sed -i 's/Concordium +dynamic/Concordium -dynamic/g' cabal.project.freeze
-sed -i 's/globalstate-types -disable-smart-contracts/globalstate-types +disable-smart-contracts/g' cabal.project.freeze
 
-
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
-               --constraint="Concordium -dynamic" \
-               --constraint="globalstate-types +disable-smart-contracts"
+echo "Building the libraries without smart contracts"
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all
 
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
@@ -120,13 +118,27 @@ echo "Build the rust utility binaries"
 )
 cp $(pwd)/crypto/rust-bins/target/release/{client,genesis_tool,generate_testdata,server,wallet_server} /binaries/bin/
 
-echo "Let's copy the needed concordium libraries"
+echo "Let's copy the needed concordium libraries without smart contracts"
 for lib in $(find . -type f -name "*inplace.a"); do
-    cp $(pwd)/$lib /target/vanilla/concordium;
+    cp $(pwd)/$lib /target/vanilla/concordium/without-sc;
 done
 
 for lib in $(find . -type f -name "*_p.a"); do
-    cp $(pwd)/$lib /target/profiling/concordium;
+    cp $(pwd)/$lib /target/profiling/concordium/without-sc;
+done
+
+echo "Rebuilding the libraries with smart contracts"
+sed -i 's/globalstate-types +disable-smart-contracts/globalstate-types -disable-smart-contracts/g' cabal.project.freeze
+
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all
+
+echo "Let's copy the needed concordium libraries with smart contracts"
+for lib in $(find . -type f -name "*inplace.a"); do
+    cp $(pwd)/$lib /target/vanilla/concordium/with-sc;
+done
+
+for lib in $(find . -type f -name "*_p.a"); do
+    cp $(pwd)/$lib /target/profiling/concordium/with-sc;
 done
 
 echo "Let's copy the needed cabal libraries"
@@ -145,7 +157,8 @@ echo "Removing debug symbols because certain distros can't update their stuff to
 strip --strip-debug /target/vanilla/cabal/libHS* \
             /target/vanilla/concordium/libHS* \
                 /target/profiling/cabal/libHS* \
-                /target/profiling/concordium/libHS* \
+                /target/profiling/concordium/with-sc/libHS* \
+                /target/profiling/concordium/without-sc/libHS* \
                 /target/vanilla/ghc/lib* \
                 /target/profiling/ghc/lib*
 
