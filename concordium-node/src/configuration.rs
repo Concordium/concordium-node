@@ -126,6 +126,13 @@ pub struct BakerConfig {
     pub backtraces_profiling: bool,
     #[cfg(feature = "profiling")]
     #[structopt(
+        long = "stack-profiling",
+        help = "Include memory occupied by threads in the heap profile. Only has effect if \
+                `heap-profiling` is enabled."
+    )]
+    pub stack_profiling: bool,
+    #[cfg(feature = "profiling")]
+    #[structopt(
         long = "profiling-sampling-interval",
         help = "Profile sampling interval in seconds",
         default_value = "0.1"
@@ -133,6 +140,12 @@ pub struct BakerConfig {
     pub profiling_sampling_interval: String,
     #[structopt(long = "haskell-gc-logging", help = "Enable Haskell garbage collection logging")]
     pub gc_logging: Option<String>,
+    #[structopt(
+        long = "haskell-rts-flags",
+        help = "Haskell RTS flags to pass to consensus.",
+        default_value = ""
+    )]
+    pub rts_flags: Vec<String>,
     #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",

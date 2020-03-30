@@ -54,13 +54,15 @@ pub fn start_consensus_layer(
     #[cfg(feature = "profiling")]
     ffi::start_haskell(
         &conf.heap_profiling,
+        conf.stack_profiling,
         conf.time_profiling,
         conf.backtraces_profiling,
         conf.gc_logging.clone(),
         &conf.profiling_sampling_interval,
+        &conf.rts_flags,
     );
     #[cfg(not(feature = "profiling"))]
-    ffi::start_haskell();
+    ffi::start_haskell(&conf.rts_flags);
 
     ConsensusContainer::new(
         u64::from(conf.maximum_block_size),
