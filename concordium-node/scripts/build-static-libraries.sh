@@ -15,6 +15,7 @@ ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 git clone https://github.com/LMDB/lmdb
 (
     cd lmdb/libraries/liblmdb
+    sed -i 's/CFLAGS  =/CFLAGS  = -DMDB_FDATASYNC_WORKS/g' Makefile
     make install
     mv /usr/local/lib/liblmdb* /usr/lib/
     mv /usr/local/include/lmdb.h /usr/include/
@@ -103,7 +104,9 @@ done <<< $(stack ls dependencies)
 sed -i 's/Concordium +dynamic/Concordium -dynamic/g' cabal.project.freeze
 
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all \
+               --constraint="Concordium -dynamic" \
+               --constraint="globalstate-types +disable-smart-contracts"
 
 echo "Let's copy the binaries and their dependent libraries"
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
