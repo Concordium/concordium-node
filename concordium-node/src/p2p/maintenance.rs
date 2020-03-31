@@ -25,11 +25,14 @@ use crate::{
         connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
         peers::check_peers,
     },
+    plugins::consensus::{check_peer_states, update_peer_list},
     stats_export_service::StatsExportService,
     utils,
 };
 use consensus_rust::{
-    catch_up::PeerList, consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE,
+    catch_up::PeerList,
+    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    transferlog::TRANSACTION_LOG_QUEUE,
 };
 
 use std::{
@@ -84,6 +87,7 @@ pub struct NodeConfig {
     pub partition_network_for_time: Option<usize>,
     pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
+    pub default_network: NetworkId,
 }
 
 /// The collection of connections to peer nodes.
@@ -319,6 +323,7 @@ impl P2PNode {
             },
             breakage,
             bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
+            default_network: NetworkId::from(conf.common.network_ids[0]), // always present
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
@@ -510,12 +515,13 @@ impl P2PNode {
 }
 
 /// Spawn the node's poll thread.
-pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
+pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<ConsensusContainer>) {
     let node = Arc::clone(node_ref);
     let poll_thread = spawn_or_die!("poll loop", move || {
         let mut events = Events::with_capacity(10);
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
+        let mut last_peer_list_update = 0;
 
         let num_socket_threads = match node.self_peer.peer_type {
             PeerType::Bootstrapper => 1,
@@ -543,6 +549,14 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
 
             for conn_change in node.connection_handler.conn_changes.changes.try_iter() {
                 process_conn_change(&node, conn_change)
+            }
+
+            if let Some(ref consensus) = consensus {
+                if node.last_peer_update() > last_peer_list_update {
+                    update_peer_list(&node);
+                    last_peer_list_update = get_current_stamp();
+                }
+                check_peer_states(&node, consensus);
             }
 
             pool.install(|| node.process_network_events(&events));
@@ -589,7 +603,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll) {
     write_or_die!(node_ref.threads).push(poll_thread);
 }
 
-/// Process a major change to a connection.
+/// Process a change to the set of connections.
 fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
     match conn_change {
         ConnChange::NewConn(addr) => {
@@ -602,6 +616,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 let mut conns = write_or_die!(node.connections());
                 if !conns.values().any(|c| c.remote_id() == conn.remote_id()) {
                     conns.insert(conn.token, conn);
+                    node.bump_last_peer_update();
                 }
             }
         }

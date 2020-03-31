@@ -39,7 +39,7 @@ fn main() -> Result<(), Error> {
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    spawn(&node, poll);
+    spawn(&node, poll, None);
 
     node.join().expect("Node thread panicked!");
 

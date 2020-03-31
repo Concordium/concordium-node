@@ -99,7 +99,6 @@ impl Connection {
             handshake.remote_port,
             &handshake.networks,
         );
-        self.handler.register_conn_change(ConnChange::Promotion(self.token));
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");

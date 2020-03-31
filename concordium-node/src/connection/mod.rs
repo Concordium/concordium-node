@@ -298,7 +298,7 @@ impl Connection {
             SocketAddr::new(self.remote_peer.addr.ip(), peer_port),
         ));
         self.populate_remote_end_networks(remote_peer, nets);
-        self.handler.bump_last_peer_update();
+        self.handler.register_conn_change(ConnChange::Promotion(self.token));
         debug!("Concluded handshake with peer {}", id);
     }
 

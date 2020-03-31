@@ -10,7 +10,6 @@ use crate::{
     configuration::{self, MAX_CATCH_UP_TIME},
     connection::ConnChange,
     find_conn_by_id,
-    network::NetworkId,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
@@ -205,11 +204,7 @@ pub fn handle_pkt_out(
 }
 
 /// Routes a self-made consensus message to the right peers.
-pub fn handle_consensus_outbound_msg(
-    node: &P2PNode,
-    network_id: NetworkId,
-    message: ConsensusMessage,
-) -> Fallible<()> {
+pub fn handle_consensus_outbound_msg(node: &P2PNode, message: ConsensusMessage) -> Fallible<()> {
     if let Some(status) = message.omit_status {
         for peer in read_or_die!(node.peers)
             .peers
@@ -221,7 +216,6 @@ pub fn handle_consensus_outbound_msg(
                 node,
                 Vec::new(),
                 Some(P2PNodeId(peer)),
-                network_id,
                 (message.payload.clone(), message.variant),
             );
         }
@@ -230,7 +224,6 @@ pub fn handle_consensus_outbound_msg(
             node,
             message.dont_relay_to(),
             message.target_peer().map(P2PNodeId),
-            network_id,
             (message.payload, message.variant),
         );
     }
@@ -240,7 +233,6 @@ pub fn handle_consensus_outbound_msg(
 /// Processes a consensus message from the network.
 pub fn handle_consensus_inbound_msg(
     node: &P2PNode,
-    network_id: NetworkId,
     consensus: &ConsensusContainer,
     request: ConsensusMessage,
 ) -> Fallible<()> {
@@ -267,7 +259,6 @@ pub fn handle_consensus_inbound_msg(
                 &node,
                 request.dont_relay_to(),
                 None,
-                network_id,
                 (request.payload.clone(), request.variant),
             );
         }
@@ -292,13 +283,13 @@ pub fn handle_consensus_inbound_msg(
         }
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(node, network_id, &request, consensus_result);
+        update_peer_states(node, &request, consensus_result);
     } else {
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
         // adjust the peer state(s) based on the feedback from Consensus
-        update_peer_states(node, network_id, &request, consensus_result);
+        update_peer_states(node, &request, consensus_result);
 
         // rebroadcast incoming broadcasts if applicable
         if !drop_message
@@ -309,7 +300,6 @@ pub fn handle_consensus_inbound_msg(
                 &node,
                 request.dont_relay_to(),
                 None,
-                network_id,
                 (request.payload, request.variant),
             );
         }
@@ -350,16 +340,15 @@ fn send_consensus_msg_to_net(
     node: &P2PNode,
     dont_relay_to: Vec<u64>,
     target_id: Option<P2PNodeId>,
-    network_id: NetworkId,
     (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) {
     let sent = if let Some(target_id) = target_id {
-        send_direct_message(node, target_id, network_id, payload)
+        send_direct_message(node, target_id, node.config.default_network, payload)
     } else {
         send_broadcast_message(
             node,
             dont_relay_to.into_iter().map(P2PNodeId).collect(),
-            network_id,
+            node.config.default_network,
             payload,
         )
     };
@@ -374,12 +363,7 @@ fn send_consensus_msg_to_net(
     }
 }
 
-fn send_catch_up_status(
-    node: &P2PNode,
-    network_id: NetworkId,
-    consensus: &ConsensusContainer,
-    target: PeerId,
-) {
+fn send_catch_up_status(node: &P2PNode, consensus: &ConsensusContainer, target: PeerId) {
     debug!("Global state: I'm catching up with peer {:016x}", target);
 
     let peers = &mut write_or_die!(node.peers);
@@ -392,7 +376,6 @@ fn send_catch_up_status(
         node,
         vec![],
         Some(P2PNodeId(target)),
-        network_id,
         (consensus.get_catch_up_status(), PacketType::CatchUpStatus),
     );
 }
@@ -421,7 +404,7 @@ pub fn update_peer_list(node: &P2PNode) {
 }
 
 /// Check whether the peers require catching up.
-pub fn check_peer_states(node: &P2PNode, network_id: NetworkId, consensus: &ConsensusContainer) {
+pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
     use PeerStatus::*;
 
     // take advantage of the priority queue ordering
@@ -445,7 +428,7 @@ pub fn check_peer_states(node: &P2PNode, network_id: NetworkId, consensus: &Cons
             Pending => {
                 // send a catch-up message to the first Pending peer
                 debug!("I need to catch up with peer {:016x}", id);
-                send_catch_up_status(node, network_id, consensus, id);
+                send_catch_up_status(node, consensus, id);
             }
             UpToDate => {
                 // do nothing
@@ -456,7 +439,6 @@ pub fn check_peer_states(node: &P2PNode, network_id: NetworkId, consensus: &Cons
 
 fn update_peer_states(
     node: &P2PNode,
-    network_id: NetworkId,
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
 ) {
@@ -500,7 +482,6 @@ fn update_peer_states(
                         node,
                         Vec::new(),
                         Some(P2PNodeId(non_pending_peer)),
-                        network_id,
                         (request.payload.clone(), request.variant),
                     );
                 }
