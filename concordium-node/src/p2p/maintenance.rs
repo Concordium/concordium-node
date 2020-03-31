@@ -28,7 +28,9 @@ use crate::{
     stats_export_service::StatsExportService,
     utils,
 };
-use consensus_rust::{consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE};
+use consensus_rust::{
+    catch_up::PeerList, consensus::CALLBACK_QUEUE, transferlog::TRANSACTION_LOG_QUEUE,
+};
 
 use std::{
     collections::HashMap,
@@ -186,6 +188,8 @@ pub struct P2PNode {
     pub is_terminated: AtomicBool,
     /// The key-value store holding the node's persistent data.
     pub kvs: Arc<RwLock<Rkv>>,
+    /// The catch-up list of peers.
+    pub peers: RwLock<PeerList>,
 }
 
 impl P2PNode {
@@ -338,6 +342,7 @@ impl P2PNode {
             stats,
             is_terminated: Default::default(),
             kvs,
+            peers: Default::default(),
         });
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
