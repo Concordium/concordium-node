@@ -24,7 +24,7 @@ import Concordium.Types.Transactions as T
 import Control.Exception hiding (handle)
 import Control.Monad.State
 import Data.ByteString (ByteString)
-import Data.HashMap.Strict as HM hiding (toList)
+import Data.HashMap.Strict hiding (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.List as List
 import qualified Data.Map.Strict as Map
@@ -302,8 +302,15 @@ purgeTransactionTable = do
          allDeletes = fmap (^. _1) results
          !newNFT = fromList $ fmap (^. _2) results
          highestNonces = fmap (^. _3) results
+         -- remove all normal transactions that should be removed
          !newTMap = Fold.foldl' (Fold.foldl' (Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)))) _ttHashMap allDeletes
-     transactionTable .= TransactionTable{_ttHashMap = newTMap, _ttNonFinalizedTransactions = newNFT}
+         -- and finally remove all the credential deployments that are too old.
+         !finalTT = HM.filter (\case
+                                  (WithMetadata{wmdData=CredentialDeployment{},..}, Received{}) ->
+                                      not (wmdArrivalTime + kat < tm)
+                                  _ -> True
+                              ) newTMap
+     transactionTable .= TransactionTable{_ttHashMap = finalTT, _ttNonFinalizedTransactions = newNFT}
      return highestNonces
 
    rollbackNonces :: [(AccountAddress, Nonce)] -> PendingTransactionTable -> PendingTransactionTable
