@@ -102,7 +102,7 @@ pub enum ConnChange {
     /// To be soft-banned and removed from the list of connections.
     Expulsion(Token),
     /// Prospect node address to attempt to connect to.
-    NewConn(SocketAddr),
+    NewConn(SocketAddr, PeerType),
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
     /// Promotion to post-handshake.

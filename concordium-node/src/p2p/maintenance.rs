@@ -606,8 +606,8 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
 /// Process a change to the set of connections.
 fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
     match conn_change {
-        ConnChange::NewConn(addr) => {
-            if let Err(e) = connect(node, PeerType::Node, addr, None) {
+        ConnChange::NewConn(addr, peer_type) => {
+            if let Err(e) = connect(node, peer_type, addr, None) {
                 error!("Can't connect to the desired address: {}", e);
             }
         }
@@ -674,9 +674,8 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
         match bootstrap_nodes {
             Ok(nodes) => {
                 for addr in nodes {
-                    info!("Found a bootstrap node: {}", addr);
-                    let _ = connect(node, PeerType::Bootstrapper, addr, None)
-                        .map_err(|e| error!("{}", e));
+                    info!("Using bootstrapper {}", addr);
+                    node.register_conn_change(ConnChange::NewConn(addr, PeerType::Bootstrapper));
                 }
             }
             Err(e) => error!("Can't bootstrap: {:?}", e),
