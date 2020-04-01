@@ -13,7 +13,7 @@ use p2p_client::{
     utils::get_config_and_logging_setup,
 };
 
-use std::{process::Command, thread, time::Duration};
+use std::{env, process::Command, thread, time::Duration};
 
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
@@ -21,8 +21,10 @@ fn main() -> Result<(), Error> {
 
     conf.connection.max_allowed_nodes = Some(0);
     conf.connection.thread_pool_size = 1;
-    conf.connection.bootstrap_nodes = vec!["bootstrap.eu.staging.concordium.com:8888".to_owned()];
     conf.connection.dnssec_disabled = true;
+    let pager_duty_token = env::var("PD_TOKEN")?;
+    let pager_duty_email = env::var("PD_EMAIL")?;
+    let pager_duty_svcid = env::var("PD_SVCID")?;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
@@ -48,27 +50,28 @@ fn main() -> Result<(), Error> {
                 .arg("--header")
                 .arg("Accept: application/vnd.pagerduty+json;version=2")
                 .arg("--header")
-                .arg("From: ij@concordium.com")
+                .arg(&format!("From: {}", pager_duty_email))
                 .arg("--header")
-                .arg("Authorization: Token token=ybf3xmFNwDyLwJNFGgns")
+                .arg(&format!("Authorization: Token token={}", pager_duty_token))
                 .arg("-d")
-                .arg(
+                .arg(&format!(
                     "
-                    {
-                      \"incident\": {
+                    {{
+                      \"incident\": {{
                         \"type\": \"incident\",
                         \"title\": \"Bootstrapping failed!\",
-                        \"service\": {
-                          \"id\": \"PACZ20B\",
+                        \"service\": {{
+                          \"id\": \"{}\",
                           \"type\": \"service_reference\"
-                        }
-                      }
-                    }
+                        }}
+                      }}
+                    }}
                 ",
-                )
+                    pager_duty_svcid
+                ))
                 .arg("https://api.pagerduty.com/incidents")
                 .output()
-                .expect("Couldn't send the notification e-mail");
+                .expect("Couldn't send a bootstrap error notification");
             println!("Error - I was not able to bootstrap");
             return node.close_and_join();
         }
