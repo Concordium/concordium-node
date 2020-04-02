@@ -29,7 +29,7 @@ fn main() -> Result<(), Error> {
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     let (node, poll) =
-        P2PNode::new(None, &conf, PeerType::Node, stats_export_service, Some(data_dir_path));
+        P2PNode::new(&conf.common.id, &conf, PeerType::Node, stats_export_service, Some(data_dir_path));
 
     spawn(&node, poll);
     attempt_bootstrap(&node);
