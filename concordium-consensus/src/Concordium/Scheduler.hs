@@ -5,28 +5,37 @@
 {-# OPTIONS_GHC -Wall #-}
 
 {-|
-The scheduler executes transactions (including credential deployment), updating the block state. It can be used to simply execute a given
-list of transactions in sequence until failure ('runTransactions' / 'execTransactions') and to select
-transactions from groups of transactions to create a new block ('filterTransactions').
+The scheduler executes transactions (including credential deployment), updating the current block state.
+It can
 
-  * Processing happens in the 'SchedulerMonad'. The implementation from
-    'Concordium.Scheduler.EnvironmentImplementation' works on the global state (block state).
+  * Execute a given list of transactions until failure ('runTransactions' / 'execTransactions'), used to execute a given block.
+  * Select transactions to create a new block ('filterTransactions').
 
-  * The processing of a single transaction can end in three different ways:
+= Processing of transactions
 
-      1. Maximum block energy exceeded: the (remaining) block energy is exceeded by the energy to
-         be charged for this transaction and thus it cannot be part of a block. In this case no
-         state is changed.
-      2. Maximum block energy not exceeded - a 'ValidResult' is returned and the transaction can be
-         part of a block. The block state is updated with the effects of the transaction (including
-         the sender being charged for execution).
+  * Processing happens in the 'SchedulerMonad'.
+
+  * The processing of a transaction can end in three different ways (see also 'TxResult'):
+
+      1. The transaction is invalid and can not be part of a block. The block state is thus not
+         changed. This can for example be because the transaction has an invalid
+         header (e.g. incorrect signatures). For all possible kinds of this failure see 'FailureKind'.
+      2. The transaction is valid and can be part of a block. The block state is updated with the effects
+         of the transaction, including the sender being charged for execution. A 'ValidResult' is
+         returned.
 
           2a. The transaction is executed successfully - 'TxSuccess' with a list of events is returned.
 
-          2b. The transaction fails - 'TxReject' with the reason (see 'RejectReason') is returned.
+          2b. Execution of the transaction fails - 'TxReject' with the reason (see 'RejectReason')
+              is returned.
               This can for example happen when the deposited energy is not sufficient to cover the
               execution cost of the transaction ('OutOfEnergy') or some specific conditions of the
               respective transaction are not satisfied.
+
+  * While processing transactions, the energy cost is deducted from a previously initiated
+    budget (the maximum block energy). When the remaining budget is not sufficient to cover
+    the deposited energy of a next transaction, 'runTransactions' will abort processing whereas
+    'filterTransactions' skips the transaction.
 -}
 module Concordium.Scheduler
   (filterTransactions
@@ -1091,12 +1100,15 @@ filterTransactions maxSize GroupedTransactions{..} = do
                 else (currentFts { ftFailed = newFailedEntry : ftFailed currentFts }, ts)
 
 -- |Execute transactions in sequence, collecting the outcomes of each transaction.
+-- This is meant to execute the transactions of a given block.
 --
 -- Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded
--- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
--- * @Right outcomes@ if all transactions are successful, with given outcomes.
+-- * @Left Nothing@ if maximum block energy limit was exceeded, that is, the deposited energy
+--   of a transaction plus the energy used by the previous transactions exceeds this limit. This
+--   should not happend for valid blocks.
+-- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
+-- * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions :: forall m . (SchedulerMonad m)
                 => [BlockItem]
                 -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
