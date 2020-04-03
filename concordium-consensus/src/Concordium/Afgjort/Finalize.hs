@@ -55,6 +55,7 @@ import Data.Bits
 import Data.Time.Clock
 import qualified Data.OrdPSQ as PSQ
 
+import Concordium.Utils
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
@@ -79,13 +80,6 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Afgjort.Monad
 import Concordium.TimeMonad
 import Concordium.TimerMonad
-
-atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
-atStrict k f m = f mv <&> \case
-        Nothing -> maybe m (const (Map.delete k m)) mv
-        Just v' -> Map.insert k v' m
-    where mv = Map.lookup k m
-{-# INLINE atStrict #-}
 
 data FinalizationRound = FinalizationRound {
     roundInput :: !(Maybe BlockHash),
@@ -225,7 +219,7 @@ finalizationReplayBaseDelay :: NominalDiffTime
 finalizationReplayBaseDelay = 300
 
 -- |This sets the per-party additional delay for finalization replay.
--- 
+--
 finalizationReplayStaggerDelay :: NominalDiffTime
 finalizationReplayStaggerDelay = 5
 
@@ -301,7 +295,7 @@ newRound newDelta me = do
         -- Filter the messages that have valid signatures and reference legitimate parties
         -- TODO: Drop pending messages for this round, because we've handled them
         let toFinMsg = pendingToFinMsg sessId finIx newDelta
-        pmsgs <- finPendingMessages . atStrict finIx . non Map.empty . atStrict newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
+        pmsgs <- finPendingMessages . at' finIx . non Map.empty . at' newDelta . non Set.empty <%= Set.filter (checkMessage committee . toFinMsg)
         -- Justify the blocks
         forM_ justifiedInputs $ \i -> do
             logEvent Afgjort LLTrace $ "Justified input at " ++ show finIx ++ ": " ++ show i
@@ -320,8 +314,8 @@ newPassiveRound newDelta = do
     finInd        <- use finIndex
     sessionId     <- use finSessionId
     logEvent Afgjort LLDebug $ "Starting passive finalization round: height=" ++ show (theBlockHeight fHeight) ++ " delta=" ++ show (theBlockHeight newDelta)
-    maybeWitnessMsgs <- finPendingMessages . atStrict finInd . non Map.empty
-                                           . atStrict newDelta . non Set.empty
+    maybeWitnessMsgs <- finPendingMessages . at' finInd . non Map.empty
+                                           . at' newDelta . non Set.empty
                                            <%= Set.filter (checkMessage finCom . pendingToFinMsg sessionId finInd newDelta)
     let finParties = parties finCom
         partyInfo party = finParties Vec.! fromIntegral party
@@ -344,7 +338,7 @@ newPassiveRound newDelta = do
                                             in (proofM <|> prevProofM, newState))
                                         (Nothing, initialWMVBAPassiveState)
                                         $ Map.toList blockToMsgs
-    finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & atStrict newDelta ?~ passiveStates)
+    finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & at' newDelta ?~ passiveStates)
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
@@ -498,8 +492,8 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                                         pBlsKey party = partyBlsKey (parties _finsCommittee Vec.! fromIntegral party)
                                         maxParty = fromIntegral $ Vec.length (parties _finsCommittee) - 1
                                         inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
-                                        (mProof, ps') = runState (passiveReceiveWMVBAMessage inst msgSenderIndex msgBody) (pw ^. atStrict msgDelta . non initialWMVBAPassiveState)
-                                    finCurrentRound .= Left (PassiveFinalizationRound (pw & atStrict msgDelta ?~ ps'))
+                                        (mProof, ps') = runState (passiveReceiveWMVBAMessage inst msgSenderIndex msgBody) (pw ^. at' msgDelta . non initialWMVBAPassiveState)
+                                    finCurrentRound .= Left (PassiveFinalizationRound (pw & at' msgDelta ?~ ps'))
                                     forM_ mProof (handleFinalizationProof _finsSessionId _finsIndex msgDelta _finsCommittee)
                             rcu <- messageRequiresCatchUp msgBody
                             if rcu then do
@@ -657,7 +651,7 @@ pendingToOutputWitnesses :: (FinalizationBaseMonad r s m)
     -> m OutputWitnesses
 pendingToOutputWitnesses sessId finIx delta finBlock = do
         -- Get the pending messages at the given finalization index and delta.
-        pmsgs <- use $ finPendingMessages . atStrict finIx . non Map.empty . atStrict delta . non Set.empty
+        pmsgs <- use $ finPendingMessages . at' finIx . non Map.empty . at' delta . non Set.empty
         committee <- use finCommittee
         -- Filter for only the witness creator messages that witness the correct
         -- block and are correctly signed.
@@ -704,7 +698,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
             Left (PassiveFinalizationRound{..}) ->
                 return $ passiveGetOutputWitnesses
                             finalizationBlockPointer
-                            (passiveWitnesses ^. atStrict finalizationDelay . non initialWMVBAPassiveState)
+                            (passiveWitnesses ^. at' finalizationDelay . non initialWMVBAPassiveState)
             Right curRound
                 | roundDelta curRound == finalizationDelay ->
                     -- If the WMVBA is on the same round as the finalization proof, get
@@ -715,7 +709,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
                     pendingToOutputWitnesses sessId finalizationIndex finalizationDelay finalizationBlockPointer
         addNewQueuedFinalization sessId fc fr witnesses
         -- Discard finalization messages from old round
-        finPendingMessages . atStrict finalizationIndex .= Nothing
+        finPendingMessages . at' finalizationIndex .= Nothing
         pms <- use finPendingMessages
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
         let newFinDelay = nextFinalizationDelay fr
