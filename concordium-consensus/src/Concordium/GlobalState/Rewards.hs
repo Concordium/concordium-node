@@ -18,7 +18,7 @@ import Lens.Micro.Platform
 -- existence so that inflation (minting) can be done. This data is meant to be
 -- from the point of view of the end of the block (same as other data in
 -- BlockState).
--- 
+--
 -- TODO:
 --
 --  * Identites of accounts which have deployed the code of smart contracts
@@ -134,5 +134,5 @@ makeGenesisBankStatus _totalGTU _mintedGTUPerSlot = BankStatus{..}
 --       -- |Block reward (in addition to transaction fees).
 --       -- Called @BLOCKREWARD@.
 --       _blockReward :: !Amount,
-      
+
 --     }

@@ -35,6 +35,7 @@ import Data.Serialize as S (runGet, put, get, runPut, runGet, Put)
 import qualified Data.Set as Set
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
+import Concordium.Utils
 import System.Mem.Weak
 import Concordium.GlobalState.SQLiteATI
 import Data.Time.Clock
@@ -330,7 +331,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     makePendingBlock key slot parent bid pf n lastFin trs time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = do
-      st <- use (blockTable . at bh)
+      st <- use (blockTable . at' bh)
       case st of
         Just (BlockAlive bp) -> return $ Just $ TS.BlockAlive bp
         Just (BlockPending bp) -> return $ Just $ TS.BlockPending bp
@@ -356,15 +357,15 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   _ -> error $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st ati arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
-            blockTable . at (getHash block) ?= BlockAlive blockP
+            blockTable . at' (getHash block) ?= BlockAlive blockP
             return blockP
-    markDead bh = blockTable . at bh ?= BlockDead
-    markFinalized bh fr = use (blockTable . at bh) >>= \case
+    markDead bh = blockTable . at' bh ?= BlockDead
+    markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               writeBlock bp
-              blockTable . at bh ?= BlockFinalized (finalizationIndex fr)
+              blockTable . at' bh ?= BlockFinalized (finalizationIndex fr)
             _ -> return ()
-    markPending pb = blockTable . at (getHash pb) ?= BlockPending pb
+    markPending pb = blockTable . at' (getHash pb) ?= BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = do
@@ -392,21 +393,21 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           _ -> return Nothing
     getBranches = use branches
     putBranches brs = branches .= brs
-    takePendingChildren bh = possiblyPendingTable . at bh . non [] <<.= []
+    takePendingChildren bh = possiblyPendingTable . at' bh . non [] <<.= []
     addPendingBlock pb = do
         let parent = blockPointer (bbFields (pbBlock pb))
-        possiblyPendingTable . at parent . non [] %= (pb:)
+        possiblyPendingTable . at' parent . non [] %= (pb:)
         possiblyPendingQueue %= MPQ.insert (blockSlot (pbBlock pb)) (getHash pb, parent)
     takeNextPendingUntil slot = tnpu =<< use possiblyPendingQueue
         where
             tnpu ppq = case MPQ.minViewWithKey ppq of
                 Just ((sl, (pbh, parenth)), ppq') ->
                     if sl <= slot then do
-                        (myPB, otherPBs) <- partition ((== pbh) . pbHash) <$> use (possiblyPendingTable . at parenth . non [])
+                        (myPB, otherPBs) <- partition ((== pbh) . pbHash) <$> use (possiblyPendingTable . at' parenth . non [])
                         case myPB of
                             [] -> tnpu ppq'
                             (realPB : _) -> do
-                                possiblyPendingTable . at parenth . non [] .= otherPBs
+                                possiblyPendingTable . at' parenth . non [] .= otherPBs
                                 possiblyPendingQueue .= ppq'
                                 return (Just realPB)
                     else do
@@ -421,7 +422,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     putPendingTransactions pts = pendingTransactions .= pts
 
     getAccountNonFinalized addr nnce =
-            use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
+            use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
                 Nothing -> return []
                 Just anfts ->
                     let (_, atnnce, beyond) = Map.splitLookup nnce (anfts ^. anftMap)
@@ -430,7 +431,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         Just s -> (nnce, s) : Map.toAscList beyond
 
     getNextAccountNonce addr =
-        use (transactionTable . ttNonFinalizedTransactions . at addr) >>= \case
+        use (transactionTable . ttNonFinalizedTransactions . at' addr) >>= \case
                 Nothing -> return (minNonce, True)
                 Just anfts ->
                   case Map.lookupMax (anfts ^. anftMap) of
@@ -455,10 +456,10 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
               NormalTransaction tr -> do
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
-                if (tt ^. ttNonFinalizedTransactions . at sender . non emptyANFT . anftNextNonce) <= nonce then do
+                if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
                   let wmdtr = WithMetadata{wmdData=tr,..}
-                  transactionTable .= (tt & (ttNonFinalizedTransactions . at sender . non emptyANFT . anftMap . at nonce . non Set.empty %~ Set.insert wmdtr)
-                                          & (ttHashMap . at trHash ?~ (bi, Received slot)))
+                  transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
+                                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   transactionTablePurgeCounter %= (+ 1)
                   purgeTransactionTable
                   return (TS.Added bi)
@@ -470,14 +471,14 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                 if finalizedP then
                   return $ TS.Duplicate bi
                 else do
-                  transactionTable . ttHashMap . at trHash ?= (bi, Received slot)
+                  transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
                   return (TS.Added bi)
           Just (_, results) -> do
             -- if it is we update the maximum committed slot,
             -- unless the transaction is already finalized (this case is handled by updateSlot)
             -- In the current model this latter case should not happen; once a transaction is finalized
             -- it is written to disk (see finalizeTransactions below)
-            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at trHash . mapped . _2 %= updateSlot slot
+            when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate bi
 
     finalizeTransactions bh slot txs = mapM finTrans txs >>= writeTransactionStatuses
@@ -485,20 +486,20 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
             finTrans WithMetadata{wmdData=NormalTransaction tr,..} = do
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
-                anft <- use (transactionTable . ttNonFinalizedTransactions . at sender . non emptyANFT)
+                anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                 assert (anft ^. anftNextNonce == nonce) $ do
-                    let nfn = anft ^. anftMap . at nonce . non Set.empty
+                    let nfn = anft ^. anftMap . at' nonce . non Set.empty
                     let wmdtr = WithMetadata{wmdData=tr,..}
                     assert (Set.member wmdtr nfn) $ do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
                         forM_ (Set.delete wmdtr nfn) $
-                          \deadTransaction -> transactionTable . ttHashMap . at (getHash deadTransaction) .= Nothing
+                          \deadTransaction -> transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
                         -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
                         ss <- deleteAndFinalizeStatus wmdHash
 
                         -- Update the non-finalized transactions for the sender
-                        transactionTable . ttNonFinalizedTransactions . at sender ?= (anft & (anftMap . at nonce .~ Nothing)
+                        transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
                                                                                            & (anftNextNonce .~ nonce + 1))
                         return ss
             finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
@@ -508,7 +509,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
               case status of
                 Just (Committed{..}) -> do
                   -- delete the transaction from the cache
-                  transactionTable . ttHashMap . at txHash .= Nothing
+                  transactionTable . ttHashMap . at' txHash .= Nothing
                   -- and write the status to disk
                   return (txHash, Finalized{_tsSlot=slot,
                                             tsBlockHash=bh,
@@ -518,19 +519,19 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                 _ -> error "Transaction should exist and be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
-        -- add a transaction status. This only updates the cached version which is correct at the moment
-        -- because transactions are only written to disk on finalization, at which point their
+        -- add a transaction status. This only updates the cached version which is correct at' the moment
+        -- because transactions are only written to disk on finalization, at' which point their
         -- statuses are no longer updated.
-        transactionTable . ttHashMap . at (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
+        transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
 
     purgeTransaction WithMetadata{..} =
-        use (transactionTable . ttHashMap . at wmdHash) >>= \case
+        use (transactionTable . ttHashMap . at' wmdHash) >>= \case
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
                 if (lastFinSlot >= results ^. tsSlot) then do
                     -- remove from the table
-                    transactionTable . ttHashMap . at wmdHash .= Nothing
+                    transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- if the transaction is from a sender also delete the relevant
                     -- entry in the account non finalized table
                     case wmdData of
@@ -539,10 +540,10 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                             sender = transactionSender tr
                         transactionTable
                           . ttNonFinalizedTransactions
-                          . at sender
+                          . at' sender
                           . non emptyANFT
                           . anftMap
-                          . at nonce
+                          . at' nonce
                           . non Set.empty %= Set.delete WithMetadata{wmdData=tr,..}
                       _ -> return () -- do nothing.
                     return True
@@ -551,7 +552,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     markDeadTransaction bh tr =
       -- We only need to update the outcomes. The anf table nor the pending table need be updated
       -- here since a transaction should not be marked dead in a finalized block.
-      transactionTable . ttHashMap . at (getHash tr) . mapped . _2 %= markDeadResult bh
+      transactionTable . ttHashMap . at' (getHash tr) . mapped . _2 %= markDeadResult bh
     lookupTransaction th = do
        ts <- preuse (transactionTable . ttHashMap . ix th . _2)
        case ts of

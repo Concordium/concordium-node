@@ -103,7 +103,7 @@ modelGetInstanceData (ContractAddress ci csi) m = do
         (csi', idata) <- Map.lookup ci (modelInstances m)
         guard $ csi == csi'
         return idata
-    
+
 modelUpdateInstanceAt :: ContractAddress -> Amount -> Value Core.NoAnnot -> Model -> Model
 modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = Map.adjust upd ci (modelInstances m)}
     where
@@ -273,7 +273,7 @@ testCreateDelete n = do
     checkInvariantThen insts $ return $ modelCheck insts model
 
 testGetInstance :: Instances -> Model -> Gen Property
-testGetInstance insts model = oneof $ [present | not (null $ modelInstances model)] ++ 
+testGetInstance insts model = oneof $ [present | not (null $ modelInstances model)] ++
                                         [deleted | not (null $ modelFree model)] ++
                                         [absent]
     where
@@ -302,4 +302,3 @@ tests lvl = describe "GlobalStateTests.Instances" $ do
     it "foldInstances" $ withMaxSuccess 100 $ forAllBlind (generateFromUpdates 5000) $ uncurry testFoldInstances
     it "50000 create/delete - check at end" $ withMaxSuccess 10 $ testCreateDelete 50000
     it "500 instance updates - check every step" $ withMaxSuccess (100 * fromIntegral lvl) $ testUpdates 500
-    

@@ -202,7 +202,7 @@ updateAccount fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return (Nothing, a0)
         Just ai -> AT.update fupd ai accountTable >>= \case
             Nothing -> return (Nothing, a0)
-            Just (res, at') -> return (Just res, a0 {accountTable = at'})
+            Just (res, act') -> return (Just res, a0 {accountTable = act'})
 
 -- |Get a list of all account addresses.
 accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]

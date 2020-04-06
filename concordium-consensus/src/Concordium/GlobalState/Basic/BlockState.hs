@@ -2,6 +2,7 @@
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
+import Concordium.Utils
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
@@ -141,7 +142,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                 -- Update the owner account's set of instances
                 & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
                 -- Delegate the stake as needed
-                & maybe (error "Instance has invalid owner") 
+                & maybe (error "Instance has invalid owner")
                     (\owner -> blockBirkParameters . birkCurrentBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)
 
@@ -165,7 +166,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoModifyInstance bs caddr delta model = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr delta model
-        & maybe (error "Instance has invalid owner") 
+        & maybe (error "Instance has invalid owner")
             (\owner -> blockBirkParameters . birkCurrentBakers %~ modifyStake (owner ^. accountStakeDelegate) delta)
             (bs ^? blockAccounts . ix instanceOwner)
         where
@@ -238,7 +239,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         where
             targetValid = case target of
                 Nothing -> True
-                Just bid -> isJust $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap . at bid
+                Just bid -> isJust $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap . at' bid
             acct = fromMaybe (error "Invalid account address") $ bs ^? blockAccounts . ix aaddr
             stake = acct ^. accountAmount +
                 sum [Instances.instanceAmount inst |
