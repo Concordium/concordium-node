@@ -32,10 +32,6 @@ It can
               execution cost of the transaction ('OutOfEnergy') or some specific conditions of the
               respective transaction are not satisfied.
 
-  * While processing transactions, the energy cost is deducted from a previously initiated
-    budget (the maximum block energy). When the remaining budget is not sufficient to cover
-    the deposited energy of a next transaction, 'runTransactions' will abort processing whereas
-    'filterTransactions' skips the transaction.
 -}
 module Concordium.Scheduler
   (filterTransactions
@@ -195,10 +191,6 @@ dispatch msg = do
       -- FIXME: Only consider non-expired credentials.
       mapM_ (notifyIdentityProviderCredential . ID.cdvIpId) (senderAccount ^. accountCredentials)
 
-      -- TODO what does the following comment refer to?
-      -- available for execution remaining amount available on the sender's
-      -- account. This is deducted prior to execution and refunded at the end,
-      -- if there is any left.
       let psize = payloadSize (transactionPayload msg)
       -- TODO: Check whether the cost for deserializing the transaction is sufficiently covered
       -- by the cost for checking the header (which is linear in the transaction size).
@@ -231,6 +223,10 @@ dispatch msg = do
                 _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + checkHeaderCost,
                 _wtcTransactionIndex = tsIndex,
                 ..}
+          -- Now pass the decoded payload to the respective transaction handler which contains
+          -- the main transaction logic.
+          -- Handlers may only assume an amount on the sender's account that is decreased by the
+          -- amount corresponding to the energy deposit. This is realized using 'withDeposit'.
           res <- case payload of
                    DeployModule mod ->
                      handleDeployModule (mkWTC TTDeployModule) psize mod
@@ -794,8 +790,7 @@ handleDelegateStake wtc targetBaker =
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
 -- |Update the election difficulty birk parameter.
--- The given difficulty must be valid (see 'isValidElectionDifficulty'), if not, this function
--- may raise an exception.
+-- The given difficulty must be valid (see 'isValidElectionDifficulty').
 handleUpdateElectionDifficulty
   :: SchedulerMonad m
   => WithDepositContext
@@ -973,7 +968,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
 
   runNext maxEnergy 0 emptyFilteredTransactions credentialDeployments perAccountTransactions
   where
-        -- Run next credential deployment or transaction group, depending on arrival time, and recurse.
+        -- Run next credential deployment or transaction group, depending on arrival time.
         runNext :: Energy -- ^Maximum block energy
                 -> Integer -- ^Current size of transactions in the block.
                 -> FilteredTransactions -- ^Currently accummulated result
