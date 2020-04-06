@@ -1,5 +1,5 @@
 {-# LANGUAGE
-    TemplateHaskell, 
+    TemplateHaskell,
     ScopedTypeVariables,
     GeneralizedNewtypeDeriving,
     RankNTypes,
@@ -41,6 +41,7 @@ import qualified Data.ByteString as BS
 import qualified Data.Serialize as Ser
 import Control.Arrow
 
+import Concordium.Utils
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.Lottery
@@ -51,13 +52,6 @@ import Concordium.Afgjort.PartySet (PartySet)
 import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Afgjort.PartyMap (PartyMap)
 import qualified Concordium.Afgjort.PartyMap as PM
-
-atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
-atStrict k f m = f mv <&> \case
-        Nothing -> maybe m (const (Map.delete k m)) mv
-        Just v' -> Map.insert k v' m
-    where mv = Map.lookup k m
-{-# INLINE atStrict #-}
 
 -- |A phase in the ABBA protocol
 type Phase = Word32
@@ -145,7 +139,7 @@ makeLenses ''ABBAState
 -- |The state of a particular phase
 phaseState :: Phase -> Lens' (ABBAState sig) (PhaseState sig)
 phaseState p = lens (\s -> fromMaybe initialPhaseState (_phaseStates s ^. at p))
-    (\s t -> s & phaseStates . atStrict p ?~ t)
+    (\s t -> s & phaseStates . at' p ?~ t)
 
 -- |The set of parties claiming we are done with a given choice
 weAreDone :: Choice -> Lens' (ABBAState sig) (PartyMap sig)
@@ -241,8 +235,8 @@ handleCoreSet phase cs = do
             let
                 csTop = nomTop cs
                 csBot = nomBot cs
-                csRes p 
-                    | p `BitSet.member` csTop = Just True 
+                csRes p
+                    | p `BitSet.member` csTop = Just True
                     | p `BitSet.member` csBot = Just False
                     | otherwise = Nothing
                 topWeight = sum $ partyWeight <$> BitSet.toList csTop
@@ -313,7 +307,7 @@ handleJustified :: (ABBAMonad sig m) => Party -> Phase -> Ticket -> Choice -> si
 handleJustified src phase ticket c sig = do
         ABBAInstance{..} <- ask
         liftCSSReceiveMessage phase src (Input c) sig
-        phaseState phase . lotteryTickets . atStrict (ticketValue ticket, src) ?= ticket
+        phaseState phase . lotteryTickets . at' (ticketValue ticket, src) ?= ticket
         inputw <- use $ phaseState phase . inputWeight c
         forM_ inputw $ \ps -> let (b, ps') = PS.insertLookup src (partyWeight src) ps in
             unless b $
