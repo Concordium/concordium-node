@@ -6,7 +6,6 @@ import Data.Word
 import Data.Bits
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
-
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo

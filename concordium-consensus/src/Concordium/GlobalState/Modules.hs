@@ -16,6 +16,7 @@ import qualified Data.HashMap.Strict as Map
 import Data.Serialize
 
 import Lens.Micro.Platform
+import Concordium.Utils
 
 -- |Module for storage in block state.
 -- TODO: in future, we should probably also store the module source, which can
@@ -110,7 +111,7 @@ putLinkedExpr mref n linked mods =
 
 getLinkedExpr :: Core.ModuleRef -> Core.Name -> Modules -> Maybe (LinkedExprWithDeps Core.NoAnnot)
 getLinkedExpr mref n mods = do
-  MemModule{..} <- mods ^. modules . at mref
+  MemModule{..} <- mods ^. modules . at' mref
   Map.lookup n mmoduleLinkedDefs
 
 -- |NB: This method assumes the module with given reference is already in the
@@ -122,7 +123,7 @@ putLinkedContract mref n linked mods =
 
 getLinkedContract :: Core.ModuleRef -> Core.TyName -> Modules -> Maybe (LinkedContractValue Core.NoAnnot)
 getLinkedContract mref n mods = do
-  MemModule{..} <- mods ^. modules . at mref
+  MemModule{..} <- mods ^. modules . at' mref
   Map.lookup n mmoduleLinkedContracts
 
 -- |Get a full module by name.

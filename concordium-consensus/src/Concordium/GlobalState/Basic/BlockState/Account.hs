@@ -6,7 +6,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
-
+import Concordium.Utils
 import Concordium.Types
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.GlobalState.Basic.BlockState.AccountTable (AccountIndex, AccountTable(Empty))
@@ -106,6 +106,6 @@ type instance IxValue Accounts = Account
 
 instance Ixed Accounts where
   ix addr f acc@(Accounts{..}) =
-     case accountMap ^. at addr of
+     case accountMap ^. at' addr of
        Nothing -> pure acc
        Just i -> (\atable -> acc { accountTable = atable }) <$> ix i f accountTable

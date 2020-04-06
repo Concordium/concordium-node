@@ -8,6 +8,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Control.Monad
 import Lens.Micro.Platform
+import Concordium.Utils
 
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
@@ -50,7 +51,7 @@ invariantBlockState bs = do
             creds' <- foldM checkCred creds (acct ^. accountCredentials)
             when (Map.member addr amp) $ Left $ "Duplicate account address: " ++ show (acct ^. accountAddress)
             !myBal <- foldM (checkInst addr) (acct ^. accountAmount) (acct ^. accountInstances)
-            let delegMap' = maybe delegMap (\delBkr -> delegMap & at delBkr . non 0 %~ (+myBal)) (acct ^. accountStakeDelegate)
+            let delegMap' = maybe delegMap (\delBkr -> delegMap & at' delBkr . non 0 %~ (+myBal)) (acct ^. accountStakeDelegate)
             return (creds', Map.insert addr i amp, bal + myBal, delegMap', ninsts + fromIntegral (Set.size (acct ^. accountInstances)))
         checkCred creds (ID.cdvRegId -> cred)
             | cred `Set.member` creds = Left $ "Duplicate credential: " ++ show cred
@@ -62,5 +63,5 @@ invariantBlockState bs = do
                 -- TODO: Add more instance invariant checking
                 return $ bal + (instanceAmount inst)
         checkBaker deleg stake (bid, binfo) = do
-            checkBinary (==) (binfo ^. bakerStake) (deleg ^. at bid . non 0) "==" "baker's stake" "amount delegated to baker"
+            checkBinary (==) (binfo ^. bakerStake) (deleg ^. at' bid . non 0) "==" "baker's stake" "amount delegated to baker"
             return $ stake + (binfo ^. bakerStake)
