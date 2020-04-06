@@ -203,10 +203,10 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     return newbp
 
 class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
-    -- |Create a block pointer for the given slot
+    -- |Create a block pointer for the given slot.
     -- This function is in charge of accumulating the pending transactions and
     -- credential deployments, construct the block and update the transaction table,
-    -- pending transaction table and block table. It will also update the foxus block
+    -- pending transaction table and block table. It will also update the focus block
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
