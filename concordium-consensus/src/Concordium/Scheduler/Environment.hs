@@ -56,13 +56,15 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getAccount :: AccountAddress -> m (Maybe Account)
 
-  -- |Check whether a given registration id exists in the global store.
+  -- |Check whether a given registration id exists in the global state.
   accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
   -- recording which accounts were affected by the transaction for reward and
   -- other purposes.
+  -- Precondition: Each account affected in the change set must exist in the
+  -- block state.
   commitChanges :: ChangeSet -> m ()
 
   -- |Observe a single transaction footprint.
@@ -97,11 +99,13 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- address assigned to the new instance.
   putNewInstance :: (ContractAddress -> Instance) -> m ContractAddress
 
-  -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
+  -- |Bump the next available transaction nonce of the account.
+  -- Precondition: the account exists in the block state.
   increaseAccountNonce :: Account -> m ()
 
   -- FIXME: This method should not be here, but rather in the transaction monad.
-  -- |Add account credential to an account address. The account with this address is assumed to exist.
+  -- |Add account credential to an account address.
+  -- Precondition: The account with this address exists in the block state.
   addAccountCredential :: Account -> ID.CredentialDeploymentValues -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
@@ -143,31 +147,36 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- *Operations related to bakers.
 
-  -- |Get the baker information, or 'Nothing'.
+  -- |Get the baker information, or 'Nothing' if a baker with the given baker id
+  -- doesn't exist.
   getBakerInfo :: BakerId -> m (Maybe BakerInfo)
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
+  -- If a baker with the same SignatureVerifyKey already exists in the block state,
+  -- do nothing and return Nothing.
   addBaker :: BakerCreationInfo -> m (Maybe BakerId)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
 
   -- |Replace the given baker's verification key with the given value.
-  -- The function may assume that the baker exists.
   -- Return 'True' if the signing key was updated, and 'False' in case
   -- it lead to a duplicate signing key.
+  -- Precondition: the baker exists.
   updateBakerSignKey :: BakerId -> BakerSignVerifyKey -> m Bool
 
   -- |Replace the given baker's reward account with the given value.
-  -- The function may assume that the baker exists and the reward account
+  -- Precondition: the baker exists and the reward account
   -- also exists in the global state.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
-  -- |Delegate the stake from an account to a baker. The account is
-  -- assumed to exist, although the baker is not.  Returns 'True'
-  -- if the delegation was successful, and 'False' if the baker is
+  -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
+  -- Returns 'True' if the delegation was successful, and 'False' if the baker is
   -- not valid.
+  -- Delegating to `Nothing` undelegates the stake from any baker that it was delegated
+  -- to in the past.
+  -- Precondition: the account exists.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
 
   -- |Update the election difficulty (birk parameter) in the global state.
@@ -415,8 +424,6 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
--- NB: This method should also ensure that it records that the given transaction
--- affected the given account, using the same mechanism that commitChanges does.
 chargeExecutionCost :: SchedulerMonad m => TransactionHash -> Account -> Amount -> m ()
 chargeExecutionCost txHash acc amnt =
     let balance = acc ^. accountAmount
