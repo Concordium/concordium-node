@@ -225,8 +225,10 @@ dispatch msg = do
                 ..}
           -- Now pass the decoded payload to the respective transaction handler which contains
           -- the main transaction logic.
-          -- Handlers may only assume an amount on the sender's account that is decreased by the
-          -- amount corresponding to the energy deposit. This is realized using 'withDeposit'.
+          -- During processing of transactions the amount on the sender's account is decreased by the
+          -- amount corresponding to the deposited energy, i.e., the maximum amount that can be charged
+          -- for execution. The amount corresponding to the unused energy is refunded at the end of
+          -- processing; see `withDeposit`.
           res <- case payload of
                    DeployModule mod ->
                      handleDeployModule (mkWTC TTDeployModule) psize mod
