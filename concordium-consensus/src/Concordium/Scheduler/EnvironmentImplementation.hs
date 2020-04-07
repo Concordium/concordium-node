@@ -271,6 +271,7 @@ instance (MonadReader ContextState m,
   updateBakerAccount bid bacc = do
     s <- use schedulerBlockState
     (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
+    -- updating the account cannot fail, so we ignore the return value.
     schedulerBlockState .= s'
 
   {-# INLINE delegateStake #-}
