@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.PassiveFinalization where
 
@@ -18,6 +18,7 @@ import Test.Hspec
 
 import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
+import Concordium.Afgjort.Types (Party)
 import Concordium.Afgjort.WMVBA
 
 import Concordium.Birk.Bake
@@ -54,7 +55,53 @@ import Concordium.Types.HashableTo
 -- finalization-message buffer and create finalization proofs from them. This is necessary
 -- for cases where finalization messages are received out of order (i.e. messages for a later
 -- finalization round arrive before the messages for an earlier finalization round).
---
+
+{-# NOINLINE dummyCryptographicParameters #-}
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+    fromMaybe
+        (error "Could not read cryptographic parameters.")
+        (unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
+
+dummyTime :: UTCTime
+dummyTime = posixSecondsToUTCTime 0
+
+type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+
+finalizationParameters :: FinalizationParameters
+finalizationParameters = FinalizationParameters 100 1000 -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
+
+type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT () LogIO)
+
+newtype DummyTimer = DummyTimer Integer
+
+type MySkovT = SkovT MyHandlers (Config DummyTimer) (StateT () LogIO)
+
+dummyHandlers :: MyHandlers
+dummyHandlers = SkovHandlers {..}
+    where
+        shBroadcastFinalizationMessage _ = return ()
+        shBroadcastFinalizationRecord _ = return ()
+        shOnTimeout _ _ = return $ DummyTimer 0
+        shCancelTimer _ = return ()
+        shPendingLive = return ()
+
+myRunSkovT :: (MonadIO m)
+           => MySkovT a
+           -> MyHandlers
+           -> SkovContext (Config DummyTimer)
+           -> SkovState (Config DummyTimer)
+           -> m (a, SkovState (Config DummyTimer), ())
+myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
+        ((res, st'), _) <- runStateT (runSkovT a handlers ctx st) ()
+        return (res, st', ())
+    where
+        doLog src LLError msg = error $ show src ++ ": " ++ msg
+        doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
+
+type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
+type BakerInformation = (BakerInfo, BakerIdentity, Account)
+
 -- This test has the following set up:
 -- There are two bakers, baker1 and baker2, and a finalization-committee member, finMember.
 -- (i) baker1 bakes two blocks A and B
@@ -77,135 +124,157 @@ import Concordium.Types.HashableTo
 -- successfully produce a finalization proof out of the existing signature created by finMember.
 -- This resulting finalization record is also put into the finalization queue.
 -- When afterwards block C is baked, baker2 takes the fin record for block A from the finalization
--- queue and adds it to C. 
+-- queue and adds it to C.
 -- Similarly, when block D is baked, the fin record for block B is included in D.
 --
 -- If `newPassiveRound` were not called, the successful finalization of block A would not trigger
 -- the finalization of a block based on messages from the pending queue. I.e., if finalization
 -- messages are received out of order, non-finalizers will not be able to create finalization records,
--- and finalization will depend on bakers being also in the finalization committee.  
+-- and finalization will depend on bakers being also in the finalization committee.
+runTestSimple :: BakerState -> BakerState -> BakerState -> [BakerState] -> IO ()
+runTestSimple = runTest 2 [(1, ResultPendingFinalization), (0, ResultSuccess)]
 
-{-# NOINLINE dummyCryptographicParameters #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-    fromMaybe
-        (error "Could not read cryptographic parameters.")
-        (unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
+-- Testing more messages. Creating finalization messages for blocks of the following slots:
+--      1 -> 2 ->   (normal order, newPassiveRound unnecessary)
+--      4 -> 3 ->   (reversed order, newPassiveRound necessary)
+--      6 -> 5 ->   (one more reversed order, newPassiveRound necessary)
+--      7 -> 8 ->   (normal order again)
+--      12 -> 11 -> (too large indices, should be discarded)
+--      8 ->        (index already finalized, should be discarded)
+--      10 ->       (goes into pending, newPassiveReound will be necessary)
+--      12 ->       (too large index, should be discarded)
+--      9           (normal order, after this we should process 10 with newPassiveRound)
+-- and making baker2 receive them before baker2 starts baking blocks.
+runTestMany :: BakerState -> BakerState -> BakerState -> [BakerState] -> IO ()
+runTestMany = runTest 12 [(0,  ResultSuccess),
+                          (1,  ResultSuccess),
+                          (3,  ResultPendingFinalization),
+                          (2,  ResultSuccess),
+                          (5,  ResultPendingFinalization),
+                          (4,  ResultSuccess),
+                          (6,  ResultSuccess),
+                          (7,  ResultSuccess),
+                          (11, ResultInvalid),
+                          (10, ResultInvalid),
+                          (7,  ResultDuplicate),
+                          (9,  ResultPendingFinalization),
+                          (10, ResultInvalid),
+                          (8,  ResultSuccess)]
 
-dummyTime :: UTCTime
-dummyTime = posixSecondsToUTCTime 0
+-- Same set up as runTest2, but test active finalization by making the finalization memeber (instead of baker2)
+-- receive finalization messages.
+runTestActiveMany :: BakerState -> BakerState -> BakerState -> [BakerState] -> IO ()
+runTestActiveMany b1 _ fm = runTestMany b1 fm fm
 
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
-
-finalizationParameters :: FinalizationParameters
-finalizationParameters = FinalizationParameters 2 1000
-
-type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT () LogIO)
-
-newtype DummyTimer = DummyTimer Integer
-
-dummyHandlers :: MyHandlers
-dummyHandlers = SkovHandlers {..}
-    where
-        shBroadcastFinalizationMessage _ = return ()
-        shBroadcastFinalizationRecord _ = return ()
-        shOnTimeout _ _ = return $ DummyTimer 0
-        shCancelTimer _ = return ()
-        shPendingLive = return ()
-
-myRunSkovT :: (MonadIO m)
-           => SkovT MyHandlers (Config DummyTimer) (StateT () LogIO) a
-           -> MyHandlers
-           -> SkovContext (Config DummyTimer)
-           -> SkovState (Config DummyTimer)
-           -> m (a, SkovState (Config DummyTimer), ())
-myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
-        ((res, st'), _) <- runStateT (runSkovT a handlers ctx st) ()
-        return (res, st', ())
-    where
-        doLog src LLError msg = error $ show src ++ ": " ++ msg
-        doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
-
-type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (BakerInfo, BakerIdentity, Account)
-
-runTest :: BakerState
-        -- ^State for the first baker
+runTest :: Int
+        -- ^How many blocks should baker1 bake
+        -> [(FinalizationIndex, UpdateResult)]
+        -- ^This sequence indicates for which indices baker2 will receive finalization messages
+        --  and which UpdateResult we should expect from the corresponding `finalizationReceiveMessage` call.
+        -- For example, if the initial finalization index is 1, a pair (2, ResultSuccess) indicates that for
+        -- round 1+2=3, we expect the receipt of a finalization message to result in ResultSuccess.
         -> BakerState
-        -- ^State for the second baker
+        -- ^Initial state for the first baker
         -> BakerState
-        -- ^State for the finalization committee member
+        -- ^Initial state for the second baker who will receive finalization messages
+        -> BakerState
+        -- ^Initial state for one finalization committee member
+        -> [BakerState]
+        -- ^Initial states for the additional finalization committee members
         -> IO ()
-runTest (bid1, fi1, fs1)
+runTest firstBlocks
+        receivedIndicesAndExpectedResults
+        (bid1, fi1, fs1)
         (bid2, fi2, fs2)
-        (fmId, _, SkovState TS.SkovData{..} FinalizationState{..} _ _) = do
-            let bakeFirstSlots bid = do
-                  b1 <- bake bid 1
-                  b2 <- bake bid 2
-                  return (b1, b2)
-            -- Baker1 bakes first two blocks
-            ((BS.BlockPointer {_bpBlock = NormalBlock block1},
-              BS.BlockPointer {_bpBlock = NormalBlock block2}), _, _) <- myRunSkovT (bakeFirstSlots bid1) dummyHandlers fi1 fs1
-            -- Baker2 stores baker1's blocks
+        finMember@(_, _, SkovState _ FinalizationState{_finsSessionId = sessionId, _finsCommittee = finCom} _ _)
+        additionalFinMembers = do
+            (blocks, _, _) <- myRunSkovT (mapM (bake bid1) [1..fromIntegral firstBlocks]) dummyHandlers fi1 fs1
             void $ myRunSkovT (do
-                    store block1
-                    store block2
-                    case _finsCurrentRound of
-                        Right FinalizationRound{..} -> do
-                            -- Creating finalization message for block2 and then for block1
-                            -- and making baker2 receive them before baker2 starts baking blocks.
-                            receiveFinMessage (_finsIndex + 1) block2 roundDelta roundMe ResultPendingFinalization
-                            receiveFinMessage _finsIndex block1 roundDelta roundMe ResultSuccess
-                            bake bid2 3 >>= \BS.BlockPointer {_bpBlock = NormalBlock block3} ->
-                                -- Check that block3 contains finalization record for block1
-                                verifyFinRec block3 1 block1 _finsSessionId _finsCommittee
-                            bake bid2 4 >>= \BS.BlockPointer {_bpBlock = NormalBlock block4} ->
-                                -- Check that block4 contains finalization record for block2
-                                verifyFinRec block4 2 block2 _finsSessionId _finsCommittee
-                        _ ->
-                            fail "Finalizer should have active finalization round."
+                    -- Baker2 stores baker1's blocks
+                    mapM_ store blocks
+                    -- Baker2 receives finalization messages generated by the finalization-committee members
+                    mapM_ (\(ind, res) ->
+                            mapM_ (receiveFM (blocks !! fromIntegral ind) ind res) $ finMember : additionalFinMembers
+                          ) receivedIndicesAndExpectedResults
+                    -- If we expected n successful receipts of finalization messages, bake n more blocks and verify that they contain the first n blocks in their finalization records
+                    let bakeVerify slot b ind = bakeForSlotAndVerify bid2 slot b ind sessionId finCom
+                        successfulFins = length $ filter (\(_, r) -> r `elem` [ResultSuccess, ResultPendingFinalization]) receivedIndicesAndExpectedResults
+                    mapM (\(i, b) -> bakeVerify (fromIntegral firstBlocks + i) b $ fromIntegral i) $ zip [1..] $ take (fromIntegral successfulFins) blocks
                 ) dummyHandlers fi2 fs2
+        where receiveFM block ind res (fmId, _, SkovState TS.SkovData{..} FinalizationState{..} _ _) =
+                case _finsCurrentRound of
+                    Right FinalizationRound{..} ->
+                        receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res
+                    _ ->
+                        fail "Finalizer should have active finalization round."
 
-                where bake bid n = do
-                          mb <- bakeForSlot bid n
-                          maybe (fail $ "Could not bake for slot " ++ show n) return mb
+bake :: BakerIdentity -> Slot -> MySkovT BakedBlock
+bake bid n = do
+    mb <- bakeForSlot bid n
+    maybe (fail $ "Could not bake for slot " ++ show n)
+          (\BS.BlockPointer {_bpBlock = NormalBlock block} -> return block)
+          mb
 
-                      store block =
-                        storeBlock (makePendingBlock block dummyTime) >>= \case
-                            ResultSuccess -> return()
-                            result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result
+store :: SkovMonad m => BakedBlock -> m ()
+store block = storeBlock (makePendingBlock block dummyTime) >>= \case
+    ResultSuccess -> return()
+    result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result
 
-                      receiveFinMessage ind block delta me expectedResult = do
-                          let msgHdr = FinalizationMessageHeader {
-                                           msgSessionId = _finsSessionId,
-                                           msgFinalizationIndex = ind,
-                                           msgDelta = delta,
-                                           msgSenderIndex = me
-                                       }
-                              wmvbaMsg = makeWMVBAWitnessCreatorMessage (roundBaid _finsSessionId ind delta)
-                                                                        (getHash block)
-                                                                        (bakerAggregationKey fmId)
-                              fmsg = signFinalizationMessage (bakerSignKey fmId) msgHdr wmvbaMsg
-                          finalizationReceiveMessage (FPMMessage fmsg) >>= \result ->
-                              unless (result == expectedResult) $
-                                fail $ "Could not receive finalization message for the following block:\n" ++ show block
-                                        ++ ".\nExpected result: " ++ show result ++ ". Actual result: " ++ show expectedResult
+receiveFinMessage :: (FinalizationMonad m, MonadIO m)
+                  => FinalizationIndex
+                  -> BakedBlock -- the block to be finalized
+                  -> BlockHeight
+                  -> FinalizationSessionId
+                  -> Party -- finalization committee member whose signature we create
+                  -> BakerIdentity -- baker identity of finalization committee member
+                  -> UpdateResult -- expected result
+                  -> m ()
+receiveFinMessage ind block delta sessId me bId expectedResult = do
+    let msgHdr = FinalizationMessageHeader {
+                   msgSessionId = sessId,
+                   msgFinalizationIndex = ind,
+                   msgDelta = delta,
+                   msgSenderIndex = me
+               }
+        wmvbaMsg = makeWMVBAWitnessCreatorMessage (roundBaid sessId ind delta)
+                                                (getHash block)
+                                                (bakerAggregationKey bId)
+        fmsg = signFinalizationMessage (bakerSignKey bId) msgHdr wmvbaMsg
+    finalizationReceiveMessage (FPMMessage fmsg) >>= \result -> do
+        unless (result == expectedResult) $
+            fail $ "Could not receive finalization message for index " ++ show (theFinalizationIndex ind)
+                ++ "\nfor the following block:\n" ++ show block
+                ++ ".\nExpected result: " ++ show expectedResult ++ ". Actual result: " ++ show result
+        liftIO $ putStrLn $ "Received finalization message for block " ++ show (bbSlot block) ++ " and fin index " ++ show (theFinalizationIndex ind)
+            ++ " (" ++ show result ++ " as expected)"
 
-                      verifyFinRec block finInd finBlock sessId finCom = case bfBlockFinalizationData $ bbFields block of
-                          BlockFinalizationData fr@FinalizationRecord{..} -> do
-                              assertEqual "Wrong finalization index" finInd finalizationIndex
-                              assertEqual "Wrong finalization block hash" (getHash finBlock :: BlockHash) finalizationBlockPointer
-                              assertEqual "Finalization proof not verified" True $ verifyFinalProof sessId finCom fr
-                          _ ->
-                              fail "Block 3 does not include finalization record"
-
+bakeForSlotAndVerify :: BakerIdentity
+              -> Slot
+              -> BakedBlock
+              -> FinalizationIndex
+              -> FinalizationSessionId
+              -> FinalizationCommittee
+              -> MySkovT ()
+bakeForSlotAndVerify bid slot finBlock finInd sessId finCom = do
+    block <- bake bid slot
+    -- Check that block contains finalization record for finBlock
+    case bfBlockFinalizationData $ bbFields block of
+        BlockFinalizationData fr@FinalizationRecord{..} -> do
+            assertEqual "Wrong finalization index" finInd finalizationIndex
+            assertEqual "Wrong finalization block hash" (getHash finBlock :: BlockHash) finalizationBlockPointer
+            assertEqual "Finalization proof not verified" True $ verifyFinalProof sessId finCom fr
+            liftIO $ putStrLn $ "Block at slot " ++ show slot ++ " contains finalization proof for block at slot "
+                                ++ show (bbSlot finBlock) ++ " and finalization index " ++ show (theFinalizationIndex finInd)
+                                ++ " verified by finalization committee of " ++ show (length $ parties finCom) ++ " parties."
+        _ ->
+            fail "Block 3 does not include finalization record"
 
 assertEqual :: (Show x, Eq x, Monad m) => String -> x -> x -> m ()
 assertEqual msg expected actual =
     unless (expected == actual) $ error $ msg ++ ":\nExpected: " ++ show expected ++ "\n=Actual:" ++ show actual
 
-makeBaker :: BakerId -> Amount -> Gen BakerInformation
-makeBaker bid initAmount = resize 0x20000000 $ do
+makeBaker :: Amount -> BakerId -> Gen BakerInformation
+makeBaker initAmount bid = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- genBlockKeyPair
         blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
@@ -214,14 +283,16 @@ makeBaker bid initAmount = resize 0x20000000 $ do
         let account = makeBakerAccount bid initAmount
         return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account)
 
--- Create initial states for two bakers and a finalization committee member
-createInitStates :: IO (BakerState, BakerState, BakerState)
-createInitStates = do
+-- Create initial states for two bakers, a finalization committee member, and a list of additional finalization committee members
+createInitStates :: Int -> IO (BakerState, BakerState, BakerState, [BakerState])
+createInitStates additionalFinMembers = do
     let bakerAmount = 10 ^ (4 :: Int)
-    baker1 <- generate $ makeBaker 0 bakerAmount
-    baker2 <- generate $ makeBaker 1 bakerAmount
-    finMember <- generate $ makeBaker 2 (bakerAmount * 10 ^ (6 :: Int))
-    let bis = [baker1, baker2, finMember]
+        finMemberAmount = bakerAmount * 10 ^ (6 :: Int)
+    baker1 <- generate $ makeBaker bakerAmount 0
+    baker2 <- generate $ makeBaker bakerAmount 1
+    finMember <- generate $ makeBaker finMemberAmount 2
+    finMembers <- generate $ mapM (makeBaker finMemberAmount . fromIntegral ) [3 .. 2 + additionalFinMembers]
+    let bis = baker1 : baker2 : finMember : finMembers
         genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
         bps = BirkParameters 1 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
         bakerAccounts = map (\(_, _, acc) -> acc) bis
@@ -237,7 +308,8 @@ createInitStates = do
     b1 <- createState baker1
     b2 <- createState baker2
     fState <- createState finMember
-    return (b1, b2, fState)
+    fStates <- mapM createState finMembers
+    return (b1, b2, fState, fStates)
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
@@ -245,11 +317,15 @@ instance Show BakerIdentity where
 instance Show FinalizationInstance where
     show _ = "[Finalization Instance]"
 
-withInitialStates :: (BakerState -> BakerState -> BakerState -> IO ()) -> IO ()
-withInitialStates r = do
-    (b1, b2, fs) <- createInitStates
-    r b1 b2 fs
+withInitialStates :: Int -> (BakerState -> BakerState -> BakerState -> [BakerState] -> IO ()) -> IO ()
+withInitialStates addFinMembers r = do
+    (b1, b2, f, fs) <- createInitStates addFinMembers
+    r b1 b2 f fs
 
 test :: Spec
-test = describe "Concordium.PassiveFinalization" $
-    it "non-finalizer creates finalization records out of existing finalizer signatures" $ withInitialStates runTest
+test = describe "Concordium.PassiveFinalization" $ do
+    it "2 non-fin bakers, 1 fin member, received fin messages: round 2 -> round 1" $ withInitialStates 0 runTestSimple
+    it "2 non-fin bakers, 1 fin member, multiple fin rounds" $ withInitialStates 0 runTestMany
+    it "1 non-fin baker, 2 fin bakers, received fin messages by fin member, multiple fin rounds" $ withInitialStates 0 runTestActiveMany
+    it "2 non-fin bakers, 5 fin members, multiple fin rounds" $ withInitialStates 4 runTestMany
+    it "1 non-fin baker, 5 fin bakers, received fin messages by fin member, multiple fin rounds" $ withInitialStates 4 runTestActiveMany
