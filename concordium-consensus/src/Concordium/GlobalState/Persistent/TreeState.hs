@@ -195,7 +195,7 @@ constructBlock :: (MonadIO m,
 constructBlock Nothing = return Nothing
 constructBlock (Just bytes) =
   case runGet getTriple bytes of
-    Left err -> return Nothing
+    Left _ -> return Nothing
     Right (blockInfo, newBlock, state') -> do
       st <- state'
       let ati = defaultValue

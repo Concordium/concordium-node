@@ -14,6 +14,7 @@
 -- used in the implementation and some lenses to access specific components
 module Concordium.GlobalState.Classes where
 
+import Data.Kind
 import Lens.Micro.Platform
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
@@ -63,9 +64,9 @@ instance (MonadReader r m, HasGlobalStateContext c r) => MonadReader c (FocusGlo
 
 -- |The basic types associated with a monad providing an
 -- implementation of block state.
-class BlockStateTypes (m :: * -> *) where
-    type BlockState m :: *
-    type UpdatableBlockState m :: *
+class BlockStateTypes (m :: Type -> Type) where
+    type BlockState m :: Type
+    type UpdatableBlockState m :: Type
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad
@@ -73,7 +74,7 @@ class BlockStateTypes (m :: * -> *) where
 -- are defined where @t@ is a monad transformer and @m@ implements the typeclass.)
 -- The primary use for this is to provide instances for other types using the
 -- deriving via mechanism.
-newtype MGSTrans t (m :: * -> *) a = MGSTrans (t m a)
+newtype MGSTrans t (m :: Type -> Type) a = MGSTrans (t m a)
     deriving (Functor, Applicative, Monad, MonadTrans, MonadIO)
 
 deriving instance (MonadReader r (t m)) => MonadReader r (MGSTrans t m)

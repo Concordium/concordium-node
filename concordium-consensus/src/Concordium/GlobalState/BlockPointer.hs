@@ -1,6 +1,7 @@
 {-# LANGUAGE StandaloneDeriving, DerivingVia, MultiParamTypeClasses, UndecidableInstances, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
 module Concordium.GlobalState.BlockPointer where
 
+import Data.Kind
 import Data.Serialize
 import Data.Word
 import Data.Hashable
@@ -83,7 +84,7 @@ instance Serialize BasicBlockPointerData where
         put _bpTransactionCount
         put _bpTransactionsEnergyCost
         put _bpTransactionsSize
-        put _bpLastFinalizedHash            
+        put _bpLastFinalizedHash
     get = do
         let
             wordTime :: Word64 -> UTCTime
@@ -116,7 +117,7 @@ instance Serialize BasicBlockPointerData where
 -- * BlockData
 -- * BlockPointerData
 -- * HashableTo BlockHash
-data BlockPointer ati (p :: * -> *) s = BlockPointer {
+data BlockPointer ati (p :: Type -> Type) s = BlockPointer {
     -- |Information about the block, e.g., height, transactions, ...
     _bpInfo :: !BasicBlockPointerData,
     -- |Pointer to the parent (circular reference for genesis block)
