@@ -6,6 +6,7 @@ import Control.Monad.Trans.Maybe
 import qualified Data.HashSet as HS
 import Lens.Micro.Platform
 import Control.Monad.Identity
+import Data.Kind
 
 import Data.Pool
 import Database.Persist.Sql
@@ -65,7 +66,7 @@ type family Footprint a
 type instance Footprint () = ()
 type instance Footprint AccountTransactionIndex = HS.HashSet AccountAddress
 
-class (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (m :: * -> *) where
+class (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (m :: Type -> Type) where
   -- |Type of values stored in the block pointer, e.g., a map Address -> Summary
   type ATIStorage m
 

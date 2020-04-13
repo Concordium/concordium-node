@@ -57,7 +57,6 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Block
-import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Parameters

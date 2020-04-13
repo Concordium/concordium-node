@@ -41,7 +41,6 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
-import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext(..), PersistentBlockStateMonad, PersistentBlockState)
 import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
