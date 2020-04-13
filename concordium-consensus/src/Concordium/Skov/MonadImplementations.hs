@@ -14,6 +14,7 @@
     #-}
 module Concordium.Skov.MonadImplementations where
 
+import Data.Kind
 import Control.Monad.State.Class
 import Control.Monad.State.Strict
 import Control.Monad.Reader
@@ -118,7 +119,7 @@ instance SkovTimerHandlers (SkovHandlers t c m) c m where
 instance SkovPendingLiveHandlers (SkovHandlers t c m) m where
     handlePendingLive = shPendingLive
 
-data SkovPassiveHandlers (c :: *) m = SkovPassiveHandlers {
+data SkovPassiveHandlers (c :: Type) m = SkovPassiveHandlers {
     sphPendingLive :: m ()
 }
 
@@ -280,7 +281,7 @@ class FinalizationConfig c where
 data SkovConfig gsconfig finconfig handlerconfig = SkovConfig gsconfig !finconfig !handlerconfig
 
 
-data NoFinalization (t :: *) = NoFinalization !GenesisData
+data NoFinalization (t :: Type) = NoFinalization !GenesisData
 
 instance FinalizationConfig (SkovConfig gsconf (NoFinalization t) hconf) where
     type FCContext (SkovConfig gsconf (NoFinalization t) hconf) = ()
@@ -302,7 +303,7 @@ instance (Monad m)
         => FinalizationOutputMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m) where
     broadcastFinalizationPseudoMessage _ = return ()
 
-data ActiveFinalization (t :: *) = ActiveFinalization !FinalizationInstance !GenesisData
+data ActiveFinalization (t :: Type) = ActiveFinalization !FinalizationInstance !GenesisData
 
 instance FinalizationConfig (SkovConfig gc (ActiveFinalization t) hc) where
     type FCContext (SkovConfig gc (ActiveFinalization t) hc) = FinalizationInstance
@@ -320,7 +321,7 @@ instance (SkovFinalizationHandlers h m, Monad m)
         => FinalizationOutputMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m) where
     broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
 
-data BufferedFinalization (t :: *) = BufferedFinalization !FinalizationInstance !GenesisData
+data BufferedFinalization (t :: Type) = BufferedFinalization !FinalizationInstance !GenesisData
 
 data BufferedFinalizationState t = BufferedFinalizationState {
         _bfsFinalization :: !(FinalizationState t),

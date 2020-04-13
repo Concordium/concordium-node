@@ -9,9 +9,8 @@ import qualified Data.HashSet as HashSet
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
-
+import qualified Data.Kind as DK
 import Control.Monad
-import Control.Monad.Writer.Class(MonadWriter)
 
 import Concordium.Types
 import Concordium.GlobalState.TreeState
@@ -20,8 +19,6 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Block(blockSlot)
-import Concordium.GlobalState.Classes(MGSTrans)
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -50,7 +47,7 @@ deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState 
 instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
   type ATIStorage (BlockStateMonad w state m) = ATIStorage m
 
-data LogSchedulerState (m :: * -> *) = LogSchedulerState {
+data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
   _lssSchedulerEnergyUsed :: !Energy,
   _lssNextIndex :: !TransactionIndex,
