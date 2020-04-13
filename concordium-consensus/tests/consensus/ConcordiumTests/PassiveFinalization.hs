@@ -77,6 +77,9 @@ newtype DummyTimer = DummyTimer Integer
 
 type MySkovT = SkovT MyHandlers (Config DummyTimer) (StateT () LogIO)
 
+instance MonadFail MySkovT where
+  fail = error
+
 dummyHandlers :: MyHandlers
 dummyHandlers = SkovHandlers {..}
     where
@@ -215,12 +218,12 @@ bake bid n = do
           (\BS.BlockPointer {_bpBlock = NormalBlock block} -> return block)
           mb
 
-store :: SkovMonad m => BakedBlock -> m ()
+store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
 store block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> return()
     result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result
 
-receiveFinMessage :: (FinalizationMonad m, MonadIO m)
+receiveFinMessage :: (FinalizationMonad m, MonadIO m, MonadFail m)
                   => FinalizationIndex
                   -> BakedBlock -- the block to be finalized
                   -> BlockHeight
