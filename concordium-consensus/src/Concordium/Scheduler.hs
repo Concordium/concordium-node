@@ -838,12 +838,19 @@ handleDeployCredential cdi cdiHash = do
               tsType = Nothing,
               ..
               }
+
       let cdiBytes = S.encode cdi
       let cdv = ID.cdiValues cdi
+
+      cm <- getChainMetadata
+      let expiry = ID.pExpiry (ID.cdvPolicy cdv)
+
       -- check that a registration id does not yet exist
       let regId = ID.cdvRegId cdv
       regIdEx <- accountRegIdExists regId
-      if regIdEx then
+      if expiry < slotTime cm then
+        return $! Just (TxInvalid AccountCredentialInvalid)
+      else if regIdEx then
         return $! (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
       else do
         -- We now look up the identity provider this credential is derived from.

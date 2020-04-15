@@ -38,9 +38,6 @@ emptySpecialBetaAccounts = Set.empty
 class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
 
   tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
-  -- default tlNotifyAccountEffect :: TLItems m ~ () => TLItems m -> TransactionSummary -> m ()
-  -- tlNotifyAccountEffect () = \_ -> return ()
-  -- {-# INLINE tlNotifyAccountEffect #-}
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
