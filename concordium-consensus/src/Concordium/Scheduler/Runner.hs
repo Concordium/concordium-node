@@ -18,7 +18,6 @@ import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.Types
-import Concordium.Types.Execution(Proof)
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
@@ -64,8 +63,8 @@ transactionHelper t =
         let abProofAccount = Types.singletonAOP abProofAccount' -- FIXME: This only works for simple accounts.
             abProofAggregation = Bls.proveKnowledgeOfSK challenge baggsigkey -- TODO: Make sure enough context data is included that this proof can't be reused.
         return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
-    (TJSON meta (RemoveBaker bid proof) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid proof))
+    (TJSON meta (RemoveBaker bid) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid))
     (TJSON meta (UpdateBakerAccount bid ubaAddress kp) keys) ->
       let challenge = runPut (put bid <> put ubaAddress)
       in do
@@ -81,6 +80,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
     (TJSON meta UndelegateStake keys) ->
       return $ signTx keys meta (Types.encodePayload Types.UndelegateStake)
+    (TJSON meta UpdateElectionDifficulty{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.UpdateElectionDifficulty{..})
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -129,8 +130,7 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      baccountKeyPair :: Sig.KeyPair
                  }
                  | RemoveBaker {
-                     rbId :: !BakerId,
-                     rbProof :: !Proof
+                     rbId :: !BakerId
                      }
                  -- FIXME: These should be updated to support more than one keypair.
                  | UpdateBakerAccount {
@@ -147,6 +147,9 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      dsID :: !BakerId
                      }
                  | UndelegateStake
+                 | UpdateElectionDifficulty {
+                     uedDifficulty :: !Double
+                     }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {

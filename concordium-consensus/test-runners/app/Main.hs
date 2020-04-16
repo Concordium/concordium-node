@@ -1,4 +1,5 @@
 {-# LANGUAGE
+    BangPatterns,
     OverloadedStrings,
     CPP,
     ScopedTypeVariables #-}
@@ -38,6 +39,8 @@ import Concordium.Birk.Bake
 import Concordium.Scheduler.Utils.Init.Example as Example
 --import Debug.Trace
 import Concordium.Startup
+import Concordium.Crypto.DummyData (mateuszKP)
+import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
 
 nContracts :: Int
 nContracts = 2
@@ -46,7 +49,7 @@ transactions :: StdGen -> [BlockItem]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (_ : _ : rs) = Example.makeTransferTransaction n : trs (n+1) rs
+        trs n (_ : _ : rs) = Example.makeTransferTransaction (mateuszKP, mateuszAccount) mateuszAccount 123 n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
@@ -58,7 +61,7 @@ sendTransactions bakerId chan (t : ts) = do
 sendTransactions _ _ _ = return ()
 
 relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "// *** relay thread exited on exception: " ++ show e)
+relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn stderr $ "// *** relay thread exited on exception: " ++ show e)
     where
         loop = do
             msg <- readChan inp
@@ -66,7 +69,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
             case msg of
                 MsgNewBlock blockBS -> do
                     case runGet (getBlock now) blockBS of
-                        Right (NormalBlock block) -> do
+                        Right (NormalBlock !block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
@@ -88,7 +91,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> putStrLn $ "
                         writeChan outp (MsgFinalizationReceived () bs)
                 MsgFinalizationRecord fr -> do
                     case runGet get fr of
-                        Right fr' -> writeChan monitor (Right fr')
+                        Right !fr' -> writeChan monitor (Right fr')
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
@@ -131,11 +134,10 @@ genesisState :: GenesisData -> Basic.BlockState
 genesisState genData = Example.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        2
-                       -- (genesisMintPerSlot genData)
-
+                       (genesisControlAccounts genData)
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -154,9 +156,13 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) Hoo
 
 main :: IO ()
 main = do
-    let n = 5
+    let n = 6
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0 dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    let (gen, bis) = makeGenesisData now n 1 0.5 0
+                     (fromIntegral n + 1) -- dummyFinalizationCommitteeMaxSize
+                     dummyCryptographicParameters
+                     dummyIdentityProviders
+                     [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
@@ -185,11 +191,16 @@ main = do
             readChan monitorChan >>= \case
                 Left (bh, block, gs') -> do
                     let ts = blockTransactions block
-                    let stateStr = show gs'
-
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    -- let stateStr = show gs'
+                    let finInfo = case bfBlockFinalizationData (bbFields block) of
+                            NoFinalizationData -> ""
+                            BlockFinalizationData fr -> "\\lfin.wits:" ++ show (finalizationProofParties $ finalizationProof fr)
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++  "\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized block) ++ " [style=dotted];"
+                    case (blockFinalizationData block) of
+                        NoFinalizationData -> return ()
+                        BlockFinalizationData fr ->
+                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

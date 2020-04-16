@@ -1,4 +1,4 @@
-{-# LANGUAGE TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts #-}
+{-# LANGUAGE TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.CatchUp where
 
@@ -11,8 +11,11 @@ import Control.Monad
 import Control.Monad.IO.Class
 import Lens.Micro.Platform
 import System.Random
+import Data.Serialize
+import Data.Maybe
 
 import Concordium.Crypto.SHA256
+import qualified Concordium.Crypto.SignatureScheme as SigScheme
 
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
@@ -23,23 +26,22 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
-
+import Concordium.Types (Amount(..))
 import Concordium.Types.HashableTo
+
 import Concordium.Logger
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
-import Concordium.Startup(dummyCryptographicParameters)
-import Concordium.Skov.CatchUp
 import Concordium.Types (Energy(..))
+
+import ConcordiumTests.Konsensus hiding (tests)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
-
-import ConcordiumTests.Konsensus hiding (tests, myEvalSkovT)
 
 runKonsensus :: RandomGen g => Int -> g -> States -> ExecState -> IO States
 runKonsensus steps g states es
@@ -47,10 +49,10 @@ runKonsensus steps g states es
     | otherwise = do
             let ((rcpt, ev), events', g') = selectFromSeq g (es ^. esEventPool)
             let es1 = es & esEventPool .~ events'
-            let (bkr, fi, fs) = states Vec.! rcpt
+            let (bkr, _, _, fi, fs) = states Vec.! rcpt
             let btargets = [x | x <- [0..length states - 1], x /= rcpt]
             let continue fs' es' = do
-                        let states' = states & ix rcpt . _3 .~ fs'
+                        let states' = states & ix rcpt . _5 .~ fs'
                         runKonsensus (steps - 1) g' states' es'
             let handlers = dummyHandlers rcpt btargets
             case ev of
@@ -69,10 +71,10 @@ runKonsensus steps g states es
                     (_, fs', es') <- myRunSkovT (receiveTransaction tr) handlers fi fs es1
                     continue fs' es'
                 EFinalization fmsg -> do
-                    (_, fs', es') <- myRunSkovT (receiveFinalizationPseudoMessage fmsg) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveMessage fmsg) handlers fi fs es1
                     continue fs' es'
                 EFinalizationRecord frec -> do
-                    (_, fs', es') <- myRunSkovT (finalizeBlock frec) handlers fi fs es1
+                    (_, fs', es') <- myRunSkovT (finalizationReceiveRecord False frec) handlers fi fs es1
                     continue fs' es'
                 ETimer t timerEvent ->
                     if t `Set.member` (es ^. esCancelledTimers) then
@@ -88,17 +90,17 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
-            fps = FinalizationParameters [VoterInfo vvk vrfk 1 vblspk | (_, (BakerInfo vrfk vvk vblspk _ _, _, _)) <- take 1 bis] 2
-            bakerAccounts = map (\(_, (_, _, acc)) -> acc) bis
+            fps = FinalizationParameters 2 1000
+            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
-        res <- liftIO $ mapM (\(_, (_, bid, _)) -> do
+        res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
                                         (ActiveFinalization fininst gen)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ initialiseSkov config
-                                return (bid, initCtx, initState)
+                                return (bid, binfo, kp, initCtx, initState)
                              ) bis
         return $ Vec.fromList res
 
@@ -106,18 +108,42 @@ simpleCatchUpCheck :: States -> Property
 simpleCatchUpCheck ss =
         conjoin [monadicIO $ catchUpCheck s1 s2 | s1 <- toList ss, s2 <- toList ss ]
 
-myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) LogIO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
-myEvalSkovT a ctx st = liftIO $ runSilentLogger $ evalSkovT a () ctx st
+type TrivialHandlers = SkovHandlers DummyTimer (Config DummyTimer) LogIO
 
-catchUpCheck :: (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
-catchUpCheck (_, c1, s1) (_, c2, s2) = do
+trivialHandlers :: TrivialHandlers
+trivialHandlers = SkovHandlers {..}
+    where
+        shBroadcastFinalizationMessage _ = error "Unimplemented"
+        shBroadcastFinalizationRecord _ = error "Unimplemented"
+        shOnTimeout _ _ = error "Unimplemented"
+        shCancelTimer _ = error "Unimplemented"
+        shPendingLive = error "Unimplemented"
+
+trivialEvalSkovT :: (MonadIO m) => SkovT TrivialHandlers (Config DummyTimer) LogIO a -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivialHandlers ctx st
+    where
+        doLog src LLError msg = error $ show src ++ ": " ++ msg
+        doLog _ _ _ = return ()
+
+catchUpCheck :: (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
+catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myEvalSkovT (getCatchUpStatus True) c1 s1
-        response <- myEvalSkovT (handleCatchUp request) c2 s2
-        monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show response ++ "\n"
+        (response, result) <- trivialEvalSkovT (handleCatchUpStatus request) c2 s2
+        let
+            formatMsg (MessageBlock, b) = show (hash b)
+            formatMsg (MessageFinalizationRecord, fr) = case decode fr of
+                    Left e -> error e
+                    Right fr' -> "Proof(" ++ show (finalizationIndex fr') ++ ", " ++ show (finalizationBlockPointer fr') ++ ")"
+        monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show (fmap (_1 %~ fmap formatMsg) response) ++ "\n"
+        cuwp <- case result of
+            ResultSuccess -> return False
+            ResultPendingBlock -> fail "ResultPendingBlock should not be the result when message is not a response"
+            ResultContinueCatchUp -> return True
+            ResultInvalid -> fail "Unexpected invalid result"
+            _ -> fail "Unexpected result"
         case response of
-            Left err -> fail $ "Catch-up failed: " ++ err
-            Right (Nothing, _) -> fail "Response expected (to catch-up request), but none given"
-            Right (Just (l, rstatus), cuwp) -> do
+            Nothing -> fail "Response expected (to catch-up request), but none given"
+            Just (l, rstatus) -> do
                 unless (cusIsResponse rstatus) $ fail "Response flag not set"
                 lfh1 <- myEvalSkovT (bpHeight <$> lastFinalizedBlock) c1 s1
                 checkBinary (==) (cusLastFinalizedHeight request) lfh1 "==" "catch-up status last fin height" "actual last fin height"
@@ -133,23 +159,26 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBlocks = Set.fromList [getHash bp | (Right bp) <- l]
+                    let recBHs = [getHash bp | (MessageBlock, runGet (B.getBlock 0) -> Right bp) <- l]
+                    let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
                     let reqFin = Set.fromList $ finalizationBlockPointer . fst <$> toList (ssGSState s1 ^. BTS.finalizationList)
                     let respFin = Set.fromList $ finalizationBlockPointer . fst <$> toList (ssGSState s2 ^. BTS.finalizationList)
                     let
                         testList _ knownFin [] = checkBinary (==) knownFin respFin "==" "finalized blocks after catch-up" "respondent finalized blocks"
-                        testList knownBlocks knownFin (Left finRec : rs) = do
+                        testList knownBlocks knownFin ((MessageFinalizationRecord, decode -> Right finRec) : rs) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
-                        testList knownBlocks knownFin (Right bp : rs) = do
-                            case blockFields bp of
-                              Just bf -> do
-                                checkBinary Set.member (blockPointer bf) knownBlocks "in" "block parent" "known blocks"
-                                checkBinary Set.member (blockLastFinalized bf) knownFin "in" "block parent" "known finalized blocks"
-                              Nothing -> return ()
-                            testList (Set.insert (bpHash bp) knownBlocks) knownFin rs
+                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getBlock 0) -> Right (B.NormalBlock bp)) : rs) = do
+                            checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
+                            knownFin' <- case blockFinalizationData bp of
+                                NoFinalizationData -> return knownFin
+                                BlockFinalizationData finRec -> do
+                                    checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
+                                    return (Set.insert (finalizationBlockPointer finRec) knownFin)
+                            testList (Set.insert (getHash bp) knownBlocks) knownFin' rs
+                        testList _ _ _ = error "Serialization failure"
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
                     -- * A block is not sent before its parent
                     -- * A block is not sent before finalization of its last finalized block
@@ -157,13 +186,12 @@ catchUpCheck (_, c1, s1) (_, c2, s2) = do
                     -- Furthermore, check that the finalization records + the requestor's finalized blocks
                     -- add up to the respondent's finalized blocks.
                     testList reqLive reqFin l
-                    let recBPs = [bp | (Right bp) <- l]
+                    recBPs <- myEvalSkovT (forM recBHs (\bh -> fromJust <$> resolveBlock bh)) c2 s2
                     case recBPs of
                         [] -> return ()
                         (hbp : bps) -> forM_ bps $ \bp -> checkBinary (<=) (bpArriveTime hbp) (bpArriveTime bp) "<=" "first block time" "other block time"
                 return True
     where
-        checkBinary bop x y sbop sx sy = unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
         isLive TS.BlockAlive{} = True
         isLive TS.BlockFinalized{} = True
         isLive _ = False

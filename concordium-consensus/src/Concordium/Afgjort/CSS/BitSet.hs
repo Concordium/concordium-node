@@ -25,6 +25,9 @@ singleton i = bit (fromEnum i)
 insert :: (Enum a) => a -> BitSet -> BitSet
 insert i s = setBit s (fromEnum i)
 
+delete :: (Enum a) => a -> BitSet -> BitSet
+delete i s = clearBit s (fromEnum i)
+
 foldl :: (Enum b) => (a -> b -> a) -> a -> BitSet -> a
 foldl _ st 0 = st
 foldl f st0 s0 = go 0 st0 s0

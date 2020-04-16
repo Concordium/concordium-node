@@ -38,6 +38,7 @@ import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationIn
 import Concordium.Birk.Bake
 
 import Concordium.Startup
+import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
 
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -133,7 +134,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (MsgFinalizationRecordReceived myPeer fr)
                 MsgCatchUpRequired target -> do
-                    cur <- getCatchUpStatus sr True
+                    cur <- runStateQuery sr (getCatchUpStatus True)
                     delayed $ writeChan (peerChan target) (MsgCatchUpStatusReceived myPeer (encode cur))
                 MsgDirectedBlock target b -> usually $ delayed $ writeChan (peerChan target) (MsgBlockReceived myPeer b)
                 MsgDirectedFinalizationRecord target fr -> usually $ delayed $ writeChan (peerChan target) (MsgFinalizationReceived myPeer fr)
@@ -196,20 +197,21 @@ gsToString gs = intercalate "\\l" . map show $ keys
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+
 genesisState :: GenesisData -> Basic.BlockState
 genesisState genData = Example.initialState
                        (genesisBirkParameters genData)
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
+                       (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        2
-                       -- (genesisMintPerSlot genData)
+                       (genesisControlAccounts genData)
 
 main :: IO ()
 main = do
     let n = 3
     now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
@@ -240,7 +242,7 @@ main = do
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, sr, connectedRef, logM), cs) -> do
         let cs' = (\(c, _, _, _, _) -> c) <$> cs
-        when False $ do
+        when True $ do
             _ <- forkIO $ toggleConnection logM sr connectedRef cin cs'
             return ()
         forkIO $ relay (Peer cin) cout sr connectedRef monitorChan cin cs'
@@ -251,9 +253,12 @@ main = do
                     let stateStr = show gs' {-case gs' of
                                     Nothing -> ""
                                     Just gs -> gsToString gs -}
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    case (blockFinalizationData block) of
+                        NoFinalizationData -> return ()
+                        BlockFinalizationData fr ->
+                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

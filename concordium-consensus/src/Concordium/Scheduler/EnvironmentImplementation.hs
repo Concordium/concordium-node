@@ -29,7 +29,7 @@ import Concordium.GlobalState.Bakers as Bakers
 import qualified Acorn.Core as Core
 
 -- |Chain metadata together with a set of special accounts which have special
--- rights during the beta phase, as well as 
+-- rights during the beta phase, as well as the maximum allowed block energy.
 data ContextState = ContextState{
   _specialBetaAccounts :: !(Set.HashSet AccountAddress),
   _chainMetadata :: !ChainMetadata,
@@ -207,7 +207,7 @@ instance (MonadReader ContextState m,
     s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
                       s
                       (Map.toList (cs ^. instanceUpdates)))
-    -- Notify account transfers, but also 
+    -- Notify account transfers, but also log the affected accounts.
     s'' <- lift (foldM (\curState accUpdate -> do
                            tell (logAccount (accUpdate ^. auAddress))
                            bsoModifyAccount curState accUpdate
@@ -280,6 +280,12 @@ instance (MonadReader ContextState m,
     (r, s') <- lift (bsoDelegateStake s acc bid)
     schedulerBlockState .= s'
     return r
+
+  {-# INLINE updateElectionDifficulty #-}
+  updateElectionDifficulty d = do
+    s <- use schedulerBlockState
+    s' <- lift (bsoSetElectionDifficulty s d)
+    schedulerBlockState .= s'
 
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do
