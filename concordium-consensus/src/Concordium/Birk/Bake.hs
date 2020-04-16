@@ -1,15 +1,15 @@
 {-# LANGUAGE
-    DeriveGeneric, OverloadedStrings #-}
+    DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds #-}
 module Concordium.Birk.Bake(
-  bakeForSlot,
   BakerIdentity(..),
   bakerSignPublicKey,
-  bakerElectionPublicKey) where
+  bakerElectionPublicKey,
+  BakerMonad(..)) where
 
 import GHC.Generics
 import Control.Monad.Trans.Maybe
-import Control.Monad
 import Control.Monad.Trans
+import Control.Monad
 
 import Data.Serialize
 import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
@@ -24,7 +24,8 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState hiding (CredentialDeployment)
-import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
@@ -33,7 +34,8 @@ import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
-
+import Concordium.Afgjort.Finalize
+import Concordium.Skov
 import Concordium.Skov.Update (updateFocusBlockTo)
 
 import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult)
@@ -98,7 +100,7 @@ maintainTransactions bp FilteredTransactions{..} = do
                   commitTransaction slot bh (fst tx) i) ftAdded [0..]
 
     -- lookup the maximum block size as mandated by the tree state
-    maxSize <- rpBlockSize <$> getRuntimeParameters
+    maxSize <- rpBlockSize <$> TS.getRuntimeParameters
 
     -- Now we need to try to purge each invalid transaction from the pending table.
     -- Moreover all transactions successfully added will be removed from the pending table.
@@ -127,7 +129,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- of reuse of RegId then this could be due to somebody else deploying that credential,
     -- and therefore that is block dependent, and we should perhaps not remove the credential.
     -- However modulo crypto breaking, this can only happen if the user has tried to deploy duplicate
-    -- credentials (with high probability), so it is likely fine to
+    -- credentials (with high probability), so it is likely fine to remove it.
     let purgeCredential cpt cred = do
           b <- purgeTransaction (CredentialDeployment <$> cred)
           if b then return cpt
@@ -163,8 +165,8 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions ptWithUnprocessedCreds
 
 
-bakeForSlot :: (BlockPointerMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
-bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
+doBakeForSlot :: (BlockPointerMonad m, FinalizationMonad m, SkovMonad m, MonadIO m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     birkParams@BirkParameters{..} <- getBirkParameters slot bb
@@ -173,13 +175,22 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
         leaderElection (_birkLeadershipElectionNonce birkParams) _birkElectionDifficulty slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
     nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
-    lastFinal <- lastFinalizedBlock
+    nfr <- lift (nextFinalizationRecord bb)
+    (lastFinal, finData) <- case nfr of
+        Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
+        Just finRec ->
+            resolveBlock (finalizationBlockPointer finRec) >>= \case
+                -- It is possible that we have a finalization proof but we
+                -- don't actually have the block that was finalized.
+                -- Possibly we should not even bake in this situation.
+                Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
+                Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let bps = birkParams{_birkSeedState = updateSeedState slot nonce _birkSeedState}
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce (bpHash lastFinal) (map fst (ftAdded filteredTxs)) receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
@@ -190,3 +201,15 @@ bakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     putFocusBlock newbp
     logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
     return newbp
+
+class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
+    -- |Create a block pointer for the given slot.
+    -- This function is in charge of accumulating the pending transactions and
+    -- credential deployments, construct the block and update the transaction table,
+    -- pending transaction table and block table. It will also update the focus block
+    -- to the newly created block.
+    bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+
+instance (FinalizationMonad (SkovT h c m), MonadIO m, TreeStateMonad (SkovT h c m), SkovMonad (SkovT h c m)) =>
+        BakerMonad (SkovT h c m) where
+    bakeForSlot = doBakeForSlot

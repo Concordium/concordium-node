@@ -126,3 +126,7 @@ unionNominationSet ns1 ns2 = NominationSet {
         nomTop = Set.union (nomTop ns1) (nomTop ns2),
         nomBot = Set.union (nomBot ns1) (nomBot ns2)
     }
+
+-- |Returns 'True' if a nomination set contains a nomination from every party.
+isFull :: NominationSet -> Bool
+isFull NominationSet{..} = Set.size (Set.union nomBot nomTop) == fromIntegral nomMax + 1

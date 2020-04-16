@@ -5,7 +5,7 @@
     DerivingVia #-}
 module Concordium.Afgjort.Finalize.Types where
 
-
+import qualified Data.Map as Map
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
 import Data.Word
@@ -21,6 +21,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
+import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.Afgjort.Types
@@ -31,6 +32,15 @@ data FinalizationInstance = FinalizationInstance {
     finMyVRFKey :: !VRF.KeyPair,
     finMyBlsKey :: !Bls.SecretKey
 }
+
+class HasFinalizationInstance f where
+    finalizationInstance :: f -> Maybe FinalizationInstance
+instance HasFinalizationInstance FinalizationInstance where
+    finalizationInstance = Just
+    {-# INLINE finalizationInstance #-}
+instance HasFinalizationInstance () where
+    finalizationInstance _ = Nothing
+    {-# INLINE finalizationInstance #-}
 
 data PartyInfo = PartyInfo {
     partyIndex :: !Party,
@@ -47,18 +57,30 @@ data FinalizationCommittee = FinalizationCommittee {
     parties :: !(Vector PartyInfo),
     totalWeight :: !VoterPower,
     corruptWeight :: !VoterPower
-}
+} deriving (Eq, Show)
 
 committeeMaxParty :: FinalizationCommittee -> Party
 committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
-makeFinalizationCommittee :: FinalizationParameters -> FinalizationCommittee
-makeFinalizationCommittee FinalizationParameters {..} = FinalizationCommittee {..}
+-- |Create a finalization committee by selecting only the bakers whose stake exceeds
+-- a certain fraction of the total stake. The fraction is taken from the FinalizationParameters.
+makeFinalizationCommittee :: FinalizationParameters -> Amount -> Bakers -> FinalizationCommittee
+makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = FinalizationCommittee {..}
     where
-        parties = Vec.fromList $ zipWith makeParty [0..] finalizationCommittee
+        voters = bakerInfoToVoterInfo <$> filterFinalizationBakers finalizationCommitteeMaxSize bakers totalGTU
+        parties = Vec.fromList $ zipWith makeParty [0..] voters
         makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
+
+-- |Filter out the bakers whose stake exceeds the total stake fraction.
+filterFinalizationBakers :: FinalizationCommitteeSize -> Bakers -> Amount -> [BakerInfo]
+filterFinalizationBakers maxSize bakers totalGTU =
+        [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalGTU `div` fromIntegral maxSize]
+        where bakerInfos = Map.elems $ _bakerMap bakers
+
+bakerInfoToVoterInfo :: BakerInfo -> VoterInfo
+bakerInfoToVoterInfo (BakerInfo vrfk vvk vblsk (Amount stake) _) = VoterInfo vvk vrfk (VoterPower stake) vblsk
 
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: !BlockHash,
@@ -239,3 +261,9 @@ fpmHeader (FPMCatchUp CatchUpMessage{..}) = FinalizationMessageHeader {
             msgDelta = 0,
             msgSenderIndex = cuSenderIndex
         }
+
+roundBaid :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> ByteString
+roundBaid finSessId finIx finDelta = runPut $ do
+        S.put finSessId
+        S.put finIx
+        S.put finDelta

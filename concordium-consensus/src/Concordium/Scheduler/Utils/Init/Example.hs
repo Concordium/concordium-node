@@ -3,7 +3,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
-    (initialState, makeTransaction, makeTransferTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime, dummyCreationTime) where
+    (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction, createCustomAccount,
+     mateuszAccount, dummyCredential) where
 
 import qualified Data.HashMap.Strict as Map
 
@@ -14,6 +15,7 @@ import qualified Data.PQueue.Prio.Max as Queue
 import qualified Concordium.ID.Types as ID
 
 import Concordium.Types
+import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
@@ -108,18 +110,34 @@ makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransact
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
                                                               [Core.Literal (Core.Int64 10)])
                                                     )
-
 {-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
-makeTransferTransaction :: Nonce -> Types.BlockItem
-makeTransferTransaction n = fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
+makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BlockItem
+makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
+  fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx fromKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
-            thSender = mateuszAccount,
-            thEnergyAmount = 1000000,
+            thSender = fromAddress,
+            thEnergyAmount = Cost.checkHeader 100 1 + Cost.transferAccount,
             thExpiry = dummyMaxTransactionExpiryTime
-            }
-        payload = Types.encodePayload (Types.Transfer (AddressAccount mateuszAccount) 123)
+        }
+        payload = Types.encodePayload (Types.Transfer (AddressAccount toAddress) amount)
+
+initialStateWithMateuszAccount :: BirkParameters
+                               -> CryptographicParameters
+                               -> [Account]
+                               -> [Types.IpInfo]
+                               -> Int
+                               -> Amount
+                               -> BlockState.BlockState
+initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amount =
+    initialState birkParams cryptoParams bakerAccounts ips n [createCustomAccount amount mateuszKP mateuszAccount]
+
+createCustomAccount :: Amount -> Sig.KeyPair -> AccountAddress -> Account
+createCustomAccount amount kp address =
+    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address
+        & (accountAmount .~ amount)
+        . (accountCredentials .~ Queue.singleton dummyMaxValidTo (dummyCredential address dummyMaxValidTo dummyCreatedAt))
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}
@@ -128,20 +146,19 @@ initialState :: BirkParameters
              -> [Account]
              -> [Types.IpInfo]
              -> Int
+             -> [Account]
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n =
+initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
-                          & (accountAmount .~ initialAmount)
-                          . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential mateuszAccount dummyMaxExpiryTime dummyCreationTime))]
+        allAccounts = customAccounts ++ bakerAccounts
         initAccount = foldl (flip Acc.putAccountWithRegIds)
                             Acc.emptyAccounts
-                            (customAccounts ++ bakerAccounts)
+                            allAccounts
+        initialAmount = sum (_accountAmount <$> allAccounts)
         gs = BlockState.emptyBlockState birkParams cryptoParams &
                (BlockState.blockIdentityProviders .~ Types.IdentityProviders (Map.fromList (map (\r -> (Types.ipIdentity r, r)) ips))) .
                (BlockState.blockAccounts .~ initAccount) .

@@ -14,7 +14,6 @@ import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -35,6 +34,10 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+
+-- | The amount of energy to deposit in every test transaction.
+energy :: Energy
+energy = 10000
 
 staticKeys :: [(KeyPair, AccountAddress)]
 staticKeys = ks (mkStdGen 1333)
@@ -88,7 +91,7 @@ addBaker m0 = do
                       signKey
                       bkrAcct
                       kp,
-            metadata = makeDummyHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
+            metadata = makeDummyHeader bkrAcct nonce energy,
             keypair = kp
         }, m0
             & mAccounts . ix bkrAcct . _2 %~ (+1)
@@ -109,8 +112,8 @@ removeBaker m0 = do
         let (address, srcKp) = m0 ^. mBakerMap . singular (ix bkr)
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
-            payload = RemoveBaker bkr "<dummy proof>",
-            metadata = makeDummyHeader address srcN (Cost.checkHeader + Cost.removeBaker),
+            payload = RemoveBaker bkr,
+            metadata = makeDummyHeader address srcN energy,
             keypair = srcKp
         }, m0
             & mAccounts . ix address . _2 %~ (+1)
@@ -123,7 +126,7 @@ delegateStake m0 = do
         bkr <- elements (_mBakers m0)
         return (TJSON {
             payload = DelegateStake bkr,
-            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN energy,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -132,7 +135,7 @@ undelegateStake m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = UndelegateStake,
-            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN energy,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -143,7 +146,7 @@ simpleTransfer m0 = do
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
             payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
-            metadata = makeDummyHeader srcAcct srcN Cost.checkHeader,
+            metadata = makeDummyHeader srcAcct srcN energy,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 

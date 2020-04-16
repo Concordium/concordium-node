@@ -8,6 +8,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import qualified Concordium.GlobalState.Parameters as Param
@@ -67,3 +68,9 @@ doGetBlocksAtHeight h = do
             | otherwise = do
                 par <- bpParent bp
                 findFrom par
+
+doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
+{-# INLINE doBlockLastFinalizedIndex #-}
+doBlockLastFinalizedIndex bp = getBlockStatus (bpLastFinalizedHash bp) <&> \case
+        Just (BlockFinalized _ fr) -> finalizationIndex fr
+        _ -> error "Invariant violation: last finalized block is not finalized."
