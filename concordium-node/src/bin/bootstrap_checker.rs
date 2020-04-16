@@ -36,7 +36,7 @@ fn main() -> Result<(), Error> {
         Some(data_dir_path),
     );
 
-    spawn(&node, poll);
+    spawn(&node, poll, None);
     attempt_bootstrap(&node);
 
     loop {
