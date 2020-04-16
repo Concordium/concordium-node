@@ -99,7 +99,7 @@ pub fn make_node_and_sync(
     let stats = Arc::new(StatsExportService::new().unwrap());
     let (node, poll) = P2PNode::new(None, &config, node_type, stats, None);
 
-    spawn(&node, poll);
+    spawn(&node, poll, None);
     Ok(node)
 }
 

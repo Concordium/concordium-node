@@ -22,9 +22,8 @@ use consensus_rust::{
     messaging::ConsensusMessage,
 };
 use p2p_client::{
-    common::{get_current_stamp, P2PNodeId, PeerType},
+    common::{P2PNodeId, PeerType},
     configuration as config,
-    network::NetworkId,
     p2p::{
         connectivity::connect,
         maintenance::{attempt_bootstrap, spawn},
@@ -36,11 +35,7 @@ use p2p_client::{
     utils::{self, get_config_and_logging_setup},
 };
 
-use std::{
-    sync::{atomic::Ordering, Arc},
-    thread::{self, JoinHandle},
-    time::Duration,
-};
+use std::{sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
@@ -129,7 +124,7 @@ async fn main() -> Fallible<()> {
     setup_transfer_log_thread(&conf.cli);
 
     // Consensus queue threads
-    let consensus_queue_threads = start_consensus_message_threads(&node, &conf, consensus.clone());
+    let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
 
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
@@ -147,7 +142,7 @@ async fn main() -> Fallible<()> {
     };
 
     // The P2P node event loop thread
-    spawn(&node, poll);
+    spawn(&node, poll, Some(consensus.clone()));
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
@@ -244,36 +239,11 @@ fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>)
 
 fn start_consensus_message_threads(
     node: &Arc<P2PNode>,
-    conf: &config::Config,
     consensus: ConsensusContainer,
 ) -> Vec<JoinHandle<()>> {
     let mut threads: Vec<JoinHandle<()>> = Default::default();
-    let nid = NetworkId::from(conf.common.network_ids[0]); // defaulted so there's always first()
-
-    let peers = Default::default();
-    let node_ref = Arc::clone(node);
-    let peers_ref = Arc::clone(&peers);
-    let consensus_ref = consensus.clone();
-    threads.push(spawn_or_die!("consensus peer list handling", {
-        let mut last_peer_list_update = 0;
-        loop {
-            if node_ref.last_peer_update() > last_peer_list_update {
-                update_peer_list(&node_ref, &peers_ref);
-                last_peer_list_update = get_current_stamp();
-            }
-
-            check_peer_states(&node_ref, nid, &consensus_ref, &peers_ref);
-
-            if node_ref.is_terminated.load(Ordering::Relaxed) {
-                break;
-            }
-
-            thread::sleep(Duration::from_millis(200));
-        }
-    }));
 
     let node_ref = Arc::clone(node);
-    let peers_ref = Arc::clone(&peers);
     threads.push(spawn_or_die!("inbound consensus requests", {
         let consensus_receiver_high_priority =
             CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
@@ -298,7 +268,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_IN_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                        handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
+                        handle_consensus_inbound_msg(&node_ref, &consensus, msg)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -312,7 +282,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "inbound", |msg| {
-                    handle_consensus_inbound_msg(&node_ref, nid, &consensus, msg, &peers_ref)
+                    handle_consensus_inbound_msg(&node_ref, &consensus, msg)
                 });
                 if stop_loop {
                     break 'outer_loop;
@@ -350,7 +320,7 @@ fn start_consensus_message_threads(
             for _ in 0..CONSENSUS_QUEUE_DEPTH_OUT_HI {
                 if let Ok(message) = consensus_receiver_high_priority.try_recv() {
                     let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                        handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
+                        handle_consensus_outbound_msg(&node_ref, msg)
                     });
                     if stop_loop {
                         break 'outer_loop;
@@ -364,7 +334,7 @@ fn start_consensus_message_threads(
             if let Ok(message) = consensus_receiver_low_priority.try_recv() {
                 exhausted = false;
                 let stop_loop = !handle_queue_stop(message, "outbound", |msg| {
-                    handle_consensus_outbound_msg(&node_ref, nid, msg, &peers)
+                    handle_consensus_outbound_msg(&node_ref, msg)
                 });
                 if stop_loop {
                     break 'outer_loop;

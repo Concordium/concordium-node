@@ -136,7 +136,7 @@ impl P2p for RpcServerImpl {
             return Err(Status::new(Code::InvalidArgument, "Missing port"));
         };
         let addr = SocketAddr::new(ip, port);
-        self.node.register_conn_change(ConnChange::NewConn(addr));
+        self.node.register_conn_change(ConnChange::NewConn(addr, PeerType::Node));
         Ok(Response::new(BoolResponse {
             value: true,
         }))

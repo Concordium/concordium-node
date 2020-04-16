@@ -102,7 +102,7 @@ pub enum ConnChange {
     /// To be soft-banned and removed from the list of connections.
     Expulsion(Token),
     /// Prospect node address to attempt to connect to.
-    NewConn(SocketAddr),
+    NewConn(SocketAddr, PeerType),
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
     /// Promotion to post-handshake.
@@ -298,7 +298,7 @@ impl Connection {
             SocketAddr::new(self.remote_peer.addr.ip(), peer_port),
         ));
         self.populate_remote_end_networks(remote_peer, nets);
-        self.handler.bump_last_peer_update();
+        self.handler.register_conn_change(ConnChange::Promotion(self.token));
         debug!("Concluded handshake with peer {}", id);
     }
 
