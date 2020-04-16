@@ -339,7 +339,7 @@ pub fn connect(
 
     if peer_type == PeerType::Node {
         let current_peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
-        if current_peer_count > node.config.max_allowed_nodes {
+        if current_peer_count >= node.config.max_allowed_nodes {
             bail!(
                 "Maximum number of peers reached {}/{}",
                 current_peer_count,

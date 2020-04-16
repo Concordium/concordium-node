@@ -144,6 +144,10 @@ required-features = [ "collector" ]
 name = "network_stress_test"
 path = "src/bin/network_stress_test.rs"
 
+[[bin]]
+name = "bootstrap_checker"
+path = "src/bin/bootstrap_checker.rs"
+
 [[bench]]
 name = "p2p_lib_benchmark"
 harness = false
