@@ -120,9 +120,6 @@ async fn main() -> Fallible<()> {
         &consensus_database_url,
     )?;
 
-    // Start the transaction logging thread
-    setup_transfer_log_thread(&conf.cli);
-
     // Consensus queue threads
     let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
 
@@ -390,23 +387,6 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
                         info!("{}", msg);
                     }
                 }
-                Ok(QueueMsg::Stop) => {
-                    debug!("Shutting down transfer log queues");
-                    break;
-                }
-                Err(_) => error!("Error receiving a transfer log message from the consensus layer"),
-            }
-        }
-    })
-}
-
-#[cfg(not(feature = "elastic_logging"))]
-fn setup_transfer_log_thread(_: &config::CliConfig) -> JoinHandle<()> {
-    spawn_or_die!("transfer log", {
-        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
-        loop {
-            match receiver.recv() {
-                Ok(QueueMsg::Relay(msg)) => info!("{}", msg),
                 Ok(QueueMsg::Stop) => {
                     debug!("Shutting down transfer log queues");
                     break;

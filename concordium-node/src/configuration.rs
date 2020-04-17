@@ -381,16 +381,6 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
-    #[cfg(feature = "elastic_logging")]
-    #[structopt(long = "elastic-logging", help = "Enable logging to Elastic Search")]
-    pub elastic_logging_enabled: bool,
-    #[cfg(feature = "elastic_logging")]
-    #[structopt(
-        long = "elastic-logging-url",
-        help = "URL to use for logging to Elastic Search",
-        default_value = "http://127.0.0.1:9200"
-    )]
-    pub elastic_logging_url: String,
     #[cfg(feature = "staging_net")]
     #[structopt(long = "staging-net-token", help = "Staging network client token")]
     pub staging_net_token: String,

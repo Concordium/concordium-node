@@ -57,12 +57,11 @@ echo "We will run the following process:
 section "Fetching dependencies"
 
 
-pacman -Sy
+pacman -Sy 
 pacman -S reflector --noconfirm
 reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-pacman -S wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git postgresql-libs --noconfirm
+pacman -Su wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git file postgresql-libs libffi --noconfirm
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
-
 
 # Compile lmdb
 git clone https://github.com/LMDB/lmdb
@@ -73,6 +72,7 @@ git clone https://github.com/LMDB/lmdb
     mv /usr/local/lib/liblmdb* /usr/lib/
     mv /usr/local/include/lmdb.h /usr/include/
 )
+rm -rf lmdb
 
 #############################################################################################################################
 section "Fetching compiler tools"
