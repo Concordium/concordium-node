@@ -31,7 +31,7 @@ RUN \
     mv deps/internal/consensus/crypto/rust-bins/target/release/wallet_server .
     
 ### P2P client
-RUN --mount=type=ssh ./build-binaries.sh "elastic_logging,collector"
+RUN --mount=type=ssh ./build-binaries.sh "collector"
 
 RUN chmod +x /build-project/start.sh
 
@@ -43,7 +43,7 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
-RUN git checkout ab15e0cdade2c038f4c01977246359bd3a60b82e
+RUN git checkout c7d4d210fafae97b7fb14e404d0ff22605ca2223
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
 RUN cp deps/simple-client/extra-libs/*.so /libs

@@ -27,7 +27,6 @@ This repository relies on git submodules for internal component dependencies, so
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries in GIT LFS (Linux only)
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
-* elastic_logging - enable ability to log transaction events to elastic search
 * collector - enables the build of the node-collector and backend
 * staging_net - enables special staging network only features like client username/password validation
 
