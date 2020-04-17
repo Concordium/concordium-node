@@ -354,7 +354,6 @@ instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, LoggerMonad m, Sko
     broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
 
 class HandlerConfig c where
-    handlerLogTransfer :: Proxy c -> HCContext c -> Maybe (LogTransferMethod IO)
     type HCContext c
     type HCState c
     initialiseHandler :: c -> (HCContext c, HCState c)
@@ -367,26 +366,11 @@ class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
 data NoHandler = NoHandler
 
 instance HandlerConfig (SkovConfig gc fc NoHandler) where
-    handlerLogTransfer = \_ _ -> Nothing
     type HCContext (SkovConfig gc fc NoHandler) = ()
     type HCState (SkovConfig gc fc NoHandler) = ()
     initialiseHandler = \_ -> ((),())
 
 instance Monad m => HandlerConfigHandlers (SkovConfig gc fc NoHandler) (SkovT h (SkovConfig gc fc NoHandler) m) where
-    handleBlock = \_ -> return ()
-    handleFinalize = \_ _ -> return ()
-
-
-data HookLogHandler = HookLogHandler (Maybe (LogTransferMethod IO))
-
-instance HandlerConfig (SkovConfig gc fc HookLogHandler) where
-    handlerLogTransfer = \_ -> id
-    type HCContext (SkovConfig gc fc HookLogHandler) = Maybe (LogTransferMethod IO)
-    type HCState (SkovConfig gc fc HookLogHandler) = ()
-    initialiseHandler (SkovConfig _ _ (HookLogHandler logH)) = (logH, ())
-
-
-instance Monad m => HandlerConfigHandlers (SkovConfig gc fc HookLogHandler) (SkovT h (SkovConfig gc fc HookLogHandler) m) where
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ -> return ()
 
@@ -453,12 +437,8 @@ instance (MonadIO m,
     onBlock bp = handleBlock bp
     onFinalize fr bp = handleFinalize fr bp
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
-    logTransfer = fmap liftLM . handlerLogTransfer (Proxy :: Proxy (SkovConfig gsconf finconf hconf)) <$> asks scHandlerContext
-        where
-            liftLM lm bh slot reason = liftIO $ lm bh slot reason
     {-# INLINE onBlock #-}
     {-# INLINE onFinalize #-}
-    {-# INLINE logTransfer #-}
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (NoFinalization t) hc)) (SkovState (SkovConfig gc (NoFinalization t) hc)) (SkovT h (SkovConfig gc (NoFinalization t) hc) m))
     instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),

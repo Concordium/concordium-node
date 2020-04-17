@@ -44,7 +44,7 @@ type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
+type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
 
 newtype Peer = Peer {
@@ -224,14 +224,10 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        let logTransferFile = "transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers"
-        let logT bh slot reason = do
-              appendFile logTransferFile (show (bh, slot, reason))
-              appendFile logTransferFile "\n"
         gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler (Just logT)
+            hconfig = NoHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         -- cin' <- newChan
