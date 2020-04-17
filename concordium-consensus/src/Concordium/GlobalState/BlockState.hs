@@ -150,7 +150,7 @@ updateAccount !upd !acc =
        _accountCredentials =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
-            Just c -> Queue.insert (ID.pExpiry (ID.cdvPolicy c)) c (acc ^. accountCredentials),
+            Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
        _accountEncryptionKey =
           case upd ^. auEncryptionKey of
             Nothing -> acc ^. accountEncryptionKey
