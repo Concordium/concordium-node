@@ -37,7 +37,6 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockMonads
-import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
@@ -164,58 +163,6 @@ toLogMethod maxLogLevel logCallbackPtr = le
 unsafeWithBSLen :: BS.ByteString -> (CSize -> Ptr Word8 -> IO ()) -> IO ()
 unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromIntegral len) (castPtr ptr)
 
--- |Create a method for logging transfers.
--- The output format is the following.
--- |--------+---------------------------------+--------------------------------------------------------|
--- |   Type | Serialized data                 | Comment                                                |
--- | ====== | ====================            | ===========                                            |
--- |      0 | source account, target account  | Direct transfer                                        |
--- |      1 | source account, target contract | Transfer from account to contract                      |
--- |      2 | source contract, target account | Transfer from contract to account                      |
--- |      3 | source account, target baker id | Execution cost of transaction                          |
--- |      4 | baker id, baker account         | Total block reward, transaction hash is a NUll pointer |
--- |      5 | source contract, target contract| Transfer from contract to contract                     |
--- |      6 | from acc, to acc, RegId         | Credential deployed, amount field is a dummy value     |
--- |--------+---------------------------------+--------------------------------------------------------|
-
--- * Account address serialiation is 21 bytes in length
--- * Contract address serialization is 16 bytes, consisting of two 64-bit unsigned integers in big-endian format
--- * Baker Id serialization is a 64 bit unsigned integer in big-endian format.
-
-toLogTransferMethod :: FunPtr LogTransferCallback -> BS.LogTransferMethod IO
-toLogTransferMethod logtCallBackPtr = logTransfer
-    where logit = callLogTransferCallback logtCallBackPtr
-          logTransfer bh slot reason =
-            withBlockReference bh $ \block ->
-              case reason of
-                BS.DirectTransfer{..} ->
-                  withTxReference trdtId $ \txRef ->
-                    let rest = runPut (put trdtSource <> put trdtTarget)
-                    in unsafeWithBSLen rest $ logit 0 block slot txRef trdtAmount
-                BS.AccountToContractTransfer{..} ->
-                  withTxReference tractId $ \txRef ->
-                    let rest = runPut (put tractSource <> put tractTarget)
-                    in unsafeWithBSLen rest $ logit 1 block slot txRef tractAmount
-                BS.ContractToAccountTransfer{..} ->
-                  withTxReference trcatId $ \txRef ->
-                    let rest = runPut (put trcatSource <> put trcatTarget)
-                    in unsafeWithBSLen rest $ logit 2 block slot txRef trcatAmount
-                BS.ExecutionCost{..} ->
-                  withTxReference trecId $ \txRef ->
-                    let rest = runPut (put trecSource <> put trecBaker)
-                    in unsafeWithBSLen rest $ logit 3 block slot txRef trecAmount
-                BS.BakingRewardTransfer{..} ->
-                  let rest = runPut (put trbrBaker <> put trbrAccount)
-                  in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
-                BS.ContractToContractTransfer{..} ->
-                  withTxReference trcctId $ \txRef ->
-                    let rest = runPut (put trcctSource <> put trcctTarget)
-                    in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
-                BS.CredentialDeployment{..} ->
-                  withTxReference trcdId $ \txRef ->
-                    let rest = runPut (put trcdAccount <> put trcdCredentialRegId)
-                    in unsafeWithBSLen rest $ logit 6 block slot txRef 0
-
 -- |Callback for broadcasting a message to the network.
 -- The first argument indicates the message type.
 -- The second argument is a pointer to the data to broadcast.
@@ -282,8 +229,8 @@ makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteStrin
 makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData (genesisState genData)
 
 
-type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) HookLogHandler
-type PassiveConfig gs = SkovConfig gs (NoFinalization ()) HookLogHandler
+type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) NoHandler
+type PassiveConfig gs = SkovConfig gs (NoFinalization ()) NoHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
@@ -306,10 +253,10 @@ consensusLogMethod BakerRunnerWithLog{bakerSyncRunnerWithLog=SyncRunner{syncLogM
 consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
 runWithConsensus :: ConsensusRunner -> (forall h f gs.
-                                        (TS.TreeStateMonad (SkovT h (SkovConfig gs f HookLogHandler) LogIO),
+                                        (TS.TreeStateMonad (SkovT h (SkovConfig gs f NoHandler) LogIO),
                                         TS.PendingBlockType
-                                         (SkovT h (SkovConfig gs f HookLogHandler) (LoggerT IO)) ~ PendingBlock
-                                        ) => SkovT h (SkovConfig gs f HookLogHandler) LogIO a) -> IO a
+                                         (SkovT h (SkovConfig gs f NoHandler) (LoggerT IO)) ~ PendingBlock
+                                        ) => SkovT h (SkovConfig gs f NoHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
 runWithConsensus BakerRunnerWithLog{..} = runSkovTransaction bakerSyncRunnerWithLog
@@ -350,7 +297,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
                         genData
                         connString
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
-                    hconfig = HookLogHandler Nothing -- logT
+                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 bakerSyncRunnerWithLog <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
@@ -361,7 +308,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
-                    hconfig = HookLogHandler Nothing -- logT
+                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
@@ -405,7 +352,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
                         genData
                         connString
                     finconfig = NoFinalization genData
-                    hconfig = HookLogHandler Nothing
+                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback
                 newStablePtr PassiveRunnerWithLog{..}
@@ -415,7 +362,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                     finconfig = NoFinalization genData
-                    hconfig = HookLogHandler Nothing
+                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
                 newStablePtr PassiveRunner{..}
