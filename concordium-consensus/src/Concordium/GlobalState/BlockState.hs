@@ -45,10 +45,8 @@ module Concordium.GlobalState.BlockState where
 
 import Lens.Micro.Platform
 import Control.Monad.Reader
-import Control.Monad.State.Strict
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.RWS.Strict hiding (ask)
 import Data.Word
 import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
@@ -56,7 +54,6 @@ import qualified Data.Serialize as S
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
-import Concordium.GlobalState.Block
 import Concordium.Types.Acorn.Core(ModuleRef)
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
@@ -67,8 +64,6 @@ import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 import qualified Data.PQueue.Prio.Max as Queue
-
-import Data.Maybe
 
 import qualified Concordium.ID.Types as ID
 
@@ -460,154 +455,3 @@ deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStora
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
-
-data TransferReason =
-  -- |Transfer because of a top-level transaction recorded on a block.
-  DirectTransfer {
-    -- |Id of the top-level transaction.
-    trdtId :: !TransactionHash,
-    -- |Source account.
-    trdtSource :: !AccountAddress,
-    -- |Amount transferred
-    trdtAmount :: !Amount,
-    -- |Recepient.
-    trdtTarget :: !AccountAddress
-    } |
-  -- |Transfer from accout to contract
-  AccountToContractTransfer {
-    -- |Id of the top-level transaction.
-    tractId :: !TransactionHash,
-    -- |From which account was the transfer made.
-    tractSource :: !AccountAddress,
-    -- |How much was transferred.
-    tractAmount :: !Amount,
-    -- |To which contract.
-    tractTarget :: !ContractAddress
-  } |
-  -- |Generated transaction from a contract to account.
-  -- Transaction hash is of the original top-level transaction.
-  ContractToAccountTransfer {
-    -- |Id of the top-level transaction.
-    trcatId :: !TransactionHash,
-    -- |From which contract
-    trcatSource :: !ContractAddress,
-    -- |Amount transferred.
-    trcatAmount :: !Amount,
-    -- |Recepient account.
-    trcatTarget :: !AccountAddress
-    } |
-  ContractToContractTransfer {
-    -- |Id of the top-level transaction.
-    trcctId :: !TransactionHash,
-    -- |From which contract
-    trcctSource :: !ContractAddress,
-    -- |Amount transferred.
-    trcctAmount :: !Amount,
-    -- |Recepient account.
-    trcctTarget :: !ContractAddress
-    } |
-  CredentialDeployment {
-    -- |Id of the top-level transaction.
-    trcdId :: !TransactionHash,
-    -- |To which account was the credential deployed.
-    trcdAccount :: !AccountAddress,
-    -- |Credential registration ID.values which were deployed deployed.
-    trcdCredentialRegId :: !ID.CredentialRegistrationID
-    } |
-  -- |Baking reward (here meaning the actual block reward + execution reward for block transactions).
-  BakingRewardTransfer {
-    -- |Id of the baker.
-    trbrBaker :: !BakerId,
-    -- |Account address of the baker.
-    trbrAccount :: !AccountAddress,
-    -- |Reward amount.
-    trbrAmount :: !Amount
-    } |
-  -- |Cost of a transaction.
-  ExecutionCost {
-    trecId :: !TransactionHash,
-    -- |Sender of the transaction.
-    trecSource :: !AccountAddress,
-    -- |Execution cost.
-    trecAmount :: !Amount,
-    -- |Baker id of block baker.
-    trecBaker :: !BakerId
-    }
-  deriving(Show)
-
-resultToReasons :: (BlockMetadata bp) => bp -> TransactionSummary -> [TransferReason]
-resultToReasons bp TransactionSummary{..} =
-  case tsResult of
-       TxReject{} | Just sender <- tsSender -> [ExecutionCost tsHash sender tsCost baker]
-                  | otherwise -> []
-       TxSuccess{..} -> mapMaybe extractReason vrEvents ++ [ExecutionCost tsHash (fromJust tsSender) tsCost baker | isJust tsSender]
-  where extractReason (Transferred (AddressAccount source) amount (AddressAccount target)) =
-          Just (DirectTransfer tsHash source amount target)
-        extractReason (Transferred (AddressContract source) amount (AddressAccount target)) =
-          Just (ContractToAccountTransfer tsHash source amount target)
-        extractReason (Transferred (AddressAccount source) amount (AddressContract target)) =
-          Just (AccountToContractTransfer tsHash source amount target)
-        extractReason (Transferred (AddressContract source) amount (AddressContract target)) =
-          Just (ContractToContractTransfer tsHash source amount target)
-        extractReason (Updated target (AddressAccount source) amount _) =
-          Just (AccountToContractTransfer tsHash source amount target)
-        extractReason (Updated target (AddressContract source) amount _) =
-          Just (ContractToContractTransfer tsHash source amount target)
-        extractReason (CredentialDeployed regid address) =
-          Just (CredentialDeployment tsHash address regid)
-        extractReason _ = Nothing
-
-        baker = blockBaker bp
-
-specialToReason :: SpecialTransactionOutcome -> TransferReason
-specialToReason (BakingReward bid acc amount) = BakingRewardTransfer bid acc amount
-
-type LogTransferMethod m = BlockHash -> Slot -> TransferReason -> m ()
-
--- |Account transfer logger monad.
-class Monad m => ATLMonad m where
-  atlLogTransfer :: LogTransferMethod m
-
-newtype ATLoggerT m a = ATLoggerT {_runATLoggerT :: ReaderT (LogTransferMethod m) m a}
-    deriving(Functor, Applicative, Monad, MonadIO)
-
-newtype ATSilentLoggerT m a = ATSilentLoggerT { runATSilentLoggerT :: m a }
-    deriving(Functor, Applicative, Monad, MonadIO)
-
-instance Monad m => ATLMonad (ATSilentLoggerT m) where
-  {-# INLINE atlLogTransfer #-}
-  atlLogTransfer = \_ _ _ -> return ()
-
-instance Monad m => ATLMonad (ATLoggerT m) where
-  {-# INLINE atlLogTransfer #-}
-  atlLogTransfer bh slot reason = ATLoggerT $ do
-    lm <- ask
-    lift (lm bh slot reason)
-
--- |Run an action handling transfer events with the given log method.
-{-# INLINE runATLoggerT #-}
-runATLoggerT :: ATLoggerT m a -> LogTransferMethod m -> m a
-runATLoggerT = runReaderT . _runATLoggerT
-
--- |Run an action discarding all events.
-{-# INLINE runSilentLogger #-}
-runSilentLogger :: (Monad m) => ATLoggerT m a -> m a
-runSilentLogger a = runATLoggerT a (\_ _ _ -> pure ())
-
-instance MonadTrans ATLoggerT where
-    lift = ATLoggerT . lift
-
-instance (ATLMonad m, Monoid w) => ATLMonad (RWST r w s m) where
-    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
-
-instance ATLMonad m => ATLMonad (StateT s m) where
-    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
-
-instance ATLMonad m => ATLMonad (MaybeT m) where
-    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
-
-instance ATLMonad m => ATLMonad (ExceptT e m) where
-    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
-
-instance (Monad (t m), MonadTrans t, ATLMonad m) => ATLMonad (MGSTrans t m) where
-    atlLogTransfer src lvl msg = lift (atlLogTransfer src lvl msg)
