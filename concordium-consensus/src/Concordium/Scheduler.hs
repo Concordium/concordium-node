@@ -90,21 +90,6 @@ existsValidCredential cm acc = do
     -- we consider it valid. Otherwise we fail the transaction.
     Just (expiry, _) -> isTimestampBefore (slotTime cm) expiry
 
--- |Check if whether the given timestamp is no greater than the end of the day
--- of the given year and month.
-isTimestampBefore :: Timestamp -> ID.YearMonth -> Bool
-isTimestampBefore ts ym =
-    utcTs < utcYearMonthExpiryTs
-  where
-    utcTs = posixSecondsToUTCTime (fromIntegral ts)
-    utcYearMonthExpiryTs = UTCTime expiryDay 0
-      where
-        year = toInteger (ID.ymYear ym)
-        month = fromIntegral (ID.ymMonth ym)
-        expiryYear = if month == 12 then year + 1 else year
-        expiryMonth = if month == 12 then 1 else (month + 1) -- (month % 12) + 1
-        expiryDay = fromGregorian expiryYear expiryMonth 1 -- unchecked, always valid
-
 -- |Check that
 --  * the transaction has a valid sender,
 --  * the amount corresponding to the deposited energy is on the sender's account,
