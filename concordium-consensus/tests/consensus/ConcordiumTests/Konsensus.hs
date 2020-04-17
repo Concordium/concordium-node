@@ -289,7 +289,10 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
             checkFinQ _ _ = Left $ "Finalization queue is missing finalization"
         checkFinQ finQ (_fqProofs _finsQueue)
 
-checkBinary :: (Show x, Show y, Monad m) => (x -> y -> Bool) -> x -> y -> String -> String -> String -> m ()
+instance MonadFail (Either String) where
+  fail = Left
+
+checkBinary :: (Show x, Show y, MonadFail m) => (x -> y -> Bool) -> x -> y -> String -> String -> String -> m ()
 checkBinary bop x y sbop sx sy =
   unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 

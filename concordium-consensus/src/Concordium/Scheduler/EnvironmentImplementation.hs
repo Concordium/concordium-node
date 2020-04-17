@@ -8,6 +8,7 @@ module Concordium.Scheduler.EnvironmentImplementation where
 
 import Concordium.Scheduler.Environment
 
+import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
 import qualified Data.HashSet as Set
 import Data.Functor.Identity
@@ -49,7 +50,7 @@ class CanExtend (AccountTransactionLog a) => HasSchedulerState a where
   accountTransactionLog :: Lens' a (AccountTransactionLog a)
   nextIndex :: Lens' a TransactionIndex
 
-data NoLogSchedulerState (m :: * -> *)= NoLogSchedulerState {
+data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
   _ssBlockState :: !(UpdatableBlockState m),
   _ssSchedulerEnergyUsed :: !Energy,
   _ssNextIndex :: !TransactionIndex

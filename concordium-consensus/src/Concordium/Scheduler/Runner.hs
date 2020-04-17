@@ -8,7 +8,6 @@ import Data.Text(Text)
 import qualified Data.HashMap.Strict as Map
 
 import Control.Monad.Except
-import Control.Monad.Fail(MonadFail)
 
 import Concordium.Crypto.SignatureScheme(KeyPair)
 import qualified Concordium.Crypto.VRF as VRF

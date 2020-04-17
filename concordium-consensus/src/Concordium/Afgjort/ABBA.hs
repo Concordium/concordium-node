@@ -48,7 +48,6 @@ import Concordium.Afgjort.Lottery
 import Concordium.Afgjort.CSS
 import Concordium.Afgjort.CSS.NominationSet
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
-import Concordium.Afgjort.PartySet (PartySet)
 import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Afgjort.PartyMap (PartyMap)
 import qualified Concordium.Afgjort.PartyMap as PM
