@@ -66,6 +66,8 @@ import Data.List hiding (group)
 import qualified Data.Set as Set
 import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
+import Data.Time
+import Data.Time.Clock.POSIX
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -86,8 +88,7 @@ existsValidCredential cm acc = do
     -- the same as the expiry date of the credential.
     -- If the credential is still valid at the beginning of this slot then
     -- we consider it valid. Otherwise we fail the transaction.
-    Just (expiry, _) -> expiry >= slotTime cm
-
+    Just (expiry, _) -> isTimestampBefore (slotTime cm) expiry
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -843,12 +844,12 @@ handleDeployCredential cdi cdiHash = do
       let cdv = ID.cdiValues cdi
 
       cm <- getChainMetadata
-      let expiry = ID.pExpiry (ID.cdvPolicy cdv)
+      let expiry = ID.pValidTo (ID.cdvPolicy cdv)
 
       -- check that a registration id does not yet exist
       let regId = ID.cdvRegId cdv
       regIdEx <- accountRegIdExists regId
-      if expiry < slotTime cm then
+      if not (isTimestampBefore (slotTime cm) expiry) then
         return $! Just (TxInvalid AccountCredentialInvalid)
       else if regIdEx then
         return $! (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
