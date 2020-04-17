@@ -4,6 +4,7 @@ module Concordium.GlobalState.Block(
     module Concordium.GlobalState.Block
 ) where
 
+import Data.Kind
 import Data.Time
 import Data.Serialize
 import qualified Data.ByteString as ByteString
@@ -45,7 +46,7 @@ class BlockMetadata d where
 -- |For a type @b@ representing a block, the type @BlockFieldType b@
 -- represents the block metadata associated with a block.  Typically,
 -- @BlockFieldType b@ is an instance of 'BlockMetadata'.
-type family BlockFieldType (b :: *) :: *
+type family BlockFieldType (b :: Type) :: Type
 
 -- |The 'BlockData' class provides an interface for the pure data associated
 -- with a block.

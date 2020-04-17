@@ -195,7 +195,7 @@ constructBlock :: (MonadIO m,
 constructBlock Nothing = return Nothing
 constructBlock (Just bytes) =
   case runGet getTriple bytes of
-    Left err -> fail $ "Could not deserialize block: " ++ err ++ " with bytes " ++ show bytes
+    Left _ -> return Nothing
     Right (blockInfo, newBlock, state') -> do
       st <- state'
       let ati = defaultValue
