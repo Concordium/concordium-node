@@ -4,6 +4,7 @@ module Concordium.GlobalState.Types where
 import Concordium.GlobalState.Classes
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+import Data.Kind
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointerData)
@@ -11,8 +12,8 @@ import Concordium.GlobalState.BlockPointer (BlockPointerData)
 -- |The basic types associated with a monad providing an
 -- implementation of the global state.
 class (BlockStateTypes m, BlockPendingData (PendingBlockType m), BlockPointerData (BlockPointerType m)) => GlobalStateTypes m where
-    type PendingBlockType m :: *
-    type BlockPointerType m :: *
+    type PendingBlockType m :: Type
+    type BlockPointerType m :: Type
 
 instance (GlobalStateTypes m) => GlobalStateTypes (MGSTrans t m) where
     type PendingBlockType (MGSTrans t m) = PendingBlockType m
