@@ -15,7 +15,6 @@ import Control.Monad.IO.Class (MonadIO)
 import Data.Word
 
 import Concordium.GlobalState.Classes (MGSTrans)
-import Concordium.GlobalState.BlockState (ATLoggerT)
 
 -- |The source module for a log event.
 data LogSource
@@ -118,9 +117,6 @@ instance LoggerMonad m => LoggerMonad (ReaderT r m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 instance (MonadTrans t, Monad (t m), LoggerMonad m) => LoggerMonad (MGSTrans t m) where
-    logEvent src lvl msg = lift (logEvent src lvl msg)
-
-instance LoggerMonad m => LoggerMonad (ATLoggerT m) where
     logEvent src lvl msg = lift (logEvent src lvl msg)
 
 type LogIO = LoggerT IO
