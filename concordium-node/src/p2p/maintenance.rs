@@ -32,7 +32,6 @@ use crate::{
 use consensus_rust::{
     catch_up::PeerList,
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
-    transferlog::TRANSACTION_LOG_QUEUE,
 };
 
 use std::{
@@ -494,7 +493,7 @@ impl P2PNode {
     /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
         self.is_terminated.store(true, Ordering::Relaxed);
-        CALLBACK_QUEUE.stop().is_ok() && TRANSACTION_LOG_QUEUE.stop().is_ok()
+        CALLBACK_QUEUE.stop().is_ok()
     }
 
     /// Joins the threads spawned by the node.

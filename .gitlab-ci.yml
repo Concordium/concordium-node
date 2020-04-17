@@ -19,8 +19,8 @@ stages:
     - scripts/download-static-libs.sh
     - echo "Running tests without extra features"
     - cargo test --all --features=static --color=always
-    - echo "Running tests with network dump, instrumentation, elastic logging and collector features"
-    - cargo test --all --color=always --features=static,instrumentation,elastic_logging,collector,network_dump
+    - echo "Running tests with network dump, instrumentation, and collector features"
+    - cargo test --all --color=always --features=static,instrumentation,collector,network_dump
     - echo "Running tests with s11n features"
     - cargo test --all --color=always --features=static,s11n_capnp,s11n_serde_cbor
     - echo "Compiling the benches"
@@ -44,7 +44,7 @@ stages:
     - scripts/download-static-libs.sh
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
-    - echo "Running clippy with network dump, instrumentation, elastic logging, collector and staging net features"
-    - cargo clippy --features=static,instrumentation,elastic_logging,collector,network_dump,staging_net --color=always --all -- -Dclippy::all
+    - echo "Running clippy with network dump, instrumentation, collector and staging net features"
+    - cargo clippy --features=static,instrumentation,collector,network_dump,staging_net --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n features"
     - cargo clippy --features=static,s11n_capnp,s11n_serde_cbor --color=always --all -- -Dclippy::all
