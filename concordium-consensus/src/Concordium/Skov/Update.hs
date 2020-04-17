@@ -13,11 +13,10 @@ import GHC.Stack
 
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Types.Execution
 import Concordium.GlobalState.TreeState
-import Concordium.GlobalState.BlockState hiding (CredentialDeployment)
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
@@ -83,35 +82,6 @@ class OnSkov m where
     -- |Called when a block or finalization record that was previously
     -- pending becomes live.
     onPendingLive :: m ()
-    -- |A function to log transfers at finalization time. Since it is
-    -- potentially expensive to even keep track of events we make it an
-    -- explicitly optional value to short-circuit evaluation.
-    logTransfer :: m (Maybe (BlockHash -> Slot -> TransferReason -> m ()))
-
--- |Log transfers in the given block using the 'logTransfer' method of the
--- 'OnSkov' class.
-logTransfers :: forall m . (BlockPointerMonad m, OnSkov m, LoggerMonad m, BlockStateQuery m) => BlockPointerType m -> m ()
-logTransfers bp = logTransfer >>= \case
-  Nothing -> return ()
-  Just logger -> do
-    state <- blockState bp
-    case blockFields bp of
-      Nothing -> return ()  -- don't do anything for the genesis block
-      Just fields -> do
-        let note :: BlockItem -> TransactionIndex -> m ()
-            note tx idx = getTransactionOutcome state idx >>= \case
-              Nothing ->
-                logEvent Skov LLDebug $ "Could not retrieve transaction outcome in block " ++
-                                        show (bpHash bp) ++
-                                        " for transaction " ++
-                                        show (getHash tx :: TransactionHash)
-              Just outcome ->
-                mapM_ (logger (bpHash bp) (blockSlot bp)) (resultToReasons fields outcome)
-
-        zipWithM_ note (blockTransactions bp) [0..]
-        special <- getSpecialOutcomes state
-        mapM_ (logger (bpHash bp) (blockSlot bp) . specialToReason) special
-
 
 -- |Handle a block arriving that is dead.  That is, the block has never
 -- been in the tree before, and now it never can be.  Any descendents of
@@ -202,7 +172,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
                         bcHeight = bpHeight keeper,
                         ..}
                 flushBlockSummaries ctx ati =<< getSpecialOutcomes =<< blockState keeper
-                logTransfers keeper
+
         pruneTrunk newFinBlock (Seq.take pruneHeight oldBranches)
         -- Archive the states of blocks up to but not including the new finalized block
         let doArchive b = case compare (bpHeight b) lastFinHeight of
