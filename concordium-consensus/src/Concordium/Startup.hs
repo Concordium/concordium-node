@@ -26,7 +26,8 @@ import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
-import Concordium.Scheduler.Utils.Init.Example(dummyCredential, dummyMaxExpiryTime)
+import Concordium.ID.DummyData
+import Concordium.Scheduler.Utils.Init.Example(dummyCredential)
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
@@ -51,7 +52,7 @@ makeBakerAccountKP bid amount =
      kp)
   where
     vfKey = SigScheme.correspondingVerifyKey kp
-    credentialList = Queue.singleton dummyMaxExpiryTime (dummyCredential address dummyMaxExpiryTime)
+    credentialList = Queue.singleton dummyMaxValidTo (dummyCredential address dummyMaxValidTo dummyCreatedAt)
     acct = newAccount (makeSingletonAC vfKey) address
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1

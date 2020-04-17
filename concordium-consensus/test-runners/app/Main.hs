@@ -40,7 +40,6 @@ import Concordium.Scheduler.Utils.Init.Example as Example
 --import Debug.Trace
 import Concordium.Startup
 import Concordium.Crypto.DummyData (mateuszKP)
-import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
 
 nContracts :: Int
 nContracts = 2
@@ -151,7 +150,7 @@ makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState 
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 -- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
+type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
 
 main :: IO ()
@@ -172,15 +171,11 @@ main = do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
-        let transferLogPrefix = "transfer-log-" ++ show now ++ "-" ++ show bakerId
-        logTransferFile <- openFile (transferLogPrefix ++ ".transfers") WriteMode
-        let logT bh slot reason =
-              hPrint logTransferFile (bh, slot, reason)
         --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler Nothing -- (Just logT)
+            hconfig = NoHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions bakerId cin trans
