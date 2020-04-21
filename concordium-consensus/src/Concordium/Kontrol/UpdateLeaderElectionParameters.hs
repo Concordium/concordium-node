@@ -31,25 +31,23 @@ slotDependentBirkParameters slot bps@BirkParameters{..} =
 -- |Instantiate a seed state: leadership election nonce should be random, epoch length should be long, but not too long...
 genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
 genesisSeedState nonce epochLength =
-  SeedState nonce epochLength 0 []
+  SeedState nonce epochLength 0 Nothing
 
 -- |Get the seed state of the new epoch
 getNewEpochSeedState :: Slot -- ^The slot we need parameters for
                           -> SeedState -- ^The seed state of the parent
                           -> SeedState
-getNewEpochSeedState slot SeedState{..} = 
+getNewEpochSeedState slot state@SeedState{..} =
   let
     currentEpoch = theSlot $ slot `div` epochLength
+    newSeed = hash (runPut $ do
+                            mapM_ put blockNonceHash 
+                            put currentEpoch)
   in
-    SeedState{
-      -- H(seed of predecessors epoch, epoch, block nonces in reverse order)
-      currentSeed = hash (runPut $ do
-        put currentSeed
-        put currentEpoch
-        mapM_ (put . proofToHash) revBlockNonces), 
-      epochLength = epochLength , 
+    state{
+      currentSeed = newSeed,
       epoch = currentEpoch,
-      revBlockNonces = []
+      blockNonceHash = Just newSeed
     }
 
 -- |When a new block is added, it affects the resettable leaky beacon iff it is in the first 2/3 slots of the epoch
@@ -60,7 +58,9 @@ updateSeedState slot bn state@SeedState{..} =
   in
     if shouldContributeBlockNonce then
       -- less than 2/3 slots into the epoch, add the new block nonce
-      state {revBlockNonces = bn : revBlockNonces}
+      state {blockNonceHash = Just $ hash $ runPut $ do
+              mapM_ put blockNonceHash
+              put $ proofToHash bn}
     else 
       -- more than 2/3 slots into the epoch, no update
       state
