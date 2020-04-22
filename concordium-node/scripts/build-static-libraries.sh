@@ -132,13 +132,13 @@ for l in /target/profiling/ghc/libHSrts_p.a \
              /target/profiling/ghc/libCffi_p.a \
              /target/vanilla/ghc/libCffi.a \
              /target/vanilla/ghc/libHSrts.a \
-             /target/vanilla/ghc/libHSCabal-2.4.0.1.a \
+             /target/vanilla/ghc/libHSCabal-3.0.1.0.a \
              /target/vanilla/ghc/libHSghc-$GHC_VERSION.a \
              /target/vanilla/ghc/libHSghc-boot-$GHC_VERSION.a \
              /target/vanilla/ghc/libHSghc-heap-$GHC_VERSION.a \
              /target/vanilla/ghc/libHSghci-$GHC_VERSION.a \
              /target/vanilla/ghc/libHShpc-0.6.0.3.a \
-             /target/vanilla/ghc/libHSterminfo-0.4.1.2.a \
+             /target/vanilla/ghc/libHSterminfo-0.4.1.4.a \
              $(find /target/vanilla/ghc -name "libffi*") \
              $(find /target/vanilla/ghc -name "*[debug|l].a"); do
     rm $l;
