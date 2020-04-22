@@ -938,10 +938,11 @@ receiveCatchUpStatus ::
     -> PeerID                           -- ^Identifier of peer (passed to callback)
     -> CString                          -- ^Serialised catch-up message
     -> Int64                            -- ^Length of message
-    -> Word64                           -- ^Limit to number of responses (0 = unlimited)
+    -> Word64                           -- ^Limit to number of responses
     -> FunPtr DirectMessageCallback     -- ^Callback to receive messages
     -> IO ReceiveResult
 receiveCatchUpStatus cptr src cstr len limit cbk = do
+    let iLimit = fromIntegral limit
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     bs <- BS.packCStringLen (cstr, fromIntegral len)
@@ -955,13 +956,13 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                 toMsg (MessageBlock, mbs) = (MTBlock, mbs)
                 toMsg (MessageFinalizationRecord, mbs) = (MTFinalizationRecord, mbs)
             (response, result) <- case c of
-                BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus
-                PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus
-                BakerRunnerWithLog{..} -> syncReceiveCatchUp bakerSyncRunnerWithLog cus
-                PassiveRunnerWithLog{..} -> syncPassiveReceiveCatchUp passiveSyncRunnerWithLog cus
+                BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus iLimit
+                PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus iLimit
+                BakerRunnerWithLog{..} -> syncReceiveCatchUp bakerSyncRunnerWithLog cus iLimit
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveCatchUp passiveSyncRunnerWithLog cus iLimit
             forM_ response $ \(frbs, rcus) -> do
                         let
-                            limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
+                            limFrbs = if limit == 0 then frbs else take iLimit frbs
                             sendMsg = callDirectMessageCallback cbk src
                         logm Skov LLTrace $ "Sending " ++ show (length limFrbs) ++ " blocks/finalization records"
                         mapM_ (uncurry sendMsg . toMsg) limFrbs

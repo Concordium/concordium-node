@@ -1,5 +1,6 @@
 {-# LANGUAGE
     ViewPatterns,
+    TypeApplications,
     ScopedTypeVariables #-}
 module Concordium.Skov.CatchUp where
 
@@ -10,18 +11,20 @@ import Data.Function
 import Data.Foldable
 import Data.ByteString (ByteString)
 import Data.Serialize
+import Data.Proxy
+import Control.Monad
 
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
+import Concordium.Types
 
 import Concordium.Logger
 import Concordium.Skov.CatchUp.Types
 import Concordium.Skov.Monad
 import Concordium.Kontrol.BestBlock
 import Concordium.Afgjort.Finalize
-
 
 makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
@@ -53,8 +56,32 @@ doGetCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
-doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, LoggerMonad m) => CatchUpStatus -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-doHandleCatchUp peerCUS = do
+merge :: forall m . (BlockPointerData (BlockPointerType m))
+      => Proxy m
+      -> [(FinalizationRecord, BlockHeight)]
+      -> Seq.Seq (BlockPointerType m)
+      -> [(MessageType, ByteString)]
+merge Proxy = go
+  where encodeBlock b = (MessageBlock, runPut (putBlock b))
+        encodeFinRec fr = (MessageFinalizationRecord, encode fr)
+        -- Note: since the returned list can be truncated, we have to be careful about the
+        -- order that finalization records are interleaved with blocks.
+        -- Specifically, we send a finalization record as soon as possible after
+        -- the corresponding block; and where the block is not being sent, we
+        -- send the finalization record before all other blocks.  We also send
+        -- finalization records and blocks in order.
+        go :: [(FinalizationRecord, BlockHeight)] -> Seq.Seq (BlockPointerType m) -> [(MessageType, ByteString)]
+        go [] bs = encodeBlock <$> toList bs
+        go fs Seq.Empty = encodeFinRec <$> toList fs
+        go fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
+            | fh < bpHeight b = encodeFinRec f : go fs1 bs0
+            | otherwise = encodeBlock b : go fs0 bs1
+
+doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, LoggerMonad m)
+                => CatchUpStatus
+                -> Int -- ^How many blocks + finalization records should be sent.
+                -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
+doHandleCatchUp peerCUS limit = do
         let resultDoCatchUp = if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp
         lfb <- lastFinalizedBlock
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
@@ -72,7 +99,7 @@ doHandleCatchUp peerCUS = do
             -- Our last finalized height is at least the peer's last finalized height
             -- Check if the peer's last finalized block is recognised
             getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
-                Just (BlockFinalized _ peerFinRec) -> do
+                Just (BlockFinalized peerFinBP peerFinRec) -> do
                     -- Determine if we need to catch up: i.e. if the peer has some
                     -- leaf block we do not recognise.
                     let
@@ -99,13 +126,45 @@ doHandleCatchUp peerCUS = do
                         let peerKnownBlocks = Set.insert (cusLastFinalizedBlock peerCUS) $
                                 Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                         let
-                            extendBackBranches b bs
-                                | bpHash b `Set.member` peerKnownBlocks = return bs
-                                | bpHeight b == 0 = return bs -- Genesis block should always be known, so this case should be unreachable
-                                | otherwise = do
-                                    p <- bpParent b
-                                    extendBackBranches p (b Seq.<| bs)
-                        unknownFinTrunk <- extendBackBranches lfb Seq.Empty
+                            -- get the next batch of finalized blocks (from given finalized index)
+                            nextBatch :: FinalizationIndex -> BlockHash -> m (Seq.Seq (BlockPointerType m))
+                            nextBatch idx finBh = do
+                              getFinalizedAtIndex (idx + 1) >>= \case
+                                Nothing -> return Seq.Empty
+                                Just bpFin ->
+                                   let loop :: Seq.Seq (BlockPointerType m) -> BlockPointerType m -> m (Seq.Seq (BlockPointerType m))
+                                       -- extra precaution for genesis block, although this can only really be reachable if
+                                       -- the baker's databases are corrupted/don't maintain the right invariants.
+                                       loop acc bp | bpHash bp == finBh || bpHeight bp == 0 = return acc
+                                                   | otherwise = do
+                                          parent <- bpParent bp
+                                          loop (bp Seq.<| acc) parent
+                                   in loop Seq.Empty bpFin
+
+                            -- extend branches forward from a given finalized block.
+                            -- this finalized block is assumed to be the finalized block at the given finalization index
+                            extendForwardBranches acc idx finBh | Seq.length acc >= limit = return acc
+                                                                | otherwise = do
+                              nextBatch idx finBh >>= \case
+                                Seq.Empty -> return acc
+                                bps@(_ Seq.:|> b) -> do
+                                    extendForwardBranches (acc <> bps) (idx + 1) (bpHash b)
+
+                        -- get the last block known to the peer that __we__ know is finalized
+                        -- NOTE: This is potentially problematic since somebody could make us waste a lot of effort
+                        -- if the given lists (leaves and branches) are big.
+                        (peerLastKnownFinalizedBlock, peerLastKnownFinRec) <-
+                          foldM (\acc@(curBP, _) bh ->
+                                   getBlockStatus bh >>= \case
+                                     Just (BlockFinalized finBP finFR) ->
+                                       if bpHeight finBP > bpHeight curBP then return (finBP, finFR) else return acc
+                                     _ -> return acc
+                                )
+                                (peerFinBP, peerFinRec)
+                                (cusLeaves peerCUS <> cusBranches peerCUS)
+
+                        unknownFinTrunk <- extendForwardBranches Seq.Empty (finalizationIndex peerLastKnownFinRec) (bpHash peerLastKnownFinalizedBlock)
+
                         -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
                         -- to include finalized blocks until the parent is known.
                         myBranches <- getBranches
@@ -147,24 +206,13 @@ doHandleCatchUp peerCUS = do
                             innerLoop out brsL0@(brsL Seq.:|> bs) brsR bb
                                 | bb `elem` bs = innerLoop (bb Seq.<| out) brsL (List.delete bb bs Seq.<| brsR) =<< bpParent bb
                                 | otherwise = takeBranches out (brsL0 <> brsR)
-                        outBlocks2 <- takeBranches outBlocks1 branches1
+                        -- if finalized blocks alone are enough to fill in the request take that, otherwise also include branches
+                        -- Since branches are always kept in memory at this point processing them is cheap, hence we don't
+                        -- bound them.
+                        outBlocks2 <- if Seq.length unknownFinTrunk <= limit then takeBranches outBlocks1 branches1 else return unknownFinTrunk
                         lvs <- leavesBranches $ toList myBranches
                         myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
-                        let
-                            encodeBlock b = (MessageBlock, runPut (putBlock b))
-                            encodeFinRec fr = (MessageFinalizationRecord, encode fr)
-                            -- Note: since the returned list can be truncated, we have to be careful about the
-                            -- order that finalization records are interleaved with blocks.
-                            -- Specifically, we send a finalization record as soon as possible after
-                            -- the corresponding block; and where the block is not being sent, we
-                            -- send the finalization record before all other blocks.  We also send
-                            -- finalization records and blocks in order.
-                            merge [] bs = encodeBlock <$> toList bs
-                            merge fs Seq.Empty = encodeFinRec <$> toList fs
-                            merge fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
-                                | fh < bpHeight b = encodeFinRec f : merge fs1 bs0
-                                | otherwise = encodeBlock b : merge fs0 bs1
-                        return (Just (merge frs outBlocks2, myCUS), catchUpResult)
+                        return (Just (merge (Proxy @ m) frs outBlocks2, myCUS), catchUpResult)
                     else
                         -- No response required
                         return (Nothing, catchUpResult)
@@ -174,6 +222,3 @@ doHandleCatchUp peerCUS = do
                     -- reject this peer.
                     logEvent Skov LLWarning $ "Invalid catch up status: last finalized block not finalized."
                     return (Nothing, ResultInvalid)
-
-
-
