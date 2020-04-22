@@ -43,7 +43,7 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
-RUN git checkout 36d13b966e437896a420a8c94d8804d6999548bc
+RUN git checkout ff0c7d1056daa53058a523a87555ce72074cacd4
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
 RUN cp deps/simple-client/extra-libs/*.so /libs
