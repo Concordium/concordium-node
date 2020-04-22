@@ -37,8 +37,8 @@ blockLuck block = case blockFields block of
 compareBlocks :: (SkovQueryMonad m, BlockPointerMonad m) => BlockPointerType m -> (BlockPointerType m, Maybe BlockLuck) -> m (BlockPointerType m, Maybe BlockLuck)
 compareBlocks contender best@(bestb, mbestLuck) =
     case compare (blockSlot bestb) (blockSlot contender) of
-        LT -> return (contender, Nothing)
-        GT -> return best
+        LT -> return best -- if bestb has the smaller slot it is to be prefered 
+        GT -> return (contender, Nothing)
         EQ -> do
             luck <- blockLuck contender
             bestLuck <- case mbestLuck of
