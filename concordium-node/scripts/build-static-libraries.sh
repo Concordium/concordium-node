@@ -21,9 +21,9 @@ subsection () {
 }
 
 set -e
-GHC_BUILDER_VERSION="8.6.5"
+GHC_BUILDER_VERSION="8.8.3"
 CABAL_BUILDER_VERSION="3.0.0.0"
-GHC_VERSION="8.6.5"
+GHC_VERSION="8.8.3"
 STACK_VERSION="2.1.3"
 
 echo "We will run the following process:
