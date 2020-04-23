@@ -126,44 +126,29 @@ doHandleCatchUp peerCUS limit = do
                         let peerKnownBlocks = Set.insert (cusLastFinalizedBlock peerCUS) $
                                 Set.fromList (cusLeaves peerCUS) `Set.union` Set.fromList (cusBranches peerCUS)
                         let
-                            -- get the next batch of finalized blocks (from given finalized index)
-                            nextBatch :: FinalizationIndex -> BlockHash -> m (Seq.Seq (BlockPointerType m))
-                            nextBatch idx finBh = do
-                              getFinalizedAtIndex (idx + 1) >>= \case
-                                Nothing -> return Seq.Empty
-                                Just bpFin ->
-                                   let loop :: Seq.Seq (BlockPointerType m) -> BlockPointerType m -> m (Seq.Seq (BlockPointerType m))
-                                       -- extra precaution for genesis block, although this can only really be reachable if
-                                       -- the baker's databases are corrupted/don't maintain the right invariants.
-                                       loop acc bp | bpHash bp == finBh || bpHeight bp == 0 = return acc
-                                                   | otherwise = do
-                                          parent <- bpParent bp
-                                          loop (bp Seq.<| acc) parent
-                                   in loop Seq.Empty bpFin
-
                             -- extend branches forward from a given finalized block.
                             -- this finalized block is assumed to be the finalized block at the given finalization index
-                            extendForwardBranches acc idx finBh | Seq.length acc >= limit = return acc
-                                                                | otherwise = do
-                              nextBatch idx finBh >>= \case
-                                Seq.Empty -> return acc
-                                bps@(_ Seq.:|> b) -> do
-                                    extendForwardBranches (acc <> bps) (idx + 1) (bpHash b)
+                            extendForwardBranches acc bHeight | Seq.length acc >= limit = return acc
+                                                              | otherwise = do
+                              
+                              getFinalizedAtHeight bHeight >>= \case 
+                                Nothing -> return acc
+                                Just bp -> extendForwardBranches (acc Seq.|> bp) (bHeight + 1)
 
                         -- get the last block known to the peer that __we__ know is finalized
                         -- NOTE: This is potentially problematic since somebody could make us waste a lot of effort
                         -- if the given lists (leaves and branches) are big.
-                        (peerLastKnownFinalizedBlock, peerLastKnownFinRec) <-
-                          foldM (\acc@(curBP, _) bh ->
+                        peerLastKnownFinalizedHeight <-
+                          foldM (\curHeight bh ->
                                    getBlockStatus bh >>= \case
-                                     Just (BlockFinalized finBP finFR) ->
-                                       if bpHeight finBP > bpHeight curBP then return (finBP, finFR) else return acc
-                                     _ -> return acc
+                                     Just (BlockFinalized finBP _) ->
+                                       if bpHeight finBP > curHeight then return (bpHeight finBP) else return curHeight
+                                     _ -> return curHeight
                                 )
-                                (peerFinBP, peerFinRec)
+                                (bpHeight peerFinBP)
                                 (cusLeaves peerCUS <> cusBranches peerCUS)
 
-                        unknownFinTrunk <- extendForwardBranches Seq.Empty (finalizationIndex peerLastKnownFinRec) (bpHash peerLastKnownFinalizedBlock)
+                        unknownFinTrunk <- extendForwardBranches Seq.Empty (peerLastKnownFinalizedHeight + 1)
 
                         -- Take the branches; filter out all blocks that the client claims knowledge of; extend branches back
                         -- to include finalized blocks until the parent is known.
