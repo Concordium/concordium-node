@@ -390,7 +390,7 @@ handleSimpleTransfer wtc toaddr amount =
                                     rf
                                     (Right senderAccount)
                                     amount
-                                    (ExprMessage (I.mkJustE qmsgExpLinked))
+                                    (ExprMessage qmsgExpLinked)
                                     model
                 AddressAccount toAccAddr ->
                   handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
