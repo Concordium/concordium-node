@@ -17,6 +17,7 @@ import Data.Serialize
 import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
+import System.IO
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Types
@@ -372,3 +373,60 @@ makeAsyncRunner logm bkr config = do
         simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
+
+syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+                 => SyncRunner c
+                 -> LogMethod IO
+                 -> FilePath
+                 -> IO UpdateResult
+syncImportBlocks syncRunner logm filepath = do
+  h <- openBinaryFile filepath ReadMode
+  now <- currentTime
+  readBlock h now
+ where readBlock h tm =  do
+         lenS <- liftIO (hGet h 8)
+         if empty /= lenS then do
+           let Right len = runGet (get :: Get Int) lenS
+           blockBS <- liftIO $ hGet h len
+           result <- importBlock blockBS tm
+           case result of
+             ResultSuccess ->
+               readBlock h tm
+             err -> return err
+         else
+           return ResultSuccess
+       importBlock blockBS tm =
+         case deserializePendingBlock blockBS tm of
+            Left err -> do
+                logm External LLDebug err
+                return ResultSerializationFail
+            Right block -> syncReceiveBlock syncRunner block
+
+
+syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
+                        => SyncPassiveRunner c
+                        -> LogMethod IO
+                        -> FilePath
+                        -> IO UpdateResult
+syncPassiveImportBlocks syncRunner logm filepath = do
+  h <- openBinaryFile filepath ReadMode
+  now <- currentTime
+  readBlock h now
+ where readBlock h tm =  do
+         lenS <- liftIO (hGet h 8)
+         if empty /= lenS then do
+           let Right len = runGet (get :: Get Int) lenS
+           blockBS <- liftIO $ hGet h len
+           result <- importBlock blockBS tm
+           case result of
+             ResultSuccess ->
+               readBlock h tm
+             err -> return err
+         else
+           return ResultSuccess
+       importBlock blockBS tm =
+         case deserializePendingBlock blockBS tm of
+            Left err -> do
+                logm External LLDebug err
+                return ResultSerializationFail
+            Right block -> syncPassiveReceiveBlock syncRunner block

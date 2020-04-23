@@ -288,7 +288,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case (decode gdata, AE.eitherDecodeStrict bdata) of
-            (Right genData, Right bid) -> do
+            (Right genData, Right bid) ->
               if connStringLen /= 0 then do -- enable logging of transactions
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
@@ -343,7 +343,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
-            Right genData -> do
+            Right genData ->
               if connStringLen /= 0 then do
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
@@ -969,6 +969,34 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
                         sendMsg MTCatchUpStatus $ encode rcus
             return $! result
 
+-- | Import blocks exported from another database into the state of the node.
+--
+-- This function will run before starting the baker thread.
+--
+-- +----------+---------+
+-- |Value     |Meaning  |
+-- +==========+=========+
+-- |0         |OK       |
+-- +----------+---------+
+-- |else      |Not OK   |
+-- +----------+---------+
+importBlocks :: StablePtr ConsensusRunner
+             -> CString
+             -> Word64
+             -> IO ReceiveResult
+importBlocks cptr cstr len = do
+  c <- deRefStablePtr cptr
+  let logm = consensusLogMethod c
+  filepath <- BS.unpack <$> BS.packCStringLen (cstr, fromIntegral len)
+  logm External LLDebug $ "Importing blocks from file: " ++ filepath
+  ret <- toReceiveResult <$> case c of
+          BakerRunner{..} -> syncImportBlocks bakerSyncRunner logm filepath
+          PassiveRunner{..} -> syncPassiveImportBlocks passiveSyncRunner logm filepath
+          BakerRunnerWithLog{..} -> syncImportBlocks bakerSyncRunnerWithLog logm filepath
+          PassiveRunnerWithLog{..} -> syncPassiveImportBlocks passiveSyncRunnerWithLog logm filepath
+  logm External LLDebug "Done importing file."
+  return ret
+
 foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
@@ -1009,3 +1037,5 @@ foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Wo
 
 -- maintenance
 foreign export ccall freeCStr :: CString -> IO ()
+
+foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Word64 -> IO Int64
