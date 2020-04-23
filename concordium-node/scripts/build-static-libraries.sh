@@ -303,7 +303,9 @@ section "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
-tar czf static-consensus-$GHC_VERSION-sc.tar.gz /target-sc
+rm -rf /target
+mv /target-sc /target
+tar czf static-consensus-$GHC_VERSION-sc.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION-sc.tar.gz /binaries
 
 rm -rf /target /binaries
