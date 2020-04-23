@@ -115,7 +115,7 @@ lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
   T.Finalized{} -> digestSize + 8
   _ -> 0
 lmdbStoreTypeSize (TxStatuses ss) = Prelude.length ss * (2 * digestSize + 16)
-lmdbStoreTypeSize (FinalizedByHeight _ _) = 8 + 32
+lmdbStoreTypeSize (FinalizedByHeight _ _) = 8 + digestSize
 
 -- | Depending on the variant of the provided tuple, this function will perform a `put` transaction in the
 -- correct database.
