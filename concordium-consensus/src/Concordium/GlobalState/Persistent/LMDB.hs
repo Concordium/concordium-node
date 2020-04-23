@@ -78,7 +78,7 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
                                                                            serState)))
               transaction _storeEnv (L.put _finalizedByHeightStore 0 (Just gbh))
               transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
-  return $ (DatabaseHandlers {..}, existing)
+  return $ (DatabaseHandlers {..}, False)
 
 resizeDatabaseHandlers :: DatabaseHandlers bs -> Int -> IO (DatabaseHandlers bs)
 resizeDatabaseHandlers dbh size = do
