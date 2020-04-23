@@ -55,7 +55,7 @@ transactionStatusStoreName = "transactionstatus"
 -- NB: The @ati@ is stored in an external database if chosen to.
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initialDatabaseHandlers :: PersistentBlockPointer ati bs -> S.Put -> RuntimeParameters -> IO (DatabaseHandlers bs, Bool)
+initialDatabaseHandlers :: PersistentBlockPointer ati bs -> S.Put -> RuntimeParameters -> IO (DatabaseHandlers bs)
 initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
   -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
   -- initialization would fail. It also needs to be a multiple of the OS page size. We considered keeping 4096 as a typical
@@ -78,7 +78,7 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
                                                                            serState)))
               transaction _storeEnv (L.put _finalizedByHeightStore 0 (Just gbh))
               transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
-  return $ (DatabaseHandlers {..}, False)
+  return $ DatabaseHandlers {..}
 
 resizeDatabaseHandlers :: DatabaseHandlers bs -> Int -> IO (DatabaseHandlers bs)
 resizeDatabaseHandlers dbh size = do
