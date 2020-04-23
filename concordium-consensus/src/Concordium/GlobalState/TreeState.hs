@@ -156,6 +156,10 @@ class (Eq (BlockPointerType m),
     addFinalization :: BlockPointerType m -> FinalizationRecord -> m ()
     -- |Get the block that is finalized at the given index, if any.
     getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m))
+
+    -- |Get the block that is finalized at the given height, if any.
+    getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
+
     -- * Operations on branches
     -- |Get the branches.
     getBranches :: m (Branches m)
@@ -283,6 +287,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
     getFinalizedAtIndex = lift . getFinalizedAtIndex
+    getFinalizedAtHeight = lift . getFinalizedAtHeight
     getBranches = lift getBranches
     putBranches = lift . putBranches
     takePendingChildren = lift . takePendingChildren

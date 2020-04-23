@@ -35,6 +35,8 @@ import Concordium.GlobalState.AccountTransactionIndex
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
     _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
+    -- |Table of blocks finalized by height.
+    _finalizedByHeightTable :: !(HM.HashMap BlockHeight (BasicBlockPointer bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
@@ -72,6 +74,7 @@ initialSkovData :: RuntimeParameters -> GenesisData -> bs -> SkovData bs
 initialSkovData rp gd genState =
   SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
+            _finalizedByHeightTable = HM.singleton 0 gb,
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
             _finalizationList = Seq.singleton (gbfin, gb),
@@ -132,7 +135,9 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             return blockP
     markDead bh = blockTable . at' bh ?= TS.BlockDead
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
-            Just (TS.BlockAlive bp) -> blockTable . at' bh ?= TS.BlockFinalized bp fr
+            Just (TS.BlockAlive bp) -> do
+              blockTable . at' bh ?= TS.BlockFinalized bp fr
+              finalizedByHeightTable . at (bpHeight bp) ?= bp
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?= TS.BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
@@ -143,6 +148,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
     getFinalizedAtIndex finIndex = fmap snd . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getFinalizedAtHeight bHeight = preuse (finalizedByHeightTable . ix bHeight)
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at' bh . non [] <<.= []
