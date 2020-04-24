@@ -17,7 +17,6 @@ import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
 import Concordium.GlobalState.SeedState
-import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
 import Concordium.Types
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -139,15 +138,15 @@ emptyBirkParameters = BirkParameters {
   }
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: Accounts -> BlockState
-createBlockState accounts =
+createBlockState :: Accounts -> Amount -> BlockState
+createBlockState accounts gtuAmount =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters &
       (blockAccounts .~ accounts) .
-      (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
+      (blockBank . Rewards.totalGTU .~ gtuAmount) .
       (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
       (blockIdentityProviders .~ dummyIdentityProviders)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
+blockStateWithAlesAccount :: Amount -> Accounts -> Amount -> BlockState
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
