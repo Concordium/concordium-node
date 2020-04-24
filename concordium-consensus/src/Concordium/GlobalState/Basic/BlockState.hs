@@ -123,7 +123,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
 
-instance Monad m => BS.BirkParametersMonad (PureBlockStateMonad m) where
+instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
     bpoSeedState bps = return $ _birkSeedState bps
 
