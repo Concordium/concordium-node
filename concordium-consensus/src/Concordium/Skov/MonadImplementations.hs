@@ -172,6 +172,11 @@ deriving via SkovTGSM h c' m
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
+              BirkParametersMonad (SkovTGSM h c' m))
+             => BirkParametersMonad (SkovT h c' m)
+
+deriving via SkovTGSM h c' m
+    instance (Monad m,
               BlockStateQuery (SkovTGSM h c' m))
              => BlockStateQuery (SkovT h c' m)
 
@@ -291,7 +296,7 @@ instance FinalizationConfig (SkovConfig gsconf (NoFinalization t) hconf) where
         where
             genHash = getHash (GenesisBlock genData)
             finParams = genesisFinalizationParameters genData
-            genBakers = _birkCurrentBakers $ genesisBirkParameters genData
+            genBakers = genesisBakers genData
             gtu = genesisTotalGTU genData
     {-# INLINE initialiseFinalization #-}
 
@@ -313,7 +318,7 @@ instance FinalizationConfig (SkovConfig gc (ActiveFinalization t) hc) where
             where
                 genHash = getHash (GenesisBlock genData)
                 finParams = genesisFinalizationParameters genData
-                genBakers = _birkCurrentBakers $ genesisBirkParameters genData
+                genBakers = genesisBakers genData
                 gtu = genesisTotalGTU genData
     {-# INLINE initialiseFinalization #-}
 
@@ -344,7 +349,7 @@ instance FinalizationConfig (SkovConfig gc (BufferedFinalization t) hc) where
             where
                 genHash = getHash $ GenesisBlock genData
                 finParams = genesisFinalizationParameters genData
-                genBakers = _birkCurrentBakers $ genesisBirkParameters genData
+                genBakers = genesisBakers genData
                 gtu = genesisTotalGTU genData
     {-# INLINE initialiseFinalization #-}
 

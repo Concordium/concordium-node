@@ -23,7 +23,7 @@ import qualified Concordium.Scheduler.Environment as Types
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
+import Concordium.GlobalState.Parameters (CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner
 
 import qualified Acorn.Core as Core
@@ -123,7 +123,7 @@ makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
         }
         payload = Types.encodePayload (Types.Transfer (AddressAccount toAddress) amount)
 
-initialStateWithMateuszAccount :: BirkParameters
+initialStateWithMateuszAccount :: BlockState.BasicBirkParameters
                                -> CryptographicParameters
                                -> [Account]
                                -> [Types.IpInfo]
@@ -141,7 +141,7 @@ createCustomAccount amount kp address =
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}
-initialState :: BirkParameters
+initialState :: BlockState.BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [Types.IpInfo]

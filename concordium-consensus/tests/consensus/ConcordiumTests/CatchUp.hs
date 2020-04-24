@@ -20,10 +20,11 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
+import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
+import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types (Amount(..))
@@ -89,10 +90,12 @@ initialiseStatesDictator n = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-        let bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
+        let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+            elDiff = 0.5
+            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState 
             fps = FinalizationParameters 2 1000
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig

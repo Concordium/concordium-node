@@ -72,7 +72,7 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     nextFinalizationIndex :: m FinalizationIndex
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
     --  Retrieves AdvanceTime and StableTime directly from genesis block
-    getBirkParameters :: Slot -> BlockPointerType m -> m BirkParameters
+    getBirkParameters :: Slot -> BlockPointerType m -> m (BirkParameters m)
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.

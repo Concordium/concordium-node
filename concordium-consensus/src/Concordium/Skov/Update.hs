@@ -21,7 +21,6 @@ import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -304,21 +303,24 @@ addBlock block = do
             check (blockSlot parentP < blockSlot block) $ do
                 -- get Birk parameters from the __parent__ block. The baker must have existed in that
                 -- block's state in order that the current block is valid
-                bps@BirkParameters{..} <- getBirkParameters (blockSlot block) parentP
-                case birkEpochBaker (blockBaker block) bps of
+                bps <- getBirkParameters (blockSlot block) parentP
+                baker <- birkEpochBaker (blockBaker block) bps
+                nonce <- birkLeadershipElectionNonce bps
+                elDiff <- bpoElectionDifficulty bps
+                case baker of
                     Nothing -> invalidBlock
                     Just (BakerInfo{..}, lotteryPower) ->
                         -- Check the block proof
                         check (verifyProof
-                                    (_birkLeadershipElectionNonce bps)
-                                    _birkElectionDifficulty
+                                    nonce
+                                    elDiff
                                     (blockSlot block)
                                     _bakerElectionVerifyKey
                                     lotteryPower
                                     (blockProof block)) $
                         -- The block nonce
                         check (verifyBlockNonce
-                                    (_birkLeadershipElectionNonce bps)
+                                    nonce
                                     (blockSlot block)
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
@@ -326,7 +328,7 @@ addBlock block = do
                         check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
-                                bps' = bps{_birkSeedState = updateSeedState (blockSlot block) (blockNonce block) _birkSeedState}
+                            bps' <- bpoUpdateSeedState (updateSeedState (blockSlot block) (blockNonce block)) bps
                             slotTime <- getSlotTimestamp (blockSlot block)
                             executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                 Left err -> do

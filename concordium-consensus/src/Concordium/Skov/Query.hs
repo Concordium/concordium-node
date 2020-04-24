@@ -11,7 +11,6 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters
-import qualified Concordium.GlobalState.Parameters as Param
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
 {-# INLINE doResolveBlock #-}
@@ -26,11 +25,11 @@ doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
-doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointerType m -> m Param.BirkParameters
+doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointerType m -> m (BirkParameters m)
 {-# INLINE doGetBirkParameters #-}
 doGetBirkParameters slot bp = do
         params <- getBlockBirkParameters =<< blockState bp
-        return $ slotDependentBirkParameters slot params
+        slotDependentBirkParameters slot params
 
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
 {-# INLINE doGetCurrentHeight #-}
