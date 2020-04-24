@@ -207,23 +207,27 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- computation in the modified environment.
   withAccountToContractAmount :: Account -> Instance -> Amount -> m a -> m a
 
-  -- |Transfer amount from the first address to the second and run the
+  -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
   withAccountToAccountAmount :: Account -> Account -> Amount -> m a -> m a
 
-  -- |Transfer amount from the first address to the second and run the
+  -- |Transfer an amount from the given instance to the given account and run the
   -- computation in the modified environment.
   withContractToAccountAmount :: Instance -> Account -> Amount -> m a -> m a
 
-  -- |Transfer amount from the first address to the second and run the
+  -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
   withContractToContractAmount :: Instance -> Instance -> Amount -> m a -> m a
 
+  -- |Transfer an amount from the first given instance or account to the instance in the second
+  -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
   withToContractAmount :: Either Instance Account -> Instance -> Amount -> m a -> m a
   withToContractAmount (Left i) = withContractToContractAmount i
   withToContractAmount (Right a) = withAccountToContractAmount a
 
+  -- |Transfer an amount from the first given instance or account to the account in the second
+  -- parameter and run the computation in the modified environment.
   {-# INLINE withToAccountAmount #-}
   withToAccountAmount :: Either Instance Account -> Account -> Amount -> m a -> m a
   withToAccountAmount (Left i) = withContractToAccountAmount i
@@ -302,11 +306,12 @@ csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> Change
 csWithAccountDelta txHash addr !amnt =
   (emptyCS txHash) & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
 
--- |Record an update for the given account in the changeset. If the account is
--- not yet in the changeset it is created.
+-- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
 addAmountToCS :: Account -> AmountDelta -> ChangeSet -> ChangeSet
 addAmountToCS acc !amnt !cs =
+  -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
+  -- If so, modify it accordingly, otherwise add a new entry.
   cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case Just x -> Just (x + amnt)
                                                                                     Nothing -> Just amnt
                                                            )
@@ -485,8 +490,8 @@ withDeposit wtc comp k = do
     Left Nothing -> return Nothing
     -- Failure: transaction fails (out of energy or actual failure by transaction logic)
     Left (Just reason) -> do
-      -- the only effect of this transaction is reduced balance
-      -- compute how much we must charge and reject the transaction
+      -- The only effect of this transaction is that the sender is charged for the execution cost
+      -- (energy ticked so far).
       (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
       chargeExecutionCost tsHash (wtc ^. wtcSenderAccount) payment
       return $! Just $! TransactionSummary{
@@ -510,8 +515,9 @@ withDeposit wtc comp k = do
         }
 
 {-# INLINE defaultSuccess #-}
--- |Default continuation to use with 'withDeposit'. It records events and charges for the energy
--- used, and nothing else.
+-- |Default continuation to use with 'withDeposit'. It charges for the energy used, commits the changes
+-- from the current changeset and returns the recorded events, the amount corresponding to the
+-- used energy and the used energy.
 defaultSuccess ::
   SchedulerMonad m => WithDepositContext -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
 defaultSuccess wtc = \ls events -> do
