@@ -35,7 +35,6 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
     (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)
-    200000
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =

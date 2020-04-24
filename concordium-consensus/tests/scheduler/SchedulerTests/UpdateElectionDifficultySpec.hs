@@ -30,7 +30,6 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
-    200000
 
 -- | The initial election difficulty (NOTE: This value is used for verification,
 -- the difficulty is not set from this value).
