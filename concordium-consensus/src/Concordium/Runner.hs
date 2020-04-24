@@ -429,4 +429,6 @@ syncPassiveImportBlocks syncRunner logm filepath = do
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail
-            Right block -> syncPassiveReceiveBlock syncRunner block
+            Right block -> do
+                logm External LLDebug ("Importing " ++ (show $ pbHash block))
+                syncPassiveReceiveBlock syncRunner block
