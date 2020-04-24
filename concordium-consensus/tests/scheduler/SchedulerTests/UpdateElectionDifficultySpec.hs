@@ -81,7 +81,7 @@ testCasesReject =
       ]
 
 type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
-                      [(Types.Transaction, Types.FailureKind)], Types.BirkParameters)],
+                      [(Types.Transaction, Types.FailureKind)], BasicBirkParameters)],
                     BlockState)
 
 runWithIntermediateStates
@@ -138,7 +138,7 @@ tests =
                       [(_, Types.TxSuccess events)] -> events `shouldBe` expectedEvents
                       _ -> expectationFailure $ "Check failed on " ++ show ok
                   specify "Correct value in birk parameters" $
-                    bps ^. Types.birkElectionDifficulty `shouldBe` d
+                    bps ^. birkElectionDifficulty `shouldBe` d
               ) $
           zip results (map snd testCasesSuccess)
     runAndTest "Rejected transactions" (map fst testCasesReject) $ \(results, _) -> do
@@ -154,7 +154,7 @@ tests =
                       [(_, Types.TxReject rejectReason)] -> rejectReason `shouldBe` expectedRejectReason
                       _ -> expectationFailure $ "Check failed on " ++ show ok
                   specify "Election difficulty not changed" $
-                    bps ^. Types.birkElectionDifficulty `shouldBe` initialElectionDifficulty
+                    bps ^. birkElectionDifficulty `shouldBe` initialElectionDifficulty
               ) $
           zip results (map snd testCasesReject)
 

@@ -8,14 +8,13 @@ module Concordium.Kontrol.BestBlock(
 
 import Data.Foldable
 import qualified Data.Sequence as Seq
-import Lens.Micro.Platform
 import Control.Exception (assert)
 
 import Concordium.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.Parameters
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState(Branches, BlockPointerType)
@@ -29,10 +28,12 @@ blockLuck block = case blockFields block of
             -- that determine the luck of the block itself.
             parent <- bpParent block
             params <- getBirkParameters (blockSlot block) parent
-            case birkEpochBaker (blockBaker bf) params of
+            baker  <- birkEpochBaker (blockBaker bf) params
+            elDiff <- bpoElectionDifficulty params
+            case baker of
                 Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->
-                    return (electionLuck (params ^. birkElectionDifficulty) lotteryPower (blockProof bf))
+                    return (electionLuck elDiff lotteryPower (blockProof bf))
 
 compareBlocks :: (SkovQueryMonad m, BlockPointerMonad m) => BlockPointerType m -> (BlockPointerType m, Maybe BlockLuck) -> m (BlockPointerType m, Maybe BlockLuck)
 compareBlocks contender best@(bestb, mbestLuck) =

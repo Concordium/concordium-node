@@ -213,12 +213,17 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisControlAccounts genData)
-                       (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
+genesisState GenesisData{..} = Basic.initialState
+                       (Basic.BasicBirkParameters
+                            genesisElectionDifficulty
+                            genesisBakers
+                            genesisBakers
+                            genesisBakers
+                            genesisSeedState)
+                       genesisCryptographicParameters
+                       (genesisAccounts ++ genesisControlAccounts)
+                       genesisIdentityProviders
+                       genesisMintPerSlot
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
