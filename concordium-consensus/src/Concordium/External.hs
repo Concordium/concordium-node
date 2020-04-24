@@ -982,7 +982,7 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
 -- +----------+---------+
 importBlocks :: StablePtr ConsensusRunner
              -> CString
-             -> Word64
+             -> Int64
              -> IO ReceiveResult
 importBlocks cptr cstr len = do
   c <- deRefStablePtr cptr
@@ -1038,4 +1038,4 @@ foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Wo
 -- maintenance
 foreign export ccall freeCStr :: CString -> IO ()
 
-foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Word64 -> IO Int64
+foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
