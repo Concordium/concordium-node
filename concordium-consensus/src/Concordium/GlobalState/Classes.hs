@@ -67,6 +67,7 @@ instance (MonadReader r m, HasGlobalStateContext c r) => MonadReader c (FocusGlo
 class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
+    type BirkParameters m :: Type
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad
@@ -84,6 +85,7 @@ deriving instance (MonadWriter w (t m)) => MonadWriter w (MGSTrans t m)
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
+    type BirkParameters (MGSTrans t m) = BirkParameters m
 
 deriving via (MGSTrans MaybeT m) instance BlockStateTypes (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateTypes (ExceptT e m)
