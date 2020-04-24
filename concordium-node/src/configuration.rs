@@ -168,6 +168,12 @@ pub struct BakerConfig {
         help = "Enable outcome of finalized baked blocks from the scheduler"
     )]
     pub scheduler_outcome_logging: bool,
+    #[structopt(
+        long = "import-blocks-from",
+        help = "Path to a file exported by the database exporter",
+        default_value = ""
+    )]
+    pub import_path: String,
 }
 
 #[derive(StructOpt, Debug)]
