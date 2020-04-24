@@ -9,7 +9,7 @@ import Concordium.Types
 import Concordium.Crypto.VRF
 import Concordium.Crypto.SHA256
 
-slotDependentBirkParameters :: BirkParametersMonad m => Slot -> BirkParameters m -> m (BirkParameters m)
+slotDependentBirkParameters :: BirkParametersOperations m => Slot -> BirkParameters m -> m (BirkParameters m)
 slotDependentBirkParameters slot bps = do
   seedState <- bpoSeedState bps
   case slotDependentSeedState slot seedState of

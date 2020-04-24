@@ -172,8 +172,8 @@ deriving via SkovTGSM h c' m
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
-              BirkParametersMonad (SkovTGSM h c' m))
-             => BirkParametersMonad (SkovT h c' m)
+              BirkParametersOperations (SkovTGSM h c' m))
+             => BirkParametersOperations (SkovT h c' m)
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
