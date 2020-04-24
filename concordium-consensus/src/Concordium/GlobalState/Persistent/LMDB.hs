@@ -98,19 +98,19 @@ resizeDatabaseHandlers dbh size = do
 -- |For now the database only supports two stores: blocks and finalization records.
 -- In order to abstract the database access, this datatype was created.
 -- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
-data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the serialized form of the block
-               | Finalization (FinalizationIndex, FinalizationRecord) -- ^The finalization index and the associated finalization record
-               | TxStatus (TransactionHash, T.TransactionStatus)
+data LMDBStoreType = Block BlockHash ByteString -- ^The Blockhash and the serialized form of the block
+               | Finalization FinalizationIndex FinalizationRecord -- ^The finalization index and the associated finalization record
+               | TxStatus TransactionHash T.TransactionStatus
                | TxStatuses [(TransactionHash, T.TransactionStatus)]
                | FinalizedByHeight BlockHeight BlockHash
                deriving (Show)
 
 lmdbStoreTypeSize :: LMDBStoreType -> Int
-lmdbStoreTypeSize (Block (_, v)) = digestSize + 8 + Data.ByteString.length v
-lmdbStoreTypeSize (Finalization (_, v)) = let FinalizationProof (vs, _)  = finalizationProof v in
+lmdbStoreTypeSize (Block _ v) = digestSize + 8 + Data.ByteString.length v
+lmdbStoreTypeSize (Finalization _ v) = let FinalizationProof (vs, _)  = finalizationProof v in
   -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
   digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
-lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
+lmdbStoreTypeSize (TxStatus _ t) = digestSize + 8 + case t of
   T.Committed _ res -> HM.size res * (digestSize + 8)
   T.Finalized{} -> digestSize + 8
   _ -> 0
@@ -120,13 +120,13 @@ lmdbStoreTypeSize (FinalizedByHeight _ _) = 8 + digestSize
 -- | Depending on the variant of the provided tuple, this function will perform a `put` transaction in the
 -- correct database.
 putInProperDB :: LMDBStoreType -> DatabaseHandlers bs -> IO ()
-putInProperDB (Block (key, value)) dbh = do
+putInProperDB (Block key value) dbh = do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. blockStore) key (Just value)
-putInProperDB (Finalization (key, value)) dbh =  do
+putInProperDB (Finalization key value) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. finalizationRecordStore) key (Just value)
-putInProperDB (TxStatus (key, value)) dbh =  do
+putInProperDB (TxStatus key value) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. transactionStatusStore) key (Just value)
 putInProperDB (TxStatuses statuses) dbh = do
