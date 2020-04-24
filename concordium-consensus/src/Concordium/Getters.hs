@@ -205,9 +205,9 @@ getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   bps <- BS.getBlockBirkParameters st
-  elDiff <- BS.bpoElectionDifficulty bps
+  elDiff <- BS.getElectionDifficulty bps
   nonce <- BS.birkLeadershipElectionNonce bps
-  lotteryBakers <- BS.bpoLotteryBakers bps
+  lotteryBakers <- BS.getLotteryBakers bps
   return $ object [
     "electionDifficulty" .= elDiff,
     "electionNonce" .= nonce,
@@ -352,8 +352,8 @@ checkBakerExistsBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
 checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters =<< queryBlockState bb
-  lotteryBakers <- BS.bpoLotteryBakers bps
-  currentBakers <- BS.bpoCurrentBakers bps
+  lotteryBakers <- BS.getLotteryBakers bps
+  currentBakers <- BS.getCurrentBakers bps
   case lotteryBakers ^. bakersByKey . at key of
     Just _ -> return 2
     Nothing ->

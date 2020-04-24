@@ -28,7 +28,7 @@ import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(.
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
-import Concordium.Kontrol.UpdateLeaderElectionParameters
+import qualified Concordium.Kontrol.UpdateLeaderElectionParameters as UEP
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -306,7 +306,7 @@ addBlock block = do
                 bps <- getBirkParameters (blockSlot block) parentP
                 baker <- birkEpochBaker (blockBaker block) bps
                 nonce <- birkLeadershipElectionNonce bps
-                elDiff <- bpoElectionDifficulty bps
+                elDiff <- getElectionDifficulty bps
                 case baker of
                     Nothing -> invalidBlock
                     Just (BakerInfo{..}, lotteryPower) ->
@@ -328,7 +328,7 @@ addBlock block = do
                         check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
-                            bps' <- bpoUpdateSeedState (updateSeedState (blockSlot block) (blockNonce block)) bps
+                            bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
                             slotTime <- getSlotTimestamp (blockSlot block)
                             executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                 Left err -> do

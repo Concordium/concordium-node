@@ -11,11 +11,11 @@ import Concordium.Crypto.SHA256
 
 slotDependentBirkParameters :: BirkParametersOperations m => Slot -> BirkParameters m -> m (BirkParameters m)
 slotDependentBirkParameters slot bps = do
-  seedState <- bpoSeedState bps
+  seedState <- getSeedState bps
   case slotDependentSeedState slot seedState of
     Just newSeedState ->
         -- if the slot is in a newer epoch, update the state of seed and bakers
-        bpoUpdateBirkParametersForNewEpoch newSeedState bps
+        updateBirkParametersForNewEpoch newSeedState bps
     Nothing ->
         -- if the slot is in the same epoch as the predecessor, nothing changes
         return bps

@@ -33,7 +33,7 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
-import Concordium.Kontrol.UpdateLeaderElectionParameters
+import qualified Concordium.Kontrol.UpdateLeaderElectionParameters as UEP
 import Concordium.Afgjort.Finalize
 import Concordium.Skov
 import Concordium.Skov.Update (updateFocusBlockTo)
@@ -172,7 +172,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     birkParams <- getBirkParameters slot bb
     (bakerId, _, lotteryPower) <- MaybeT $ birkEpochBakerByKeys (bakerSignPublicKey ident) birkParams
     leNonce <- birkLeadershipElectionNonce birkParams
-    elDiff <- bpoElectionDifficulty birkParams
+    elDiff <- getElectionDifficulty birkParams
     electionProof <- MaybeT . liftIO $
         leaderElection leNonce elDiff slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
@@ -188,7 +188,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
                 Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
-    bps <- bpoUpdateSeedState (updateSeedState slot nonce) birkParams
+    bps <- updateSeedState (UEP.updateSeedState slot nonce) birkParams
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
