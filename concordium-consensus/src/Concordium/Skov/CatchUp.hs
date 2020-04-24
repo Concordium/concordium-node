@@ -56,8 +56,11 @@ doGetCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
+-- |Merge finalization records and block pointers making sure of the properties listed below.
+-- This function ensures that the resulting list is no longer than the given limit
 merge :: forall m . (BlockPointerData (BlockPointerType m))
       => Proxy m
+      -> Int
       -> [(FinalizationRecord, BlockHeight)]
       -> Seq.Seq (BlockPointerType m)
       -> [(MessageType, ByteString)]
@@ -70,12 +73,13 @@ merge Proxy = go
         -- the corresponding block; and where the block is not being sent, we
         -- send the finalization record before all other blocks.  We also send
         -- finalization records and blocks in order.
-        go :: [(FinalizationRecord, BlockHeight)] -> Seq.Seq (BlockPointerType m) -> [(MessageType, ByteString)]
-        go [] bs = encodeBlock <$> toList bs
-        go fs Seq.Empty = encodeFinRec <$> toList fs
-        go fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
-            | fh < bpHeight b = encodeFinRec f : go fs1 bs0
-            | otherwise = encodeBlock b : go fs0 bs1
+        go :: Int -> [(FinalizationRecord, BlockHeight)] -> Seq.Seq (BlockPointerType m) -> [(MessageType, ByteString)]
+        go n _ _ | n == 0 = []
+        go n [] bs = encodeBlock <$> (take n (toList bs))
+        go n fs Seq.Empty = encodeFinRec <$> (take n (toList fs))
+        go n fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
+            | fh < bpHeight b = encodeFinRec f : go (n-1) fs1 bs0
+            | otherwise = encodeBlock b : go (n-1) fs0 bs1
 
 doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, LoggerMonad m)
                 => CatchUpStatus
@@ -197,7 +201,7 @@ doHandleCatchUp peerCUS limit = do
                         outBlocks2 <- if Seq.length unknownFinTrunk <= limit then takeBranches outBlocks1 branches1 else return unknownFinTrunk
                         lvs <- leavesBranches $ toList myBranches
                         myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
-                        return (Just (merge (Proxy @ m) frs outBlocks2, myCUS), catchUpResult)
+                        return (Just (merge (Proxy @ m) limit frs outBlocks2, myCUS), catchUpResult)
                     else
                         -- No response required
                         return (Nothing, catchUpResult)
