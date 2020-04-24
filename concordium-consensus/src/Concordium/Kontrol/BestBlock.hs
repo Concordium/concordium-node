@@ -29,7 +29,7 @@ blockLuck block = case blockFields block of
             parent <- bpParent block
             params <- getBirkParameters (blockSlot block) parent
             baker  <- birkEpochBaker (blockBaker bf) params
-            elDiff <- bpoElectionDifficulty params
+            elDiff <- getElectionDifficulty params
             case baker of
                 Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->
