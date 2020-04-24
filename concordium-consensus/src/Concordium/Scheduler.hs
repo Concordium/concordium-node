@@ -66,8 +66,6 @@ import Data.List hiding (group)
 import qualified Data.Set as Set
 import qualified Data.HashSet as HashSet
 import qualified Data.PQueue.Prio.Max as Queue
-import Data.Time
-import Data.Time.Clock.POSIX
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
