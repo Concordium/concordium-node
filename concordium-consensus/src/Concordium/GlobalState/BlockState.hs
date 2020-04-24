@@ -76,7 +76,7 @@ data Module = Module {
     moduleSource :: Core.Module Core.UA
 }
 
-class (BlockStateTypes m, Monad m) => BirkParametersMonad m where
+class (BlockStateTypes m, Monad m) => BirkParametersOperations m where
 
     bpoSeedState :: BirkParameters m -> m SeedState
 
@@ -90,16 +90,16 @@ class (BlockStateTypes m, Monad m) => BirkParametersMonad m where
 
     bpoUpdateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
 
-birkBaker :: BirkParametersMonad m => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
+birkBaker :: BirkParametersOperations m => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
 birkBaker bid bps = bakerData bid <$> bpoCurrentBakers bps
 
-birkEpochBaker :: BirkParametersMonad m => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
+birkEpochBaker :: BirkParametersOperations m => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
 birkEpochBaker bid bps = bakerData bid <$> bpoLotteryBakers bps
 
-birkLeadershipElectionNonce :: BirkParametersMonad m => BirkParameters m -> m LeadershipElectionNonce
+birkLeadershipElectionNonce :: BirkParametersOperations m => BirkParameters m -> m LeadershipElectionNonce
 birkLeadershipElectionNonce bps = currentSeed <$> bpoSeedState bps
 
-birkEpochBakerByKeys :: BirkParametersMonad m => BakerSignVerifyKey -> BirkParameters m -> m (Maybe (BakerId, BakerInfo, LotteryPower))
+birkEpochBakerByKeys :: BirkParametersOperations m => BakerSignVerifyKey -> BirkParameters m -> m (Maybe (BakerId, BakerInfo, LotteryPower))
 birkEpochBakerByKeys sigKey bps = do
     lotteryBakers <- bpoLotteryBakers bps
     case lotteryBakers ^? bakersByKey . ix sigKey of
@@ -111,7 +111,7 @@ birkEpochBakerByKeys sigKey bps = do
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class BirkParametersMonad m => BlockStateQuery m where
+class BirkParametersOperations m => BlockStateQuery m where
     -- |Get the module from the module table of the state instance.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
     -- |Get the account state from the account table of the state instance.
@@ -479,7 +479,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE putBlockState #-}
     {-# INLINE getBlockState #-}
 
-instance (Monad (t m), MonadTrans t, BirkParametersMonad m) => BirkParametersMonad (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
     bpoSeedState = lift . bpoSeedState
     bpoUpdateBirkParametersForNewEpoch s = lift . bpoUpdateBirkParametersForNewEpoch s
     bpoElectionDifficulty = lift . bpoElectionDifficulty
@@ -496,9 +496,9 @@ instance (Monad (t m), MonadTrans t, BirkParametersMonad m) => BirkParametersMon
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance BirkParametersMonad m => BirkParametersMonad (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance BirkParametersMonad m => BirkParametersMonad (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)

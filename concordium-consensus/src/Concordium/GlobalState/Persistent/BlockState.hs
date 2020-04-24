@@ -657,7 +657,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
 
-instance MonadIO m => BirkParametersMonad (PersistentBlockStateMonad r m) where
+instance MonadIO m => BirkParametersOperations (PersistentBlockStateMonad r m) where
 
     bpoSeedState bps = return $ _birkSeedState bps
 

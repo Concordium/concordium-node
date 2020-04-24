@@ -93,7 +93,7 @@ import Concordium.GlobalState.SQLiteATI
 
 
 -- |A newtype wrapper for providing instances of the block state related monads:
--- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations', 'BirkParametersMonad' and 'BlockStateStorage'.
+-- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
 --
 -- For the monad @BlockStateM c r g s m@, the underlying monad @m@ should satisfy
 -- @MonadReader r m@ and @MonadState s m@.  The types @c@ and @s@ should be components
@@ -138,7 +138,7 @@ deriving via PureBlockStateMonad m
 
 deriving via PureBlockStateMonad m
     instance (Monad m)
-             => BirkParametersMonad (MemoryBlockStateM r g s m)
+             => BirkParametersOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
     instance (Monad m,
@@ -167,10 +167,10 @@ deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
                (FocusGlobalStateM PersistentBlockStateContext g m))
     instance (MonadIO m,
-              BirkParametersMonad (PersistentBlockStateMonad
+              BirkParametersOperations (PersistentBlockStateMonad
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
-             => BirkParametersMonad (PersistentBlockStateM r g s m)
+             => BirkParametersOperations (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -203,7 +203,7 @@ deriving via (PersistentBlockStateMonad
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO,
-              BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersMonad)
+              BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
@@ -275,8 +275,8 @@ deriving via BlockStateM c r g s m
              => BlockStateQuery (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, BirkParametersMonad (BlockStateM c r g s m))
-             => BirkParametersMonad (GlobalStateM db c r g s m)
+    instance (Monad m, BirkParametersOperations (BlockStateM c r g s m))
+             => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
     instance (BlockStateQuery (GlobalStateM db c r g s m),
