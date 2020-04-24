@@ -219,7 +219,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                              S.put (_bpInfo bp)
                              putBlock bp
                              bs)
-    dbh' <- putOrResize dbh (Block (getHash bp, blockBS))
+    dbh' <- putOrResize dbh (Block (getHash bp) blockBS)
     db .= dbh'
   readBlock bh = do
     env <- use (db . storeEnv)
@@ -245,7 +245,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
 
   writeFinalizationRecord fr = do
     dbh <- use db
-    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
+    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr) fr)
     db .= dbh'
   readTransactionStatus th = do
     env <- use (db . storeEnv)
@@ -253,7 +253,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe T.TransactionStatus))
   writeTransactionStatus th t = do
     dbh <- use db
-    dbh' <- putOrResize dbh (TxStatus (th, t))
+    dbh' <- putOrResize dbh (TxStatus th t)
     db .= dbh'
 
   writeTransactionStatuses tss = do
