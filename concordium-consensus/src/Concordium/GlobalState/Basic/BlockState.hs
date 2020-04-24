@@ -125,17 +125,17 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
 instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
-    bpoSeedState bps = return $ _birkSeedState bps
+    getSeedState bps = return $ _birkSeedState bps
 
-    bpoUpdateBirkParametersForNewEpoch seedState = return . basicUpdateBirkParametersForNewEpoch seedState
+    updateBirkParametersForNewEpoch seedState = return . basicUpdateBirkParametersForNewEpoch seedState
 
-    bpoElectionDifficulty = return . _birkElectionDifficulty
+    getElectionDifficulty = return . _birkElectionDifficulty
 
-    bpoCurrentBakers = return . _birkCurrentBakers
+    getCurrentBakers = return . _birkCurrentBakers
     
-    bpoLotteryBakers = return . _birkLotteryBakers
+    getLotteryBakers = return . _birkLotteryBakers
 
-    bpoUpdateSeedState f bps = return $ bps & birkSeedState %~ f
+    updateSeedState f bps = return $ bps & birkSeedState %~ f
 
 basicUpdateBirkParametersForNewEpoch :: SeedState -> BasicBirkParameters -> BasicBirkParameters
 basicUpdateBirkParametersForNewEpoch seedState bps = bps &

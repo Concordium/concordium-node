@@ -659,22 +659,22 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
 
 instance MonadIO m => BirkParametersOperations (PersistentBlockStateMonad r m) where
 
-    bpoSeedState bps = return $ _birkSeedState bps
+    getSeedState bps = return $ _birkSeedState bps
 
-    bpoUpdateBirkParametersForNewEpoch seedState bps = return $ bps &
+    updateBirkParametersForNewEpoch seedState bps = return $ bps &
         birkSeedState .~ seedState &
         -- use stake distribution saved from the former epoch for leader election
         birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
         -- save the stake distribution from the end of the epoch
         birkPrevEpochBakers .~ (bps ^. birkCurrentBakers)
 
-    bpoElectionDifficulty = return . _birkElectionDifficulty
+    getElectionDifficulty = return . _birkElectionDifficulty
 
-    bpoCurrentBakers = return . _birkCurrentBakers
+    getCurrentBakers = return . _birkCurrentBakers
     
-    bpoLotteryBakers = return . _birkLotteryBakers
+    getLotteryBakers = return . _birkLotteryBakers
 
-    bpoUpdateSeedState f bps = return $ bps & birkSeedState %~ f
+    updateSeedState f bps = return $ bps & birkSeedState %~ f
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule

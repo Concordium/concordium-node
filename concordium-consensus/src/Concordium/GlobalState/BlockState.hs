@@ -78,30 +78,30 @@ data Module = Module {
 
 class (BlockStateTypes m, Monad m) => BirkParametersOperations m where
 
-    bpoSeedState :: BirkParameters m -> m SeedState
+    getSeedState :: BirkParameters m -> m SeedState
 
-    bpoUpdateBirkParametersForNewEpoch :: SeedState -> BirkParameters m -> m (BirkParameters m)
+    updateBirkParametersForNewEpoch :: SeedState -> BirkParameters m -> m (BirkParameters m)
 
-    bpoElectionDifficulty :: BirkParameters m -> m ElectionDifficulty
+    getElectionDifficulty :: BirkParameters m -> m ElectionDifficulty
 
-    bpoCurrentBakers :: BirkParameters m -> m Bakers
+    getCurrentBakers :: BirkParameters m -> m Bakers
 
-    bpoLotteryBakers :: BirkParameters m -> m Bakers
+    getLotteryBakers :: BirkParameters m -> m Bakers
 
-    bpoUpdateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
+    updateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
 
 birkBaker :: BirkParametersOperations m => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
-birkBaker bid bps = bakerData bid <$> bpoCurrentBakers bps
+birkBaker bid bps = bakerData bid <$> getCurrentBakers bps
 
 birkEpochBaker :: BirkParametersOperations m => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
-birkEpochBaker bid bps = bakerData bid <$> bpoLotteryBakers bps
+birkEpochBaker bid bps = bakerData bid <$> getLotteryBakers bps
 
 birkLeadershipElectionNonce :: BirkParametersOperations m => BirkParameters m -> m LeadershipElectionNonce
-birkLeadershipElectionNonce bps = currentSeed <$> bpoSeedState bps
+birkLeadershipElectionNonce bps = currentSeed <$> getSeedState bps
 
 birkEpochBakerByKeys :: BirkParametersOperations m => BakerSignVerifyKey -> BirkParameters m -> m (Maybe (BakerId, BakerInfo, LotteryPower))
 birkEpochBakerByKeys sigKey bps = do
-    lotteryBakers <- bpoLotteryBakers bps
+    lotteryBakers <- getLotteryBakers bps
     case lotteryBakers ^? bakersByKey . ix sigKey of
         Just bid -> do
             baker <- birkEpochBaker bid bps
@@ -480,18 +480,18 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE getBlockState #-}
 
 instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
-    bpoSeedState = lift . bpoSeedState
-    bpoUpdateBirkParametersForNewEpoch s = lift . bpoUpdateBirkParametersForNewEpoch s
-    bpoElectionDifficulty = lift . bpoElectionDifficulty
-    bpoCurrentBakers = lift . bpoCurrentBakers
-    bpoLotteryBakers = lift . bpoLotteryBakers
-    bpoUpdateSeedState f = lift . bpoUpdateSeedState f
-    {-# INLINE bpoSeedState #-}
-    {-# INLINE bpoUpdateBirkParametersForNewEpoch #-}
-    {-# INLINE bpoElectionDifficulty #-}
-    {-# INLINE bpoCurrentBakers #-}
-    {-# INLINE bpoLotteryBakers #-}
-    {-# INLINE bpoUpdateSeedState #-}
+    getSeedState = lift . getSeedState
+    updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
+    getElectionDifficulty = lift . getElectionDifficulty
+    getCurrentBakers = lift . getCurrentBakers
+    getLotteryBakers = lift . getLotteryBakers
+    updateSeedState f = lift . updateSeedState f
+    {-# INLINE getSeedState #-}
+    {-# INLINE updateBirkParametersForNewEpoch #-}
+    {-# INLINE getElectionDifficulty #-}
+    {-# INLINE getCurrentBakers #-}
+    {-# INLINE getLotteryBakers #-}
+    {-# INLINE updateSeedState #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
