@@ -95,7 +95,8 @@ resizeDatabaseHandlers dbh size = do
   _finalizedByHeightStore <- transaction _storeEnv (getDatabase (Just finalizedByHeightStoreName) :: Transaction ReadWrite (Database BlockHeight BlockHash))
   return DatabaseHandlers {..}
 
--- |For now the database only supports two stores: blocks and finalization records.
+-- |For now the database supports four stores: blocks, finalization records, transaction statuses,
+-- and an index of finalized blocks by height.
 -- In order to abstract the database access, this datatype was created.
 -- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
 data LMDBStoreType = Block BlockHash ByteString -- ^The Blockhash and the serialized form of the block
