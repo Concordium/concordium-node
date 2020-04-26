@@ -270,10 +270,10 @@ pub struct ConnectionConfig {
     pub hard_connection_limit: u16,
     #[structopt(
         long = "catch-up-batch-limit",
-        help = "The maximum batch size for a catch-up round (0 = no limit)",
+        help = "The maximum batch size for a catch-up round.",
         default_value = "50"
     )]
-    pub catch_up_batch_limit: u64,
+    pub catch_up_batch_limit: i64,
     #[structopt(
         long = "thread-pool-size",
         help = "The size of the threadpool processing connection events in parallel",
