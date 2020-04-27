@@ -21,8 +21,7 @@ subsection () {
 }
 
 set -e
-GHC_BUILDER_VERSION="8.8.3"
-CABAL_BUILDER_VERSION="3.0.0.0"
+CABAL_VERSION="3.0.0.0"
 GHC_VERSION="8.8.3"
 STACK_VERSION="2.1.3"
 
@@ -57,7 +56,7 @@ echo "We will run the following process:
 section "Fetching dependencies"
 
 
-pacman -Sy 
+pacman -Sy
 pacman -S reflector --noconfirm
 reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
 pacman -Su wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git file postgresql-libs libffi --noconfirm
@@ -94,8 +93,8 @@ sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/r
 
 subsection "RUST: OK"
 
-wget -q https://downloads.haskell.org/~cabal/cabal-install-$CABAL_BUILDER_VERSION/cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
-tar -xf cabal-install-$CABAL_BUILDER_VERSION-x86_64-unknown-linux.tar.xz
+wget -q https://downloads.haskell.org/~cabal/cabal-install-$CABAL_VERSION/cabal-install-$CABAL_VERSION-x86_64-unknown-linux.tar.xz
+tar -xf cabal-install-$CABAL_VERSION-x86_64-unknown-linux.tar.xz
 mkdir -p $HOME/.cabal/bin
 chmod +x cabal
 mv cabal $HOME/.cabal/bin/
@@ -219,7 +218,7 @@ subsection "Libraries copied: OK"
 #############################################################################################################################
 section "Build the rust utility binaries"
 
-cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp dist-newstyle/build/x86_64-linux/ghc-$GHC_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 (
     cd crypto/rust-bins &&
