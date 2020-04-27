@@ -374,6 +374,8 @@ makeAsyncRunner logm bkr config = do
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
 
+-- | Given a file path in the third argument, it will deserialize each block in the file
+-- and import it into the active global state.
 syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
                  => SyncRunner c
                  -> LogMethod IO
@@ -382,27 +384,10 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
 syncImportBlocks syncRunner logm filepath = do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
-  readBlock h now
- where readBlock h tm =  do
-         lenS <- liftIO (hGet h 8)
-         if empty /= lenS then do
-           let Right len = runGet (get :: Get Int) lenS
-           blockBS <- liftIO $ hGet h len
-           result <- importBlock blockBS tm
-           case result of
-             ResultSuccess ->
-               readBlock h tm
-             err -> return err
-         else
-           return ResultSuccess
-       importBlock blockBS tm =
-         case deserializePendingBlock blockBS tm of
-            Left err -> do
-                logm External LLDebug err
-                return ResultSerializationFail
-            Right block -> syncReceiveBlock syncRunner block
+  readBlock h now logm syncReceiveBlock syncRunner
 
-
+-- | Given a file path in the third argument, it will deserialize each block in the file
+-- and import it into the passive global state.
 syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
                         => SyncPassiveRunner c
                         -> LogMethod IO
@@ -411,24 +396,42 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
 syncPassiveImportBlocks syncRunner logm filepath = do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
-  readBlock h now
- where readBlock h tm =  do
+  readBlock h now logm syncPassiveReceiveBlock syncRunner
+
+readBlock :: MonadIO m =>
+            Handle
+          -> UTCTime
+          -> LogMethod IO
+          -> (t -> PendingBlock -> m UpdateResult)
+          -> t
+          -> m UpdateResult
+readBlock h tm logm f syncRunner =  do
          lenS <- liftIO (hGet h 8)
          if empty /= lenS then do
            let Right len = runGet (get :: Get Int) lenS
+           liftIO $ logm External LLTrace $ "Reading serialized block with length: " ++ show len
            blockBS <- liftIO $ hGet h len
-           result <- importBlock blockBS tm
+           result <- importBlock blockBS tm logm f syncRunner
            case result of
-             ResultSuccess ->
-               readBlock h tm
-             err -> return err
+             ResultSuccess -> readBlock h tm logm f syncRunner
+             ResultPendingBlock -> readBlock h tm logm f syncRunner
+             ResultSerializationFail -> return ResultSerializationFail
+             err -> do
+               liftIO $ logm External LLDebug $ "Error importing block: " ++ show err
+               return err
          else
            return ResultSuccess
-       importBlock blockBS tm =
-         case deserializePendingBlock blockBS tm of
-            Left err -> do
-                logm External LLDebug err
-                return ResultSerializationFail
-            Right block -> do
-                logm External LLDebug ("Importing " ++ (show $ pbHash block))
-                syncPassiveReceiveBlock syncRunner block
+
+importBlock :: MonadIO m =>
+              ByteString
+            -> UTCTime
+            -> LogMethod IO
+            -> (t -> PendingBlock -> m UpdateResult)
+            -> t
+            -> m UpdateResult
+importBlock blockBS tm logm f syncRunner =
+  case deserializePendingBlock blockBS tm of
+    Left err -> do
+      liftIO $ logm External LLDebug $ "Cant deserialize block: " ++ show err
+      return ResultSerializationFail
+    Right block -> f syncRunner block
