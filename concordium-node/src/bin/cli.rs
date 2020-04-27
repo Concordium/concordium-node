@@ -125,13 +125,8 @@ async fn main() -> Fallible<()> {
 
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
-        let mut serv = RpcServerImpl::new(
-            node.clone(),
-            Some(consensus.clone()),
-            &conf.cli.rpc,
-            get_baker_private_data_json_file(&app_prefs, &conf.cli.baker),
-        )
-        .expect("Can't create the RPC server");
+        let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
+            .expect("Can't create the RPC server");
         tokio::spawn(async move {
             serv.start_server().await.expect("Can't start the RPC server");
         });
