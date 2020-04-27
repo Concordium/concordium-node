@@ -238,6 +238,9 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
   -- |Link an expression into an expression ready to run.
+  -- This charges for the size of the linked expression. The linker is run with the current remaining
+  -- energy, and if that is not sufficient to pay for the size of the resulting expression, it will
+  -- abort when this limit is reached, and this function will reject the transaction with 'OutOfEnergy'.
   -- The expression is part of the given module
   linkExpr :: Core.ModuleRef -> (UnlinkedExpr NoAnnot, Word64) -> m (LinkedExpr NoAnnot, Word64)
 

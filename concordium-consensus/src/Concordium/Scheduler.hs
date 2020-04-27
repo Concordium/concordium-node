@@ -300,7 +300,7 @@ handleDeployModule wtc psize mod =
       -- Typecheck the module, resulting in the module 'Interface'.
       -- The cost of type-checking is dependent on the size of the module.
       iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
-      -- Link the module, creating the 'ValueInterface'.
+      -- Create the 'ValueInterface' of the module (compiles all terms).
       let viface = I.evalModule imod
       return (mhash, iface, viface)
 
@@ -351,13 +351,15 @@ handleInitContract wtc amount modref cname param paramSize =
             tickEnergy (Cost.initParamsTypecheck paramSize)
             qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
             -- Link the contract, i.e., its init and receive functions as well as the constraint
-            -- implementations.
+            -- implementations. This ticks energy for the size of the linked expressions,
+            -- failing if running out of energy in the process.
             -- NB: The unsafe Map.! is safe here because if the contract is part of the interface 'iface'
             -- it must also be part of the 'ValueInterface' returned by 'getModuleInterfaces'.
             linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
             let (initFun, _) = cvInitMethod linkedContract
-            -- Link the parameter expression, which ticks energy for the size of the linked expression,
-            -- failing if running out of energy in the process.
+
+            -- First compile the parameter expression, then link it, which ticks energy for the size of
+            -- the linked expression, failing when running out of energy in the process.
             (params', _) <- linkExpr (uniqueName iface) (compile qparamExp)
 
             cm <- getChainMetadata
@@ -432,7 +434,8 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
           -- Type check the message expression, as coming from a top-level transaction it can be
           -- an arbitrary expression. The cost of type-checking is dependent on the size of the term.
           qmsgExp <- typeHidingErrors (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith` MessageTypeError
-          -- Link the message expression, ticking energy in the process.
+          -- First compile the message expression, then link it, which ticks energy for the size of the
+          -- linked expression, failing when running out of energy in the process.
           (qmsgExpLinked, _) <- linkExpr (uniqueName iface) (compile qmsgExp)
           -- Now invoke the general handler for contract messages.
           handleMessage senderAccount
