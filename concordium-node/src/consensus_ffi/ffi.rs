@@ -673,9 +673,7 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn import_blocks(&self,
-        import_file_path: &[u8],
-    ) -> u8 {
+    pub fn import_blocks(&self, import_file_path: &[u8]) -> u8 {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let len = import_file_path.len();
 
