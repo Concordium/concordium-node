@@ -745,7 +745,7 @@ mod tests {
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
-        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, None)?;
+        let mut rpc_server = RpcServerImpl::new(node.clone(), &config.cli.rpc, None)?;
         tokio::spawn(async move { rpc_server.start_server().await });
         tokio::task::yield_now().await;
 
