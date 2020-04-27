@@ -19,7 +19,6 @@ use consensus_rust::{
 use tonic::{transport::Server, Code, Request, Response, Status};
 
 use std::{
-    fs,
     io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -33,10 +32,9 @@ use p2p_server::*;
 /// The object used to initiate a gRPC server.
 #[derive(Clone)]
 pub struct RpcServerImpl {
-    node: Arc<P2PNode>,
-    listen_addr: SocketAddr,
+    node:         Arc<P2PNode>,
+    listen_addr:  SocketAddr,
     access_token: String,
-    baker_private_data_json_file: Option<String>,
     // this field is optional only for test purposes
     consensus: Option<ConsensusContainer>,
 }
@@ -47,7 +45,6 @@ impl RpcServerImpl {
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
-        baker_private_data_json_file: Option<String>,
     ) -> Fallible<Self> {
         let listen_addr =
             SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
@@ -56,7 +53,6 @@ impl RpcServerImpl {
             node: Arc::clone(&node),
             listen_addr,
             access_token: conf.rpc_server_token.clone(),
-            baker_private_data_json_file,
             consensus,
         })
     }
@@ -532,30 +528,6 @@ impl P2p for RpcServerImpl {
         call_consensus!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_reward_status(&req.get_ref().block_hash)
         })
-    }
-
-    async fn get_baker_private_data(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<JsonResponse>, Status> {
-        authenticate!(req, self.access_token);
-        if let Some(file) = &self.baker_private_data_json_file {
-            if let Ok(data) = fs::read_to_string(file) {
-                Ok(Response::new(JsonResponse {
-                    value: data,
-                }))
-            } else {
-                Err(Status::new(
-                    Code::FailedPrecondition,
-                    "Can't fulfill the request: could not read the baker private data file",
-                ))
-            }
-        } else {
-            Err(Status::new(
-                Code::FailedPrecondition,
-                "Can't fulfill the request: running in passive consensus mode",
-            ))
-        }
     }
 
     async fn get_birk_parameters(

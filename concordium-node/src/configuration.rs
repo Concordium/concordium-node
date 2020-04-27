@@ -168,6 +168,11 @@ pub struct BakerConfig {
         help = "Enable outcome of finalized baked blocks from the scheduler"
     )]
     pub scheduler_outcome_logging: bool,
+    #[structopt(
+        long = "baker-credentials-file",
+        help = "Absolute path of the baker credentials file"
+    )]
+    pub baker_credentials_file: Option<String>,
 }
 
 #[derive(StructOpt, Debug)]
