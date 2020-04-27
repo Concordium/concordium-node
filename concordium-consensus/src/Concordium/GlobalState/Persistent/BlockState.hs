@@ -60,12 +60,16 @@ data BlockStatePointers = BlockStatePointers {
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
 
+-- TODO (MRA) move to Concordium.GlobalState.Bakers or wrap Bakers in newtype
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Bakers
+
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers where
     storeUpdate p bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate p bspAccounts
         (pinsts, bspInstances') <- storeUpdate p bspInstances
         (pmods, bspModules') <- storeUpdate p bspModules
         (pips, bspIdentityProviders') <- storeUpdate p bspIdentityProviders
+        (pbps, bspBirkParameters') <- storeUpdate p bspBirkParameters
         (pcryptps, bspCryptographicParameters') <- storeUpdate p bspCryptographicParameters
         let putBSP = do
                 paccts
@@ -73,7 +77,7 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers
                 pmods
                 put bspBank
                 pips
-                put bspBirkParameters
+                pbps
                 pcryptps
                 put bspTransactionOutcomes
         return (putBSP, bsp0 {
@@ -81,6 +85,7 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers
                     bspInstances = bspInstances',
                     bspModules = bspModules',
                     bspIdentityProviders = bspIdentityProviders',
+                    bspBirkParameters = bspBirkParameters',
                     bspCryptographicParameters = bspCryptographicParameters'
                 })
     store p bsp = fst <$> storeUpdate p bsp
@@ -90,7 +95,7 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers
         mmods <- label "Modules" $ load p
         bspBank <- label "Bank" $ get
         mpips <- label "Identity providers" $ load p
-        bspBirkParameters <- label "Birk parameters" $ get
+        mbps <- label "Birk parameters" $ load p
         mcryptps <- label "Cryptographic parameters" $ load p
         bspTransactionOutcomes <- label "Transaction outcomes" $ get
         return $! do
@@ -98,6 +103,7 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef BlockStatePointers
             bspInstances <- minsts
             bspModules <- mmods
             bspIdentityProviders <- mpips
+            bspBirkParameters <- mbps
             bspCryptographicParameters <- mcryptps
             return $! BlockStatePointers{..}
 
@@ -160,22 +166,46 @@ makePersistentModules (TransientMods.Modules m nmi rh) = Modules m' nmi rh
                 pmSource = mmoduleSource
             })
 
--- TODO (MRA) optimize this data type for persistent storage
 data PersistentBirkParameters = PersistentBirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
     -- |The current stake of bakers. All updates should be to this state.
     _birkCurrentBakers :: !Bakers,
     -- |The state of bakers at the end of the previous epoch,
     -- will be used as lottery bakers in next epoch.
-    _birkPrevEpochBakers :: !Bakers,
+    _birkPrevEpochBakers :: BufferedRef Bakers,
     -- |The state of the bakers fixed before previous epoch,
     -- the lottery power and reward account is used in leader election.
-    _birkLotteryBakers :: !Bakers,
+    _birkLotteryBakers :: BufferedRef Bakers,
     _birkSeedState :: !SeedState
-} deriving (Eq, Generic, Show)
-instance Serialize PersistentBirkParameters where
+} deriving (Generic, Show)
 
 makeLenses ''PersistentBirkParameters
+
+instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef PersistentBirkParameters where
+    storeUpdate p bps@PersistentBirkParameters{..} = do
+        (ppebs, prevEpochBakers) <- storeUpdate p _birkPrevEpochBakers
+        (plbs, lotteryBakers) <- storeUpdate p _birkLotteryBakers
+        let putBSP = do
+                put _birkElectionDifficulty
+                put _birkCurrentBakers
+                ppebs
+                plbs
+                put _birkSeedState
+        return (putBSP, bps {
+                    _birkPrevEpochBakers = prevEpochBakers,
+                    _birkLotteryBakers = lotteryBakers
+                })
+    store p bps = fst <$> storeUpdate p bps
+    load p = do
+        _birkElectionDifficulty <- label "Election difficulty" get
+        _birkCurrentBakers <- label "Current bakers" get
+        mpebs <- label "Previous-epoch bakers" $ load p
+        mlbs <- label "Lottery bakers" $ load p
+        _birkSeedState <- label "Seed state" get
+        return $! do
+            _birkPrevEpochBakers <- mpebs
+            _birkLotteryBakers <- mlbs
+            return $! PersistentBirkParameters{..}
 
 data ModuleCache = ModuleCache {
     _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps Core.NoAnnot),
@@ -190,7 +220,13 @@ class HasModuleCache a where
     moduleCache :: a -> IORef ModuleCache
 
 makePersistentBirkParameters :: Basic.BasicBirkParameters -> PersistentBirkParameters
-makePersistentBirkParameters Basic.BasicBirkParameters{..} = PersistentBirkParameters{..}
+makePersistentBirkParameters Basic.BasicBirkParameters{..} =
+    PersistentBirkParameters
+        _birkElectionDifficulty
+        _birkCurrentBakers
+        (BRMemory _birkPrevEpochBakers)
+        (BRMemory _birkLotteryBakers)
+        _birkSeedState
 
 makePersistent :: MonadIO m => Basic.BlockState -> m PersistentBlockState
 makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePointers {
@@ -657,7 +693,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
 
-instance MonadIO m => BirkParametersOperations (PersistentBlockStateMonad r m) where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperations (PersistentBlockStateMonad r m) where
 
     getSeedState bps = return $ _birkSeedState bps
 
@@ -666,13 +702,13 @@ instance MonadIO m => BirkParametersOperations (PersistentBlockStateMonad r m) w
         -- use stake distribution saved from the former epoch for leader election
         birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
         -- save the stake distribution from the end of the epoch
-        birkPrevEpochBakers .~ (bps ^. birkCurrentBakers)
+        birkPrevEpochBakers .~ (BRMemory $ bps ^. birkCurrentBakers)
 
     getElectionDifficulty = return . _birkElectionDifficulty
 
     getCurrentBakers = return . _birkCurrentBakers
     
-    getLotteryBakers = return . _birkLotteryBakers
+    getLotteryBakers = loadBufferedRef . _birkLotteryBakers
 
     updateSeedState f bps = return $ bps & birkSeedState %~ f
 
