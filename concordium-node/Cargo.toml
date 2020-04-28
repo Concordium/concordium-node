@@ -64,7 +64,7 @@ crossbeam-channel = "^0.4"
 semver = { version = "0.9", features = ["serde"] }
 
 # gRPC dependencies
-tonic = "0.1"
+tonic = "0.2"
 prost = "0.6"
 tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
@@ -72,7 +72,7 @@ tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c92bc45ceee6a0ed33e8aef4c", optional = true }
 gotham_derive = { version = "0.4", optional = true }
 http = { version = "0.2", optional = true }
-hyper = { version = "0.13", optional = true }
+hyper = { version = "0.13.5", optional = true }
 reqwest = { version = "0.10", default-features = false, optional = true, features = ["default-tls", "stream", "json"] }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
@@ -97,7 +97,7 @@ uuid = { version = "0.8", default-features = false, optional = true }
 libc = "0.2"
 
 [build-dependencies]
-tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
+tonic-build = { version = "0.2", default-features = false, features = ["transport", "prost"] }
 capnpc = { version = "0.12", optional = true }
 flatc-rust = "^0.1"
 
