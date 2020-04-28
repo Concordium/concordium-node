@@ -219,7 +219,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                              S.put (_bpInfo bp)
                              putBlock bp
                              bs)
-    dbh' <- putOrResize dbh (Block (getHash bp, blockBS))
+    dbh' <- putOrResize dbh (Block (getHash bp) blockBS)
     db .= dbh'
   readBlock bh = do
     env <- use (db . storeEnv)
@@ -230,9 +230,22 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     env <- use (db . storeEnv)
     dbF <- use (db . finalizationRecordStore)
     liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
+  readFinalizedBlockAtHeight bHeight = do
+    env <- use (db . storeEnv)
+    dbFH <- use (db . finalizedByHeightStore)
+    mbh <- liftIO $ transaction env (L.get dbFH bHeight :: L.Transaction ReadOnly (Maybe BlockHash))
+    case mbh of
+      Nothing -> return Nothing
+      Just bh -> readBlock bh
+
+  updateFinalizedByHeight bp = do
+    dbh <- use db
+    dbh' <- putOrResize dbh (FinalizedByHeight (bpHeight bp) (getHash bp))
+    db .= dbh'
+
   writeFinalizationRecord fr = do
     dbh <- use db
-    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr, fr))
+    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr) fr)
     db .= dbh'
   readTransactionStatus th = do
     env <- use (db . storeEnv)
@@ -240,7 +253,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe T.TransactionStatus))
   writeTransactionStatus th t = do
     dbh <- use db
-    dbh' <- putOrResize dbh (TxStatus (th, t))
+    dbh' <- putOrResize dbh (TxStatus th t)
     db .= dbh'
 
   writeTransactionStatuses tss = do
@@ -363,6 +376,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               writeBlock bp
+              updateFinalizedByHeight bp
               blockTable . at' bh ?= BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?= BlockPending pb
@@ -391,6 +405,14 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                 Just diskBlock -> return $ Just diskBlock
                 _ -> return Nothing
           _ -> return Nothing
+
+    getFinalizedAtHeight bHeight = do
+      lfin <- use lastFinalized
+      if bHeight == bpHeight lfin then do
+        return $ Just lfin
+      else do
+        readFinalizedBlockAtHeight bHeight
+
     getBranches = use branches
     putBranches brs = branches .= brs
     takePendingChildren bh = possiblyPendingTable . at' bh . non [] <<.= []
