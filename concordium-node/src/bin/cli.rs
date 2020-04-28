@@ -120,8 +120,8 @@ async fn main() -> Fallible<()> {
         &consensus_database_url,
     )?;
 
-    if conf.cli.baker.import_path != "" {
-        consensus.import_blocks(conf.cli.baker.import_path.as_bytes());
+    if let Some(import_path) = conf.cli.baker.import_path {
+        consensus.import_blocks(import_path.as_bytes());
     }
 
     // Consensus queue threads

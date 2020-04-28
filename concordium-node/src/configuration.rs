@@ -170,10 +170,9 @@ pub struct BakerConfig {
     pub scheduler_outcome_logging: bool,
     #[structopt(
         long = "import-blocks-from",
-        help = "Path to a file exported by the database exporter",
-        default_value = ""
+        help = "Path to a file exported by the database exporter"
     )]
-    pub import_path: String,
+    pub import_path: Option<String>,
 }
 
 #[derive(StructOpt, Debug)]
