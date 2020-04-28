@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving,
+{-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, DeriveGeneric, GeneralizedNewtypeDeriving,
         TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase, OverloadedStrings, TupleSections, StandaloneDeriving
  #-}
 
@@ -17,6 +17,8 @@ import qualified Data.Set as Set
 import Data.Maybe
 import Data.Functor.Identity
 import qualified Data.Vector as Vec
+
+import GHC.Generics (Generic)
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Types.Acorn.Core as Core
@@ -42,6 +44,7 @@ import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), Persi
 import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
+import Concordium.GlobalState.SeedState
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
@@ -51,7 +54,7 @@ data BlockStatePointers = BlockStatePointers {
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
     bspIdentityProviders :: BufferedRef IPS.IdentityProviders,
-    bspBirkParameters :: !BirkParameters, -- TODO: Possibly store BirkParameters allowing for sharing
+    bspBirkParameters :: !PersistentBirkParameters,
     bspCryptographicParameters :: BufferedRef CryptographicParameters,
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
@@ -157,6 +160,23 @@ makePersistentModules (TransientMods.Modules m nmi rh) = Modules m' nmi rh
                 pmSource = mmoduleSource
             })
 
+-- TODO (MRA) optimize this data type for persistent storage
+data PersistentBirkParameters = PersistentBirkParameters {
+    _birkElectionDifficulty :: ElectionDifficulty,
+    -- |The current stake of bakers. All updates should be to this state.
+    _birkCurrentBakers :: !Bakers,
+    -- |The state of bakers at the end of the previous epoch,
+    -- will be used as lottery bakers in next epoch.
+    _birkPrevEpochBakers :: !Bakers,
+    -- |The state of the bakers fixed before previous epoch,
+    -- the lottery power and reward account is used in leader election.
+    _birkLotteryBakers :: !Bakers,
+    _birkSeedState :: !SeedState
+} deriving (Eq, Generic, Show)
+instance Serialize PersistentBirkParameters where
+
+makeLenses ''PersistentBirkParameters
+
 data ModuleCache = ModuleCache {
     _cachedLinkedDefs :: HM.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps Core.NoAnnot),
     _cachedLinkedContracts :: HM.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue Core.NoAnnot)
@@ -169,6 +189,9 @@ emptyModuleCache = ModuleCache HM.empty HM.empty
 class HasModuleCache a where
     moduleCache :: a -> IORef ModuleCache
 
+makePersistentBirkParameters :: Basic.BasicBirkParameters -> PersistentBirkParameters
+makePersistentBirkParameters Basic.BasicBirkParameters{..} = PersistentBirkParameters{..}
+
 makePersistent :: MonadIO m => Basic.BlockState -> m PersistentBlockState
 makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePointers {
         bspAccounts = Account.makePersistent _blockAccounts
@@ -176,12 +199,12 @@ makePersistent Basic.BlockState{..} = liftIO $ newIORef $! BRMemory BlockStatePo
         , bspModules = BRMemory $! makePersistentModules _blockModules
         , bspBank = _blockBank
         , bspIdentityProviders = BRMemory $! _blockIdentityProviders
-        , bspBirkParameters = _blockBirkParameters
+        , bspBirkParameters = makePersistentBirkParameters _blockBirkParameters
         , bspCryptographicParameters = BRMemory $! _blockCryptographicParameters
         , bspTransactionOutcomes = _blockTransactionOutcomes
         }
 
-initialPersistentState :: MonadIO m => BirkParameters
+initialPersistentState :: MonadIO m => Basic.BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [IPS.IpInfo]
@@ -209,7 +232,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: MonadIO m => BirkParameters -> CryptographicParameters -> m PersistentBlockState
+emptyBlockState :: MonadIO m => PersistentBirkParameters -> CryptographicParameters -> m PersistentBlockState
 emptyBlockState bspBirkParameters cryptParams = liftIO $ newIORef $! BRMemory BlockStatePointers {
   bspAccounts = Account.emptyAccounts
   , bspInstances = Instances.emptyInstances
@@ -354,7 +377,7 @@ doPutLinkedContract pbs modRef n !lc = do
         liftIO $ modifyIORef' cacheRef (cachedLinkedContracts %~ HM.insert (modRef, n) lc)
         return pbs
 
-doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m BirkParameters
+doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m PersistentBirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
 doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Maybe BakerId, PersistentBlockState)
@@ -581,7 +604,7 @@ doAddSpecialTransactionOutcome pbs o = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
 
-doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BirkParameters -> m PersistentBlockState
+doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentBirkParameters -> m PersistentBlockState
 doUpdateBirkParameters pbs newBirk = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBirkParameters = newBirk}
@@ -608,6 +631,7 @@ newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad { runPersist
 instance BlockStateTypes (PersistentBlockStateMonad r m) where
     type BlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
+    type BirkParameters (PersistentBlockStateMonad r m) = PersistentBirkParameters
 
 instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => BlockStateQuery (PersistentBlockStateMonad r m) where
     getModule = doGetModule
@@ -632,6 +656,25 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getTransactionOutcome #-}
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
+
+instance MonadIO m => BirkParametersOperations (PersistentBlockStateMonad r m) where
+
+    getSeedState bps = return $ _birkSeedState bps
+
+    updateBirkParametersForNewEpoch seedState bps = return $ bps &
+        birkSeedState .~ seedState &
+        -- use stake distribution saved from the former epoch for leader election
+        birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
+        -- save the stake distribution from the end of the epoch
+        birkPrevEpochBakers .~ (bps ^. birkCurrentBakers)
+
+    getElectionDifficulty = return . _birkElectionDifficulty
+
+    getCurrentBakers = return . _birkCurrentBakers
+    
+    getLotteryBakers = return . _birkLotteryBakers
+
+    updateSeedState f bps = return $ bps & birkSeedState %~ f
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule
@@ -694,7 +737,6 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
     {-# INLINE bsoUpdateBirkParameters #-}
     {-# INLINE bsoSetElectionDifficulty #-}
-
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}

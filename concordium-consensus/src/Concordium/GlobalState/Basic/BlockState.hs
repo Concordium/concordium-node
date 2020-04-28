@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
+{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
@@ -8,6 +8,8 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
+
+import GHC.Generics (Generic)
 
 import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
@@ -22,9 +24,22 @@ import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.Types.Transactions as Transactions
+import Concordium.GlobalState.SeedState
 
 import qualified Acorn.Utils.Init as Acorn
 
+data BasicBirkParameters = BasicBirkParameters {
+    _birkElectionDifficulty :: ElectionDifficulty,
+    -- |The current stake of bakers. All updates should be to this state.
+    _birkCurrentBakers :: !Bakers,
+    -- |The state of bakers at the end of the previous epoch,
+    -- will be used as lottery bakers in next epoch.
+    _birkPrevEpochBakers :: !Bakers,
+    -- |The state of the bakers fixed before previous epoch,
+    -- the lottery power and reward account is used in leader election.
+    _birkLotteryBakers :: !Bakers,
+    _birkSeedState :: !SeedState
+} deriving (Eq, Generic, Show)
 
 data BlockState = BlockState {
     _blockAccounts :: !Account.Accounts,
@@ -32,16 +47,17 @@ data BlockState = BlockState {
     _blockModules :: !Modules.Modules,
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
-    _blockBirkParameters :: !BirkParameters,
+    _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !CryptographicParameters,
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
 } deriving (Show)
 
+makeLenses ''BasicBirkParameters
 makeLenses ''BlockState
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: BirkParameters -> CryptographicParameters -> BlockState
+emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> BlockState
 emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState {
   _blockAccounts = Account.emptyAccounts
   , _blockInstances = Instances.emptyInstances
@@ -59,6 +75,7 @@ newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad ::
 instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
+    type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
 
 instance ATITypes (PureBlockStateMonad m) where
   type ATIStorage (PureBlockStateMonad m) = ()
@@ -105,6 +122,28 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+
+instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
+
+    getSeedState bps = return $ _birkSeedState bps
+
+    updateBirkParametersForNewEpoch seedState = return . basicUpdateBirkParametersForNewEpoch seedState
+
+    getElectionDifficulty = return . _birkElectionDifficulty
+
+    getCurrentBakers = return . _birkCurrentBakers
+    
+    getLotteryBakers = return . _birkLotteryBakers
+
+    updateSeedState f bps = return $ bps & birkSeedState %~ f
+
+basicUpdateBirkParametersForNewEpoch :: SeedState -> BasicBirkParameters -> BasicBirkParameters
+basicUpdateBirkParametersForNewEpoch seedState bps = bps &
+    birkSeedState .~ seedState &
+    -- use stake distribution saved from the former epoch for leader election
+    birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
+    -- save the stake distribution from the end of the epoch
+    birkPrevEpochBakers .~ (bps ^. birkCurrentBakers)
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
@@ -293,7 +332,7 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
 
 
 -- |Initial block state.
-initialState :: BirkParameters
+initialState :: BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [IPS.IpInfo]
