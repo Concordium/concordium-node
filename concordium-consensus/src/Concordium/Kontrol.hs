@@ -58,4 +58,5 @@ getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
        blockState <- queryBlockState bp
        gtu <- _totalGTU <$> getRewardStatus blockState
-       makeFinalizationCommittee finParams gtu . _birkCurrentBakers <$> getBirkParameters (blockSlot bp) bp
+       bps <- getBirkParameters (blockSlot bp) bp
+       makeFinalizationCommittee finParams gtu <$> getCurrentBakers bps
