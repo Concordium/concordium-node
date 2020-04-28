@@ -172,10 +172,10 @@ data PersistentBirkParameters = PersistentBirkParameters {
     _birkCurrentBakers :: !Bakers,
     -- |The state of bakers at the end of the previous epoch,
     -- will be used as lottery bakers in next epoch.
-    _birkPrevEpochBakers :: BufferedRef Bakers,
+    _birkPrevEpochBakers :: !(BufferedRef Bakers),
     -- |The state of the bakers fixed before previous epoch,
     -- the lottery power and reward account is used in leader election.
-    _birkLotteryBakers :: BufferedRef Bakers,
+    _birkLotteryBakers :: !(BufferedRef Bakers),
     _birkSeedState :: !SeedState
 } deriving (Generic, Show)
 
@@ -708,7 +708,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperation
 
     getCurrentBakers = return . _birkCurrentBakers
     
-    getLotteryBakers = loadBufferedRef . _birkLotteryBakers
+    getLotteryBakers = cacheBufferedRef . _birkLotteryBakers
 
     updateSeedState f bps = return $ bps & birkSeedState %~ f
 
