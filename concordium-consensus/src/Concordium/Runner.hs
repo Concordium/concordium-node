@@ -398,40 +398,41 @@ syncPassiveImportBlocks syncRunner logm filepath = do
   now <- currentTime
   readBlock h now logm syncPassiveReceiveBlock syncRunner
 
-readBlock :: MonadIO m =>
-            Handle
+readBlock :: Handle
           -> UTCTime
           -> LogMethod IO
-          -> (t -> PendingBlock -> m UpdateResult)
+          -> (t -> PendingBlock -> IO UpdateResult)
           -> t
-          -> m UpdateResult
+          -> IO UpdateResult
 readBlock h tm logm f syncRunner =  do
-         lenS <- liftIO (hGet h 8)
-         if empty /= lenS then do
-           let Right len = runGet (get :: Get Int) lenS
-           liftIO $ logm External LLTrace $ "Reading serialized block with length: " ++ show len
-           blockBS <- liftIO $ hGet h len
-           result <- importBlock blockBS tm logm f syncRunner
-           case result of
-             ResultSuccess -> readBlock h tm logm f syncRunner
-             ResultPendingBlock -> readBlock h tm logm f syncRunner
-             ResultSerializationFail -> return ResultSerializationFail
-             err -> do
-               liftIO $ logm External LLDebug $ "Error importing block: " ++ show err
-               return err
+         lenS <- hGet h 8
+         if not $ BS.null lenS then
+           case runGet getInt64be lenS of
+             Left err -> do
+               logm External LLError $ "Error deserializing length: " ++ err
+               return ResultSerializationFail
+             Right len -> do
+               blockBS <- hGet h (fromIntegral len)
+               result <- importBlock blockBS tm logm f syncRunner
+               case result of
+                 ResultSuccess -> readBlock h tm logm f syncRunner
+                 ResultPendingBlock -> readBlock h tm logm f syncRunner
+                 ResultSerializationFail -> return ResultSerializationFail
+                 err -> do
+                   logm External LLError $ "Error importing block: " ++ show err
+                   return err
          else
            return ResultSuccess
 
-importBlock :: MonadIO m =>
-              ByteString
+importBlock :: ByteString
             -> UTCTime
             -> LogMethod IO
-            -> (t -> PendingBlock -> m UpdateResult)
+            -> (t -> PendingBlock -> IO UpdateResult)
             -> t
-            -> m UpdateResult
+            -> IO UpdateResult
 importBlock blockBS tm logm f syncRunner =
   case deserializePendingBlock blockBS tm of
     Left err -> do
-      liftIO $ logm External LLDebug $ "Cant deserialize block: " ++ show err
+      logm External LLError $ "Can't deserialize block: " ++ show err
       return ResultSerializationFail
     Right block -> f syncRunner block
