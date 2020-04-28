@@ -8,6 +8,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , finalizationRecordStore
   , transactionStatusStore
   , initialDatabaseHandlers
+  , finalizedByHeightStore
   , LMDBStoreType (..)
   , LMDBStoreMonad (..)
   , putOrResize
@@ -40,13 +41,15 @@ data DatabaseHandlers bs = DatabaseHandlers {
     _storeEnv :: Environment ReadWrite,
     _blockStore :: Database BlockHash ByteString,
     _finalizationRecordStore :: Database FinalizationIndex FinalizationRecord,
-    _transactionStatusStore :: Database TransactionHash T.TransactionStatus
+    _transactionStatusStore :: Database TransactionHash T.TransactionStatus,
+    _finalizedByHeightStore :: Database BlockHeight BlockHash
 }
 makeLenses ''DatabaseHandlers
 
-blockStoreName, finalizationRecordStoreName, transactionStatusStoreName :: String
+blockStoreName, finalizationRecordStoreName, transactionStatusStoreName, finalizedByHeightStoreName :: String
 blockStoreName = "blocks"
 finalizationRecordStoreName = "finalization"
+finalizedByHeightStoreName = "finalizedByHeight"
 transactionStatusStoreName = "transactionstatus"
 
 -- NB: The @ati@ is stored in an external database if chosen to.
@@ -64,15 +67,17 @@ initialDatabaseHandlers gb serState RuntimeParameters{..} = liftIO $ do
     (getDatabase (Just blockStoreName) :: L.Transaction ReadWrite (Database BlockHash ByteString))
   _finalizationRecordStore <- liftIO $ transaction _storeEnv
     (getDatabase (Just finalizationRecordStoreName) :: L.Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
+  _finalizedByHeightStore <- liftIO $ transaction _storeEnv
+    (getDatabase (Just finalizedByHeightStoreName) :: L.Transaction ReadWrite (Database BlockHeight BlockHash))
   _transactionStatusStore <- liftIO $ transaction _storeEnv
     (getDatabase (Just transactionStatusStoreName) :: L.Transaction ReadWrite (Database TransactionHash T.TransactionStatus))
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  liftIO $ transaction _storeEnv (L.put _blockStore (getHash gb) (Just $ runPut (do
-                                                                                    S.put (_bpInfo gb)
-                                                                                    putBlock gb
-                                                                                    serState)))
-  liftIO $ transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
+  liftIO $ do transaction _storeEnv (L.put _blockStore gbh (Just $ runPut (S.put (_bpInfo gb) <>
+                                                                           putBlock gb <>
+                                                                           serState)))
+              transaction _storeEnv (L.put _finalizedByHeightStore 0 (Just gbh))
+              transaction _storeEnv (L.put _finalizationRecordStore 0 (Just gbfin))
   return $ DatabaseHandlers {..}
 
 resizeDatabaseHandlers :: DatabaseHandlers bs -> Int -> IO (DatabaseHandlers bs)
@@ -87,44 +92,52 @@ resizeDatabaseHandlers dbh size = do
   _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
   _finalizationRecordStore <- transaction _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
   _transactionStatusStore <- transaction _storeEnv (getDatabase (Just transactionStatusStoreName) :: Transaction ReadWrite (Database TransactionHash T.TransactionStatus))
+  _finalizedByHeightStore <- transaction _storeEnv (getDatabase (Just finalizedByHeightStoreName) :: Transaction ReadWrite (Database BlockHeight BlockHash))
   return DatabaseHandlers {..}
 
--- |For now the database only supports two stores: blocks and finalization records.
+-- |For now the database supports four stores: blocks, finalization records, transaction statuses,
+-- and an index of finalized blocks by height.
 -- In order to abstract the database access, this datatype was created.
 -- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
-data LMDBStoreType = Block (BlockHash, ByteString) -- ^The Blockhash and the serialized form of the block
-               | Finalization (FinalizationIndex, FinalizationRecord) -- ^The finalization index and the associated finalization record
-               | TxStatus (TransactionHash, T.TransactionStatus)
+data LMDBStoreType = Block BlockHash ByteString -- ^The Blockhash and the serialized form of the block
+               | Finalization FinalizationIndex FinalizationRecord -- ^The finalization index and the associated finalization record
+               | TxStatus TransactionHash T.TransactionStatus
                | TxStatuses [(TransactionHash, T.TransactionStatus)]
+               | FinalizedByHeight BlockHeight BlockHash
                deriving (Show)
 
 lmdbStoreTypeSize :: LMDBStoreType -> Int
-lmdbStoreTypeSize (Block (_, v)) = digestSize + 8 + Data.ByteString.length v
-lmdbStoreTypeSize (Finalization (_, v)) = let FinalizationProof (vs, _)  = finalizationProof v in
+lmdbStoreTypeSize (Block _ v) = digestSize + 8 + Data.ByteString.length v
+lmdbStoreTypeSize (Finalization _ v) = let FinalizationProof (vs, _)  = finalizationProof v in
   -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
   digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
-lmdbStoreTypeSize (TxStatus (_, t)) = digestSize + 8 + case t of
+lmdbStoreTypeSize (TxStatus _ t) = digestSize + 8 + case t of
   T.Committed _ res -> HM.size res * (digestSize + 8)
   T.Finalized{} -> digestSize + 8
   _ -> 0
 lmdbStoreTypeSize (TxStatuses ss) = Prelude.length ss * (2 * digestSize + 16)
+lmdbStoreTypeSize (FinalizedByHeight _ _) = 8 + digestSize
 
 -- | Depending on the variant of the provided tuple, this function will perform a `put` transaction in the
 -- correct database.
 putInProperDB :: LMDBStoreType -> DatabaseHandlers bs -> IO ()
-putInProperDB (Block (key, value)) dbh = do
+putInProperDB (Block key value) dbh = do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. blockStore) key (Just value)
-putInProperDB (Finalization (key, value)) dbh =  do
+putInProperDB (Finalization key value) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. finalizationRecordStore) key (Just value)
-putInProperDB (TxStatus (key, value)) dbh =  do
+putInProperDB (TxStatus key value) dbh =  do
   let env = dbh ^. storeEnv
   transaction env $ L.put (dbh ^. transactionStatusStore) key (Just value)
 putInProperDB (TxStatuses statuses) dbh = do
   let env = dbh ^. storeEnv
   let putter (key, value) = L.put (dbh ^. transactionStatusStore) key (Just value)
   transaction env $ mapM_ putter statuses
+putInProperDB (FinalizedByHeight height bh) dbh = do
+  let env = dbh ^. storeEnv
+  transaction env $ L.put (dbh ^. finalizedByHeightStore) height (Just bh)
+
 
 -- |Provided default function that tries to perform an insertion in a given database of a given value,
 -- altering the environment if needed when the database grows.
@@ -152,6 +165,12 @@ class (MonadIO m) => LMDBStoreMonad m where
    readFinalizationRecord :: FinalizationIndex -> m (Maybe FinalizationRecord)
 
    readTransactionStatus :: TransactionHash -> m (Maybe T.TransactionStatus)
+
+   -- |Read a finalized block at a given height, if it exists.
+   readFinalizedBlockAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
+
+   -- |Update the finalization index by height, adding a new block
+   updateFinalizedByHeight :: BlockPointerType m -> m ()
 
    writeTransactionStatus :: TransactionHash -> T.TransactionStatus -> m ()
 
