@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:experimental
 FROM archlinux/base
 
-ENV GHC_VERSION 8.6.5
+ENV GHC_VERSION 8.8.3
 
 COPY scripts/build-static-libraries.sh /build-static-libraries.sh
 COPY scripts/build-static-libraries-copy-out.sh /build-static-libraries-copy-out.sh

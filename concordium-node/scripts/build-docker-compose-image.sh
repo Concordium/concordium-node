@@ -2,14 +2,15 @@
 
 set -e
 
-if [ "$#" -lt 2 ]
+if [ "$#" -lt 3 ]
 then
-  echo "Usage: ./build-docker-compose-image.sh VERSION_TAG [default]"
+  echo "Usage: ./build-docker-compose-image.sh VERSION_TAG [default] [consensus_profiling]"
   exit 1
 fi
 
 VERSION=$1
 CONSENSUS_TYPE=$2
+CONSENSUS_PROFILING=$3
 
 echo "Going to build version $VERSION of dev-client for docker-hub with consensus type $CONSENSUS_TYPE"
 
@@ -22,7 +23,7 @@ if [ ! -z "$JENKINS_HOME" ]; then
 
     export DOCKER_BUILDKIT=1
 
-    docker build -f scripts/dev-client.Dockerfile --build-arg consensus_type=$CONSENSUS_TYPE -t concordium/dev-client:$VERSION --ssh default .
+    docker build -f scripts/dev-client.Dockerfile --build-arg consensus_type=$CONSENSUS_TYPE --build-arg consensus_profiling=$CONSENSUS_PROFILING -t concordium/dev-client:$VERSION --ssh default .
 
     rm -f CONSENSUS_VERSION
     rm -rf baker_id_gen

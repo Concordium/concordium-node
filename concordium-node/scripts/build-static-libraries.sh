@@ -23,7 +23,6 @@ subsection () {
 set -e
 GHC_BUILDER_VERSION="8.8.3"
 CABAL_BUILDER_VERSION="3.0.0.0"
-GHC_VERSION="8.8.3"
 STACK_VERSION="2.1.3"
 
 echo "We will run the following process:
@@ -304,7 +303,9 @@ section "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
-tar czf static-consensus-$GHC_VERSION-sc.tar.gz /target-sc
+rm -rf /target
+mv /target-sc /target
+tar czf static-consensus-$GHC_VERSION-sc.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION-sc.tar.gz /binaries
 
 rm -rf /target /binaries

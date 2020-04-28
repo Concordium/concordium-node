@@ -91,6 +91,23 @@ For the most simple and common setup, simply run the below command in the root o
 $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5 --force-recreate
 ```
 
+### Latest debug from custom branch
+For a local docker compose setup, a docker-compose.debug.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built manually from a specific branch. These builds must be considered extremely volatile!
+
+For the most simple and common setup, simply run the below command in the root of the checked out repository
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.debug.yml up --scale baker=5 --force-recreate
+```
+
+### Latest debug from custom branch (with smart contract support)
+For a local docker compose setup, a docker-compose.debug-sc.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built manually from a specific branch. These builds must be considered extremely volatile!
+
+For the most simple and common setup, simply run the below command in the root of the checked out repository
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.debug-sc.yml up --scale baker=5 --force-recreate
+```
+
+
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
 
