@@ -27,7 +27,6 @@ import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
-import Concordium.Scheduler.Utils.Init.Example(dummyCredential)
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
