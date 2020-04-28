@@ -13,7 +13,6 @@ import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState
@@ -25,6 +24,8 @@ import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
+
+import SchedulerTests.Helpers
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -61,40 +62,43 @@ transactionsInput =
          }
   ]
 
+type TestResult = ([(Types.BlockItem, Types.ValidResult)],
+                   [(Types.Transaction, Types.FailureKind)],
+                   Types.Amount,
+                   Types.Amount)
 
-testSimpleTransfer
-  :: PR.Context Core.UA
-       IO
-       ([(Types.BareTransaction, Types.ValidResult)],
-        [(Types.BareTransaction, Types.FailureKind)], Types.Amount, Types.Amount)
+
+testSimpleTransfer :: PR.Context Core.UA IO TestResult
 testSimpleTransfer = do
     transactions <- processUngroupedTransactions transactionsInput
-    let ((Sch.FilteredTransactions{..}, _), gstate) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+    let (Sch.FilteredTransactions{..}, finState) =
+          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             dummySpecialBetaAccounts
             Types.dummyChainMeta
+            maxBound
             initialBlockState
+    let gstate = finState ^. Types.ssBlockState
     case invariantBlockState gstate of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
-    return (ftAdded,
+    return (getResults ftAdded,
             ftFailed,
             gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
 
-checkSimpleTransferResult :: ([(a, Types.ValidResult)], [b], Types.Amount, Types.Amount) -> Bool
+checkSimpleTransferResult :: TestResult -> Bool
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
   null fails && -- should be no failed transactions
   reject &&  -- the last transaction is rejected
   nonreject && -- all initial transactions are successful
-  alesamount == (100000 - 4 * fromIntegral Cost.checkHeader - 88 - 98700 + 100) &&
-  thomasamount == (100000 - fromIntegral Cost.checkHeader + 88 + 98700 - 100)
+  alesamount == (100000 - 4 * fromIntegral simpleTransferCost - 88 - 98700 + 100) &&
+  thomasamount == (100000 - fromIntegral simpleTransferCost + 88 + 98700 - 100)
   where
     nonreject = all (\case (_, Types.TxSuccess{}) -> True
                            (_, Types.TxReject{}) -> False)
                     (init suc)
     reject = case last suc of
-               (_, Types.TxReject (Types.AmountTooLarge _ _) _ _) -> True
+               (_, Types.TxReject (Types.AmountTooLarge _ _)) -> True
                _ -> False
 
 tests :: SpecWith ()

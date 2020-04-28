@@ -52,6 +52,7 @@ import Control.Monad.State.Class
 import Control.Monad.RWS.Strict
 import Lens.Micro.Platform
 
+import Concordium.Utils
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS.NominationSet
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet
@@ -59,13 +60,6 @@ import Concordium.Afgjort.PartySet(PartySet)
 import qualified Concordium.Afgjort.PartySet as PS
 import Concordium.Afgjort.PartyMap(PartyMap)
 import qualified Concordium.Afgjort.PartyMap as PM
-
-atStrict :: (Ord k) => k -> Lens' (Map k v) (Maybe v)
-atStrict k f m = f mv <&> \case
-        Nothing -> maybe m (const (Map.delete k m)) mv
-        Just v' -> Map.insert k v' m
-    where mv = Map.lookup k m
-{-# INLINE atStrict #-}
 
 nonEmpty :: (Monoid (f v), Foldable f) => Lens' (Maybe (f v)) (f v)
 nonEmpty afb s = f <$> afb (fromMaybe mempty s)
@@ -244,7 +238,7 @@ unlessComplete a = do
     complete <- isJust <$> use core
     unless complete a
 
--- |Handle an incoming CSSMessage from a party. 
+-- |Handle an incoming CSSMessage from a party.
 {-# SPECIALIZE receiveCSSMessage :: Party -> CSSMessage -> sig -> CSS sig () #-}
 receiveCSSMessage :: (CSSMonad sig m) => Party -> CSSMessage -> sig -> m ()
 receiveCSSMessage src (Input c) sig = unlessComplete $ do
@@ -257,14 +251,14 @@ receiveCSSMessage src (Seen ns) sig = unlessComplete $ do
         -- Update the set of parties that claim to have seen @sp@ make choice @c@
         let updateSaw Nothing = let w = partyWeight src in ((w, False), Just (PS.singleton src w))
             updateSaw (Just ps) = let (b, ps') = PS.insertLookup src (partyWeight src) ps in ((PS.weight ps', b), Just ps')
-        (weight, alreadyPresent) <- state ((saw c . atStrict sp) updateSaw)
+        (weight, alreadyPresent) <- state ((saw c . at' sp) updateSaw)
         unless alreadyPresent $
             -- Check if this seen message is justified
             whenM (use (justified c)) $ whenM (Map.member sp <$> use (input c)) $ do
                 -- If the weight is high enough, record it in manySaw
                 when (weight >= totalWeight - corruptWeight) $ addManySaw sp
                 -- If there is a DoneReporting message awaiting this becoming justified, handle it
-                hdr <- unjustifiedDoneReporting . atStrict (sp, c) . nonEmpty . atStrict src <<.= Nothing
+                hdr <- unjustifiedDoneReporting . at' (sp, c) . nonEmpty . at' src <<.= Nothing
                 forM_ hdr $ handleDoneReporting src
         return alreadyPresent
     unless (and present) $
@@ -301,7 +295,7 @@ justifyNomination src c = do
             -- corresponding (now justified) @Seen@ message
             let (js, ujs) = Map.partitionWithKey (\k _ -> k `PS.member` jsaw) m
             -- Put those messages back where we don't
-            unjustifiedDoneReporting . atStrict (src, c) .= if Map.null ujs then Nothing else Just ujs
+            unjustifiedDoneReporting . at' (src, c) .= if Map.null ujs then Nothing else Just ujs
             -- And handle those where we do.
             forM_ (Map.toList js) $ uncurry handleDoneReporting))
 
@@ -345,7 +339,7 @@ handleDoneReporting party ((s, c) : remainder, drd) = do
     if scJust then
         handleDoneReporting party (remainder, drd)
     else
-        unjustifiedDoneReporting . atStrict (s, c) %= \case
+        unjustifiedDoneReporting . at' (s, c) %= \case
             Nothing -> Just (Map.singleton party (remainder, drd))
             Just l -> Just (Map.insert party (remainder, drd) l)
 
@@ -425,7 +419,7 @@ cssSummaryCheckComplete CSSSummary{..} CSSInstance{..} checkSig = doneRepWeight 
 -- * if we have any inputs that are not included in the summary, or
 -- * if we have any seen messages that are not subsumed by the summary, or
 -- * if we have any justified done reporting messages that are not in the summary.
--- 
+--
 -- Note: we do not consider whether the input or seen messages are justified.  This is
 -- since we do not consider that when we produce a 'CSSSummary' either.
 cssSummaryIsBehind :: (Eq sig) => CSSState sig -> CSSSummary sig -> Bool

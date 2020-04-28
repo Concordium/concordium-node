@@ -15,7 +15,6 @@ import Data.Time
 import Concordium.Logger
 
 import Concordium.GlobalState.Classes (MGSTrans)
-import Concordium.GlobalState.BlockState (ATLoggerT)
 
 class Monad m => TimeMonad m where
     currentTime :: m UTCTime
@@ -57,9 +56,5 @@ instance TimeMonad m => TimeMonad (ReaderT r m) where
     {-# INLINE currentTime #-}
 
 instance (MonadTrans t, Monad (t m), TimeMonad m) => TimeMonad (MGSTrans t m) where
-    currentTime = lift currentTime
-    {-# INLINE currentTime #-}
-
-instance TimeMonad m => TimeMonad (ATLoggerT m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}

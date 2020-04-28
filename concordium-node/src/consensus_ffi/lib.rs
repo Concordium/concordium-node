@@ -111,4 +111,3 @@ pub mod catch_up;
 pub mod consensus;
 pub mod ffi;
 pub mod messaging;
-pub mod transferlog;

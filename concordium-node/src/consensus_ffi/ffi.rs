@@ -1,7 +1,7 @@
 use crate::{catch_up::*, consensus::*, messaging::*};
-use byteorder::{ByteOrder, NetworkEndian, ReadBytesExt};
+use byteorder::{NetworkEndian, ReadBytesExt};
 use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
-use crypto_common::{Deserial, Serial};
+use crypto_common::Serial;
 use failure::{bail, format_err, Fallible};
 use std::{
     convert::TryFrom,
@@ -34,13 +34,23 @@ pub type Delta = u64;
 #[cfg(all(not(windows), feature = "profiling"))]
 pub fn start_haskell(
     heap: &str,
+    stack: bool,
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
+    rts_flags: &[String],
 ) {
     START_ONCE.call_once(|| {
-        start_haskell_init(heap, time, exceptions, gc_log, profile_sampling_interval);
+        start_haskell_init(
+            heap,
+            stack,
+            time,
+            exceptions,
+            gc_log,
+            profile_sampling_interval,
+            rts_flags,
+        );
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -48,9 +58,9 @@ pub fn start_haskell(
 }
 
 #[cfg(not(feature = "profiling"))]
-pub fn start_haskell() {
+pub fn start_haskell(rts_flags: &[String]) {
     START_ONCE.call_once(|| {
-        start_haskell_init();
+        start_haskell_init(rts_flags);
         unsafe {
             ::libc::atexit(stop_nopanic);
         }
@@ -60,14 +70,18 @@ pub fn start_haskell() {
 #[cfg(all(not(windows), feature = "profiling"))]
 fn start_haskell_init(
     heap: &str,
+    stack: bool,
     time: bool,
     exceptions: bool,
     gc_log: Option<String>,
     profile_sampling_interval: &str,
+    rts_flags: &[String],
 ) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
 
+    // We don't check for stack here because it should only be enabled if
+    // heap profiling is enabled.
     if heap != "none" || time || gc_log.is_some() || profile_sampling_interval != "0.1" {
         args.push("+RTS".to_owned());
         args.push("-L100".to_owned());
@@ -76,15 +90,27 @@ fn start_haskell_init(
     match heap {
         "cost" => {
             args.push("-hc".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "module" => {
             args.push("-hm".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "description" => {
             args.push("-hd".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "type" => {
             args.push("-hy".to_owned());
+            if stack {
+                args.push("-xt".to_owned());
+            }
         }
         "none" => {}
         _ => {
@@ -111,6 +137,16 @@ fn start_haskell_init(
         args.push("-xc".to_owned());
     }
 
+    if args.len() == 1 {
+        args.push("+RTS".to_owned())
+    }
+
+    for flag in rts_flags {
+        if !flag.trim().is_empty() {
+            args.push(flag.to_owned());
+        }
+    }
+
     if args.len() > 1 {
         args.push("-RTS".to_owned());
     }
@@ -135,11 +171,21 @@ fn start_haskell_init(
 }
 
 #[cfg(all(not(windows), not(feature = "profiling")))]
-fn start_haskell_init() {
-    let program_name = std::env::args().take(1).next();
-    let args = program_name
-        .into_iter()
-        .map(|arg| CString::new(arg).unwrap())
+fn start_haskell_init(rts_flags: &[String]) {
+    let program_name = std::env::args().take(1).next().unwrap();
+    let mut args = vec![program_name];
+    if !rts_flags.is_empty() {
+        args.push("+RTS".to_owned());
+        for flag in rts_flags {
+            if !flag.trim().is_empty() {
+                args.push(flag.to_owned());
+            }
+        }
+        args.push("-RTS".to_owned());
+    }
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
         .collect::<Vec<CString>>();
     let c_args = args
         .iter()
@@ -193,8 +239,6 @@ pub struct consensus_runner {
 }
 
 type LogCallback = extern "C" fn(c_char, c_char, *const u8);
-type TransferLogCallback =
-    unsafe extern "C" fn(c_char, *const u8, u64, *const u8, u64, u64, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
@@ -204,6 +248,8 @@ type DirectMessageCallback =
 extern "C" {
     pub fn startConsensus(
         max_block_size: u64,
+        insertions_before_purging: u64,
+        transaction_keep_alive: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -212,13 +258,15 @@ extern "C" {
         catchup_status_callback: CatchUpStatusCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
-        transfer_log_enabled: u8,
-        transfer_log_callback: TransferLogCallback,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
+        database_connection_url: *const u8,
+        database_connection_url_len: i64,
     ) -> *mut consensus_runner;
     pub fn startConsensusPassive(
         max_block_size: u64,
+        insertions_before_purging: u64,
+        transaction_keep_alive: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
@@ -226,6 +274,8 @@ extern "C" {
         log_callback: LogCallback,
         appdata_dir: *const u8,
         appdata_dir_len: i64,
+        database_connection_url: *const u8,
+        database_connection_url_len: i64,
     ) -> *mut consensus_runner;
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
@@ -296,10 +346,6 @@ extern "C" {
         block_hash: *const u8,
         delta: Delta,
     ) -> *const u8;
-    pub fn hookTransaction(
-        consensus: *mut consensus_runner,
-        transaction_hash: *const u8,
-    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
     pub fn receiveCatchUpStatus(
@@ -307,20 +353,45 @@ extern "C" {
         peer_id: PeerId,
         msg: *const u8,
         msg_len: i64,
-        object_limit: u64,
+        object_limit: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
     pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
+    pub fn getAccountNonFinalizedTransactions(
+        consensus: *mut consensus_runner,
+        account_address: *const u8,
+    ) -> *const c_char;
+    pub fn getBlockSummary(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getTransactionStatus(
+        consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getTransactionStatusInBlock(
+        consensus: *mut consensus_runner,
+        transaction_hash: *const u8,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getNextAccountNonce(
+        consensus: *mut consensus_runner,
+        account_address: *const u8,
+    ) -> *const c_char;
 }
 
+// TODO : Simplify arguments to function, or group with struct
+#[allow(clippy::too_many_arguments)]
 pub fn get_consensus_ptr(
     max_block_size: u64,
-    enable_transfer_logging: bool,
+    insertions_before_purging: u64,
+    transaction_keep_alive: u64,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &PathBuf,
+    database_connection_url: &str,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
@@ -336,6 +407,8 @@ pub fn get_consensus_ptr(
 
                 startConsensus(
                     max_block_size,
+                    insertions_before_purging,
+                    transaction_keep_alive,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
@@ -344,10 +417,10 @@ pub fn get_consensus_ptr(
                     catchup_status_callback,
                     maximum_log_level as u8,
                     on_log_emited,
-                    if enable_transfer_logging { 1 } else { 0 },
-                    on_transfer_log_emitted,
                     appdata_buf.as_ptr() as *const u8,
                     appdata_buf.len() as i64,
+                    database_connection_url.as_ptr() as *const u8,
+                    database_connection_url.len() as i64,
                 )
             }
         }
@@ -357,6 +430,8 @@ pub fn get_consensus_ptr(
                 {
                     startConsensusPassive(
                         max_block_size,
+                        insertions_before_purging,
+                        transaction_keep_alive,
                         c_string_genesis.as_ptr() as *const u8,
                         genesis_data_len as i64,
                         catchup_status_callback,
@@ -364,6 +439,8 @@ pub fn get_consensus_ptr(
                         on_log_emited,
                         appdata_buf.as_ptr() as *const u8,
                         appdata_buf.len() as i64,
+                        database_connection_url.as_ptr() as *const u8,
+                        database_connection_url.len() as i64,
                     )
                 }
             }
@@ -409,14 +486,6 @@ impl ConsensusContainer {
 
     pub fn get_consensus_status(&self) -> String {
         wrap_c_call_string!(self, consensus, |consensus| getConsensusStatus(consensus))
-    }
-
-    pub fn hook_transaction(&self, transaction_hash: &str) -> String {
-        let c_str = CString::new(transaction_hash).unwrap();
-        wrap_c_call_string!(self, consensus, |consensus| hookTransaction(
-            consensus,
-            c_str.as_ptr() as *const u8
-        ))
     }
 
     pub fn get_block_info(&self, block_hash: &str) -> String {
@@ -480,7 +549,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getRewardStatus(
             consensus,
-            block_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
@@ -488,7 +557,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getBirkParameters(
             consensus,
-            block_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
@@ -496,7 +565,7 @@ impl ConsensusContainer {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getModuleList(
             consensus,
-            block_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
@@ -534,7 +603,7 @@ impl ConsensusContainer {
         &self,
         request: &[u8],
         peer_id: PeerId,
-        object_limit: u64,
+        object_limit: i64,
     ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,
@@ -552,6 +621,51 @@ impl ConsensusContainer {
 
     pub fn in_finalization_committee(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
+    }
+
+    pub fn get_account_non_finalized_transactions(&self, account_address: &str) -> String {
+        let account_address = CString::new(account_address).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| {
+            getAccountNonFinalizedTransactions(consensus, account_address.as_ptr() as *const u8)
+        })
+    }
+
+    pub fn get_block_summary(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getBlockSummary(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_transaction_status(&self, transaction_hash: &str) -> String {
+        let transaction_hash = CString::new(transaction_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getTransactionStatus(
+            consensus,
+            transaction_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_transaction_status_in_block(
+        &self,
+        transaction_hash: &str,
+        block_hash: &str,
+    ) -> String {
+        let transaction_hash = CString::new(transaction_hash).unwrap();
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getTransactionStatusInBlock(
+            consensus,
+            transaction_hash.as_ptr() as *const u8,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_next_account_nonce(&self, account_address: &str) -> String {
+        let account_address = CString::new(account_address).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
+            consensus,
+            account_address.as_ptr() as *const u8
+        ))
     }
 }
 
@@ -695,232 +809,4 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
         4 => debug!("{}: {}", id, msg),
         _ => trace!("{}: {}", id, msg),
     };
-}
-
-/// # Safety
-///
-/// This function can only fail if the given arguments doesn't fall within range
-/// of the size given for them.
-pub unsafe extern "C" fn on_transfer_log_emitted(
-    transfer_type: c_char,
-    block_hash_ptr: *const u8,
-    slot: u64,
-    transaction_hash_ptr: *const u8,
-    amount: u64,
-    remaining_data_len: u64,
-    remaining_data_ptr: *const u8,
-) {
-    use crate::{
-        blockchain_types::{AccountAddress, BakerId, BlockHash, ContractAddress, TransactionHash},
-        transferlog::{TransactionLogMessage, TransferLogType, TRANSACTION_LOG_QUEUE},
-    };
-    use std::mem::size_of;
-    let transfer_event_type = match TransferLogType::try_from(transfer_type as u8) {
-        Ok(ct) => ct,
-        Err(e) => {
-            error!("{}", e);
-            return;
-        }
-    };
-
-    if block_hash_ptr.is_null() {
-        error!("Could not log transfer event, as block hash is null!");
-        return;
-    }
-
-    if transfer_event_type != TransferLogType::BlockReward && transaction_hash_ptr.is_null() {
-        error!(
-            "Could not log {} event as transaction hash is null!",
-            transfer_event_type
-        );
-        return;
-    } else if transfer_event_type == TransferLogType::BlockReward && !transaction_hash_ptr.is_null()
-    {
-        error!(
-            "Could not log {} event as transaction hash is not null!",
-            transfer_event_type
-        );
-        return;
-    }
-
-    if !match transfer_event_type {
-        TransferLogType::DirectTransfer => {
-            remaining_data_len as usize == 2 * size_of::<AccountAddress>()
-        }
-        TransferLogType::TransferFromAccountToContract => {
-            remaining_data_len as usize
-                == (size_of::<AccountAddress>() + size_of::<ContractAddress>())
-        }
-        TransferLogType::TransferFromContractToAccount => {
-            remaining_data_len as usize
-                == (size_of::<ContractAddress>() + size_of::<AccountAddress>())
-        }
-        TransferLogType::ExecutionCost => {
-            remaining_data_len as usize == (size_of::<AccountAddress>() + size_of::<BakerId>())
-        }
-        TransferLogType::BlockReward => {
-            remaining_data_len as usize == (size_of::<AccountAddress>() + size_of::<BakerId>())
-        }
-        TransferLogType::TransferFromContractToContract => {
-            remaining_data_len as usize == (2 * size_of::<ContractAddress>())
-        }
-        TransferLogType::IdentityCredentialsDeployed => {
-            remaining_data_len as usize > (2 * size_of::<AccountAddress>())
-        }
-    } {
-        error!(
-            "Incorrect data given for {} event type",
-            transfer_event_type
-        );
-        return;
-    }
-
-    let block_hash = BlockHash::new(slice::from_raw_parts(
-        block_hash_ptr,
-        size_of::<BlockHash>(),
-    ));
-    let msg = match transfer_event_type {
-        TransferLogType::DirectTransfer => {
-            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
-                transaction_hash_ptr,
-                size_of::<TransactionHash>(),
-            ));
-            let (sender_account_slice, receiver_account_slice) =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
-                    .split_at(size_of::<AccountAddress>());
-            let sender_account = AccountAddress::new(&sender_account_slice);
-            let receiver_account = AccountAddress::new(&receiver_account_slice);
-            TransactionLogMessage::DirectTransfer(
-                block_hash,
-                slot,
-                transaction_hash,
-                amount,
-                sender_account,
-                receiver_account,
-            )
-        }
-        TransferLogType::TransferFromAccountToContract => {
-            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
-                transaction_hash_ptr,
-                size_of::<TransactionHash>(),
-            ));
-            let (account_address_slice, contract_address_slice) =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
-                    .split_at(size_of::<AccountAddress>());
-            let account_address = AccountAddress::new(&account_address_slice);
-            let contract_address =
-                ContractAddress::deserial(&mut Cursor::new(&contract_address_slice)).unwrap();
-            TransactionLogMessage::TransferFromAccountToContract(
-                block_hash,
-                slot,
-                transaction_hash,
-                amount,
-                account_address,
-                contract_address,
-            )
-        }
-        TransferLogType::TransferFromContractToAccount => {
-            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
-                transaction_hash_ptr,
-                size_of::<TransactionHash>(),
-            ));
-            let (contract_address_slice, account_address_slice) =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
-                    .split_at(size_of::<ContractAddress>());
-            let account_address = AccountAddress::new(&account_address_slice);
-            let contract_address =
-                ContractAddress::deserial(&mut Cursor::new(&contract_address_slice)).unwrap();
-            TransactionLogMessage::TransferFromContractToAccount(
-                block_hash,
-                slot,
-                transaction_hash,
-                amount,
-                contract_address,
-                account_address,
-            )
-        }
-        TransferLogType::TransferFromContractToContract => {
-            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
-                transaction_hash_ptr,
-                size_of::<TransactionHash>(),
-            ));
-            let (from_contract_address_slice, to_contract_address_slice) =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
-                    .split_at(size_of::<ContractAddress>());
-            let from_contract_address =
-                ContractAddress::deserial(&mut Cursor::new(&from_contract_address_slice)).unwrap();
-            let to_contract_address =
-                ContractAddress::deserial(&mut Cursor::new(&to_contract_address_slice)).unwrap();
-            TransactionLogMessage::TransferFromContractToContract(
-                block_hash,
-                slot,
-                transaction_hash,
-                amount,
-                from_contract_address,
-                to_contract_address,
-            )
-        }
-        TransferLogType::IdentityCredentialsDeployed => {
-            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
-                transaction_hash_ptr,
-                size_of::<TransactionHash>(),
-            ));
-            let remaining_data_slice =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize);
-            let sender_account =
-                AccountAddress::new(&remaining_data_slice[0..][..size_of::<AccountAddress>()]);
-            let receiver_account = AccountAddress::new(
-                &remaining_data_slice[size_of::<AccountAddress>()..][..size_of::<AccountAddress>()],
-            );
-            let json_payload =
-                String::from_utf8_lossy(&remaining_data_slice[(2 * size_of::<AccountAddress>())..])
-                    .to_string();
-            TransactionLogMessage::IdentityCredentialsDeployed(
-                block_hash,
-                slot,
-                transaction_hash,
-                sender_account,
-                receiver_account,
-                json_payload,
-            )
-        }
-        TransferLogType::ExecutionCost => {
-            let transaction_hash = TransactionHash::new(slice::from_raw_parts(
-                transaction_hash_ptr,
-                size_of::<TransactionHash>(),
-            ));
-
-            let (account_address_slice, baker_id_slice) =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
-                    .split_at(size_of::<AccountAddress>());
-            let account_address = AccountAddress::new(&account_address_slice);
-            let baker_id = NetworkEndian::read_u64(baker_id_slice);
-            TransactionLogMessage::ExecutionCost(
-                block_hash,
-                slot,
-                transaction_hash,
-                amount,
-                account_address,
-                baker_id,
-            )
-        }
-        TransferLogType::BlockReward => {
-            let (baker_id_slice, account_address_slice) =
-                slice::from_raw_parts(remaining_data_ptr, remaining_data_len as usize)
-                    .split_at(size_of::<BakerId>());
-            let account_address = AccountAddress::new(&account_address_slice);
-            let baker_id = NetworkEndian::read_u64(baker_id_slice);
-            TransactionLogMessage::BlockReward(block_hash, slot, amount, baker_id, account_address)
-        }
-    };
-    match TRANSACTION_LOG_QUEUE.send_message(msg) {
-        Ok(_) => trace!(
-            "Logged a callback for an event of type {}",
-            transfer_event_type
-        ),
-        _ => error!(
-            "Couldn't queue a callback for an event of type {} properly",
-            transfer_event_type
-        ),
-    }
 }

@@ -1,8 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
-    (initialState, makeTransaction, mateuszAccount, dummyCredential, dummyMaxExpiryTime) where
+    (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction, createCustomAccount,
+     mateuszAccount, dummyCredential) where
 
 import qualified Data.HashMap.Strict as Map
 
@@ -13,6 +15,7 @@ import qualified Data.PQueue.Prio.Max as Queue
 import qualified Concordium.ID.Types as ID
 
 import Concordium.Types
+import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
@@ -20,7 +23,7 @@ import qualified Concordium.Scheduler.Environment as Types
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Acc
 import qualified Concordium.GlobalState.Modules as Mod
-import Concordium.GlobalState.Parameters(BirkParameters, CryptographicParameters)
+import Concordium.GlobalState.Parameters (CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner
 
 import qualified Acorn.Core as Core
@@ -92,8 +95,9 @@ initSimpleCounter n = Runner.signTx
 
 
 {-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
-makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BareTransaction
-makeTransaction inc ca n = Runner.signTx mateuszKP header payload
+-- All transactions have the same arrival time (0)
+makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BlockItem
+makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -106,33 +110,65 @@ makeTransaction inc ca n = Runner.signTx mateuszKP header payload
                                                     (Core.App (if inc then (inCtxTm "Inc") else (inCtxTm "Dec"))
                                                               [Core.Literal (Core.Int64 10)])
                                                     )
+{-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
+makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BlockItem
+makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
+  fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx fromKP header payload
+    where
+        header = Runner.TransactionHeader{
+            thNonce = n,
+            thSender = fromAddress,
+            thEnergyAmount = Cost.checkHeader 100 1 + Cost.transferAccount,
+            thExpiry = dummyMaxTransactionExpiryTime
+        }
+        payload = Types.encodePayload (Types.Transfer (AddressAccount toAddress) amount)
+
+initialStateWithMateuszAccount :: BlockState.BasicBirkParameters
+                               -> CryptographicParameters
+                               -> [Account]
+                               -> [Types.IpInfo]
+                               -> Int
+                               -> Amount
+                               -> BlockState.BlockState
+initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amount =
+    initialState birkParams cryptoParams bakerAccounts ips n [createCustomAccount amount mateuszKP mateuszAccount]
+
+createCustomAccount :: Amount -> Sig.KeyPair -> AccountAddress -> Account
+createCustomAccount amount kp address =
+    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address
+        & (accountAmount .~ amount)
+        . (accountCredentials .~ Queue.singleton dummyMaxValidTo (dummyCredential address dummyMaxValidTo dummyCreatedAt))
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}
-initialState :: BirkParameters
+initialState :: BlockState.BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [Types.IpInfo]
              -> Int
+             -> [Account]
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n =
+initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
                                         ,Left "test/contracts/SimpleCounter.acorn"]
                             )
-        initialAmount = 2 ^ (62 :: Int)
-        customAccounts = [newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey mateuszKP)) mateuszAccount
-                          & (accountAmount .~ initialAmount)
-                          . (accountCredentials .~ Queue.singleton dummyMaxExpiryTime (dummyCredential mateuszAccount dummyMaxExpiryTime))]
+        allAccounts = customAccounts ++ bakerAccounts
         initAccount = foldl (flip Acc.putAccountWithRegIds)
                             Acc.emptyAccounts
-                            (customAccounts ++ bakerAccounts)
+                            allAccounts
+        initialAmount = sum (_accountAmount <$> allAccounts)
         gs = BlockState.emptyBlockState birkParams cryptoParams &
                (BlockState.blockIdentityProviders .~ Types.IdentityProviders (Map.fromList (map (\r -> (Types.ipIdentity r, r)) ips))) .
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
-        gs' = Types.execSI (execTransactions (initialTrans n)) Types.emptySpecialBetaAccounts Types.dummyChainMeta gs
+        finState = Types.execSI (execTransactions (map (fmap Types.NormalTransaction . Types.fromBareTransaction 0) (initialTrans n)))
+                                Types.emptySpecialBetaAccounts
+                                Types.dummyChainMeta
+                                maxBound
+                                gs
+        gs' = finState ^. Types.ssBlockState
     in gs' & (BlockState.blockAccounts .~ initAccount) .
              (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- also reset the bank after execution to maintain invariants.

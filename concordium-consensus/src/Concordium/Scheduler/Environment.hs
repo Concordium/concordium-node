@@ -1,7 +1,9 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DefaultSignatures #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Concordium.Scheduler.Environment where
@@ -17,9 +19,9 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
-import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
+import Concordium.GlobalState.AccountTransactionIndex
 
 import Control.Exception(assert)
 
@@ -33,7 +35,13 @@ emptySpecialBetaAccounts = Set.empty
 -- * Scheduler monad
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
+class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
+
+  tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
+
+  -- |Get maximum allowed block energy.
+  getMaxBlockEnergy :: m Energy
+
   -- |Get adddresses of special beta accounts which during the beta phase will
   -- have special privileges.
   getSpecialBetaAccounts :: m SpecialBetaAccounts
@@ -45,21 +53,26 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getAccount :: AccountAddress -> m (Maybe Account)
 
-  -- |Check whether a given registration id exists in the global store.
+  -- |Check whether a given registration id exists in the global state.
   accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
   -- |Commit to global state all the updates to local state that have
   -- accumulated through the execution. This method is also in charge of
   -- recording which accounts were affected by the transaction for reward and
   -- other purposes.
+  -- Precondition: Each account affected in the change set must exist in the
+  -- block state.
   commitChanges :: ChangeSet -> m ()
+
+  -- |Observe a single transaction footprint.
+  observeTransactionFootprint :: m a -> m (a, Footprint (ATIStorage m))
 
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
   commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Module -> m Bool
 
-  -- |Check whehter we already cache the expression in a linked format.
+  -- |Check whether we already cache the expression in a linked format.
   -- It is valid for the implementation to always return 'Nothing', although this
   -- will affect memory use since linked expressions will not be shared.
   smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps NoAnnot))
@@ -83,18 +96,34 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- address assigned to the new instance.
   putNewInstance :: (ContractAddress -> Instance) -> m ContractAddress
 
-  -- |Bump the next available transaction nonce of the account. The account is assumed to exist.
+  -- |Bump the next available transaction nonce of the account.
+  -- Precondition: the account exists in the block state.
   increaseAccountNonce :: Account -> m ()
 
-  -- |Add account credential to an account address. The account with this address is assumed to exist.
+  -- FIXME: This method should not be here, but rather in the transaction monad.
+  -- |Add account credential to an account address.
+  -- Precondition: The account with this address exists in the block state.
   addAccountCredential :: Account -> ID.CredentialDeploymentValues -> m ()
-
-  -- |Add account encryption key to account address. The account with this address is assumed to exist.
-  addAccountEncryptionKey :: Account -> ID.AccountEncryptionKey -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
   --  successfully created and @False@ if the account address already existed.
   putNewAccount :: Account -> m Bool
+
+  -- |Notify energy used by the current execution.
+  -- Add to the current running total of energy used.
+  markEnergyUsed :: Energy -> m ()
+
+  -- |Get the currently used amount of block energy.
+  getUsedEnergy :: m Energy
+
+  getRemainingEnergy :: m Energy
+  getRemainingEnergy = do
+    maxEnergy <- getMaxBlockEnergy
+    usedEnergy <- getUsedEnergy
+    return $! if usedEnergy <= maxEnergy then maxEnergy - usedEnergy else 0
+
+  -- |Get the next transaction index in the block, and increase the internal counter
+  bumpTransactionIndex :: m TransactionIndex
 
   -- |Notify the global state that the amount was charged for execution. This
   -- can be then reimbursed to the baker, or some other logic can be implemented
@@ -105,7 +134,7 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
   -- account and should be rewarded because of it.
   notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
 
-  -- |Convert the given energy amount into a the amount of GTU. The exchange
+  -- |Convert the given energy amount into an amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
   -- TODO: In this setup the exchange rate is determined by the blockchain, and
   -- the user (aka sender of the transaction) cannot choose to pay more to have
@@ -115,32 +144,40 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
 
   -- *Operations related to bakers.
 
-  -- |Get the baker information, or 'Nothing'.
+  -- |Get the baker information, or 'Nothing' if a baker with the given baker id
+  -- doesn't exist.
   getBakerInfo :: BakerId -> m (Maybe BakerInfo)
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
+  -- If a baker with the same SignatureVerifyKey already exists in the block state,
+  -- do nothing and return Nothing.
   addBaker :: BakerCreationInfo -> m (Maybe BakerId)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
 
   -- |Replace the given baker's verification key with the given value.
-  -- The function may assume that the baker exists.
   -- Return 'True' if the signing key was updated, and 'False' in case
   -- it lead to a duplicate signing key.
+  -- Precondition: the baker exists.
   updateBakerSignKey :: BakerId -> BakerSignVerifyKey -> m Bool
 
   -- |Replace the given baker's reward account with the given value.
-  -- The function may assume that the baker exists and the reward account
+  -- Precondition: the baker exists and the reward account
   -- also exists in the global state.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
-  -- |Delegate the stake from an account to a baker. The account is
-  -- assumed to exist, although the baker is not.  Returns 'True'
-  -- if the delegation was successful, and 'False' if the baker is
+  -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
+  -- Returns 'True' if the delegation was successful, and 'False' if the baker is
   -- not valid.
+  -- Delegating to `Nothing` undelegates the stake from any baker that it was delegated
+  -- to in the past.
+  -- Precondition: the account exists.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
+
+  -- |Update the election difficulty (birk parameter) in the global state.
+  updateElectionDifficulty :: ElectionDifficulty -> m ()
 
   -- *Other metadata.
 
@@ -149,7 +186,6 @@ class StaticEnvironmentMonad Core.UA m => SchedulerMonad m where
 
   -- |Get cryptographic parameters for the current state.
   getCrypoParams :: m CryptographicParameters
-
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -162,6 +198,10 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- Instance keeps track of its own address hence we need not provide it
   -- separately.
   withInstanceState :: Instance -> Value -> m a -> m a
+
+  -- |Add account encryption key to account address. The account with this
+  -- address is assumed to exist.
+  addAccountEncryptionKey :: Account -> ID.AccountEncryptionKey -> m ()
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
@@ -225,6 +265,9 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Reject a transaction with a given reason, terminating processing of this transaction.
   rejectTransaction :: RejectReason -> m a
 
+  -- |Fail transaction processing because we would have exceeded maximum block energy limit.
+  outOfBlockEnergy :: m a
+
   -- |If the computation yields a @Just a@ result return it, otherwise fail the
   -- transaction with the given reason.
   {-# INLINE rejectingWith #-}
@@ -243,7 +286,8 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {_accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
+    {_affectedTx :: !TransactionHash, -- transaction affected by this changeset
+     _accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(Map.HashMap ContractAddress (AmountDelta, Value)) -- ^Contracts whose states changed.
     ,_linkedExprs :: !(Map.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps NoAnnot)) -- ^Newly linked expressions.
     ,_linkedContracts :: !(Map.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
@@ -251,12 +295,12 @@ data ChangeSet = ChangeSet
 
 makeLenses ''ChangeSet
 
-emptyCS :: ChangeSet
-emptyCS = ChangeSet Map.empty Map.empty Map.empty Map.empty
+emptyCS :: TransactionHash -> ChangeSet
+emptyCS txHash = ChangeSet txHash Map.empty Map.empty Map.empty Map.empty
 
-csWithAccountDelta :: AccountAddress -> AmountDelta -> ChangeSet
-csWithAccountDelta addr !amnt =
-  emptyCS & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
+csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
+csWithAccountDelta txHash addr !amnt =
+  (emptyCS txHash) & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
 
 -- |Record an update for the given account in the changeset. If the account is
 -- not yet in the changeset it is created.
@@ -269,6 +313,15 @@ addAmountToCS acc !amnt !cs =
                                           Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
   where addr = acc ^. accountAddress
+
+{-# INLINE addEncKeyToCS #-}
+addEncKeyToCS :: Account -> ID.AccountEncryptionKey -> ChangeSet -> ChangeSet
+addEncKeyToCS acc !encKey !cs =
+  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auEncryptionKey ?~ encKey)
+                                          Nothing -> Just (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
+
+  where addr = acc ^. accountAddress
+
 
 -- |Modify the amount on the given account in the changeset by a given delta.
 -- It is assumed that the account is already in the changeset and that its balance
@@ -299,11 +352,16 @@ addContractAmountToCS istance amnt cs =
   where addr = instanceAddress . instanceParameters $ istance
         model = instanceModel istance
 
+-- |Whether the transaction energy limit is reached because of transaction max energy limit,
+-- or because of block energy limit
+data LimitReason = TransactionHeader | BlockEnergyLimit
+
 data LocalState = LocalState{
   -- |Energy left for the computation.
   _energyLeft :: !Energy,
   -- |Changes accumulated thus far.
-  _changeSet :: !ChangeSet
+  _changeSet :: !ChangeSet,
+  _blockEnergyLeft :: !Energy
   }
 
 makeLenses ''LocalState
@@ -321,16 +379,23 @@ makeLenses ''TransactionContext
 -- order to avoid expensive bind operation of the latter. The bind operation is
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
-newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either RejectReason r) (RWST TransactionContext () LocalState m) a }
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RWST TransactionContext () LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
-runLocalT :: SchedulerMonad m => LocalT a m a -> Amount -> AccountAddress -> Energy -> m (Either RejectReason a, LocalState)
-runLocalT (LocalT st) _tcDepositedAmount _tcTxSender energy = do
-  let s = LocalState energy emptyCS
+runLocalT :: SchedulerMonad m
+          => LocalT a m a
+          -> TransactionHash
+          -> Amount
+          -> AccountAddress
+          -> Energy -- Energy limit by the transaction header.
+          -> Energy -- remaining block energy
+          -> m (Either (Maybe RejectReason) a, LocalState)
+runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
+  let s = LocalState{_changeSet = emptyCS txHash,..}
   (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
   return (a, s')
 
-  where ctx = TransactionContext{..}
+  where !ctx = TransactionContext{..}
 
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
@@ -356,12 +421,31 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: SchedulerMonad m => Account -> Amount -> m ()
-chargeExecutionCost acc amnt =
+chargeExecutionCost :: SchedulerMonad m => TransactionHash -> Account -> Amount -> m ()
+chargeExecutionCost txHash acc amnt =
     let balance = acc ^. accountAmount
     in do assert (balance >= amnt) $
-              commitChanges (csWithAccountDelta (acc ^. accountAddress) (amountDiff 0 amnt))
+              commitChanges (csWithAccountDelta txHash (acc ^. accountAddress) (amountDiff 0 amnt))
           notifyExecutionCost amnt
+
+data WithDepositContext = WithDepositContext{
+  _wtcSenderAccount :: !Account,
+  -- ^Address of the account initiating the transaction.
+  _wtcTransactionType :: !TransactionType,
+  -- ^Type of the top-level transaction.
+  _wtcTransactionHash :: !TransactionHash,
+  -- ^Hash of the top-level transaction.
+  _wtcTransactionHeader :: !TransactionHeader,
+  -- ^Header of the transaction we are running.
+  _wtcTransactionCheckHeaderCost :: !Energy,
+  -- ^Cost to be charged for checking the transaction header.
+  _wtcCurrentlyUsedBlockEnergy :: !Energy,
+  -- ^Energy currently used by the block.
+  _wtcTransactionIndex :: !TransactionIndex
+  -- ^Index of the transaction in a block.
+  }
+
+makeLenses ''WithDepositContext
 
 -- |Given an account which is initiating the top-level transaction and the
 -- deposited amount, run the given computation in the modified environment where
@@ -372,50 +456,72 @@ chargeExecutionCost acc amnt =
 --
 --   * The account exists in the account database.
 --   * The deposited amount exists in the public account value.
---   * The deposited amount is __at least__ Cost.checkHeader (i.e., minimum transaction cost).
+--   * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-  SchedulerMonad m =>
-  Account
-  -- ^Address of the account initiating the transaction.
-  -> TransactionHeader
-  -- ^Header of the transaction we are running.
+  SchedulerMonad m
+  => WithDepositContext
   -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
-  -> (LocalState -> a -> m ValidResult)
+  -> (LocalState -> a -> m (ValidResult, Amount, Energy))
   -- ^Continuation for the successful branch of the computation.
   -- It gets the result of the previous computation as input, in particular the
-  -- remaining energy and the ChangeSet.
-  -> m TxResult
-withDeposit acc txHeader comp k = do
+  -- remaining energy and the ChangeSet. It should return the result, and the amount that was charged
+  -- for the execution.
+  -> m (Maybe TransactionSummary)
+withDeposit wtc comp k = do
+  let txHeader = wtc ^. wtcTransactionHeader
+  let tsHash = wtc ^. wtcTransactionHash
   let totalEnergyToUse = thEnergyAmount txHeader
+  maxEnergy <- getMaxBlockEnergy
+  -- - here is safe due to precondition that currently used energy is less than the maximum block energy
+  let beLeft = maxEnergy - wtc ^. wtcCurrentlyUsedBlockEnergy
   -- we assume we have already checked the header, so we have a bit less left over
-  let energy = totalEnergyToUse - Cost.checkHeader
+  let energy = totalEnergyToUse - wtc ^. wtcTransactionCheckHeaderCost
   -- record how much we have deposited. This cannot be touched during execution.
   depositedAmount <- energyToGtu totalEnergyToUse
-  (res, ls) <- runLocalT comp depositedAmount (thSender txHeader) energy
+  (res, ls) <- runLocalT comp tsHash depositedAmount (thSender txHeader) energy beLeft
   case res of
-    Left reason -> do
+    -- Failure: maximum block energy exceeded
+    Left Nothing -> return Nothing
+    -- Failure: transaction fails (out of energy or actual failure by transaction logic)
+    Left (Just reason) -> do
       -- the only effect of this transaction is reduced balance
       -- compute how much we must charge and reject the transaction
       (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
-      chargeExecutionCost acc payment
-      return $! TxValid (TxReject reason payment usedEnergy)
-    Right a ->
-      -- in this case we invoke the continuation
-      TxValid <$!> k ls a
+      chargeExecutionCost tsHash (wtc ^. wtcSenderAccount) payment
+      return $! Just $! TransactionSummary{
+        tsSender = Just (thSender txHeader),
+        tsCost = payment,
+        tsEnergyCost = usedEnergy,
+        tsResult = TxReject reason,
+        tsType = Just (wtc ^. wtcTransactionType),
+        tsIndex = wtc ^. wtcTransactionIndex,
+        ..
+        }
+    -- Computation successful
+    Right a -> do
+      -- In this case we invoke the continuation, which should charge for the used energy.
+      (tsResult, tsCost, tsEnergyCost) <- k ls a
+      return $! Just $! TransactionSummary{
+        tsSender = Just (thSender txHeader),
+        tsType = Just (wtc ^. wtcTransactionType),
+        tsIndex = wtc ^. wtcTransactionIndex,
+        ..
+        }
 
 {-# INLINE defaultSuccess #-}
 -- |Default continuation to use with 'withDeposit'. It records events and charges for the energy
 -- used, and nothing else.
 defaultSuccess ::
-  SchedulerMonad m =>
-  TransactionHeader
-  -> Account -> LocalState -> [Event] -> m ValidResult
-defaultSuccess meta senderAccount = \ls events -> do
+  SchedulerMonad m => WithDepositContext -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
+defaultSuccess wtc = \ls events -> do
+  let txHash = wtc ^. wtcTransactionHash
+      meta = wtc ^. wtcTransactionHeader
+      senderAccount = wtc ^. wtcSenderAccount
   (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-  chargeExecutionCost senderAccount energyCost
+  chargeExecutionCost txHash senderAccount energyCost
   commitChanges (ls ^. changeSet)
-  return $ TxSuccess events energyCost usedEnergy
+  return $ (TxSuccess events, energyCost, usedEnergy)
 
 -- {-# INLINE evalLocalT #-}
 -- evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)
@@ -447,7 +553,7 @@ instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
       Just (_, viface) -> return $ Map.lookup n (viDefs viface)
 
   tryGetLinkedExpr mref n = liftLocal (smTryGetLinkedExpr mref n)
-    
+
   putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
 
 
@@ -481,6 +587,9 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
 
+  addAccountEncryptionKey acc encKey = do
+    changeSet %= addEncKeyToCS acc encKey
+
   getCurrentAccount addr =
     liftLocal (getAccount addr) >>= \case
       Just acc -> do
@@ -505,7 +614,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   getCurrentAccountAmount acc = do
     let addr = acc ^. accountAddress
     let amnt = acc ^. accountAmount
-    txCtx <- ask
+    !txCtx <- ask
     -- additional delta that arises due to the deposit
     let additionalDelta =
           if txCtx ^. tcTxSender == addr
@@ -555,21 +664,28 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
             return linked
           Just cv -> return cv
       Just cv -> return cv
-      
+
   {-# INLINE getEnergy #-}
   getEnergy = use energyLeft
 
   {-# INLINE tickEnergy #-}
   tickEnergy !tick = do
     energy <- getEnergy
-    if tick > energy then energyLeft .= 0 >> rejectTransaction OutOfEnergy  -- set remaining to 0
-    else modify' (\ls -> ls { _energyLeft = energy - tick})
+    beLeft <- use blockEnergyLeft
+    if tick > energy then energyLeft .= 0 >> rejectTransaction OutOfEnergy  -- NB: set remaining to 0
+    else if tick > beLeft then outOfBlockEnergy
+         else do
+           energyLeft -= tick
+           blockEnergyLeft -= tick
 
   {-# INLINE putEnergy #-}
   putEnergy en = energyLeft .= en
 
   {-# INLINE rejectTransaction #-}
-  rejectTransaction reason = LocalT (ContT (\_ -> return (Left reason)))
+  rejectTransaction reason = LocalT (ContT (\_ -> return (Left (Just reason))))
+
+  {-# INLINE outOfBlockEnergy #-}
+  outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
 
 instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where

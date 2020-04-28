@@ -22,7 +22,6 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
 
-import Concordium.GlobalState.Basic.Block
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
@@ -37,32 +36,33 @@ import Concordium.Skov
 import Concordium.Getters
 import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
 import Concordium.Birk.Bake
+import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Startup
+import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
 
 type TreeConfig = MemoryTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
+type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
 
 newtype Peer = Peer {
     peerChan :: Chan (InMessage Peer)
 }
 
-
 nContracts :: Int
 nContracts = 2
 
-transactions :: StdGen -> [BareTransaction]
+transactions :: StdGen -> [BlockItem]
 transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
     where
         contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
         trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
         trs _ _ = error "Ran out of transaction data"
 
-sendTransactions :: Chan (InMessage Peer) -> [BareTransaction] -> IO ()
+sendTransactions :: Chan (InMessage Peer) -> [BlockItem] -> IO ()
 sendTransactions chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut $ put t)
         -- r <- randomRIO (5000, 15000)
@@ -135,7 +135,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
                     forM_ outps $ \outp -> usually $ delayed $
                         writeChan outp (MsgFinalizationRecordReceived myPeer fr)
                 MsgCatchUpRequired target -> do
-                    cur <- getCatchUpStatus sr True
+                    cur <- runStateQuery sr (getCatchUpStatus True)
                     delayed $ writeChan (peerChan target) (MsgCatchUpStatusReceived myPeer (encode cur))
                 MsgDirectedBlock target b -> usually $ delayed $ writeChan (peerChan target) (MsgBlockReceived myPeer b)
                 MsgDirectedFinalizationRecord target fr -> usually $ delayed $ writeChan (peerChan target) (MsgFinalizationReceived myPeer fr)
@@ -198,20 +198,26 @@ gsToString gs = intercalate "\\l" . map show $ keys
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Example.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
-                       (genesisIdentityProviders genData)
+genesisState GenesisData{..} = Example.initialState
+                       (Basic.BasicBirkParameters
+                           genesisElectionDifficulty
+                           genesisBakers
+                           genesisBakers
+                           genesisBakers
+                           genesisSeedState)
+                       genesisCryptographicParameters
+                       genesisAccounts
+                       genesisIdentityProviders
                        2
-                       -- (genesisMintPerSlot genData)
+                       genesisControlAccounts
 
 main :: IO ()
 main = do
     let n = 3
-    now <- truncate . (*1000) <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 100 0.5 1 dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    now <- currentTimestamp
+    let (gen, bis) = makeGenesisData now n 100 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
     trans <- transactions <$> newStdGen
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
@@ -224,14 +230,10 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        let logTransferFile = "transfer-log-" ++ show now ++ "-" ++ show bakerId ++ ".transfers"
-        let logT bh slot reason = do
-              appendFile logTransferFile (show (bh, slot, reason))
-              appendFile logTransferFile "\n"
         gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
-            hconfig = HookLogHandler (Just logT)
+            hconfig = NoHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         -- cin' <- newChan
@@ -242,7 +244,7 @@ main = do
     monitorChan <- newChan
     forM_ (removeEach chans) $ \((cin, cout, sr, connectedRef, logM), cs) -> do
         let cs' = (\(c, _, _, _, _) -> c) <$> cs
-        when False $ do
+        when True $ do
             _ <- forkIO $ toggleConnection logM sr connectedRef cin cs'
             return ()
         forkIO $ relay (Peer cin) cout sr connectedRef monitorChan cin cs'
@@ -253,9 +255,12 @@ main = do
                     let stateStr = show gs' {-case gs' of
                                     Nothing -> ""
                                     Just gs -> gsToString gs -}
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\\l" ++ stateStr ++ "\\l\"];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockLastFinalized $ bbFields block) ++ " [style=dotted];"
+                    case (blockFinalizationData block) of
+                        NoFinalizationData -> return ()
+                        BlockFinalizationData fr ->
+                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
                     hFlush stdout
                     loop
                 Right fr -> do

@@ -49,6 +49,15 @@ insert p vp a m
             partyMap = Map.insert p a (partyMap m)
         }
 
+delete :: Party -> VoterPower -> PartyMap a -> PartyMap a
+{-# INLINE delete #-}
+delete p vp m
+    | member p m = m {
+            weight = weight m - vp,
+            partyMap = Map.delete p (partyMap m)
+        }
+    | otherwise = m
+
 empty :: PartyMap a
 empty = PartyMap 0 Map.empty
 
@@ -66,3 +75,6 @@ toList = Map.toList . partyMap
 
 fromList :: (Party -> VoterPower) -> [(Party, a)] -> PartyMap a
 fromList power l = PartyMap (sum $ (power . fst) <$> l) (Map.fromList l)
+
+union :: (Party -> VoterPower) -> PartyMap a -> PartyMap a -> PartyMap a
+union pv p1 = foldr (\(p, a) -> insert p (pv p) a) p1 . toList
