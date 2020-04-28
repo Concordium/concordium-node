@@ -21,8 +21,8 @@ subsection () {
 }
 
 set -e
+GHC_BUILDER_VERSION="8.8.3"
 CABAL_VERSION="3.0.0.0"
-GHC_VERSION="8.8.3"
 STACK_VERSION="2.1.3"
 
 echo "We will run the following process:
@@ -218,7 +218,7 @@ subsection "Libraries copied: OK"
 #############################################################################################################################
 section "Build the rust utility binaries"
 
-cp dist-newstyle/build/x86_64-linux/ghc-$GHC_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 (
     cd crypto/rust-bins &&
