@@ -10,27 +10,27 @@ import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
 import Concordium.Skov
+import qualified Data.HashMap.Strict as HM
 
 import Control.Monad.State.Class
 
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Classes
+import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.Block
+import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
-import qualified Concordium.Skov.CatchUp as CU
 import qualified Data.PQueue.Prio.Max as Queue
-import Concordium.Logger
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
 
@@ -40,6 +40,7 @@ import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
 import qualified Data.Text as T
+import Data.String(fromString)
 import Data.Word
 import Data.Vector (fromList)
 import Control.Monad
@@ -64,6 +65,90 @@ getBestBlockState = queryBlockState =<< bestBlock
 
 getLastFinalState :: SkovQueryMonad m => m (BlockState m)
 getLastFinalState = queryBlockState =<< lastFinalizedBlock
+
+getTransactionStatus :: SkovStateQueryable z m => AT.TransactionHash -> z -> IO Value
+getTransactionStatus hash sfsRef = runStateQuery sfsRef $
+  queryTransactionStatus hash >>= \case
+    Nothing -> return Null
+    Just AT.Received{} ->
+      return $ object ["status" .= String "received"]
+    Just AT.Finalized{..} ->
+      withBlockStateJSON tsBlockHash $ \bs -> do
+        outcome <- BS.getTransactionOutcome bs tsFinResult
+        return $ object ["status" .= String "finalized",
+                         "outcomes" .= object [fromString (show tsBlockHash) .= outcome]
+                        ]
+    Just AT.Committed{..} -> do
+      outcomes <- forM (HM.toList tsResults) $ \(bh, idx) ->
+        resolveBlock bh >>= \case
+          Nothing -> return (T.pack (show bh) .= Null) -- should not happen
+          Just bp -> do
+            outcome <- flip BS.getTransactionOutcome idx =<< queryBlockState bp
+            return (T.pack (show bh) .= outcome)
+      return $ object ["status" .= String "committed",
+                       "outcomes" .= object outcomes
+                      ]
+
+getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> BlockHash -> z -> IO Value
+getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
+  queryTransactionStatus txHash >>= \case
+    Nothing -> return Null
+    Just AT.Received{} ->
+      return $ object ["status" .= String "received"]
+    Just AT.Finalized{..} ->
+      if tsBlockHash == blockHash then
+        withBlockStateJSON tsBlockHash $ \bs -> do
+          outcome <- BS.getTransactionOutcome bs tsFinResult
+          return $ object ["status" .= String "finalized",
+                           "result" .= outcome
+                          ]
+      else
+        return Null
+    Just AT.Committed{..} ->
+      case HM.lookup blockHash tsResults of
+        Nothing -> return Null
+        Just idx ->
+          withBlockStateJSON blockHash $ \bs -> do
+            outcome <- BS.getTransactionOutcome bs idx
+            return $ object ["status" .= String "committed",
+                             "result" .= outcome
+                            ]
+
+getAccountNonFinalizedTransactions :: SkovStateQueryable z m => AccountAddress -> z -> IO [TransactionHash]
+getAccountNonFinalizedTransactions addr sfsRef = runStateQuery sfsRef $
+    queryNonFinalizedTransactions addr
+
+-- |Return the best guess as to what the next account nonce should be.
+-- If all account transactions are finalized then this information is reliable.
+-- Otherwise this is the best guess, assuming all other transactions will be
+-- committed to blocks and eventually finalized.
+-- The 'Bool' indicates whether all transactions are finalized.
+getNextAccountNonce :: SkovStateQueryable z m => AccountAddress -> z -> IO Value
+getNextAccountNonce addr sfsRef = runStateQuery sfsRef $ do
+    (nonce, allFinal) <- (queryNextAccountNonce addr)
+    return $ object ["nonce" .= nonce,
+                     "allFinal" .= allFinal
+                    ]
+
+-- |Return a block with given hash and outcomes.
+getBlockSummary :: SkovStateQueryable z m => BlockHash -> z -> IO Value
+getBlockSummary hash sfsRef = runStateQuery sfsRef $
+  resolveBlock hash >>= \case
+    Nothing -> return Null
+    Just bp -> do
+      bs <- queryBlockState bp
+      outcomes <- BS.getOutcomes bs
+      specialOutcomes <- BS.getSpecialOutcomes bs
+      return $ object [
+        "transactionSummaries" .= outcomes,
+        "specialEvents" .= specialOutcomes
+        ]
+
+withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
+withBlockState hash f =
+  resolveBlock hash >>=
+    \case Nothing -> return Nothing
+          Just bp -> fmap Just . f =<< queryBlockState bp
 
 withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BlockState m -> m Value) -> m Value
 withBlockStateJSON hash f =
@@ -90,8 +175,9 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
       \case Nothing -> return Null
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
-                                        ,"accountCredentials" .= Queue.toList (acc ^. accountCredentials)
-                                        ,"accountDelegation" .= (toInteger <$> (acc ^. T.accountStakeDelegate))
+                                        -- credentials in descending order
+                                        ,"accountCredentials" .= Queue.elems (acc ^. accountCredentials)
+                                        ,"accountDelegation" .= (acc ^. T.accountStakeDelegate)
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
@@ -101,8 +187,8 @@ getContractInfo hash sfsRef addr = runStateQuery sfsRef $
       \case Nothing -> return Null
             Just istance -> let params = instanceParameters istance
                             in return $ object ["model" .= jsonStorable (instanceModel istance)
-                                               ,"owner" .= String (T.pack (show (instanceOwner params))) -- account address show instance is base58
-                                               ,"amount" .= toInteger (instanceAmount istance)]
+                                               ,"owner" .= instanceOwner params
+                                               ,"amount" .= instanceAmount istance]
 
 getRewardStatus :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getRewardStatus hash sfsRef = runStateQuery sfsRef $
@@ -118,16 +204,19 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  bps@BirkParameters{..} <- BS.getBlockBirkParameters st
+  bps <- BS.getBlockBirkParameters st
+  elDiff <- BS.getElectionDifficulty bps
+  nonce <- BS.birkLeadershipElectionNonce bps
+  lotteryBakers <- BS.getLotteryBakers bps
   return $ object [
-    "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= _birkLeadershipElectionNonce bps,
+    "electionDifficulty" .= elDiff,
+    "electionNonce" .= nonce,
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= toInteger bid
                                                             ,"bakerAccount" .= show _bakerAccount
-                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkLotteryBakers))
+                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake lotteryBakers))
                                                             ]) .
-                       Map.toList $ _bakerMap _birkLotteryBakers )
+                       Map.toList $ _bakerMap lotteryBakers)
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
@@ -146,7 +235,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
             mmodul <- BS.getModule st mhash
             return (BS.moduleSource <$> mmodul)
 
-getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m, BlockPointerMonad m) => z -> IO Value
+getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
@@ -178,7 +267,7 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
                 "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. Stat.finalizationPeriodEMVar))
             ]
 
-getBlockInfo :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> String -> IO Value
+getBlockInfo :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -216,7 +305,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "executionCost" .= toInteger (reward ^. AT.executionCost)
                             ]
 
-getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
+getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -233,16 +322,16 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
                          a' <- f a
                          go (a:acc) (n-1) a'
 
-getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointer m), HashableTo BlockHash (BlockPointer m), BlockPointerMonad m) => z -> IO Value
+getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
-            brs <- branchesFromTop :: m [[BlockPointer m]]
-            brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointer m) [Value])
-            lastFin <- lastFinalizedBlock :: m (BlockPointer m)
+            brs <- branchesFromTop :: m [[BlockPointerType m]]
+            brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointerType m) [Value])
+            lastFin <- lastFinalizedBlock :: m (BlockPointerType m)
             return $ object ["blockHash" .= hsh lastFin, "children" .= Map.findWithDefault [] lastFin brt]
     where
-        up :: Map.Map (BlockPointer m) [Value] -> [BlockPointer m] -> m (Map.Map (BlockPointer m) [Value])
-        up childrenMap = foldrM (\(b :: BlockPointer m) (ma :: Map.Map (BlockPointer m) [Value]) -> do
-                                    parent <- bpParent b :: m (BlockPointer m)
+        up :: Map.Map (BlockPointerType m) [Value] -> [BlockPointerType m] -> m (Map.Map (BlockPointerType m) [Value])
+        up childrenMap = foldrM (\(b :: BlockPointerType m) (ma :: Map.Map (BlockPointerType m) [Value]) -> do
+                                    parent <- bpParent b :: m (BlockPointerType m)
                                     return $ (at parent . non [] %~ (object ["blockHash" .= hsh b, "children" .= (Map.findWithDefault [] b childrenMap :: [Value])] :)) ma) Map.empty
 
 getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
@@ -263,24 +352,19 @@ checkBakerExistsBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
 checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters =<< queryBlockState bb
-  case bps ^. birkLotteryBakers . bakersByKey . at key of
+  lotteryBakers <- BS.getLotteryBakers bps
+  currentBakers <- BS.getCurrentBakers bps
+  case lotteryBakers ^. bakersByKey . at key of
     Just _ -> return 2
     Nothing ->
-      case bps ^. birkCurrentBakers . bakersByKey . at key of
+      case currentBakers ^. bakersByKey . at key of
         Just _ -> return 1
         Nothing -> return 0
 
--- |Check whether a keypair is part of the finalization committee by a key pair in the current best block.
--- checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, FinalizationMonad s m) => z -> IO Bool
-checkFinalizerExistsBestBlock :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
-checkFinalizerExistsBestBlock sfsRef = runStateQuery sfsRef $ do
+-- |Check whether the node is currently a member of the finalization committee.
+checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
+checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    fs <- use finState
    case fs ^. finCurrentRound of
-     Nothing -> return False
-     Just _ -> return True
-
-getCatchUpStatus :: (SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, LoggerMonad m) => z -> Bool -> IO CU.CatchUpStatus
-getCatchUpStatus sRef isRequest = runStateQuery sRef $ CU.getCatchUpStatus isRequest
-
-handleCatchUpStatus :: (SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, LoggerMonad m) => z -> CU.CatchUpStatus -> IO (Either String (Maybe ([Either FinalizationRecord (BlockPointer m)], CU.CatchUpStatus), Bool))
-handleCatchUpStatus sRef cus = runStateQuery sRef $ CU.handleCatchUp cus
+     Left _ -> return False
+     Right _ -> return True

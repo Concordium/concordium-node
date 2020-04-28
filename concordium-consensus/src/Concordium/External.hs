@@ -3,13 +3,13 @@
     ScopedTypeVariables,
     OverloadedStrings,
     RankNTypes,
-    CPP #-}
+    GADTs
+    #-}
 module Concordium.External where
 
 import Foreign
 import Foreign.C
 
-import qualified Data.ByteString.Lazy as BSL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Unsafe as BS
 import Data.Serialize
@@ -19,8 +19,6 @@ import Data.Foldable(forM_)
 import Text.Read(readMaybe)
 import Control.Exception
 import Control.Monad.State.Class(MonadState)
-import Data.Functor
-import Control.Arrow
 import System.FilePath ((</>))
 
 import qualified Data.Text.Lazy as LT
@@ -38,18 +36,18 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
-import Concordium.GlobalState.BlockPointer
-import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, MessageType)
+import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
-import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
+-- import Concordium.Skov.CatchUp (CatchUpStatus,cusIsResponse)
 
 import qualified Concordium.Getters as Get
 
@@ -165,58 +163,6 @@ toLogMethod maxLogLevel logCallbackPtr = le
 unsafeWithBSLen :: BS.ByteString -> (CSize -> Ptr Word8 -> IO ()) -> IO ()
 unsafeWithBSLen bs f = BS.unsafeUseAsCStringLen bs $ \(ptr, len) -> f (fromIntegral len) (castPtr ptr)
 
--- |Create a method for logging transfers.
--- The output format is the following.
--- |--------+---------------------------------+--------------------------------------------------------|
--- |   Type | Serialized data                 | Comment                                                |
--- | ====== | ====================            | ===========                                            |
--- |      0 | source account, target account  | Direct transfer                                        |
--- |      1 | source account, target contract | Transfer from account to contract                      |
--- |      2 | source contract, target account | Transfer from contract to account                      |
--- |      3 | source account, target baker id | Execution cost of transaction                          |
--- |      4 | baker id, baker account         | Total block reward, transaction hash is a NUll pointer |
--- |      5 | source contract, target contract| Transfer from contract to contract                     |
--- |      6 | from acc, to acc, JSON object   | Credential deployed, amount field is a dummy value     |
--- |--------+---------------------------------+--------------------------------------------------------|
-
--- * Account address serialiation is 21 bytes in length
--- * Contract address serialization is 16 bytes, consisting of two 64-bit unsigned integers in big-endian format
--- * Baker Id serialization is a 64 bit unsigned integer in big-endian format.
-
-toLogTransferMethod :: FunPtr LogTransferCallback -> BS.LogTransferMethod IO
-toLogTransferMethod logtCallBackPtr = logTransfer
-    where logit = callLogTransferCallback logtCallBackPtr
-          logTransfer bh slot reason =
-            withBlockReference bh $ \block ->
-              case reason of
-                BS.DirectTransfer{..} ->
-                  withTxReference trdtId $ \txRef ->
-                    let rest = runPut (put trdtSource <> put trdtTarget)
-                    in unsafeWithBSLen rest $ logit 0 block slot txRef trdtAmount
-                BS.AccountToContractTransfer{..} ->
-                  withTxReference tractId $ \txRef ->
-                    let rest = runPut (put tractSource <> put tractTarget)
-                    in unsafeWithBSLen rest $ logit 1 block slot txRef tractAmount
-                BS.ContractToAccountTransfer{..} ->
-                  withTxReference trcatId $ \txRef ->
-                    let rest = runPut (put trcatSource <> put trcatTarget)
-                    in unsafeWithBSLen rest $ logit 2 block slot txRef trcatAmount
-                BS.ExecutionCost{..} ->
-                  withTxReference trecId $ \txRef ->
-                    let rest = runPut (put trecSource <> put trecBaker)
-                    in unsafeWithBSLen rest $ logit 3 block slot txRef trecAmount
-                BS.BakingRewardTransfer{..} ->
-                  let rest = runPut (put trbrBaker <> put trbrAccount)
-                  in unsafeWithBSLen rest $ logit 4 block slot nullPtr trbrAmount
-                BS.ContractToContractTransfer{..} ->
-                  withTxReference trcctId $ \txRef ->
-                    let rest = runPut (put trcctSource <> put trcctTarget)
-                    in unsafeWithBSLen rest $ logit 5 block slot txRef trcctAmount
-                BS.CredentialDeployment{..} ->
-                  withTxReference trcdId $ \txRef ->
-                    let rest = runPut (put trcdSource <> put trcdAccount) <> BSL.toStrict (AE.encode trcdCredentialValues)
-                    in unsafeWithBSLen rest $ logit 6 block slot txRef 0
-
 -- |Callback for broadcasting a message to the network.
 -- The first argument indicates the message type.
 -- The second argument is a pointer to the data to broadcast.
@@ -237,11 +183,15 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
-broadcastCallback :: LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig TreeConfig finconf hconf) -> IO ()
+broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
+                                                        (SkovConfig gs finconf hconf)
+                                                        (LoggerT IO))))
+                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
-            let blockbs = runPut (putBlock block)
+            -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
+            let blockbs = runPut $ putBlock block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -261,66 +211,111 @@ foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStat
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
+
+genesisState :: GenesisData -> Basic.BlockState
+genesisState GenesisData{..} = Basic.initialState
+                       (Basic.BasicBirkParameters
+                            genesisElectionDifficulty
+                            genesisBakers
+                            genesisBakers
+                            genesisBakers
+                            genesisSeedState)
+                       genesisCryptographicParameters
+                       (genesisAccounts ++ genesisControlAccounts)
+                       genesisIdentityProviders
+                       genesisMintPerSlot
+
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
 makeGlobalStateConfig rt genData = DTDBConfig rt genData (genesisState genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) HookLogHandler
-type PassiveConfig = SkovConfig TreeConfig NoFinalization HookLogHandler
+type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig
+makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteString -> TreeConfigWithLog
+makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData (genesisState genData)
 
+
+type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) NoHandler
+type PassiveConfig gs = SkovConfig gs (NoFinalization ()) NoHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
-        bakerSyncRunner :: SyncRunner ActiveConfig
+        bakerSyncRunner :: SyncRunner (ActiveConfig TreeConfig)
     }
     | PassiveRunner {
-        passiveSyncRunner :: SyncPassiveRunner PassiveConfig
+        passiveSyncRunner :: SyncPassiveRunner (PassiveConfig TreeConfig)
+    }
+    | BakerRunnerWithLog {
+        bakerSyncRunnerWithLog :: SyncRunner (ActiveConfig TreeConfigWithLog)
+    }
+    | PassiveRunnerWithLog {
+        passiveSyncRunnerWithLog :: SyncPassiveRunner (PassiveConfig TreeConfigWithLog)
     }
 
 consensusLogMethod :: ConsensusRunner -> LogMethod IO
 consensusLogMethod BakerRunner{bakerSyncRunner=SyncRunner{syncLogMethod=logM}} = logM
 consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMethod=logM}} = logM
+consensusLogMethod BakerRunnerWithLog{bakerSyncRunnerWithLog=SyncRunner{syncLogMethod=logM}} = logM
+consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
-runWithConsensus :: ConsensusRunner -> (forall h f. SkovT h (SkovConfig TreeConfig f HookLogHandler) LogIO a) -> IO a
+runWithConsensus :: ConsensusRunner -> (forall h f gs.
+                                        (TS.TreeStateMonad (SkovT h (SkovConfig gs f NoHandler) LogIO),
+                                        TS.PendingBlockType
+                                         (SkovT h (SkovConfig gs f NoHandler) (LoggerT IO)) ~ PendingBlock
+                                        ) => SkovT h (SkovConfig gs f NoHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
+runWithConsensus BakerRunnerWithLog{..} = runSkovTransaction bakerSyncRunnerWithLog
+runWithConsensus PassiveRunnerWithLog{..} = runSkovPassive passiveSyncRunnerWithLog
 
-genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisSpecialBetaAccounts genData)
-                       (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
+-- |Default value for early block threshold.
+-- Set to 30 seconds.
+defaultEarlyBlockThreshold :: Timestamp
+defaultEarlyBlockThreshold = 30
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
 -- a null pointer will be returned.
 startConsensus ::
            Word64 -- ^Maximum block size.
+           -> Word64 -- ^Insertions before purging of transactions
+           -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
-           -> Word8 -- ^Whether to enable logging of transfer events (/= 0) or not (value 0).
-           -> FunPtr LogTransferCallback -- ^Handler for logging transfer events
            -> CString -> Int64 -- ^FilePath for the AppData directory
+           -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
            -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk enableTransferLogging ltcbk appDataC appDataLenC= do
+startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case (decode gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
+              if connStringLen /= 0 then do -- enable logging of transactions
+                connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
+                let
+                    gsconfig = makeGlobalStateConfigWithLog
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
+                        genData
+                        connString
+                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
+                    hconfig = NoHandler
+                    config = SkovConfig gsconfig finconfig hconfig
+                    bakerBroadcast = broadcastCallback logM bcbk
+                bakerSyncRunnerWithLog <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
+                newStablePtr BakerRunnerWithLog{..}
+              else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
-                    hconfig = HookLogHandler logT
+                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
+                    bakerBroadcast = broadcastCallback logM bcbk
                 bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
                 newStablePtr BakerRunner{..}
             (Left err, _) -> do
@@ -331,8 +326,7 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
                 return $ castPtrToStablePtr nullPtr
     where
         logM = toLogMethod maxLogLevel lcbk
-        logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
-        bakerBroadcast = broadcastCallback logM bcbk
+        -- logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
         catchUpCallback = callCatchUpStatusCallback cucbk . encode
 
 
@@ -341,23 +335,39 @@ startConsensus maxBlock gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcb
 -- a null pointer will be returned.
 startConsensusPassive ::
            Word64 -- ^Maximum block size.
+           -> Word64 -- ^Insertions before purging of transactions
+           -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
+           -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
             -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC = do
+startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
             Right genData -> do
+              if connStringLen /= 0 then do
+                connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
+                let
+                    gsconfig = makeGlobalStateConfigWithLog
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
+                        genData
+                        connString
+                    finconfig = NoFinalization genData
+                    hconfig = NoHandler
+                    config = SkovConfig gsconfig finconfig hconfig
+                passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback
+                newStablePtr PassiveRunnerWithLog{..}
+              else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate"))
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
-                    finconfig = NoFinalization
-                    hconfig = HookLogHandler Nothing
+                    finconfig = NoFinalization genData
+                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
                 newStablePtr PassiveRunner{..}
@@ -375,6 +385,8 @@ stopConsensus cptr = mask_ $ do
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> shutdownSyncRunner bakerSyncRunner
         PassiveRunner{..} -> shutdownSyncPassiveRunner passiveSyncRunner
+        BakerRunnerWithLog{..} -> shutdownSyncRunner bakerSyncRunnerWithLog
+        PassiveRunnerWithLog{..} -> shutdownSyncPassiveRunner passiveSyncRunnerWithLog
     freeStablePtr cptr
 
 -- |Start the baker thread.  Calling this more than once
@@ -383,6 +395,7 @@ startBaker :: StablePtr ConsensusRunner -> IO ()
 startBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> startSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> startSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to start baker thread, but consensus was started without baker credentials"
 
 -- |Stop a baker thread.
@@ -390,6 +403,7 @@ stopBaker :: StablePtr ConsensusRunner -> IO ()
 stopBaker cptr = mask_ $
     deRefStablePtr cptr >>= \case
         BakerRunner{..} -> stopSyncRunner bakerSyncRunner
+        BakerRunnerWithLog{..} -> stopSyncRunner bakerSyncRunnerWithLog
         c -> consensusLogMethod c External LLError "Attempted to stop baker thread, but consensus was started without baker credentials"
 
 {- | Result values for receive functions.
@@ -419,6 +433,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    10 | ResultContinueCatchUp              | The peer should be marked pending catch-up if it is currently up-to-date               | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -434,14 +450,14 @@ toReceiveResult ResultStale = 7
 toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
+toReceiveResult ResultEarlyBlock = 11
 
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
 -- and @ResultStale@.
--- 'receiveBlock' may invoke the callbacks for new finalization messages and finalization records,
--- and missing blocks and finalization records.
+-- 'receiveBlock' may invoke the callbacks for new finalization messages.
 receiveBlock :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr cstr l = do
     c <- deRefStablePtr bptr
@@ -449,23 +465,23 @@ receiveBlock bptr cstr l = do
     logm External LLDebug $ "Received block data size = " ++ show l ++ ". Decoding ..."
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
-    toReceiveResult <$> do
-        runWithConsensus c (TS.importPendingBlock blockBS now) >>= \case
+    toReceiveResult <$>
+        case (deserializePendingBlock blockBS now) of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail
             Right block -> case c of
                             BakerRunner{..} -> syncReceiveBlock bakerSyncRunner block
                             PassiveRunner{..} -> syncPassiveReceiveBlock passiveSyncRunner block
+                            BakerRunnerWithLog{..} -> syncReceiveBlock bakerSyncRunnerWithLog block
+                            PassiveRunnerWithLog{..} -> syncPassiveReceiveBlock passiveSyncRunnerWithLog block
 
 
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@ and
 -- @ResultUnverifiable@.
--- 'receiveFinalization' may invoke the callbacks for new finalization messages and finalization records,
--- and missing blocks and finalization records.
--- If run in passive mode, the message will be discarded after deserialization, returning @ResultSuccess@.
+-- 'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalization :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveFinalization bptr cstr l = do
     c <- deRefStablePtr bptr
@@ -480,14 +496,15 @@ receiveFinalization bptr cstr l = do
             logm External LLDebug "Finalization message deserialized."
             case c of
                 BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
-                PassiveRunner{..} -> return ResultSuccess
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
+                BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, and @ResultStale@.
 -- (Currently, @ResultDuplicate@ cannot happen, although it may be supported in future.)
--- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages and
--- finalization records, and missing blocks and finalization records.
+-- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
 receiveFinalizationRecord :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveFinalizationRecord bptr cstr l = do
     c <- deRefStablePtr bptr
@@ -503,6 +520,8 @@ receiveFinalizationRecord bptr cstr l = do
             case c of
                 BakerRunner{..} -> syncReceiveFinalizationRecord bakerSyncRunner finRec
                 PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
+                BakerRunnerWithLog{..} -> syncReceiveFinalizationRecord bakerSyncRunnerWithLog finRec
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
 
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
@@ -513,20 +532,26 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- getTransactionTime
-    toReceiveResult <$> case runGet (getUnverifiedTransaction now) tbs of
+    toReceiveResult <$> case runGet (getBlockItem now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
-            logm External LLTrace $ "Transaction header is: " ++ show (btrHeader (trBareTransaction tr))
+            case wmdData tr of
+              NormalTransaction _ -> logm External LLTrace $ "Received normal transaction."
+              CredentialDeployment _ -> logm External LLTrace $ "Received credential."
             case c of
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
+                BakerRunnerWithLog{..} -> syncReceiveTransaction bakerSyncRunnerWithLog tr
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveTransaction passiveSyncRunnerWithLog tr
 
 runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, MonadState s m, LoggerMonad m) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
 runConsensusQuery PassiveRunner{..} f = f passiveSyncRunner
+runConsensusQuery BakerRunnerWithLog{..} f = f bakerSyncRunnerWithLog
+runConsensusQuery PassiveRunnerWithLog{..} f = f passiveSyncRunnerWithLog
 
 
 -- |Returns a null-terminated string with a JSON representation of the current status of Consensus.
@@ -581,6 +606,14 @@ withBlockHash blockcstr logm f =
             newCString "\"Invalid block hash.\""
           Just hash -> f hash
 
+withTransactionHash :: CString -> (String -> IO ()) -> (TransactionHash -> IO CString) -> IO CString
+withTransactionHash trcstr logm f =
+  readMaybe <$> peekCString trcstr >>=
+    \case Nothing -> do
+            logm "Transaction hash invalid. Returning error value."
+            newCString "\"Invalid transaction hash.\""
+          Just hash -> f hash
+
 -- |Get the list of account addresses in the given block. The block must be
 -- given as a null-terminated base16 encoding of the block hash. The return
 -- value is a null-terminated JSON-encoded list of addresses.
@@ -589,7 +622,7 @@ getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
 getAccountList cptr blockcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received account list request."
+    logm External LLDebug "Received account list request."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       alist <- runConsensusQuery c (Get.getAccountList hash)
       logm External LLTrace $ "Replying with the list: " ++ show alist
@@ -603,12 +636,20 @@ getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
 getInstances cptr blockcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received instance list request."
+    logm External LLDebug "Received instance list request."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       istances <- runConsensusQuery c (Get.getInstances hash)
       logm External LLTrace $ "Replying with the list: " ++ show istances
       jsonValueToCString istances
 
+withAccountAddress :: CString -> (String -> IO ()) -> (AccountAddress -> IO CString) -> IO CString
+withAccountAddress cstr logm k = do
+  bs <- BS.packCString cstr
+  case addressFromBytes bs of
+      Left err -> do
+        logm $ "Could not decode address: " ++ err
+        jsonValueToCString Null
+      Right acc -> k acc
 
 -- |Get account information for the given block and instance. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
@@ -620,14 +661,9 @@ getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getAccountInfo cptr blockcstr cstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received account info request."
-    bs <- BS.packCString cstr
-    case addressFromBytes bs of
-      Left err -> do
-        logm External LLInfo $ "Could not decode address: " ++ err
-        jsonValueToCString Null
-      Right acc -> do
-        logm External LLInfo $ "Decoded address to: " ++ show acc
+    logm External LLDebug "Received account info request."
+    withAccountAddress cstr (logm External LLDebug) $ \acc -> do
+        logm External LLDebug $ "Decoded address to: " ++ show acc
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc
           logm External LLTrace $ "Replying with: " ++ show ainfo
@@ -641,7 +677,7 @@ getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
 getRewardStatus cptr blockcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received request for bank status."
+    logm External LLDebug "Received request for bank status."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       reward <- runConsensusQuery c (Get.getRewardStatus hash)
       logm External LLTrace $ "Replying with: " ++ show reward
@@ -656,7 +692,7 @@ getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 getModuleList cptr blockcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received request for list of modules."
+    logm External LLDebug "Received request for list of modules."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       mods <- runConsensusQuery c (Get.getModuleList hash)
       logm External LLTrace $ "Replying with" ++ show mods
@@ -670,7 +706,7 @@ getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 getBirkParameters cptr blockcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received request Birk parameters."
+    logm External LLDebug "Received request Birk parameters."
     withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
       bps <- runConsensusQuery c (Get.getBlockBirkParameters hash)
       logm External LLTrace $ "Replying with" ++ show bps
@@ -685,13 +721,23 @@ checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
 checkIfWeAreBaker cptr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Checking whether we are a baker."
+    logm External LLTrace "Checking whether we are a baker."
     case c of
       PassiveRunner _ -> do
-        logm External LLDebug "Passive consensus, not a baker."
+        logm External LLTrace "Passive consensus, not a baker."
+        return 0
+      PassiveRunnerWithLog _ -> do
+        logm External LLTrace "Passive consensus, not a baker."
         return 0
       BakerRunner s -> do
-        logm External LLDebug "Active consensus, querying best block."
+        logm External LLTrace "Active consensus, querying best block."
+        let bid = syncBakerIdentity s
+        let signKey = Baker.bakerSignPublicKey bid
+        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
+        logm External LLTrace $ "Replying with " ++ show r
+        return r
+      BakerRunnerWithLog s -> do
+        logm External LLTrace "Active consensus, querying best block."
         let bid = syncBakerIdentity s
         let signKey = Baker.bakerSignPublicKey bid
         r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
@@ -704,14 +750,22 @@ checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 checkIfWeAreFinalizer cptr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Checking whether we are a finalizer."
+    logm External LLTrace "Checking whether we are a finalizer."
     case c of
       PassiveRunner _ -> do
-        logm External LLDebug "Passive consensus, not a finalizer."
+        logm External LLTrace "Passive consensus, not a finalizer."
         return 0
       BakerRunner s -> do
-        logm External LLDebug "Active consensus, querying best block."
-        r <- Get.checkFinalizerExistsBestBlock s
+        logm External LLTrace "Active consensus, querying best block."
+        r <- Get.checkIsCurrentFinalizer s
+        logm External LLTrace $ "Replying with " ++ show r
+        if r then return 1 else return 0
+      PassiveRunnerWithLog _ -> do
+        logm External LLTrace "Passive consensus, not a finalizer."
+        return 0
+      BakerRunnerWithLog s -> do
+        logm External LLTrace "Active consensus, querying best block."
+        r <- Get.checkIsCurrentFinalizer s
         logm External LLTrace $ "Replying with " ++ show r
         if r then return 1 else return 0
 
@@ -725,7 +779,7 @@ getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getInstanceInfo cptr blockcstr cstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received account info request."
+    logm External LLDebug "Received account info request."
     bs <- BS.packCString cstr
     case AE.decodeStrict bs :: Maybe ContractAddress of
       Nothing -> do
@@ -747,20 +801,20 @@ getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getModuleSource cptr blockcstr cstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received request for a module."
+    logm External LLDebug "Received request for a module."
     bs <- peekCString cstr -- null terminated
     case readMaybe bs of
       Nothing -> do
-        logm External LLInfo "Cannot decode module reference."
+        logm External LLTrace "Cannot decode module reference."
         byteStringToCString BS.empty
       Just mrefhash -> do
         let mref = ModuleRef mrefhash
-        logm External LLInfo $ "Decoded module hash to : " ++ show mref -- base 16
+        logm External LLDebug $ "Decoded module hash to : " ++ show mref -- base 16
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           mmodul <- runConsensusQuery c (Get.getModuleSource hash) mref
           case mmodul :: Maybe (Core.Module Core.UA) of
             Nothing -> do
-              logm External LLDebug "Module not available."
+              logm External LLTrace "Module not available."
               byteStringToCString BS.empty
             Just modul ->
               let reply = P.runPut (Core.putModule modul)
@@ -768,23 +822,80 @@ getModuleSource cptr blockcstr cstr = do
                 logm External LLTrace $ "Replying with data size = " ++ show (BS.length reply)
                 byteStringToCString reply
 
--- |Query consensus about a specific transaction, installing a hook to
--- observe when the transaction is added to a block.
--- The transaction hash is passed as a null-terminated base-16 encoded string.
--- The return value is a null-terminated JSON object representing the state
--- of the transaction, which should be freed with 'freeCStr'.
-hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
-hookTransaction cptr trcstr = do
+-- |Get the status of a transaction. The input is a base16-encoded null-terminated string
+-- denoting a transaction hash. The return value is a NUL-terminated JSON string encoding a
+-- JSON value.
+getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
+getTransactionStatus cptr trcstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    logm External LLInfo "Received transaction hook request."
-    withBlockHash trcstr (logm External LLDebug) $ \hash -> do
-        hookRes <- case c of
-            BakerRunner{..} -> syncHookTransaction bakerSyncRunner hash
-            PassiveRunner{..} -> syncPassiveHookTransaction passiveSyncRunner hash
-        let v = AE.toJSON hookRes
-        logm External LLTrace $ "Replying with: " ++ show v
-        jsonValueToCString v
+    logm External LLDebug "Received transaction status request."
+    withTransactionHash trcstr (logm External LLDebug) $ \hash -> do
+      status <- runConsensusQuery c (Get.getTransactionStatus hash)
+      logm External LLTrace $ "Replying with: " ++ show status
+      jsonValueToCString status
+
+-- |Get the status of a transaction. The first input is a base16-encoded null-terminated string
+-- denoting a transaction hash, the second input is the hash of the block.
+-- The return value is a NUL-terminated string encoding a JSON value.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with a base16 encoded transaction hash
+--   * NUL-terminated C string with base16 encoded block hash
+getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+getTransactionStatusInBlock cptr trcstr bhcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received transaction status request."
+    withTransactionHash trcstr (logm External LLDebug) $ \txHash ->
+      withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
+        status <- runConsensusQuery c (Get.getTransactionStatusInBlock txHash blockHash)
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString status
+
+
+-- |Get the list of non-finalized transactions for a given account.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with account address.
+getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
+getAccountNonFinalizedTransactions cptr addrcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received account non-finalized transactions request."
+    withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
+        status <- runConsensusQuery c (Get.getAccountNonFinalizedTransactions addr)
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString (AE.toJSON status)
+
+-- |Get the best guess for the next available account nonce.
+-- The arguments are
+--
+--   * pointer to the consensus runner
+--   * NUL-terminated C string with account address.
+getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
+getNextAccountNonce cptr addrcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received next account nonce request."
+    withAccountAddress addrcstr (logm External LLDebug) $ \addr -> do
+        status <- runConsensusQuery c (Get.getNextAccountNonce addr)
+        logm External LLTrace $ "Replying with: " ++ show status
+        jsonValueToCString status
+
+-- |Get the list of transactions in a block with short summaries of their effects.
+-- Returns a NUL-termianated string encoding a JSON value.
+getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
+getBlockSummary cptr bhcstr = do
+  c <- deRefStablePtr cptr
+  let logm = consensusLogMethod c
+  logm External LLDebug "Received block summary request."
+  withBlockHash bhcstr (logm External LLDebug) $ \blockHash -> do
+    summary <- runConsensusQuery c (Get.getBlockSummary blockHash)
+    logm External LLTrace $ "Replying with: " ++ show summary
+    jsonValueToCString summary
 
 freeCStr :: CString -> IO ()
 freeCStr = free
@@ -797,8 +908,8 @@ getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
 getCatchUpStatus cptr = do
         c <- deRefStablePtr cptr
         let logm = consensusLogMethod c
-        logm External LLInfo $ "Received request for catch-up status"
-        cus <- runConsensusQuery c Get.getCatchUpStatus True
+        logm External LLDebug $ "Received request for catch-up status"
+        cus <- runWithConsensus c (Skov.getCatchUpStatus True)
         logm External LLTrace $ "Replying with catch-up status = " ++ show cus
         byteStringToCString $ encode (cus :: CatchUpStatus)
 
@@ -832,46 +943,43 @@ receiveCatchUpStatus ::
     -> PeerID                           -- ^Identifier of peer (passed to callback)
     -> CString                          -- ^Serialised catch-up message
     -> Int64                            -- ^Length of message
-    -> Word64                           -- ^Limit to number of responses (0 = unlimited)
+    -> Int64                            -- ^Limit to number of responses. Limit <= 0 means no messages will be sent.
     -> FunPtr DirectMessageCallback     -- ^Callback to receive messages
     -> IO ReceiveResult
 receiveCatchUpStatus cptr src cstr len limit cbk = do
+    let iLimit = fromIntegral limit
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    bs <- BS.packCStringLen (cstr, fromIntegral len)
-    toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
-        Left _ -> do
-            logm External LLDebug "Deserialization of catch-up status message failed."
-            return ResultSerializationFail
-        Right cus -> do
-            logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
-            let
-                toMsg (Left finRec) = (MTFinalizationRecord, encode finRec)
-                toMsg (Right block) = (MTBlock, runPut $ putBlock block)
-            runConsensusQuery c (\z -> Get.handleCatchUpStatus z cus <&> fmap (first (fmap $ \(l, rcus) -> (toMsg <$> l, rcus)))) >>= \case
-                Left emsg -> logm Skov LLWarning emsg >> return ResultInvalid
-                Right (d, flag) -> do
-                    let
-                        sendMsg = callDirectMessageCallback cbk src
-                    forM_ d $ \(frbs, rcus) -> do
-                        let limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
-                        logm Skov LLTrace $ "Sending " ++ show (length limFrbs) ++ " blocks/finalization records"
-                        mapM_ (uncurry sendMsg) limFrbs
-                        logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
-                        sendMsg MTCatchUpStatus $ encode rcus
-                    return $! if flag then
-                                if cusIsResponse cus then
-                                    -- Mark the peer pending
-                                    ResultPendingBlock
-                                else
-                                    -- Mark the peer pending if it is up-to-date, otherwise no change
-                                    ResultContinueCatchUp
-                            else
-                                -- Mark the peer up-to-date
-                                ResultSuccess
+    if iLimit <= 0 then do
+      logm External LLWarning "Requesting catchup with limit <= 0."
+      return (toReceiveResult ResultSuccess)
+    else do
+      bs <- BS.packCStringLen (cstr, fromIntegral len)
+      toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
+          Left _ -> do
+              logm External LLDebug "Deserialization of catch-up status message failed."
+              return ResultSerializationFail
+          Right cus -> do
+              logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
+              let
+                  toMsg (MessageBlock, mbs) = (MTBlock, mbs)
+                  toMsg (MessageFinalizationRecord, mbs) = (MTFinalizationRecord, mbs)
+              (response, result) <- case c of
+                  BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus iLimit
+                  PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus iLimit
+                  BakerRunnerWithLog{..} -> syncReceiveCatchUp bakerSyncRunnerWithLog cus iLimit
+                  PassiveRunnerWithLog{..} -> syncPassiveReceiveCatchUp passiveSyncRunnerWithLog cus iLimit
+              forM_ response $ \(frbs, rcus) -> do
+                          let
+                              sendMsg = callDirectMessageCallback cbk src
+                          logm Skov LLTrace $ "Sending " ++ show (length frbs) ++ " blocks/finalization records"
+                          mapM_ (uncurry sendMsg . toMsg) frbs
+                          logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
+                          sendMsg MTCatchUpStatus $ encode rcus
+              return $! result
 
-foreign export ccall startConsensus :: Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> Word8 -> FunPtr LogTransferCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> IO (StablePtr ConsensusRunner)
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
@@ -884,10 +992,9 @@ foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CStri
 foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Word64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
+foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
 
 -- report global state information will be removed in the future when global
 -- state is handled better
@@ -899,8 +1006,15 @@ foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall hookTransaction :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
+foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
+
+-- maintenance
+foreign export ccall freeCStr :: CString -> IO ()

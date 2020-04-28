@@ -46,19 +46,35 @@ dummyChainMeta = ChainMetadata { slotNumber = 0
                                }
 
 
--- |Result type when constructing a block.
-data FilteredTransactions msg = FilteredTransactions {
-  -- |Transactions which have been added to the block, with results.
-  ftAdded :: [(msg, ValidResult)],
+-- |Result of constructing a block from 'GroupedTransactions'.
+data FilteredTransactions = FilteredTransactions {
+  -- |Transactions which have been added to the block, in the order added, with results.
+  ftAdded :: [(BlockItem, TransactionSummary)],
   -- |Transactions which failed. No order is guaranteed.
-  ftFailed :: [(msg, FailureKind)],
-  -- |Transactions which were not processed since we reached block size limit.
-  -- No order is guaranteed.
-  ftUnprocessed :: [msg]
+  ftFailed :: [(Transaction, FailureKind)],
+  -- |Credential deployments which failed. No order is guaranteed.
+  ftFailedCredentials :: [(CredentialDeploymentWithMeta, FailureKind)],
+  -- |Transactions which were not processed. No order is guaranteed.
+  ftUnprocessed :: [Transaction],
+  -- |Credentials which were not processed. No order is guaranteed.
+  ftUnprocessedCredentials :: [CredentialDeploymentWithMeta]
   }
+
+emptyFilteredTransactions :: FilteredTransactions
+emptyFilteredTransactions = FilteredTransactions [] [] [] [] []
 
 -- |Transactions grouped by accounts.
 -- For example, if T1 and T2 are transactions from account A,
 -- and T3, T4, and T5 are transactions from account B, then
 -- we group the transactions as [[T1, T2], [T3, T4, T5]].
-type GroupedTransactions msg = [[msg]]
+-- Additionally a list of pending credentials to deploy together
+data GroupedTransactions msg = GroupedTransactions{
+  perAccountTransactions :: [[msg]],
+  credentialDeployments :: [CredentialDeploymentWithMeta]
+  }
+
+emptyGroupedTransactions :: GroupedTransactions msg
+emptyGroupedTransactions = GroupedTransactions [] []
+
+fromTransactions :: [[msg]] -> GroupedTransactions msg
+fromTransactions = flip GroupedTransactions []

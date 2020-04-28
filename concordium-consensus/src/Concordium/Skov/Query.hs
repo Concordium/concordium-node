@@ -5,13 +5,14 @@ import Data.Functor
 import qualified Data.Sequence as Seq
 
 import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.TreeState
+import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters
-import qualified Concordium.GlobalState.Parameters as Param
 
-doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointer m))
+doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
 {-# INLINE doResolveBlock #-}
 doResolveBlock cbp = getBlockStatus cbp <&> \case
         Just (BlockAlive bp) -> Just bp
@@ -24,11 +25,11 @@ doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
-doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointer m -> m Param.BirkParameters
+doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointerType m -> m (BirkParameters m)
 {-# INLINE doGetBirkParameters #-}
 doGetBirkParameters slot bp = do
         params <- getBlockBirkParameters =<< blockState bp
-        return $ slotDependentBirkParameters slot params
+        slotDependentBirkParameters slot params
 
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
 {-# INLINE doGetCurrentHeight #-}
@@ -37,7 +38,7 @@ doGetCurrentHeight = do
         branchLen <- fromIntegral . Seq.length <$> getBranches
         return $ lfHeight + branchLen
 
-doBranchesFromTop :: TreeStateMonad m => m [[BlockPointer m]]
+doBranchesFromTop :: TreeStateMonad m => m [[BlockPointerType m]]
 {-# INLINE doBranchesFromTop #-}
 doBranchesFromTop = revSeqToList <$> getBranches
     where
@@ -45,7 +46,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
         revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 
-doGetBlocksAtHeight :: (BlockPointerMonad m, TreeStateMonad m) => BlockHeight -> m [BlockPointer m]
+doGetBlocksAtHeight :: (BlockPointerMonad m, TreeStateMonad m) => BlockHeight -> m [BlockPointerType m]
 {-# INLINE doGetBlocksAtHeight #-}
 doGetBlocksAtHeight h = do
         lastFin <- fst <$> getLastFinalized
@@ -66,3 +67,9 @@ doGetBlocksAtHeight h = do
             | otherwise = do
                 par <- bpParent bp
                 findFrom par
+
+doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
+{-# INLINE doBlockLastFinalizedIndex #-}
+doBlockLastFinalizedIndex bp = getBlockStatus (bpLastFinalizedHash bp) <&> \case
+        Just (BlockFinalized _ fr) -> finalizationIndex fr
+        _ -> error "Invariant violation: last finalized block is not finalized."

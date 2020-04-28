@@ -31,6 +31,15 @@ module Concordium.Afgjort.WMVBA (
     wmvbaWADBotMessage,
     witnessMessage,
     createAggregateSig,
+    OutputWitnesses(..),
+    getOutputWitnesses,
+    uncheckedOutputWitnesses,
+    -- * Passive
+    WMVBAPassiveState(..),
+    initialWMVBAPassiveState,
+    passiveReceiveWMVBAMessage,
+    passiveReceiveWMVBASignatures,
+    passiveGetOutputWitnesses,
     -- * For testing
     _freezeState,
     findCulprits,
@@ -58,6 +67,7 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.CSS.NominationSet
+import qualified Concordium.Afgjort.CSS.BitSet as BitSet
 import Concordium.Afgjort.PartyMap (PartyMap)
 import Concordium.Afgjort.PartySet (PartySet)
 import qualified Concordium.Afgjort.PartyMap as PM
@@ -74,12 +84,12 @@ data WMVBAMessage
     | WMVBAWitnessCreatorMessage !(Val, Bls.Signature)
     deriving (Eq, Ord)
 
-messageValues :: WMVBAMessage -> [Val]
-messageValues (WMVBAFreezeMessage (Proposal val)) = [val]
-messageValues (WMVBAFreezeMessage (Vote (Just val))) = [val]
-messageValues (WMVBAFreezeMessage (Vote Nothing)) = []
-messageValues (WMVBAABBAMessage _) = []
-messageValues (WMVBAWitnessCreatorMessage (val, _)) = [val]
+messageValues :: WMVBAMessage -> Maybe Val
+messageValues (WMVBAFreezeMessage (Proposal val)) = Just val
+messageValues (WMVBAFreezeMessage (Vote (Just val))) = Just val
+messageValues (WMVBAFreezeMessage (Vote Nothing)) = Nothing
+messageValues (WMVBAABBAMessage _) = Nothing
+messageValues (WMVBAWitnessCreatorMessage (val, _)) = Just val
 
 messageParties :: WMVBAMessage -> [Party]
 messageParties (WMVBAFreezeMessage _) = []
@@ -175,10 +185,34 @@ outcomeVal (OSFrozen v) = Just v
 outcomeVal (OSDone v) = Just v
 outcomeVal _ = Nothing
 
+-- |The collection of signatures gathered by finalization.
+--
+-- INVARIANT: `knownGoodSigs` and `unknownSigs` must be disjoint
+-- (in their domains), and both should also be disjoint from
+-- `knownBadSigs`.
+data OutputWitnesses = OutputWitnesses {
+    -- |The signatures that are known to be valid.
+    knownGoodSigs :: !(Map Party Bls.Signature),
+    -- |The signatures that have not been checked.
+    unknownSigs :: !(Map Party Bls.Signature),
+    -- |The parties that are known to have sent bad signatures.
+    knownBadSigs :: !BitSet.BitSet
+}
+
+uncheckedOutputWitnesses :: Map Party Bls.Signature -> OutputWitnesses
+uncheckedOutputWitnesses unknownSigs = OutputWitnesses{
+        knownGoodSigs = Map.empty,
+        knownBadSigs = BitSet.empty,
+        ..
+    }
+
 data WMVBAState sig = WMVBAState {
     _freezeState :: FreezeState sig,
     _abbaState :: ABBAState sig,
     _justifiedDecision :: OutcomeState,
+    -- TODO: separate out: known good, known bad, and unchecked signatures.
+    -- Possibly, we just store justifications with a flag indicating whether
+    -- the BLS signature has been checked.
     _justifications :: Map Val (PartyMap (sig, Bls.Signature)),
     _badJustifications :: Map Val (PartySet)
 } deriving (Show)
@@ -193,7 +227,7 @@ initialWMVBAState = WMVBAState {
     _badJustifications = Map.empty
 }
 
-data WMVBAInstance sig = WMVBAInstance {
+data WMVBAInstance = WMVBAInstance {
     baid :: BS.ByteString,
     totalWeight :: VoterPower,
     corruptWeight :: VoterPower,
@@ -206,14 +240,14 @@ data WMVBAInstance sig = WMVBAInstance {
     privateBlsKey :: Bls.SecretKey
 }
 
-toFreezeInstance :: WMVBAInstance sig -> FreezeInstance
+toFreezeInstance :: WMVBAInstance -> FreezeInstance
 toFreezeInstance (WMVBAInstance _ totalWeight corruptWeight partyWeight _ _ me _ _ _) = FreezeInstance totalWeight corruptWeight partyWeight me
 
-toABBAInstance :: WMVBAInstance sig -> ABBAInstance
+toABBAInstance :: WMVBAInstance -> ABBAInstance
 toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey _ _) =
   ABBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey
 
-class (MonadState (WMVBAState sig) m, MonadReader (WMVBAInstance sig) m, MonadIO m) => WMVBAMonad sig m where
+class (MonadState (WMVBAState sig) m, MonadReader WMVBAInstance m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
     wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m ()
     wmvbaDelay :: NominalDiffTime -> DelayedABBAAction -> m ()
@@ -225,13 +259,13 @@ data WMVBAOutputEvent sig
     deriving (Show)
 
 newtype WMVBA sig a = WMVBA {
-    runWMVBA' :: RWST (WMVBAInstance sig) (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
+    runWMVBA' :: RWST WMVBAInstance (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
 } deriving (Functor, Applicative, Monad, MonadIO)
 
-runWMVBA :: WMVBA sig a -> WMVBAInstance sig -> WMVBAState sig -> IO (a, WMVBAState sig, [WMVBAOutputEvent sig])
+runWMVBA :: WMVBA sig a -> WMVBAInstance -> WMVBAState sig -> IO (a, WMVBAState sig, [WMVBAOutputEvent sig])
 runWMVBA z i s = runRWST (runWMVBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
 
-instance MonadReader (WMVBAInstance sig) (WMVBA sig) where
+instance MonadReader WMVBAInstance (WMVBA sig) where
     ask = WMVBA ask
     reader = WMVBA . reader
     local f = WMVBA . local f . runWMVBA'
@@ -343,7 +377,7 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
 -- is returned if enough bad justifications are found that the good ones no
 -- longer exceed the corruption threshold
 createAggregateSig ::
-    WMVBAInstance sig
+    WMVBAInstance
     -> Val
     -- ^Value chosen
     -> PartyMap Bls.Signature
@@ -499,3 +533,60 @@ wmvbaWADBot = PM.partyMap . _botWeAreDone . _abbaState
 
 wmvbaWADBotMessage :: WMVBAMessage
 wmvbaWADBotMessage = WMVBAABBAMessage (WeAreDone False)
+
+-- |Get the finalization witness signatures received. 
+getOutputWitnesses :: Val -> WMVBAState sig -> OutputWitnesses
+getOutputWitnesses v WMVBAState{..} = OutputWitnesses{..}
+    where
+        justs = snd <$> Map.findWithDefault PM.empty v _justifications
+        badJusts = Map.findWithDefault PS.empty v _badJustifications
+        knownGoodSigs = Map.empty
+        unknownSigs = Map.filterWithKey (\p _ -> not (PS.member p badJusts)) (PM.partyMap justs)
+        knownBadSigs = PS.parties badJusts
+
+-- |The 'WMVBAPassiveState' collects WitnessCreator signatures for generating a
+-- finalization proof, without participating in the WMVBA protocol.
+data WMVBAPassiveState = WMVBAPassiveState {
+        _passiveWitnesses :: !(Map Val (PartyMap Bls.Signature, PartySet))
+    } deriving (Show, Eq)
+makeLenses ''WMVBAPassiveState
+
+initialWMVBAPassiveState :: WMVBAPassiveState
+initialWMVBAPassiveState = WMVBAPassiveState Map.empty
+
+passiveReceiveWMVBASignatures :: (MonadState WMVBAPassiveState m)
+    => WMVBAInstance
+    -> Val
+    -> PM.PartyMap Bls.Signature
+    -> (Party -> VoterPower)
+    -> m (Maybe (Val, ([Party], Bls.Signature)))
+passiveReceiveWMVBASignatures wi@WMVBAInstance{..} v partyMap voterPower = do
+        (newJV, badJV) <- passiveWitnesses . at v . non (PM.empty, PS.empty) <%= (_1 %~ PM.union voterPower partyMap)
+        -- When justifications combined weight minus the weight of the bad justifications exceeds corruptWeight,
+        -- we can attempt to create the bls aggregate signature
+        if PM.weight newJV - PS.weight badJV > corruptWeight then do
+            let (proofData, newBadJV) = createAggregateSig wi v newJV badJV
+            passiveWitnesses . at v . non (PM.empty, PS.empty) . _2 .= newBadJV
+            return $ (v,) <$> proofData
+        else
+            return Nothing
+
+passiveReceiveWMVBAMessage :: (MonadState WMVBAPassiveState m)
+    => WMVBAInstance
+    -> Party
+    -- ^Message sender
+    -> WMVBAMessage
+    -- ^Message
+    -> m (Maybe (Val, ([Party], Bls.Signature)))
+passiveReceiveWMVBAMessage wi@WMVBAInstance{..} src (WMVBAWitnessCreatorMessage (v, blssig)) =
+    passiveReceiveWMVBASignatures wi v (PM.singleton src (partyWeight src) blssig) partyWeight
+passiveReceiveWMVBAMessage _ _ _ = return Nothing
+
+passiveGetOutputWitnesses :: Val -> WMVBAPassiveState -> OutputWitnesses
+passiveGetOutputWitnesses v WMVBAPassiveState{..} = OutputWitnesses{..}
+    where
+        (justs, badJusts) = Map.findWithDefault (PM.empty, PS.empty) v _passiveWitnesses
+        knownGoodSigs = Map.empty
+        unknownSigs = Map.filterWithKey (\p _ -> not (PS.member p badJusts)) (PM.partyMap justs)
+        knownBadSigs = PS.parties badJusts
+

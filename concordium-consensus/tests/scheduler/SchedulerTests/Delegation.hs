@@ -14,8 +14,6 @@ import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Concordium.Scheduler.Cost as Cost
-import qualified Concordium.Scheduler.Types as Types
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -34,6 +32,12 @@ import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
+
+import SchedulerTests.Helpers
+
+-- | The amount of energy to deposit in every test transaction.
+energy :: Energy
+energy = 10000
 
 staticKeys :: [(KeyPair, AccountAddress)]
 staticKeys = ks (mkStdGen 1333)
@@ -76,17 +80,18 @@ addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
         -- FIXME: Once we require proof of knowledge of this key the last secret aggregation key
         -- will be needed.
-        let (bkr, electionSecretKey, signKey, _aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
+        let (bkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
         return (TJSON {
             payload = AddBaker
                       (bkr ^. bakerElectionVerifyKey)
                       electionSecretKey
                       (bkr ^. bakerSignatureVerifyKey)
                       (bkr ^. bakerAggregationVerifyKey)
+                      aggregationKey
                       signKey
                       bkrAcct
                       kp,
-            metadata = makeDummyHeader bkrAcct nonce (Cost.checkHeader + Cost.addBaker),
+            metadata = makeDummyHeader bkrAcct nonce energy,
             keypair = kp
         }, m0
             & mAccounts . ix bkrAcct . _2 %~ (+1)
@@ -107,8 +112,8 @@ removeBaker m0 = do
         let (address, srcKp) = m0 ^. mBakerMap . singular (ix bkr)
         let (_, srcN) = m0 ^. mAccounts . singular (ix address)
         return (TJSON {
-            payload = RemoveBaker bkr "<dummy proof>",
-            metadata = makeDummyHeader address srcN (Cost.checkHeader + Cost.removeBaker),
+            payload = RemoveBaker bkr,
+            metadata = makeDummyHeader address srcN energy,
             keypair = srcKp
         }, m0
             & mAccounts . ix address . _2 %~ (+1)
@@ -121,7 +126,7 @@ delegateStake m0 = do
         bkr <- elements (_mBakers m0)
         return (TJSON {
             payload = DelegateStake bkr,
-            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN energy,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -130,7 +135,7 @@ undelegateStake m0 = do
         (srcAcct, (srcKp, srcN)) <- elements (Map.toList $ _mAccounts m0)
         return (TJSON {
             payload = UndelegateStake,
-            metadata = makeDummyHeader srcAcct srcN (Cost.checkHeader + Cost.updateStakeDelegate 0),
+            metadata = makeDummyHeader srcAcct srcN energy,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -141,7 +146,7 @@ simpleTransfer m0 = do
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
             payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
-            metadata = makeDummyHeader srcAcct srcN Cost.checkHeader,
+            metadata = makeDummyHeader srcAcct srcN energy,
             keypair = srcKp
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
@@ -160,13 +165,15 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
     where
         tt tl = do
             transactions <- processUngroupedTransactions tl
-            let ((Sch.FilteredTransactions{..}, _), gs) =
+            let (Sch.FilteredTransactions{..}, finState) =
                   EI.runSI
-                    (Sch.filterTransactions dummyBlockSize (Types.Energy maxBound) transactions)
+                    (Sch.filterTransactions dummyBlockSize transactions)
                     (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
+                    maxBound
                     initialBlockState
-            let rejs = [(z, decodePayload (btrPayload z), rr) | (z, TxReject rr _ _) <- ftAdded]
+            let gs = finState ^. EI.ssBlockState
+            let rejs = [(z, decodePayload (btrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
             case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of
                 Left f -> return $ counterexample f False

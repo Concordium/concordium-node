@@ -12,6 +12,8 @@ import qualified SchedulerTests.CredentialTest(tests)
 import qualified SchedulerTests.TransactionExpirySpec(tests)
 import qualified SchedulerTests.BlockEnergyLimitSpec(tests)
 import qualified SchedulerTests.TransactionGroupingSpec(tests)
+import qualified SchedulerTests.TransactionGroupingSpec2(tests)
+import qualified SchedulerTests.UpdateElectionDifficultySpec(tests)
 
 import Test.Hspec
 
@@ -29,3 +31,5 @@ main = hspec $ do
          SchedulerTests.TransactionExpirySpec.tests
          SchedulerTests.BlockEnergyLimitSpec.tests
          SchedulerTests.TransactionGroupingSpec.tests
+         SchedulerTests.TransactionGroupingSpec2.tests
+         SchedulerTests.UpdateElectionDifficultySpec.tests
