@@ -20,6 +20,7 @@ import Control.Monad.IO.Class
 import System.Directory
 import Data.Proxy
 import GHC.Stack
+import Data.IORef
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -145,9 +146,6 @@ class (MonadBlobStore m ref) => BlobStorable m ref a where
     -- |Store a value of type @a@, possibly updating its representation.
     -- This is used when the value's representation includes pointers that
     -- may be replaced or supplemented with blob references.
-    --
-    -- As an example, @storeUpdate@ on a @BufferedRef@ converts a @BRMemory@
-    -- to a @BRCached@.
     storeUpdate :: Proxy ref -> a -> m (Put, a)
     storeUpdate p v = (,v) <$> store p v
 
@@ -201,28 +199,31 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (Nullable (CachedR
 data BufferedRef a
     = BRBlobbed {brRef :: !(BlobRef a)}
     -- ^Value stored on disk
-    | BRCached {brRef :: !(BlobRef a), brValue :: !a}
-    -- ^Value stored on disk, but also cached.
-    | BRMemory {brValue :: !a}
+    | BRMemory {brIORef :: !(IORef (BlobRef a)), brValue :: !a}
+    -- ^Value stored in memory and possibly on disk.
+    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'nullRef'.
+    -- When we store the instance in persistent storage, we update 'brIORef' with the corresponding pointer.
+    -- That way, when we store the same instance again on disk (this could be, e.g., a child block
+    -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
+    -- storing all of the data again.
 
 instance Show a => Show (BufferedRef a) where
     show (BRBlobbed r) = show r
-    show (BRCached r v) = "{" ++ show v ++ "}" ++ show r
-    show (BRMemory v) = "{" ++ show v ++ "}"
+    show (BRMemory _ v) = "{" ++ show v ++ "}"
 
-instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (BufferedRef a) where
+instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (BufferedRef a) where
     store p (BRBlobbed r) = store p r
-    store p (BRCached r _) = store p r
-    store p (BRMemory v) = do
-        (r :: BlobRef a) <- storeRef v
-        store p r
+    store p (BRMemory ref v) = do
+        r <- liftIO $ readIORef ref
+        if r == nullRef
+        then do
+            (r' :: BlobRef a) <- storeRef v
+            liftIO $ writeIORef ref r'
+            store p r'
+        else store p r
     load p = fmap BRBlobbed <$> load p
-    storeUpdate p (BRMemory v) = do
-        (r :: BlobRef a, v') <- storeUpdateRef v
-        (,BRCached r v') <$> store p r
-    storeUpdate p x = (,x) <$> store p x
 
-instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
+instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
     store _ Null = return $ put nullRef
     store p (Some v) = store p v
     load p = do
@@ -238,16 +239,15 @@ instance (BlobStorable m BlobRef a) => BlobStorable m BlobRef (Nullable (Buffere
 
 loadBufferedRef :: (HasCallStack, BlobStorable m BlobRef a) => BufferedRef a -> m a
 loadBufferedRef (BRBlobbed ref) = loadRef ref
-loadBufferedRef (BRCached _ v) = return v
-loadBufferedRef (BRMemory v) = return v
+loadBufferedRef (BRMemory _ v) = return v
 
 -- |Load a 'BufferedRef' and cache it if it wasn't already in memory
-cacheBufferedRef :: (HasCallStack, BlobStorable m BlobRef a) => BufferedRef a -> m (a, BufferedRef a)
+cacheBufferedRef :: (HasCallStack, BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (a, BufferedRef a)
 cacheBufferedRef (BRBlobbed ref) = do
         v <- loadRef ref
-        return (v, BRCached ref v)
-cacheBufferedRef r@(BRCached _ v) = return (v, r)
-cacheBufferedRef r@(BRMemory v) = return (v, r)
+        r <- liftIO $ newIORef ref
+        return (v, BRMemory r v)
+cacheBufferedRef r@(BRMemory _ v) = return (v, r)
 
 
 {-
@@ -262,30 +262,35 @@ cachedToBlob = crRef
 blobToCached :: BlobRef a -> CachedRef a
 blobToCached = CRBlobbed
 
-bufferedToCached' :: (BlobStorable m BlobRef a) => BufferedRef a -> m (CachedRef a)
-bufferedToCached' (BRBlobbed r) = return $ CRBlobbed r
-bufferedToCached' (BRCached r v) = return $ CRCached r v
-bufferedToCached' (BRMemory v) = do
-        (r, v') <- storeUpdateRef v
-        return $ CRCached r v'
+-- Stores in-memory data to disk if it has not been stored yet
+storeBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BlobRef a)
+storeBuffered brm@(BRMemory ref _) = do
+    r <- liftIO $ readIORef ref
+    if r == nullRef
+    then do
+        (_ :: BlobRef (BufferedRef a), _) <- storeUpdateRef brm
+        liftIO $ readIORef ref
+    else return r
+storeBuffered (BRBlobbed r) = return r
 
-flushBuffered :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a)
-flushBuffered (BRMemory v) = do
-        (r, v') <- storeUpdateRef v
-        return $ BRCached r v'
+bufferedToCached' :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (CachedRef a)
+bufferedToCached' (BRBlobbed r) = return $ CRBlobbed r
+bufferedToCached' brm@(BRMemory _ v) = do
+    r <- storeBuffered brm
+    return $ CRCached r v
+
+flushBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a)
+flushBuffered v@(BRMemory _ _) = storeBuffered v >> return v
 flushBuffered b = return b
 
-flushBufferedRef :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a, BlobRef a)
-flushBufferedRef (BRMemory v) = do
-        (r, v') <- storeUpdateRef v
-        return $ (BRCached r v', r)
+flushBufferedRef :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a, BlobRef a)
+flushBufferedRef brm@(BRMemory _ _) = (brm,) <$> storeBuffered brm
 flushBufferedRef b = return (b, brRef b)
 
-uncacheBuffered :: (BlobStorable m BlobRef a) => BufferedRef a -> m (BufferedRef a)
-uncacheBuffered (BRMemory v) = do
-        r <- storeRef v
+uncacheBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a)
+uncacheBuffered v@(BRMemory _ _) = do
+        r <- storeBuffered v
         return $ BRBlobbed r
-uncacheBuffered (BRCached r _) = return $ BRBlobbed r
 uncacheBuffered b = return b
 
 
