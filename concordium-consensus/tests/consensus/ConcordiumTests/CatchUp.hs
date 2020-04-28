@@ -131,7 +131,7 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
 catchUpCheck :: (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
 catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myEvalSkovT (getCatchUpStatus True) c1 s1
-        (response, result) <- trivialEvalSkovT (handleCatchUpStatus request) c2 s2
+        (response, result) <- trivialEvalSkovT (handleCatchUpStatus request 2000) c2 s2
         let
             formatMsg (MessageBlock, b) = show (hash b)
             formatMsg (MessageFinalizationRecord, fr) = case decode fr of
