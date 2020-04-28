@@ -23,7 +23,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.BlockState hiding (CredentialDeployment)
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo

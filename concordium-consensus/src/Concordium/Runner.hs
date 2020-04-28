@@ -212,8 +212,9 @@ syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner 
 syncReceiveCatchUp :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     => SyncRunner c
     -> CatchUpStatus
+    -> Int
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-syncReceiveCatchUp syncRunner c = runSkovTransaction syncRunner (handleCatchUpStatus c)
+syncReceiveCatchUp syncRunner c limit = runSkovTransaction syncRunner (handleCatchUpStatus c limit)
 
 {-
 syncHookTransaction :: (TreeStateMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO), SkovQueryMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO), {-SkovConfigMonad (SkovHandlers ThreadTimer c LogIO) c LogIO,-} TransactionHookLenses (SkovState c))
@@ -279,8 +280,9 @@ syncPassiveReceiveFinalizationRecord spr finRec = runSkovPassive spr (finalizati
 syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
     => SyncPassiveRunner c
     -> CatchUpStatus
+    -> Int
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
-syncPassiveReceiveCatchUp spr c = runSkovPassive spr (handleCatchUpStatus c)
+syncPassiveReceiveCatchUp spr c limit = runSkovPassive spr (handleCatchUpStatus c limit)
 
 
 data InMessage src =
@@ -352,7 +354,7 @@ makeAsyncRunner logm bkr config = do
                 MsgCatchUpStatusReceived src cuBS -> do
                     case runGet get cuBS of
                         Right !cu -> do
-                            (resp, res) <- syncReceiveCatchUp sr cu
+                            (resp, res) <- syncReceiveCatchUp sr cu catchUpLimit
                             forM_ resp $ \(msgs, cus) -> do
                                 let
                                     send (MessageBlock, bs) = writeChan outChan (MsgDirectedBlock src bs)
@@ -372,3 +374,5 @@ makeAsyncRunner logm bkr config = do
         simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
+
+        catchUpLimit = 100
