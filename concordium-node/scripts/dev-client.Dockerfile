@@ -44,7 +44,7 @@ ENV STACK_ROOT /.stack
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
-RUN git checkout ff0c7d1056daa53058a523a87555ce72074cacd4
+RUN git checkout ad61aa064f65a23d10878332eacf2510141e3577
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
 RUN cp deps/simple-client/extra-libs/*.so /libs
