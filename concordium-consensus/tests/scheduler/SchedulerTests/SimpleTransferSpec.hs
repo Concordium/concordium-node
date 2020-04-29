@@ -27,7 +27,6 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     1000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
-    2000000
 
 testCases :: [TestCase]
 testCases =

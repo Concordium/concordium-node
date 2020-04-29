@@ -31,7 +31,7 @@ initialAmount :: Types.Amount
 initialAmount = 0
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts initialAmount
+initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 transactionsInput :: [Types.CredentialDeploymentWithMeta]
 transactionsInput = map (Types.fromCDI 0) $ [

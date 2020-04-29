@@ -52,7 +52,6 @@ numAccounts = 10
 initialBlockState :: BlockState
 initialBlockState = createBlockState
     (foldr addAcc Acc.emptyAccounts (take numAccounts staticKeys))
-    (fromIntegral numAccounts * initBal)
     where
         addAcc (kp, addr) = Acc.putAccountWithRegIds (mkAccount (correspondingVerifyKey kp) addr initBal )
         initBal = 10^(12::Int) :: Amount
