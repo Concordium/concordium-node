@@ -16,8 +16,10 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
-import Concordium.GlobalState.SeedState
+
+import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
+
 import Concordium.Types
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -29,7 +31,13 @@ import Concordium.Types.DummyData
 {-# WARNING basicGenesisState "Do not use in production" #-}
 basicGenesisState :: GenesisData -> Basic.BlockState
 basicGenesisState genData = Basic.initialState
-                       (genesisBirkParameters genData)
+                       (Basic.BasicBirkParameters {
+                            _birkElectionDifficulty = genesisElectionDifficulty genData,
+                            _birkCurrentBakers = genesisBakers genData,
+                            _birkPrevEpochBakers = genesisBakers genData,
+                            _birkLotteryBakers = genesisBakers genData,
+                            _birkSeedState = genesisSeedState genData
+                        })
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisControlAccounts genData)
                        (genesisIdentityProviders genData)
@@ -119,23 +127,19 @@ makeTestingGenesisData
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList bakers)
-        genesisBirkParameters =
-            BirkParameters elecDiff -- voting power
-                          genesisBakers
-                          genesisBakers
-                          genesisBakers
-                          (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
+        genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
+        genesisElectionDifficulty = elecDiff
         genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: BirkParameters
-emptyBirkParameters = BirkParameters {
+emptyBirkParameters :: BasicBirkParameters
+emptyBirkParameters = BasicBirkParameters {
   _birkElectionDifficulty = 0.5,
   _birkCurrentBakers = emptyBakers,
   _birkPrevEpochBakers = emptyBakers,
   _birkLotteryBakers = emptyBakers,
-  _birkSeedState = genesisSeedState (Hash.hash "NONCE") 360
+  _birkSeedState = SeedState.genesisSeedState (Hash.hash "NONCE") 360
   }
 
 {-# WARNING createBlockState "Do not use in production" #-}

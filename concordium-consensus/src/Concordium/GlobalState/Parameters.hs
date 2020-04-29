@@ -15,7 +15,6 @@ module Concordium.GlobalState.Parameters(
 import Prelude hiding (fail)
 import GHC.Generics
 import Data.Serialize
-import Lens.Micro.Platform
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
 
@@ -23,7 +22,7 @@ import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.SeedState
+import qualified Concordium.GlobalState.SeedState as SeedState
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Data.PQueue.Prio.Max as Queue
@@ -33,36 +32,6 @@ import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
 import Concordium.Types.Transactions
 
 type CryptographicParameters = GlobalContext
-
-data BirkParameters = BirkParameters {
-    _birkElectionDifficulty :: ElectionDifficulty,
-    -- |The current stake of bakers. All updates should be to this state.
-    _birkCurrentBakers :: !Bakers,
-    -- |The state of bakers at the end of the previous epoch,
-    -- will be used as lottery bakers in next epoch.
-    _birkPrevEpochBakers :: !Bakers,
-    -- |The state of the bakers fixed before previous epoch,
-    -- the lottery power and reward account is used in leader election.
-    _birkLotteryBakers :: !Bakers,
-    _birkSeedState :: !SeedState
-} deriving (Eq, Generic, Show)
-instance Serialize BirkParameters where
-
-makeLenses ''BirkParameters
-
-_birkLeadershipElectionNonce :: BirkParameters -> LeadershipElectionNonce
-_birkLeadershipElectionNonce = currentSeed . _birkSeedState
-
-birkBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
-birkBaker bid bps = bakerData bid $ bps ^. birkCurrentBakers
-
-birkEpochBaker :: BakerId -> BirkParameters -> Maybe (BakerInfo, LotteryPower)
-birkEpochBaker bid bps = bakerData bid $ bps ^. birkLotteryBakers
-
-birkEpochBakerByKeys :: BakerSignVerifyKey -> BirkParameters -> Maybe (BakerId, BakerInfo, LotteryPower)
-birkEpochBakerByKeys sigKey bps = case bps ^? birkLotteryBakers . bakersByKey . ix sigKey of
-        Just bid -> birkEpochBaker bid bps <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
-        _ -> Nothing
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
@@ -81,7 +50,9 @@ instance Serialize FinalizationParameters where
 data GenesisData = GenesisData {
     genesisTime :: Timestamp,
     genesisSlotDuration :: Duration,
-    genesisBirkParameters :: BirkParameters,
+    genesisBakers :: Bakers,
+    genesisSeedState :: SeedState.SeedState,
+    genesisElectionDifficulty :: ElectionDifficulty,
     genesisAccounts :: [Account],
     -- |Special accounts that will have additional rights initially.
     genesisControlAccounts :: [Account],
@@ -254,13 +225,8 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
         genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
-        genesisBirkParameters = BirkParameters {
-            _birkElectionDifficulty = gpElectionDifficulty,
-            _birkCurrentBakers = genesisBakers,
-            _birkPrevEpochBakers = genesisBakers,
-            _birkLotteryBakers = genesisBakers,
-            _birkSeedState = genesisSeedState gpLeadershipElectionNonce gpEpochLength
-        }
+        genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
+        genesisElectionDifficulty = gpElectionDifficulty
         mkBaker GenesisBaker{..} = BakerInfo
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
