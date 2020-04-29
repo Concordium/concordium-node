@@ -56,8 +56,15 @@ doGetCatchUpStatus cusIsRequest = do
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
--- |Merge finalization records and block pointers making sure of the properties listed below.
--- This function ensures that the resulting list is no longer than the given limit
+-- |Merge finalization records and block pointers.
+-- This function ensures that the resulting list is no longer than the given limit.
+-- To respect the limit on the number of messages sent some have to be dropped.
+-- This function ensures that the lists of finalization records and block pointers are merged
+-- respecting the following properties.
+--
+--   * A finalization record is sent as sson as possible after the corresponding block it finalizes.
+--   * If a block does not need to be sent (because the peer already has it), but a finalization record does,
+--     then we send the finalization record before all other blocks.
 merge :: forall m . (BlockPointerData (BlockPointerType m))
       => Proxy m
       -> Int
@@ -198,7 +205,7 @@ doHandleCatchUp peerCUS limit = do
                         -- if finalized blocks alone are enough to fill in the request take that, otherwise also include branches
                         -- Since branches are always kept in memory at this point processing them is cheap, hence we don't
                         -- bound them.
-                        outBlocks2 <- if Seq.length unknownFinTrunk <= limit then takeBranches outBlocks1 branches1 else return unknownFinTrunk
+                        outBlocks2 <- if Seq.length unknownFinTrunk < limit then takeBranches outBlocks1 branches1 else return unknownFinTrunk
                         lvs <- leavesBranches $ toList myBranches
                         myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
                         return (Just (merge (Proxy @ m) limit frs outBlocks2, myCUS), catchUpResult)

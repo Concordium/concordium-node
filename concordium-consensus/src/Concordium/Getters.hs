@@ -24,7 +24,6 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.Types.HashableTo
@@ -205,16 +204,19 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  bps@BirkParameters{..} <- BS.getBlockBirkParameters st
+  bps <- BS.getBlockBirkParameters st
+  elDiff <- BS.getElectionDifficulty bps
+  nonce <- BS.birkLeadershipElectionNonce bps
+  lotteryBakers <- BS.getLotteryBakers bps
   return $ object [
-    "electionDifficulty" .= _birkElectionDifficulty,
-    "electionNonce" .= _birkLeadershipElectionNonce bps,
+    "electionDifficulty" .= elDiff,
+    "electionNonce" .= nonce,
     "bakers" .= Array (fromList .
                        map (\(bid, BakerInfo{..}) -> object ["bakerId" .= toInteger bid
                                                             ,"bakerAccount" .= show _bakerAccount
-                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake _birkLotteryBakers))
+                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral (_bakerTotalStake lotteryBakers))
                                                             ]) .
-                       Map.toList $ _bakerMap _birkLotteryBakers )
+                       Map.toList $ _bakerMap lotteryBakers)
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
@@ -350,10 +352,12 @@ checkBakerExistsBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
 checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters =<< queryBlockState bb
-  case bps ^. birkLotteryBakers . bakersByKey . at key of
+  lotteryBakers <- BS.getLotteryBakers bps
+  currentBakers <- BS.getCurrentBakers bps
+  case lotteryBakers ^. bakersByKey . at key of
     Just _ -> return 2
     Nothing ->
-      case bps ^. birkCurrentBakers . bakersByKey . at key of
+      case currentBakers ^. bakersByKey . at key of
         Just _ -> return 1
         Nothing -> return 0
 
