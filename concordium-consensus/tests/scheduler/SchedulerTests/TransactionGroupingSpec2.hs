@@ -44,7 +44,7 @@ import SchedulerTests.Helpers
 -- * Definition of test cases
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts 200000
+initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts
 
 baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
