@@ -353,7 +353,7 @@ extern "C" {
         peer_id: PeerId,
         msg: *const u8,
         msg_len: i64,
-        object_limit: u64,
+        object_limit: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
     pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
@@ -608,7 +608,7 @@ impl ConsensusContainer {
         &self,
         request: &[u8],
         peer_id: PeerId,
-        object_limit: u64,
+        object_limit: i64,
     ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,

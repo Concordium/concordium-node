@@ -43,7 +43,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
+import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 
 import qualified Concordium.Crypto.VRF as VRF
@@ -61,7 +61,7 @@ import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
 
-import Concordium.Kontrol.UpdateLeaderElectionParameters(slotDependentBirkParameters)
+import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState)
 
 import Concordium.Startup (makeBakerAccountKP)
 
@@ -212,22 +212,29 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         checkEpochs :: BasicBlockPointer BState.BlockState -> Either String ()
         checkEpochs bp = do
             let params = BState._blockBirkParameters (BS._bpState bp)
-            let currentEpoch = epoch $ _birkSeedState params
-            let currentSlot = case BS._bpBlock bp of
+                seedState = BState._birkSeedState params
+                currentEpoch = SeedState.epoch seedState
+                currentSlot = case BS._bpBlock bp of
                     B.GenesisBlock _ -> 0
                     B.NormalBlock block -> B.bbSlot block
             -- The slot of the block should be in the epoch of its parameters:
-            unless (currentEpoch == theSlot (currentSlot `div` epochLength (_birkSeedState params))) $
+            unless (currentEpoch == theSlot (currentSlot `div` SeedState.epochLength seedState)) $
                 Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
             let parentParams = BState._blockBirkParameters (BS._bpState (runIdentity $ BS._bpParent bp))
-            let parentEpoch = epoch $ _birkSeedState parentParams
+                parentSeedState = BState._birkSeedState parentParams
+                parentEpoch = SeedState.epoch parentSeedState
             unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch
-                    checkBinary (/=) (currentSeed $ _birkSeedState params) (currentSeed $ _birkSeedState parentParams)
+                    checkBinary (/=) (SeedState.currentSeed seedState) (SeedState.currentSeed parentSeedState)
                             "/=" ("Epoch " ++ show currentEpoch ++ " seed: " ) ("Epoch " ++ show parentEpoch ++ " seed: " )
-            let nextEpochParams = slotDependentBirkParameters (currentSlot + epochLength (_birkSeedState params)) params
-            let prevEpochBakers = _birkPrevEpochBakers params
-            let futureLotteryBakers = _birkLotteryBakers nextEpochParams
+            let nextEpochParams =
+                    case slotDependentSeedState (currentSlot + SeedState.epochLength seedState) seedState of
+                         Just newSeedState ->
+                             BState.basicUpdateBirkParametersForNewEpoch newSeedState params
+                         Nothing ->
+                             params
+            let prevEpochBakers = BState._birkPrevEpochBakers params
+            let futureLotteryBakers = BState._birkLotteryBakers nextEpochParams
             -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
             checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
         addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
@@ -240,7 +247,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
         checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
         let prevState  = BS._bpState lfb
-            prevBakers = _birkCurrentBakers $ BState._blockBirkParameters prevState
+            prevBakers = BState._birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ BState._blockBank prevState
         checkBinary (==) _finsCommittee (makeFinalizationCommittee (finalizationParameters maxFinComSize) prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
@@ -520,9 +527,11 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
 createInitStates :: [(BakerId, (BakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
 createInitStates bis maxFinComSize specialAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-            bps = BirkParameters 0.5 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
+            elDiff = 0.5
+            seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 bps bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig

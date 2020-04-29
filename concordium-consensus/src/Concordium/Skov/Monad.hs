@@ -72,7 +72,7 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     nextFinalizationIndex :: m FinalizationIndex
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
     --  Retrieves AdvanceTime and StableTime directly from genesis block
-    getBirkParameters :: Slot -> BlockPointerType m -> m BirkParameters
+    getBirkParameters :: Slot -> BlockPointerType m -> m (BirkParameters m)
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
@@ -133,7 +133,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- and will not call the finalization implementation itself.
     trustedFinalize :: FinalizationRecord -> m (Either UpdateResult (BlockPointerType m))
     -- |Handle a catch-up status message.
-    handleCatchUpStatus :: CatchUpStatus -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
+    handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
@@ -176,7 +176,7 @@ instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) wh
     storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
-    handleCatchUpStatus = lift . handleCatchUpStatus
+    handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     {-# INLINE storeBlock #-}
     {-# INLINE storeBakedBlock #-}
     {-# INLINE receiveTransaction #-}
