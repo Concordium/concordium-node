@@ -222,6 +222,15 @@ instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Buffer
             store p r'
         else store p r
     load p = fmap BRBlobbed <$> load p
+    storeUpdate p brm@(BRMemory ref v) = do
+        r <- liftIO $ readIORef ref
+        if r == nullRef
+        then do
+            (r' :: BlobRef a, v') <- storeUpdateRef v
+            liftIO $ writeIORef ref r'
+            (,BRMemory ref v') <$> store p r'
+        else (,brm) <$> store p r
+    storeUpdate p x = (,x) <$> store p x
 
 instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
     store _ Null = return $ put nullRef
