@@ -213,12 +213,17 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Basic.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisControlAccounts genData)
-                       (genesisIdentityProviders genData)
-                       (genesisMintPerSlot genData)
+genesisState GenesisData{..} = Basic.initialState
+                       (Basic.BasicBirkParameters
+                            genesisElectionDifficulty
+                            genesisBakers
+                            genesisBakers
+                            genesisBakers
+                            genesisSeedState)
+                       genesisCryptographicParameters
+                       (genesisAccounts ++ genesisControlAccounts)
+                       genesisIdentityProviders
+                       genesisMintPerSlot
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
@@ -938,36 +943,40 @@ receiveCatchUpStatus ::
     -> PeerID                           -- ^Identifier of peer (passed to callback)
     -> CString                          -- ^Serialised catch-up message
     -> Int64                            -- ^Length of message
-    -> Word64                           -- ^Limit to number of responses (0 = unlimited)
+    -> Int64                            -- ^Limit to number of responses. Limit <= 0 means no messages will be sent.
     -> FunPtr DirectMessageCallback     -- ^Callback to receive messages
     -> IO ReceiveResult
 receiveCatchUpStatus cptr src cstr len limit cbk = do
+    let iLimit = fromIntegral limit
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
-    bs <- BS.packCStringLen (cstr, fromIntegral len)
-    toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
-        Left _ -> do
-            logm External LLDebug "Deserialization of catch-up status message failed."
-            return ResultSerializationFail
-        Right cus -> do
-            logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
-            let
-                toMsg (MessageBlock, mbs) = (MTBlock, mbs)
-                toMsg (MessageFinalizationRecord, mbs) = (MTFinalizationRecord, mbs)
-            (response, result) <- case c of
-                BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus
-                PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus
-                BakerRunnerWithLog{..} -> syncReceiveCatchUp bakerSyncRunnerWithLog cus
-                PassiveRunnerWithLog{..} -> syncPassiveReceiveCatchUp passiveSyncRunnerWithLog cus
-            forM_ response $ \(frbs, rcus) -> do
-                        let
-                            limFrbs = if limit == 0 then frbs else take (fromIntegral limit) frbs
-                            sendMsg = callDirectMessageCallback cbk src
-                        logm Skov LLTrace $ "Sending " ++ show (length limFrbs) ++ " blocks/finalization records"
-                        mapM_ (uncurry sendMsg . toMsg) limFrbs
-                        logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
-                        sendMsg MTCatchUpStatus $ encode rcus
-            return $! result
+    if iLimit <= 0 then do
+      logm External LLWarning "Requesting catchup with limit <= 0."
+      return (toReceiveResult ResultSuccess)
+    else do
+      bs <- BS.packCStringLen (cstr, fromIntegral len)
+      toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
+          Left _ -> do
+              logm External LLDebug "Deserialization of catch-up status message failed."
+              return ResultSerializationFail
+          Right cus -> do
+              logm External LLDebug $ "Catch-up status message deserialized: " ++ show cus
+              let
+                  toMsg (MessageBlock, mbs) = (MTBlock, mbs)
+                  toMsg (MessageFinalizationRecord, mbs) = (MTFinalizationRecord, mbs)
+              (response, result) <- case c of
+                  BakerRunner{..} -> syncReceiveCatchUp bakerSyncRunner cus iLimit
+                  PassiveRunner{..} -> syncPassiveReceiveCatchUp passiveSyncRunner cus iLimit
+                  BakerRunnerWithLog{..} -> syncReceiveCatchUp bakerSyncRunnerWithLog cus iLimit
+                  PassiveRunnerWithLog{..} -> syncPassiveReceiveCatchUp passiveSyncRunnerWithLog cus iLimit
+              forM_ response $ \(frbs, rcus) -> do
+                          let
+                              sendMsg = callDirectMessageCallback cbk src
+                          logm Skov LLTrace $ "Sending " ++ show (length frbs) ++ " blocks/finalization records"
+                          mapM_ (uncurry sendMsg . toMsg) frbs
+                          logm Skov LLDebug $ "Catch-up response status message: " ++ show rcus
+                          sendMsg MTCatchUpStatus $ encode rcus
+              return $! result
 
 -- | Import blocks exported from another database into the state of the node.
 --
@@ -1013,7 +1022,7 @@ foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Wor
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 
 foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Word64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
+foreign export ccall receiveCatchUpStatus :: StablePtr ConsensusRunner -> PeerID -> CString -> Int64 -> Int64 -> FunPtr DirectMessageCallback -> IO ReceiveResult
 
 -- report global state information will be removed in the future when global
 -- state is handled better

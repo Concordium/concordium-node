@@ -143,7 +143,7 @@ executeFrom :: forall m .
   -> BlockPointerType m  -- ^Parent pointer from which to start executing
   -> BlockPointerType m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
-  -> BirkParameters
+  -> BirkParameters m
   -> [BlockItem] -- ^Transactions on this block.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
 executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps txs =
@@ -195,7 +195,7 @@ constructBlock :: forall m .
   -> BlockPointerType m -- ^Parent pointer from which to start executing
   -> BlockPointerType m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
-  -> BirkParameters
+  -> BirkParameters m
   -> m (Sch.FilteredTransactions, ExecutionResult m)
 constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
   let cm = let blockHeight = bpHeight blockParent + 1

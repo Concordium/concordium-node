@@ -2,31 +2,32 @@ module Concordium.Kontrol.UpdateLeaderElectionParameters where
 
 import Data.Serialize
 
+import Concordium.GlobalState.Classes
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.SeedState
-import Concordium.GlobalState.Parameters
 import Concordium.Types
 import Concordium.Crypto.VRF
 import Concordium.Crypto.SHA256
 
-slotDependentBirkParameters :: Slot -> BirkParameters -> BirkParameters
-slotDependentBirkParameters slot bps@BirkParameters{..} = 
-  let
-    currentEpoch = theSlot $ slot `div` epochLength _birkSeedState
-    isInSameEpoch = currentEpoch == epoch _birkSeedState
-  in
-    if isInSameEpoch then
-      -- if the slot is in the same epoch as the predecessor, nothing changes
-      bps
-    else
-      -- if the slot is in a newer epoch, update the state of seed and bakers
-      bps {
-        -- leadership election nonce is updated recursively
-        _birkSeedState = getNewEpochSeedState slot _birkSeedState,
-        -- use stake distribution saved from the former epoch for leader election
-        _birkLotteryBakers = _birkPrevEpochBakers,
-        -- save the stake distribution from the end of the epoch
-        _birkPrevEpochBakers = _birkCurrentBakers}
+slotDependentBirkParameters :: BirkParametersOperations m => Slot -> BirkParameters m -> m (BirkParameters m)
+slotDependentBirkParameters slot bps = do
+  seedState <- getSeedState bps
+  case slotDependentSeedState slot seedState of
+    Just newSeedState ->
+        -- if the slot is in a newer epoch, update the state of seed and bakers
+        updateBirkParametersForNewEpoch newSeedState bps
+    Nothing ->
+        -- if the slot is in the same epoch as the predecessor, nothing changes
+        return bps
 
+-- If the slot is in a newer epoch returns the new seed state, otherwise returns Nothing
+slotDependentSeedState :: Slot -> SeedState -> Maybe SeedState
+slotDependentSeedState slot seedState =
+    let currentEpoch = theSlot $ slot `div` epochLength seedState
+        isInSameEpoch = currentEpoch == epoch seedState
+    in if isInSameEpoch
+       then Nothing
+       else Just $ getNewEpochSeedState slot seedState
 
 -- |Instantiate a seed state: leadership election nonce should be random, epoch length should be long, but not too long...
 genesisSeedState :: LeadershipElectionNonce -> EpochLength -> SeedState
