@@ -264,13 +264,15 @@ blobToCached = CRBlobbed
 
 -- Stores in-memory data to disk if it has not been stored yet
 storeBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BlobRef a)
-storeBuffered brm@(BRMemory ref _) = do
+storeBuffered (BRMemory ref v) = do
     r <- liftIO $ readIORef ref
     if r == nullRef
     then do
-        (_ :: BlobRef (BufferedRef a), _) <- storeUpdateRef brm
-        liftIO $ readIORef ref
-    else return r
+        (r' :: BlobRef a) <- storeRef v
+        liftIO $ writeIORef ref r'
+        return r'
+    else
+        return r
 storeBuffered (BRBlobbed r) = return r
 
 bufferedToCached' :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (CachedRef a)
