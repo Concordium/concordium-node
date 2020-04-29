@@ -32,11 +32,12 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState
 import Concordium.GlobalState.Bakers
 import qualified Concordium.GlobalState.Basic.TreeState as TS
+import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
+import qualified Concordium.GlobalState.SeedState as SeedState
 
 import Concordium.Logger
 
@@ -297,9 +298,11 @@ createInitStates additionalFinMembers = do
     finMembers <- generate $ mapM (makeBaker finMemberAmount . fromIntegral ) [3 .. 2 + additionalFinMembers]
     let bis = baker1 : baker2 : finMember : finMembers
         genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
-        bps = BirkParameters 1 genesisBakers genesisBakers genesisBakers (genesisSeedState (hash "LeadershipElectionNonce") 10)
+        seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+        elDiff = 1
+        bps = BS.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
         bakerAccounts = map (\(_, _, acc) -> acc) bis
-        gen = GenesisData 0 1 bps bakerAccounts [] finalizationParameters dummyCryptographicParameters [] 10 $ Energy maxBound
+        gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters dummyCryptographicParameters [] 10 $ Energy maxBound
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig

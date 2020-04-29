@@ -51,7 +51,7 @@ testCases =
                   }
           , ( SuccessE [Types.ElectionDifficultyUpdated d]
             , \bs -> specify "Correct value in birk parameters" $
-                     bs ^. blockBirkParameters . Types.birkElectionDifficulty `shouldBe` d)
+                     bs ^. blockBirkParameters . birkElectionDifficulty `shouldBe` d)
           )
      }
   , TestCase
@@ -65,24 +65,24 @@ testCases =
                                             1, 1.000001, 1.5, 2.0, 3000]
             electionDifficultyNotChanged bs =
               specify "Election difficulty not changed" $
-              bs ^. blockBirkParameters . Types.birkElectionDifficulty `shouldBe` initialElectionDifficulty
-        in zipWith (\n tc -> tc n) nonces
-          (illegalElectionDifficulties <&> \d n ->
-              ( TJSON { payload = UpdateElectionDifficulty d
-                      , metadata = makeDummyHeader alesAccount n 10000
-                      , keypair = alesKP
+              bs ^. blockBirkParameters . birkElectionDifficulty `shouldBe` initialElectionDifficulty
+            -- given a list of nonces make transactions
+            mkBodies = illegalElectionDifficulties <&> \d n ->
+                           ( TJSON { payload = UpdateElectionDifficulty d
+                                   , metadata = makeDummyHeader alesAccount n 10000
+                                   , keypair = alesKP
+                                   }
+                           , (Reject Types.SerializationFailure, electionDifficultyNotChanged)
+                           )
+            lastTransactionResultPair = 
+                (TJSON { payload = UpdateElectionDifficulty legalElectionDifficulty
+                      , metadata = makeDummyHeader thomasAccount 1 10000
+                      , keypair = thomasKP
                       }
-              , (Reject Types.SerializationFailure, electionDifficultyNotChanged)
-              )
-          )
-          ++
-          [ ( TJSON { payload = UpdateElectionDifficulty legalElectionDifficulty
-                    , metadata = makeDummyHeader thomasAccount 1 10000
-                    , keypair = thomasKP
-                    }
-            , (Reject Types.NotFromSpecialAccount, electionDifficultyNotChanged)
-            )
-          ]
+                , (Reject Types.NotFromSpecialAccount, electionDifficultyNotChanged)
+                )
+        in zipWith ($) mkBodies nonces ++ [lastTransactionResultPair]
+          
     }
   ]
 
