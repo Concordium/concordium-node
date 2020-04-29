@@ -402,15 +402,15 @@ makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> 
         conv (Transient.Leaf i) = LBMemory .Leaf <$> convInst i
         conv (Transient.VacantLeaf si) = return $ LBMemory (VacantLeaf si)
         convInst Transient.Instance{instanceParameters=Transient.InstanceParameters{..}, ..} = do
-            r <- liftIO $ newIORef nullRef
+            pIParams <- makeBufferedRef $ PersistentInstanceParameters{
+                pinstanceAddress = instanceAddress,
+                pinstanceOwner = instanceOwner,
+                pinstanceContractModule = instanceContractModule,
+                pinstanceContract = instanceContract,
+                pinstanceParameterHash = instanceParameterHash
+            }
             return $ PersistentInstance {
-                pinstanceParameters = BRMemory r PersistentInstanceParameters{
-                        pinstanceAddress = instanceAddress,
-                        pinstanceOwner = instanceOwner,
-                        pinstanceContractModule = instanceContractModule,
-                        pinstanceContract = instanceContract,
-                        pinstanceParameterHash = instanceParameterHash
-                    },
+                pinstanceParameters = pIParams,
                 pinstanceCachedParameters = Some CacheableInstanceParameters{
                         pinstanceReceiveFun = instanceReceiveFun,
                         pinstanceModuleInterface = instanceModuleInterface,
