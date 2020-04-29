@@ -381,8 +381,8 @@ handleInitContract wtc amount modref cname param paramSize =
 
             -- Finally create the new instance. This stores the linked functions in the
             -- global state (serialized).
-            addr <- putNewInstance $
-              makeInstance modref cname linkedContract msgty iface viface model initamount (thSender meta)
+            let ins = makeInstance modref cname linkedContract msgty iface viface model initamount (thSender meta)
+            addr <- putNewInstance ins
             return $! (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=initamount}], energyCost, usedEnergy)
 
 handleSimpleTransfer ::
