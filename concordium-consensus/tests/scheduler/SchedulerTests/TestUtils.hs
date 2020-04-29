@@ -72,7 +72,7 @@ data TestParameters = TestParameters
 defaultParams :: TestParameters
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
-  , tpInitialBlockState = createBlockState Acc.emptyAccounts 0
+  , tpInitialBlockState = createBlockState Acc.emptyAccounts
   , tpSpecialAccounts = Types.emptySpecialBetaAccounts
   , tpEnergyLimit = maxBound
   , tpSizeLimit = fromIntegral $ (maxBound :: Int)
