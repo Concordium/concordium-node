@@ -10,7 +10,7 @@ NOTE: This processes each transaction individually - for testing grouped transac
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
 module SchedulerTests.TestUtils(ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
-                               mkSpec,mkSpecs) where
+                                TestParameters(..),defaultParams, mkSpec,mkSpecs) where
 
 import Test.Hspec
 
@@ -18,11 +18,11 @@ import Lens.Micro.Platform
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.Text.IO as TIO
+import System.FilePath
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Environment as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 
 import qualified Acorn.Core as Core
@@ -31,7 +31,9 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
+import Concordium.GlobalState.DummyData
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
 type ResultSpec = (TResultSpec, BlockState -> Spec)
@@ -54,17 +56,38 @@ emptySpec _ = return ()
 emptyExpect :: a -> Expectation
 emptyExpect _ = return ()
 
+
+data TestParameters = TestParameters
+  { tpChainMeta :: ChainMetadata
+    -- | The blockstate to start from.
+  , tpInitialBlockState :: BlockState
+    -- | The 'Types.SpecialBetaAccounts' to run with.
+  , tpSpecialAccounts :: Types.SpecialBetaAccounts
+    -- | Limit on the total energy the processed transactions can use.
+  , tpEnergyLimit :: Energy
+    -- | Limit on the total size of the processed transactions.
+  , tpSizeLimit :: Integer
+  }
+
+defaultParams :: TestParameters
+defaultParams = TestParameters
+  { tpChainMeta = dummyChainMeta
+  , tpInitialBlockState = createBlockState Acc.emptyAccounts 0
+  , tpSpecialAccounts = Types.emptySpecialBetaAccounts
+  , tpEnergyLimit = maxBound
+  , tpSizeLimit = fromIntegral $ (maxBound :: Int)
+  }
+
 -- | A test case for executing a list of transactions, specifying 'ResultSpec's for the result
--- of each transaction's execution.
+-- of each transaction's execution. The transactions are run with 'Sch.filterTransactions'
+-- in sequenced and not grouped, with the given parameters.
 data TestCase = TestCase
   { -- | A name for the test case, which is printed.
     tcName :: String
-    -- | The 'Types.SpecialBetaAccounts' to run with.
-  , tcSpecialAccounts :: Types.SpecialBetaAccounts
-    -- | The blockstate to start from.
-  , tcInitialBlockState :: BlockState
-    -- | Modules within in the test/ directory to load.
-  , tcModules :: [String]
+    -- | Parameters for executing the transactions.
+  , tcParameters :: TestParameters
+    -- | Modules within in the test/ directory to be available for deployment.
+  , tcModules :: [FilePath]
     -- | The transactions to run, with their respective 'ResultSpec'.
     -- NOTE: The following could be parametrized over the loaded module data like references, names etc.
     -- to be able to specify result events like specifying the TJSON.
@@ -80,43 +103,45 @@ data ProcessResult
   deriving (Eq, Show)
 
 
+-- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
+-- with the given parameters. Returns a list of result and block state after each transaction.
 runWithIntermediateStates
-  :: [String]
-  -> Types.SpecialBetaAccounts
-  -> BlockState
+  :: [FilePath] -- ^ Modules from test/ directory to be available for deployment.
+  -> TestParameters
   -> [TransactionJSON]
   -> PR.Context Core.UA IO [(ProcessResult, BlockState)]
-runWithIntermediateStates mods specialBetaAccounts initialBlockState transactions = do
+runWithIntermediateStates mods TestParameters{..} transactions = do
   forM_ mods $ \m -> do
-    source <- liftIO $ TIO.readFile $ "test/" ++ m
+    source <- liftIO $ TIO.readFile $ "test/" </> m
     _ <- PR.processModule source -- execute only for effect on global state
     return ()
+  -- Create actual 'Transaction's from the 'TransactionJSON'.
   txs <- processUngroupedTransactions transactions
   return $ reverse $ fst $
     foldl (\(acc, st) tx ->
                             let (ft@Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize (fromTransactions [tx]))
-                                    specialBetaAccounts
-                                    dummyChainMeta
-                                    maxBound
+                                    (Sch.filterTransactions tpSizeLimit (fromTransactions [tx]))
+                                    tpSpecialAccounts
+                                    tpChainMeta
+                                    tpEnergyLimit
                                     st
-                            in if not $ (length ftAdded + length ftFailed + length ftUnprocessed == 1)
+                            in if length ftAdded + length ftFailed + length ftUnprocessed == 1
                                   && (length ftFailedCredentials + length ftUnprocessedCredentials == 0)
-                               then error $ "Failure in test setup: Expected one regular transaction in result, but got " ++ show ft
-                               else
+                               then
                                  let res
                                        | not $ null ftAdded = Valid $ head ftAdded
                                        | not $ null ftFailed = Failed $ snd $ head ftFailed
                                        | not $ null ftUnprocessed = Unprocessed
                                        | otherwise = error "Failure in test setup."
-                                 in ((res, st' ^. Types.ssBlockState):acc, st' ^. Types.schedulerBlockState))
-                                 -- (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState)], st' ^. Types.schedulerBlockState)) -- TODO check diff block state
-                      ([], initialBlockState)
+                                 in ((res, st' ^. Types.ssBlockState):acc, st' ^. Types.schedulerBlockState)
+                               else error $ "Failure in test setup: Expected one regular transaction in result, but got " ++ show ft
+            )
+                      ([], tpInitialBlockState)
                       (perAccountTransactions txs)
 
 
--- | Make a 'Spec' from the given 'TestCase', running the specified transactions in sequence,
+-- | Make a 'Spec' from the given 'TestCase', running the specified transactions in sequence (not grouped),
 -- and checking the following:
 --
 -- * Invariants on the block state after each transaction.
@@ -130,7 +155,7 @@ mkSpec TestCase{..} =
   describe tcName $ do
   let (tJsons, resultSpecs) = unzip tcTransactions
   results <- runIO (PR.evalContext Init.initialContextData $
-                     runWithIntermediateStates tcModules tcSpecialAccounts tcInitialBlockState tJsons)
+                     runWithIntermediateStates tcModules tcParameters tJsons)
   -- NB: This check is important to make sure that the zipped lists below have the same length and
   -- thus all 'ResultSpec's are checked.
   specify "Correct number of transactions" $
@@ -138,8 +163,7 @@ mkSpec TestCase{..} =
   describe "Checking results" $
     forM_ (zip3 [(1 :: Integer)..] results resultSpecs) $
       \( number
-       , ( res
-         , bs)
+       , (res, bs)
        , (resultSpec, bsSpec)
        ) -> describe ("Transaction " ++ show number) $ do
         specify "New block state satisfies invariant" $

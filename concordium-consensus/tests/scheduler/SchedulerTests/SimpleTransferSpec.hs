@@ -7,9 +7,6 @@ module SchedulerTests.SimpleTransferSpec where
 
 import Test.Hspec
 
-import Lens.Micro.Platform
-import qualified Data.HashSet as Set
-
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Scheduler.Runner
 
@@ -32,19 +29,14 @@ initialBlockState = blockStateWithAlesAccount
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
     2000000
 
-specialBetaAccounts :: Set.HashSet Types.AccountAddress
-specialBetaAccounts = Set.fromList []
-
-
 testCases :: [TestCase]
 testCases =
   [ -- NOTE: Could also check resulting balances on each affected account or contract, but
     -- the block state invariant at least tests that the total amount is preserved.
     TestCase
     { tcName = "Transfers from an account to contracts"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcModules = ["contracts/SimpleCounter.acorn"]
-    , tcSpecialAccounts = specialBetaAccounts
-    , tcInitialBlockState = initialBlockState
     , tcTransactions =
       [ ( TJSON { payload = DeployModule "SimpleCounter"
                 , metadata = makeDummyHeader alesAccount 1 100000
