@@ -199,13 +199,18 @@ dummyIdentityProviders = []
 
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState genData = Example.initialState
-                       (genesisBirkParameters genData)
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData)
-                       (genesisIdentityProviders genData)
+genesisState GenesisData{..} = Example.initialState
+                       (Basic.BasicBirkParameters
+                           genesisElectionDifficulty
+                           genesisBakers
+                           genesisBakers
+                           genesisBakers
+                           genesisSeedState)
+                       genesisCryptographicParameters
+                       genesisAccounts
+                       genesisIdentityProviders
                        2
-                       (genesisControlAccounts genData)
+                       genesisControlAccounts
 
 main :: IO ()
 main = do

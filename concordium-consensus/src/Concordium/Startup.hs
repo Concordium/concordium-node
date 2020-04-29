@@ -20,14 +20,13 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
+import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
-import Concordium.Scheduler.Utils.Init.Example(dummyCredential)
 
 makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
@@ -89,12 +88,8 @@ makeGenesisData
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList (snd <$> bakers))
-        genesisBirkParameters =
-            BirkParameters elecDiff -- voting power
-                          genesisBakers
-                          genesisBakers
-                          genesisBakers
-                          (genesisSeedState (Hash.hash "LeadershipElectionNonce") 10) -- todo hardcoded epoch length (and initial seed)
+        genesisElectionDifficulty = elecDiff
+        genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 

@@ -23,7 +23,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.BlockState hiding (CredentialDeployment)
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo
@@ -33,7 +33,7 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
-import Concordium.Kontrol.UpdateLeaderElectionParameters
+import qualified Concordium.Kontrol.UpdateLeaderElectionParameters as UEP
 import Concordium.Afgjort.Finalize
 import Concordium.Skov
 import Concordium.Skov.Update (updateFocusBlockTo)
@@ -70,7 +70,7 @@ processTransactions
     :: (TreeStateMonad m,
         SkovMonad m)
     => Slot
-    -> BirkParameters
+    -> BirkParameters m
     -> BlockPointerType m
     -> BlockPointerType m
     -> BakerId
@@ -169,12 +169,14 @@ doBakeForSlot :: (BlockPointerMonad m, FinalizationMonad m, SkovMonad m, MonadIO
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
-    birkParams@BirkParameters{..} <- getBirkParameters slot bb
-    (bakerId, _, lotteryPower) <- MaybeT . pure $ birkEpochBakerByKeys (bakerSignPublicKey ident) birkParams
+    birkParams <- getBirkParameters slot bb
+    (bakerId, _, lotteryPower) <- MaybeT $ birkEpochBakerByKeys (bakerSignPublicKey ident) birkParams
+    leNonce <- birkLeadershipElectionNonce birkParams
+    elDiff <- getElectionDifficulty birkParams
     electionProof <- MaybeT . liftIO $
-        leaderElection (_birkLeadershipElectionNonce birkParams) _birkElectionDifficulty slot bakerElectionKey lotteryPower
+        leaderElection leNonce elDiff slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
-    nonce <- liftIO $ computeBlockNonce (_birkLeadershipElectionNonce birkParams)    slot bakerElectionKey
+    nonce <- liftIO $ computeBlockNonce leNonce slot bakerElectionKey
     nfr <- lift (nextFinalizationRecord bb)
     (lastFinal, finData) <- case nfr of
         Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
@@ -186,7 +188,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
                 Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
-    let bps = birkParams{_birkSeedState = updateSeedState slot nonce _birkSeedState}
+    bps <- updateSeedState (UEP.updateSeedState slot nonce) birkParams
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
