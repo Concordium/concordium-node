@@ -59,7 +59,6 @@ import Data.Serialize.Put
 import Data.Serialize.Get
 import Data.Bits
 import Data.Word
-import Data.Time.Clock
 
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -72,11 +71,6 @@ import Concordium.Afgjort.PartyMap (PartyMap)
 import Concordium.Afgjort.PartySet (PartySet)
 import qualified Concordium.Afgjort.PartyMap as PM
 import qualified Concordium.Afgjort.PartySet as PS
-
--- |Baseline estimate of network delay.
--- TODO: Do not hard code this.
-deltaABBA :: NominalDiffTime
-deltaABBA = 0.1
 
 data WMVBAMessage
     = WMVBAFreezeMessage !FreezeMessage
@@ -250,12 +244,12 @@ toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxPart
 class (MonadState (WMVBAState sig) m, MonadReader WMVBAInstance m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
     wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m ()
-    wmvbaDelay :: NominalDiffTime -> DelayedABBAAction -> m ()
+    wmvbaDelay :: Word32 -> DelayedABBAAction -> m ()
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
     | WMVBAComplete (Maybe (Val, ([Party], Bls.Signature)))
-    | WMVBADelay NominalDiffTime DelayedABBAAction
+    | WMVBADelay Word32 DelayedABBAAction
     deriving (Show)
 
 newtype WMVBA sig a = WMVBA {
@@ -334,7 +328,7 @@ liftABBA a = do
                 wmvbaComplete Nothing
             handleEvents r
         handleEvents (ABBADelay ticks action : r) = do
-            wmvbaDelay (deltaABBA * fromIntegral ticks) action
+            wmvbaDelay ticks action
             handleEvents r
 
 witnessMessage :: BS.ByteString -> Val -> BS.ByteString
