@@ -173,6 +173,7 @@ pub struct BakerConfig {
         help = "Path to a file exported by the database exporter"
     )]
     pub import_path: Option<String>,
+    #[structopt(
         long = "baker-credentials-file",
         help = "Absolute path of the baker credentials file"
     )]
