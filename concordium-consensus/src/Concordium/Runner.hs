@@ -18,6 +18,7 @@ import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import System.IO
+import System.IO.Error
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Types
@@ -385,7 +386,13 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
                  -> LogMethod IO
                  -> FilePath
                  -> IO UpdateResult
-syncImportBlocks syncRunner logm filepath = do
+syncImportBlocks syncRunner logm filepath = flip catch (\(e :: IOException) ->
+                                                           if isDoesNotExistError e then do
+                                                             logm External LLError $ "The provided file for importing blocks doesn't exist."
+                                                             return ResultMissingImportFile
+                                                           else do
+                                                             logm External LLError $ "An IO exception occurred during import phase: " ++ show e
+                                                             return ResultInvalid) $ do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
   readBlock h now logm syncReceiveBlock syncRunner
@@ -397,7 +404,13 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
                         -> LogMethod IO
                         -> FilePath
                         -> IO UpdateResult
-syncPassiveImportBlocks syncRunner logm filepath = do
+syncPassiveImportBlocks syncRunner logm filepath = flip catch (\(e :: IOException) ->
+                                                           if isDoesNotExistError e then do
+                                                             logm External LLError $ "The provided file for importing blocks doesn't exist."
+                                                             return ResultMissingImportFile
+                                                           else do
+                                                             logm External LLError $ "An IO exception occurred during import phase: " ++ show e
+                                                             return ResultInvalid) $ do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
   readBlock h now logm syncPassiveReceiveBlock syncRunner
