@@ -46,9 +46,6 @@ import SchedulerTests.Helpers
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts
 
-baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker = mkFullBaker 1 alesAccount
-
 maxBlockEnergy :: Types.Energy
 maxBlockEnergy = Types.Energy 20000
 
