@@ -208,8 +208,8 @@ data BufferedRef a
     -- storing all of the data again.
 
 makeBRMemory :: (MonadIO m) => (BlobRef a) -> a -> m (BufferedRef a)
-makeBRMemory r a = do
-    ref <- liftIO $ newIORef r
+makeBRMemory r a = liftIO $ do
+    ref <- newIORef r
     return $ BRMemory ref a
 
 makeBufferedRef :: (MonadIO m) => a -> m (BufferedRef a)
