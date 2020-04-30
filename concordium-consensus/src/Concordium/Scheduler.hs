@@ -90,7 +90,7 @@ existsValidCredential cm acc = do
 
 -- |Check that
 --  * the transaction has a valid sender,
---  * the amount corresponding to the deposited energy is on the sender's account,
+--  * the amount corresponding to the deposited energy is on the sender account,
 --  * the transaction is not expired,
 --  * the transaction nonce is the account's next nonce,
 --  * the transaction is signed with the account's verification keys.
@@ -127,7 +127,7 @@ checkHeader meta = do
       when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
       unless (existsValidCredential cm acc) $ throwError . Just $ NoValidCredential
 
-      -- After the successful credential check we check that the sender's account
+      -- After the successful credential check we check that the sender account
       -- has enough GTU to cover the deposited energy.
       depositedAmount <- lift (energyToGtu (transactionGasAmount meta))
       unless (depositedAmount <= amnt) (throwError . Just $ InsufficientFunds)
@@ -177,13 +177,13 @@ dispatch msg = do
     Left (Just fk) -> return $ Just (TxInvalid fk)
     Left Nothing -> return Nothing
     Right (senderAccount, checkHeaderCost) -> do
-      -- At this point the transaction is going to be commited to the block.
+      -- At this point the transaction is going to be committed to the block.
       -- It could be that the execution exceeds maximum block energy allowed, but in that case
       -- the whole block state will be removed, and thus this operation will have no effect anyhow.
       -- Hence we can increase the account nonce of the sender account.
       increaseAccountNonce senderAccount
 
-      -- then we notify the block state that all the identity issuers on the sender's account should be rewarded
+      -- then we notify the block state that all the identity issuers on the sender account should be rewarded
       -- TODO: Check for existence of valid identity provider.
       -- TODO: Alternative design would be to only reward them if the transaction is successful/committed, or
       -- to add additional parameters (such as deposited amount)
@@ -224,7 +224,7 @@ dispatch msg = do
                 ..}
           -- Now pass the decoded payload to the respective transaction handler which contains
           -- the main transaction logic.
-          -- During processing of transactions the amount on the sender's account is decreased by the
+          -- During processing of transactions the amount on the sender account is decreased by the
           -- amount corresponding to the deposited energy, i.e., the maximum amount that can be charged
           -- for execution. The amount corresponding to the unused energy is refunded at the end of
           -- processing; see `withDeposit`.
@@ -277,12 +277,12 @@ dispatch msg = do
             Nothing -> return Nothing
             Just summary -> return $! Just $! TxValid summary
 
--- |Process the deploy module transaction.
+-- | Handle the deployment of a module.
 handleDeployModule ::
   SchedulerMonad m
   => WithDepositContext
   -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
-  -> Module -- ^The module to deploy
+  -> Module -- ^The module to deploy.
   -> m (Maybe TransactionSummary)
 handleDeployModule wtc psize mod =
   withDeposit wtc c k
@@ -295,32 +295,37 @@ handleDeployModule wtc psize mod =
       tickEnergy (Cost.deployModule (fromIntegral psize))
       let mhash = Core.moduleHash mod
       imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral psize) mod)) `rejectingWith'` (const MissingImports)
+      -- Typecheck the module, resulting in the module 'Interface'.
+      -- The cost of type-checking is dependent on the size of the module.
       iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
+      -- Create the 'ValueInterface' of the module (compiles all terms).
       let viface = I.evalModule imod
       return (mhash, iface, viface)
 
     k ls (mhash, iface, viface) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
+      -- Add the module to the global state (module interface, value interface and module itself).
       b <- commitModule mhash iface viface mod
       if b then
         return $! (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
           else
-        -- FIXME:
-        -- we should reject the transaction immediately if we figure out that the module with the hash already exists.
-        -- otherwise we can waste some effort in checking before reaching this point.
-        -- This could be checked immediately even before we reach the dispatch since module hash is the hash of module serialization.
+        -- FIXME: Check whether the module exists already at the beginning of this handler.
+        -- Doing it before typechecking will often save effort in the failure case, e.g. in case
+        -- typechecking results in module lookups anyway.
+        -- With checking the transaction type even before fully deserializing the payload,
+        -- this check can be done even earlier, since the module hash is the hash of module serialization.
         return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
--- |Handle the top-level initialize contract.
+-- | Handle the initialization of a contract instance.
 handleInitContract ::
   SchedulerMonad m
     => WithDepositContext
-    -> Amount   -- ^The amount to initialize the contract with.
-    -> ModuleRef  -- ^Module reference of the contract to initialize.
-    -> Core.TyName  -- ^Name of the contract in a module.
-    -> Core.Expr Core.UA Core.ModuleName  -- ^Parameters of the contract.
-    -> Int -- ^Serialized size of the parameters. Used for computing typechecking cost.
+    -> Amount   -- ^The amount to initialize the contract instance with.
+    -> ModuleRef  -- ^The module to initialize a contract from.
+    -> Core.TyName  -- ^Name of the contract to initialize from the given module.
+    -> Core.Expr Core.UA Core.ModuleName  -- ^Parameter expression to initialize the contract with.
+    -> Int -- ^Serialized size of the parameter expression. Used for computing typechecking cost.
     -> m (Maybe TransactionSummary)
 handleInitContract wtc amount modref cname param paramSize =
   withDeposit wtc c k
@@ -328,44 +333,57 @@ handleInitContract wtc amount modref cname param paramSize =
           txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
           c = do
-            -- decrease available energy and start processing. This will reject the transaction if not enough is available.
             tickEnergy Cost.initPreprocess
 
-            -- if the sender does not have the funds available we fail the transaction immediately
-            -- NB: This checks the sender amount __after__ the deposit is reserved
+            -- Check whether the sender account's amount can cover the amount to initialize the contract
+            -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAmount senderAccount
             unless (senderAmount >= amount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
 
-            -- otherwise we proceed with normal execution.
-            -- first try to get the module interface of the parent module of the contract
+            -- First try to get the module interface of the parent module of the contract.
             (iface, viface) <- getModuleInterfaces modref `rejectingWith` InvalidModuleReference modref
-            -- and then the particular contract interface (in particular the type of the init method)
+            -- Then get the particular contract interface (in particular the type of the init method).
             ciface <- pure (Map.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
-            -- first typecheck the parameters, whether they have the expected type
-            -- the cost of type-checking is dependent on the size of the term
+            -- Now typecheck the parameter expression (whether it has the parameter type specified
+            -- in the contract). The cost of type-checking is dependent on the size of the term.
             tickEnergy (Cost.initParamsTypecheck paramSize)
             qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
-            -- NB: The unsafe Map.! is safe here because we do know the contract exists by the invariant on viface and iface
+            -- Link the contract, i.e., its init and receive functions as well as the constraint
+            -- implementations. This ticks energy for the size of the linked expressions,
+            -- failing if running out of energy in the process.
+            -- NB: The unsafe Map.! is safe here because if the contract is part of the interface 'iface'
+            -- it must also be part of the 'ValueInterface' returned by 'getModuleInterfaces'.
             linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
             let (initFun, _) = cvInitMethod linkedContract
-            -- link the parameters, and account for the size of the linked parameters, failing if running out of energy
-            -- in the process.
+
+            -- First compile the parameter expression, then link it, which ticks energy for the size of
+            -- the linked expression, failing when running out of energy in the process.
             (params', _) <- linkExpr (uniqueName iface) (compile qparamExp)
+
             cm <- getChainMetadata
+            -- Finally run the initialization function of the contract, resulting in an initial state
+            -- of the contract. This ticks energy during execution, failing when running out of energy.
+            -- NB: At this point the amount to initialize with has not yet been deducted from the
+            -- sender account. Thus if the initialization function were to observe the current balance it would
+            -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
+            -- is in the future we should be mindful of which balance is exposed.
             res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
             return (linkedContract, iface, viface, (msgTy ciface), res, amount)
 
-          k ls (contract, iface, viface, msgty, model, initamount) = do
+          k ls (linkedContract, iface, viface, msgty, model, initamount) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
 
-            -- we make a new changeset that also withdraws the amount from the sender's account
-            -- this way of doing it means that if the contract observes current balance it will observe
-            -- the value before the initialization of the contract
-            commitChanges (addAmountToCS senderAccount (amountDiff 0 amount) (ls ^. changeSet))
-            let ins = makeInstance modref cname contract msgty iface viface model initamount (thSender meta)
+            -- Withdraw the amount the contract is initialized with from the sender account.
+            commitChanges (addAmountToCS senderAccount (amountDiff 0 initamount) (ls ^. changeSet))
+
+            -- Finally create the new instance. This stores the linked functions in the
+            -- global state (serialized).
+            -- 'ins' is an instance whose address will be determined when we store it; this is what
+            -- 'putNewInstance' does.
+            let ins = makeInstance modref cname linkedContract msgty iface viface model initamount (thSender meta)
             addr <- putNewInstance ins
-            return $! (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=amount}], energyCost, usedEnergy)
+            return $! (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=initamount}], energyCost, usedEnergy)
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -379,20 +397,21 @@ handleSimpleTransfer wtc toaddr amount =
           c = case toaddr of
                 AddressContract cref -> do
                   i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+                  -- Send a Nothing message to the contract with the amount to be transferred.
                   let rf = Ins.ireceiveFun i
                       model = Ins.instanceModel i
-                      -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
-                      qmsgExpLinked = I.mkNothingE -- give Nothing as argument to the receive method
-                  handleTransaction senderAccount
-                                    i
-                                    rf
-                                    (Right senderAccount)
-                                    amount
-                                    (ExprMessage qmsgExpLinked)
-                                    model
+                      qmsgExpLinked = I.mkNothingE
+                  handleMessage senderAccount
+                                i
+                                rf
+                                (Right senderAccount)
+                                amount
+                                (ExprMessage qmsgExpLinked)
+                                model
                 AddressAccount toAccAddr ->
                   handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
 
+-- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
   SchedulerMonad m
     => WithDepositContext
@@ -411,142 +430,159 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
               msgType = Ins.imsgTy i
               (iface, _) = Ins.iModuleIface i
               model = Ins.instanceModel i
-              -- we assume that gasAmount was available on the account due to the previous check (checkHeader)
           tickEnergy (Cost.updateMessageTypecheck msgSize)
+          -- Type check the message expression, as coming from a top-level transaction it can be
+          -- an arbitrary expression. The cost of type-checking is dependent on the size of the term.
           qmsgExp <- typeHidingErrors (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith` MessageTypeError
+          -- First compile the message expression, then link it, which ticks energy for the size of the
+          -- linked expression, failing when running out of energy in the process.
           (qmsgExpLinked, _) <- linkExpr (uniqueName iface) (compile qmsgExp)
-          handleTransaction senderAccount
-                            i
-                            rf
-                            (Right senderAccount)
-                            amount
-                            (ExprMessage (I.mkJustE qmsgExpLinked))
-                            model
+          -- Now invoke the general handler for contract messages.
+          handleMessage senderAccount
+                        i
+                        rf
+                        (Right senderAccount)
+                        amount
+                        (ExprMessage (I.mkJustE qmsgExpLinked))
+                        model
 
--- this will always be run when we know that the contract exists and we can lookup its local state
-handleTransaction ::
+-- | Process a message to a contract.
+-- This includes the transfer of an amount from the sending account or instance.
+-- Recursively do the same for new messages created by contracts (from left to right, depth first).
+-- The target contract must exist, so that its state can be looked up.
+handleMessage ::
   (TransactionMonad m, InterpreterMonad NoAnnot m)
-  => Account -- ^the origin account of the top-level transaction
-  -> Instance -- ^The target contract of the transaction
-  -> LinkedReceiveMethod NoAnnot -- ^the receive function of the contract
-  -> Either Instance Account -- ^The invoker of this particular transaction, in general different from the origin
-  -> Amount -- ^Amount that was sent to the contract in the transaction
-  -> MessageFormat -- ^message wrapped in a Maybe, at top level it will be an expression, and in nested calls a value
-  -> Value -- ^current local state of the target contract
-  -> m [Event]
-handleTransaction origin istance receivefun txsender transferamount maybeMsg model = do
-  -- a transaction is rejected in case we try to transfer amounts we don't have.
-  -- This rejection is different from rejection by a contract, but the effect is the same.
-  -- FIXME: Possibly this will need to be changed.
-  let txsenderAddr = mkSenderAddr txsender
-  senderamount <- getCurrentAmount txsender
-
-  unless (senderamount >= transferamount) $ rejectTransaction (AmountTooLarge txsenderAddr transferamount)
+  => Account -- ^The account that sent the top-level transaction.
+  -> Instance -- ^The target contract of the transaction, which must exist.
+  -> LinkedReceiveMethod NoAnnot -- ^The receive function of the contract.
+  -> Either Instance Account -- ^The sender of the message (contract instance or account).
+                             -- On the first invocation of this function this will be the sender of the
+                             -- top-level transaction, and in recursive calls the respective contract
+                             -- instance that produced the message.
+  -> Amount -- ^The amount to be transferred from the sender of the message to the receiver.
+  -> MessageFormat -- ^Message sent to the contract. On the first invocation of this function this will
+                   -- be an Acorn expression, and in nested calls an Acorn value.
+  -> Value -- ^The current local state of the target contract.
+  -> m [Event] -- The events resulting from processing the message and all recursively processed messages.
+handleMessage origin istance receivefun sender transferamount maybeMsg model = do
+  -- Check whether the sender of the message has enough on its account/instance for the transfer.
+  -- If the amount is not sufficient, the top-level transaction is rejected.
+  -- TODO: For now there is no exception handling in smart contracts and contracts cannot check
+  -- amounts on other instances or accounts. Possibly this will need to be changed.
+  let senderAddr = mkSenderAddr sender
+  senderamount <- getCurrentAmount sender
+  unless (senderamount >= transferamount) $ rejectTransaction (AmountTooLarge senderAddr transferamount)
 
   let iParams = instanceParameters istance
   let cref = instanceAddress iParams
 
-  -- Now we also check that the owner account of the receiver instance has at least one valid credential.
+  -- Now we also check that the owner account of the receiver instance has at least one valid credential
+  -- and reject the transaction if not.
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
   -- However we are defensive here and reject the transaction, acting as if there is no credential.
   ownerAccount <- getCurrentAccount ownerAccountAddress `rejectingWith` (ReceiverContractNoCredential cref)
   cm <- getChainMetadata
   unless (existsValidCredential cm ownerAccount) $ rejectTransaction (ReceiverContractNoCredential cref)
-  -- we have established that the credential exists.
+  -- We have established that the owner account of the receiver instance has at least one valid credential.
 
+  -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   let originAddr = origin ^. accountAddress
   let receiveCtx = ReceiveContext { invoker = originAddr, selfAddress = cref }
   result <- case maybeMsg of
-              ValueMessage m -> runInterpreter (I.applyReceiveFunVal cm receiveCtx receivefun model txsenderAddr transferamount m)
-              ExprMessage m ->  runInterpreter (I.applyReceiveFun cm receiveCtx receivefun model txsenderAddr transferamount m)
+              ValueMessage m -> runInterpreter (I.applyReceiveFunVal cm receiveCtx receivefun model senderAddr transferamount m)
+              ExprMessage m ->  runInterpreter (I.applyReceiveFun cm receiveCtx receivefun model senderAddr transferamount m)
   case result of
-    Nothing -> -- transaction rejected, no other changes were recorder in the global state (in particular the amount was not transferred)
-      rejectTransaction Rejected -- transaction rejected due to contract logic
+    -- The contract rejected the message. Thus reject the top-level transaction, i.e., no changes
+    -- are made to any account or contract state except for charging the sender of the top-level
+    -- transaction for the execution cost ticked so far.
+    Nothing -> rejectTransaction Rejected
+    -- The contract accepted the message and returned a new state as well as outgoing messages.
     Just (newmodel, txout) ->
-        -- transfer the amount from the sender to the receiving contract in our state.
-        withToContractAmount txsender istance transferamount $
+      -- Process the generated messages in the new context (transferred amount, updated state) in
+      -- sequence from left to right, depth first.
+        withToContractAmount sender istance transferamount $
           withInstanceState istance newmodel $
-            -- and then process the generated messages in the new context in
-            -- sequence from left to right, depth first.
-            foldM (\res tx -> combineTx res $ do
-                        tickEnergy Cost.interContractMessage -- Charge a small amount just for the fact that a message was generated.
-                        -- we need to get the fresh amount each time since it might have changed for each execution
-                        -- NB: The sender of all the newly generated messages is the contract instance 'istance'
+            foldM (\res tx -> combineProcessing res $ do
+                        -- Charge a small amount just for the fact that a message was generated.
+                        tickEnergy Cost.interContractMessage
+                        -- NB: The sender of all the newly generated messages is the contract instance 'istance'.
                         case tx of
                           TSend cref' transferamount' message' -> do
-                            -- the only way to send is to first check existence, so this must succeed
+                            -- NOTE: This relies on Acorn only allowing the creation of
+                            -- messages with addresses to existing instances.
                             cinstance <- fromJust <$> getCurrentContractInstance cref'
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
-                            handleTransaction origin
-                                              cinstance
-                                              receivefun'
-                                              (Left istance)
-                                              transferamount'
-                                              (ValueMessage (I.aJust message'))
-                                              model'
-                          -- simple transfer to a contract is the same as a call to update with Nothing
+                            handleMessage origin
+                                          cinstance
+                                          receivefun'
+                                          (Left istance)
+                                          transferamount'
+                                          (ValueMessage (I.aJust message'))
+                                          model'
+                          -- A transfer to a contract is defined to be an Acorn @Nothing@ message
+                          -- with the to be transferred amount.
                           TSimpleTransfer (AddressContract cref') transferamount' -> do
                             -- We can make a simple transfer without checking existence of a contract.
                             -- Hence we need to handle the failure case here.
                             cinstance <- getCurrentContractInstance cref' `rejectingWith` (InvalidContractAddress cref')
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
-                            handleTransaction origin
-                                              cinstance
-                                              receivefun'
-                                              (Left istance)
-                                              transferamount'
-                                              (ValueMessage I.aNothing)
-                                              model'
+                            handleMessage origin
+                                          cinstance
+                                          receivefun'
+                                          (Left istance)
+                                          transferamount'
+                                          (ValueMessage I.aNothing)
+                                          model'
                           TSimpleTransfer (AddressAccount acc) transferamount' ->
                             -- FIXME: This is temporary until accounts have their own functions
                             handleTransferAccount origin acc (Left istance) transferamount'
                             )
-                  [Updated{euAddress=cref,euInstigator=txsenderAddr,euAmount=transferamount,euMessage=maybeMsg}] txout
+                  [Updated{euAddress=cref,euInstigator=senderAddr,euAmount=transferamount,euMessage=maybeMsg}] txout
 
-combineTx :: Monad m => [Event] -> m [Event] -> m [Event]
-combineTx x ma = (x ++) <$> ma
+-- | Combine two processing steps that each result in a list of events, concatenating the event lists.
+combineProcessing :: Monad m => [Event] -> m [Event] -> m [Event]
+combineProcessing x ma = (x ++) <$> ma
 
 mkSenderAddr :: Either Instance Account -> Address
-mkSenderAddr txsender =
-    case txsender of
+mkSenderAddr sender =
+    case sender of
       Left istance -> AddressContract (instanceAddress (instanceParameters istance))
       Right acc -> AddressAccount (acc ^. accountAddress)
 
 
--- |TODO: Figure out whether we need the origin information in here (i.e.,
+-- | Handle the transfer of an amount from an account or contract instance to an account.
+-- TODO: Figure out whether we need the origin information in here (i.e.,
 -- whether an account can observe it).
 handleTransferAccount ::
   TransactionMonad m
-  => Account -- the origin account of the top-level transaction
-  -> AccountAddress -- the target account address
-  -> Either Instance Account -- the invoker of this particular transaction, in general different from the origin
-  -> Amount -- amount that was sent in the transaction
-  -> m [Event]
-handleTransferAccount _origin accAddr txsender transferamount = do
+  => Account -- ^The account that sent the top-level transaction.
+  -> AccountAddress -- The target account address.
+  -> Either Instance Account -- The sender of this transfer (contract instance or account).
+  -> Amount -- The amount to transfer.
+  -> m [Event] -- The events resulting from the transfer.
+handleTransferAccount _origin accAddr sender transferamount = do
   tickEnergy Cost.transferAccount
-  -- the sender must have the amount available.
-  -- Otherwise we reject the transaction immediately.
-  senderamount <- getCurrentAmount txsender
+  -- Check whether the sender has the amount to be transferred and reject the transaction if not.
+  senderamount <- getCurrentAmount sender
+  unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (mkSenderAddr sender) transferamount)
 
-  unless (senderamount >= transferamount) $! rejectTransaction (AmountTooLarge (mkSenderAddr txsender) transferamount)
-
-  -- check if target account exists and get it
+  -- Check whether target account exists and get it.
   targetAccount <- getCurrentAccount accAddr `rejectingWith` InvalidAccountReference accAddr
-  -- and check that the account has a valid credential
+  -- Check that the account has a valid credential and reject the transaction if not
+  -- (it is not allowed to send to accounts without valid credential).
   cm <- getChainMetadata
-  -- Cannot send funds to accounts which have no valid credentials.
   unless (existsValidCredential cm targetAccount) $ rejectTransaction (ReceiverAccountNoCredential accAddr)
 
-  -- FIXME: Should pay for execution here as well.
-  withToAccountAmount txsender targetAccount transferamount $
-      return [Transferred (mkSenderAddr txsender) transferamount (AddressAccount accAddr)]
+  -- Add the transfer to the current changeset and return the corresponding event.
+  withToAccountAmount sender targetAccount transferamount $
+      return [Transferred (mkSenderAddr sender) transferamount (AddressAccount accAddr)]
 
 -- |Run the interpreter with the remaining amount of energy. If the interpreter
--- runs out of gas set the remaining gas to 0 and reject the transaction,
--- otherwise decrease the consumed amount of gas and return the result.
+-- runs out of energy set the remaining gas to 0 and reject the transaction,
+-- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
 runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f =
@@ -908,7 +944,7 @@ handleDeployCredential cdi cdiHash = do
 --
 -- * The transactions appear grouped by their associated account address,
 --   and the transactions in each group are ordered by increasing transaction nonce.
--- * Each transaction's nonce is equal or higher than the next nonce of the specified sender's
+-- * Each transaction's nonce is equal or higher than the next nonce of the specified sender
 --   account (if the account it exists).
 --
 -- The 'GroupedTransactions' ('perAccountTransactions' and 'credentialDeployments') are processed in
@@ -979,14 +1015,14 @@ filterTransactions maxSize GroupedTransactions{..} = do
         -- Run next credential deployment or transaction group, depending on arrival time.
         runNext :: Energy -- ^Maximum block energy
                 -> Integer -- ^Current size of transactions in the block.
-                -> FilteredTransactions -- ^Currently accummulated result
+                -> FilteredTransactions -- ^Currently accumulated result
                 -> [CredentialDeploymentWithMeta] -- ^Credentials to process
                 -> [[Transaction]] -- ^Transactions to process, grouped per account.
                 -> m FilteredTransactions
         runNext maxEnergy size fts credentials remainingTransactions =
           case (credentials, remainingTransactions) of
             -- All credentials and transactions processed; Before returning,
-            -- need to reverse because we accummulated in reverse (for performance reasons)
+            -- need to reverse because we accumulated in reverse (for performance reasons)
             ([], []) -> return fts{ ftAdded = reverse (ftAdded fts )}
             -- Further credentials or transactions to process
             ([], group : groups) -> runTransactionGroup size fts groups group
@@ -1109,7 +1145,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
 --
 -- * @Left Nothing@ if maximum block energy limit was exceeded, that is, the deposited energy
 --   of a transaction plus the energy used by the previous transactions exceeds this limit. This
---   should not happend for valid blocks.
+--   should not happen for valid blocks.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
 -- * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions :: forall m . (SchedulerMonad m)
