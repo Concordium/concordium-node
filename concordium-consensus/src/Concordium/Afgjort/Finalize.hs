@@ -525,10 +525,14 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                                         (mProof, ps') = runState (passiveReceiveWMVBAMessage inst msgSenderIndex msgBody) (pw ^. at' msgDelta . non initialWMVBAPassiveState)
                                     finCurrentRound .= Left (PassiveFinalizationRound (pw & at' msgDelta ?~ ps'))
                                     forM_ mProof (handleFinalizationProof _finsSessionId _finsIndex msgDelta _finsCommittee)
-                            rcu <- messageRequiresCatchUp msgBody
-                            if rcu then do
-                                logEvent Afgjort LLDebug $ "Message refers to unjustified block; catch-up required."
-                                return ResultPendingBlock
+                            newFinIndex <- use finIndex
+                            if newFinIndex == _finsIndex then do
+                                rcu <- messageRequiresCatchUp msgBody
+                                if rcu then do
+                                    logEvent Afgjort LLDebug $ "Message refers to unjustified block; catch-up required."
+                                    return ResultPendingBlock
+                                else
+                                    return ResultSuccess
                             else
                                 return ResultSuccess
                     else do

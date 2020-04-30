@@ -245,9 +245,9 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         let (flHead Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
         let nextGap = case flHead of
-                Seq.Empty -> max (1 + _finsMinSkip) 5
+                Seq.Empty -> (1 + _finsMinSkip)
                 (_ Seq.:|> (_, pfb)) -> let oldGap = bpHeight lfb - bpHeight pfb in
-                    max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) == oldGap then ceiling ((oldGap * 4) % 5) else 2 * oldGap
+                    max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) == oldGap then truncate ((oldGap * 4) % 5) else 2 * oldGap
         checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
         let prevState  = BS._bpState lfb
             prevBakers = BState._birkCurrentBakers $ BState._blockBirkParameters prevState
