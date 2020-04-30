@@ -366,9 +366,9 @@ handleInitContract wtc amount modref cname param paramSize =
             -- Finally run the initialization function of the contract, resulting in an initial state
             -- of the contract. This ticks energy during execution, failing when running out of energy.
             -- NB: At this point the amount to initialize with has not yet been deducted from the
-            -- sender account. Neither has any execution cost been deducted, the balance is thus
-            -- as before the execution of this transaction. This is relevant if the initialization
-            -- function can observe this balance.
+            -- sender account. Thus if the initialization function were to observe the current balance it would
+            -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
+            -- is in the future we should be mindful of which balance is exposed.
             res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
             return (linkedContract, iface, viface, (msgTy ciface), res, amount)
 
@@ -509,7 +509,7 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                         -- NB: The sender of all the newly generated messages is the contract instance 'istance'.
                         case tx of
                           TSend cref' transferamount' message' -> do
-                            -- NOTE: This relies on Acorn syntax only allowing the creation of
+                            -- NOTE: This relies on Acorn only allowing the creation of
                             -- messages with addresses to existing instances.
                             cinstance <- fromJust <$> getCurrentContractInstance cref'
                             let receivefun' = Ins.ireceiveFun cinstance
