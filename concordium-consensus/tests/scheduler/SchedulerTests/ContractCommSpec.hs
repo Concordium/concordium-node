@@ -33,7 +33,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 1000000 Acc.emptyAccounts 1000000
+initialBlockState = blockStateWithAlesAccount 1000000 Acc.emptyAccounts
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =

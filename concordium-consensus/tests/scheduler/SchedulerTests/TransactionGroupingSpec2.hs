@@ -44,10 +44,7 @@ import SchedulerTests.Helpers
 -- * Definition of test cases
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts 200000
-
-baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker = mkFullBaker 1 alesAccount
+initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts
 
 maxBlockEnergy :: Types.Energy
 maxBlockEnergy = Types.Energy 20000

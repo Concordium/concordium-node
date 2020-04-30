@@ -379,6 +379,11 @@ extern "C" {
         consensus: *mut consensus_runner,
         account_address: *const u8,
     ) -> *const c_char;
+    pub fn importBlocks(
+        consensus: *mut consensus_runner,
+        import_file_path: *const u8,
+        import_file_path_len: i64,
+    ) -> u8;
 }
 
 // TODO : Simplify arguments to function, or group with struct
@@ -666,6 +671,19 @@ impl ConsensusContainer {
             consensus,
             account_address.as_ptr() as *const u8
         ))
+    }
+
+    pub fn import_blocks(&self, import_file_path: &[u8]) -> u8 {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let len = import_file_path.len();
+
+        unsafe {
+            importBlocks(
+                consensus,
+                CString::from_vec_unchecked(import_file_path.to_vec()).as_ptr() as *const u8,
+                len as i64,
+            )
+        }
     }
 }
 

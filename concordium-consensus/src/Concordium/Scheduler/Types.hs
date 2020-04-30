@@ -59,6 +59,7 @@ data FilteredTransactions = FilteredTransactions {
   -- |Credentials which were not processed. No order is guaranteed.
   ftUnprocessedCredentials :: [CredentialDeploymentWithMeta]
   }
+  deriving (Show)
 
 emptyFilteredTransactions :: FilteredTransactions
 emptyFilteredTransactions = FilteredTransactions [] [] [] [] []
