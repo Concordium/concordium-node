@@ -39,7 +39,6 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
-    200000
 
 baker0 :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 alesAccount
