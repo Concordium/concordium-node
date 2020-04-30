@@ -245,7 +245,7 @@ receiveFinMessage ind block delta sessId me bId expectedResult = do
                                                 (bakerAggregationKey bId)
         fmsg = signFinalizationMessage (bakerSignKey bId) msgHdr wmvbaMsg
     finalizationReceiveMessage (FPMMessage fmsg) >>= \result -> do
-        unless (result == expectedResult) $
+        unless (result == expectedResult || (result == ResultPendingBlock && expectedResult == ResultSuccess)) $
             fail $ "Could not receive finalization message for index " ++ show (theFinalizationIndex ind)
                 ++ "\nfor the following block:\n" ++ show block
                 ++ ".\nExpected result: " ++ show expectedResult ++ ". Actual result: " ++ show result
