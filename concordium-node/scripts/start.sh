@@ -334,6 +334,11 @@ then
     ARGS="$ARGS --bootstrap-server $BOOTSTRAP_SERVER"
 fi
 
+if [ -n "$IMPORT_BLOCKS_FROM" ];
+then
+    ARGS="$ARGS --import-blocks-from $IMPORT_BLOCKS_FROM"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
