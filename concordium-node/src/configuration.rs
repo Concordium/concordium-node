@@ -169,6 +169,11 @@ pub struct BakerConfig {
     )]
     pub scheduler_outcome_logging: bool,
     #[structopt(
+        long = "import-blocks-from",
+        help = "Path to a file exported by the database exporter"
+    )]
+    pub import_path: Option<String>,
+    #[structopt(
         long = "baker-credentials-file",
         help = "Absolute path of the baker credentials file"
     )]
