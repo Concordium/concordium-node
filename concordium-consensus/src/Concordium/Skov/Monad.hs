@@ -57,6 +57,8 @@ data UpdateResult
     -- ^The peer should be marked as pending unless catch up is already in progress
     | ResultEarlyBlock
     -- ^The block was sent too early and should be dropped
+    | ResultMissingImportFile
+    -- ^The file provided for importing blocks is missing
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockStateQuery m) => SkovQueryMonad m where
