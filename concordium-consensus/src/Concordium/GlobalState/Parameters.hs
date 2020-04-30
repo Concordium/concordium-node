@@ -17,6 +17,8 @@ import GHC.Generics
 import Data.Serialize
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
+import Data.Ratio
+import Data.Word
 
 import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
@@ -43,9 +45,39 @@ instance Serialize VoterInfo where
 
 data FinalizationParameters = FinalizationParameters {
     finalizationMinimumSkip :: BlockHeight,
-    finalizationCommitteeMaxSize :: FinalizationCommitteeSize
+    finalizationCommitteeMaxSize :: FinalizationCommitteeSize,
+    finalizationWaitingTime :: Duration,
+    finalizationIgnoreFirstWait :: Bool,
+    finalizationOldStyleSkip :: Bool,
+    finalizationSkipShrinkFactor :: Ratio Word64,
+    finalizationSkipGrowFactor :: Ratio Word64,
+    finalizationDelayShrinkFactor :: Ratio Word64,
+    finalizationDelayGrowFactor :: Ratio Word64,
+    finalizationAllowZeroDelay :: Bool
 } deriving (Eq, Generic, Show)
 instance Serialize FinalizationParameters where
+
+instance FromJSON FinalizationParameters where
+    parseJSON = withObject "FinalizationParameters" $ \v -> do
+        finalizationMinimumSkip <- BlockHeight <$> v .: "minimumSkip"
+        finalizationCommitteeMaxSize <- v .: "committeeMaxSize"
+        finalizationWaitingTime <- v .: "waitingTime"
+        finalizationIgnoreFirstWait <- v .:? "ignoreFirstWait" .!= False
+        finalizationOldStyleSkip <- v .:? "oldStyleSkip" .!= False
+        finalizationSkipShrinkFactor <- v .: "skipShrinkFactor"
+        unless (finalizationSkipShrinkFactor > 0 && finalizationSkipShrinkFactor < 1) $
+          fail "skipShrinkFactor must be strictly between 0 and 1"
+        finalizationSkipGrowFactor <- v .: "skipGrowFactor"
+        unless (finalizationSkipGrowFactor > 1) $
+          fail "skipGrowFactor must be strictly greater than 1"
+        finalizationDelayShrinkFactor <- v .: "delayShrinkFactor"
+        unless (finalizationDelayShrinkFactor > 0 && finalizationDelayShrinkFactor < 1) $
+          fail "delayShrinkFactor must be strictly between 0 and 1"
+        finalizationDelayGrowFactor <- v .: "delayGrowFactor"
+        unless (finalizationDelayGrowFactor > 1) $
+          fail "delayGrowFactor must be strictly greater than 1"
+        finalizationAllowZeroDelay <- v .:? "allowZeroDelay" .!= False
+        return FinalizationParameters{..}
 
 data GenesisData = GenesisData {
     genesisTime :: Timestamp,
@@ -132,8 +164,7 @@ data GenesisParameters = GenesisParameters {
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
     gpEpochLength :: EpochLength,
     gpElectionDifficulty :: ElectionDifficulty,
-    gpFinalizationMinimumSkip :: BlockHeight,
-    gpFinalizationCommitteeMaxSize :: FinalizationCommitteeSize,
+    gpFinalizationParameters :: FinalizationParameters,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
@@ -144,7 +175,7 @@ data GenesisParameters = GenesisParameters {
     -- They cannot delegate stake to any bakers in genesis.
     gpControlAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount,
-    -- Maximum total energy that can be consumed by the transactions in a block
+    -- |Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy
 }
 
@@ -156,8 +187,7 @@ instance FromJSON GenesisParameters where
         gpEpochLength <- Slot <$> v .: "epochLength"
         when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
         gpElectionDifficulty <- v .: "electionDifficulty"
-        gpFinalizationMinimumSkip <- BlockHeight <$> v .: "finalizationMinimumSkip"
-        gpFinalizationCommitteeMaxSize <- v .: "finalizationCommitteeMaxSize"
+        gpFinalizationParameters <- v .: "finalizationParameters"
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
@@ -248,9 +278,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
                           -- and add any other initial accounts.
                           ++ map mkAccount gpInitialAccounts
-        genesisFinalizationParameters = FinalizationParameters
-                                          gpFinalizationMinimumSkip
-                                          gpFinalizationCommitteeMaxSize
+        genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
         genesisMaxBlockEnergy = gpMaxBlockEnergy
