@@ -17,6 +17,8 @@ import Data.Serialize
 import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
+import System.IO
+import System.IO.Error
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Types
@@ -376,3 +378,78 @@ makeAsyncRunner logm bkr config = do
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
 
         catchUpLimit = 100
+
+-- | Given a file path in the third argument, it will deserialize each block in the file
+-- and import it into the active global state.
+syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+                 => SyncRunner c
+                 -> LogMethod IO
+                 -> FilePath
+                 -> IO UpdateResult
+syncImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
+                                                           if isDoesNotExistError e then do
+                                                             logm External LLError $ "The provided file for importing blocks doesn't exist."
+                                                             return ResultMissingImportFile
+                                                           else do
+                                                             logm External LLError $ "An IO exception occurred during import phase: " ++ show e
+                                                             return ResultInvalid) $ do
+  h <- openBinaryFile filepath ReadMode
+  now <- currentTime
+  readBlock h now logm syncReceiveBlock syncRunner
+
+-- | Given a file path in the third argument, it will deserialize each block in the file
+-- and import it into the passive global state.
+syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
+                        => SyncPassiveRunner c
+                        -> LogMethod IO
+                        -> FilePath
+                        -> IO UpdateResult
+syncPassiveImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
+                                                           if isDoesNotExistError e then do
+                                                             logm External LLError $ "The provided file for importing blocks doesn't exist."
+                                                             return ResultMissingImportFile
+                                                           else do
+                                                             logm External LLError $ "An IO exception occurred during import phase: " ++ show e
+                                                             return ResultInvalid) $ do
+  h <- openBinaryFile filepath ReadMode
+  now <- currentTime
+  readBlock h now logm syncPassiveReceiveBlock syncRunner
+
+readBlock :: Handle
+          -> UTCTime
+          -> LogMethod IO
+          -> (t -> PendingBlock -> IO UpdateResult)
+          -> t
+          -> IO UpdateResult
+readBlock h tm logm f syncRunner =  do
+         lenS <- hGet h 8
+         if not $ BS.null lenS then
+           case runGet getInt64be lenS of
+             Left err -> do
+               logm External LLError $ "Error deserializing length: " ++ err
+               return ResultSerializationFail
+             Right len -> do
+               blockBS <- hGet h (fromIntegral len)
+               result <- importBlock blockBS tm logm f syncRunner
+               case result of
+                 ResultSuccess -> readBlock h tm logm f syncRunner
+                 ResultPendingBlock -> readBlock h tm logm f syncRunner
+                 ResultSerializationFail -> return ResultSerializationFail
+                 err -> do
+                   logm External LLError $ "Error importing block: " ++ show err
+                   return err
+         else
+           return ResultSuccess
+
+importBlock :: ByteString
+            -> UTCTime
+            -> LogMethod IO
+            -> (t -> PendingBlock -> IO UpdateResult)
+            -> t
+            -> IO UpdateResult
+importBlock blockBS tm logm f syncRunner =
+  case deserializePendingBlock blockBS tm of
+    Left err -> do
+      logm External LLError $ "Can't deserialize block: " ++ show err
+      return ResultSerializationFail
+    Right block -> f syncRunner block
