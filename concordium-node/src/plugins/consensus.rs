@@ -78,27 +78,6 @@ pub fn start_consensus_layer(
     )
 }
 
-/// Obtain the path to the file containing baker private data.
-pub fn get_baker_private_data_json_file(
-    app_prefs: &configuration::AppPreferences,
-    conf: &configuration::BakerConfig,
-) -> Option<String> {
-    if let Some(baker_id) = conf.baker_id {
-        let mut private_loc = app_prefs.get_user_app_dir();
-        private_loc.push(format!(
-            "{}{}{}",
-            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
-        ));
-        if let Some(path) = private_loc.to_str() {
-            Some(path.to_owned())
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
 /// Obtains the genesis data and baker's private data.
 pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
@@ -108,13 +87,17 @@ pub fn get_baker_data(
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
 
-    let mut private_loc = app_prefs.get_user_app_dir();
-
-    if let Some(baker_id) = conf.baker_id {
-        private_loc.push(format!(
-            "{}{}{}",
-            FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
-        ))
+    let credentials_loc = if let Some(path) = &conf.baker_credentials_file {
+        std::path::PathBuf::from(path)
+    } else {
+        let mut private_loc = app_prefs.get_user_app_dir();
+        if let Some(baker_id) = conf.baker_id {
+            private_loc.push(format!(
+                "{}{}{}",
+                FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
+            ));
+        }
+        private_loc
     };
 
     let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
@@ -129,7 +112,7 @@ pub fn get_baker_data(
     };
 
     let private_data = if needs_private {
-        match OpenOptions::new().read(true).open(&private_loc) {
+        match OpenOptions::new().read(true).open(&credentials_loc) {
             Ok(mut file) => {
                 let mut read_data = vec![];
                 match file.read_to_end(&mut read_data) {

@@ -173,6 +173,10 @@ pub struct BakerConfig {
         help = "Path to a file exported by the database exporter"
     )]
     pub import_path: Option<String>,
+        long = "baker-credentials-file",
+        help = "Absolute path of the baker credentials file"
+    )]
+    pub baker_credentials_file: Option<String>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -275,10 +279,10 @@ pub struct ConnectionConfig {
     pub hard_connection_limit: u16,
     #[structopt(
         long = "catch-up-batch-limit",
-        help = "The maximum batch size for a catch-up round (0 = no limit)",
+        help = "The maximum batch size for a catch-up round.",
         default_value = "50"
     )]
-    pub catch_up_batch_limit: u64,
+    pub catch_up_batch_limit: i64,
     #[structopt(
         long = "thread-pool-size",
         help = "The size of the threadpool processing connection events in parallel",

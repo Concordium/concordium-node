@@ -3,7 +3,7 @@ FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as build
 
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
-ARG consensus_profiling=true
+ARG consensus_profiling
 ENV CONSENSUS_PROFILING=$consensus_profiling
 
 COPY . /build-project/
@@ -38,12 +38,13 @@ RUN chmod +x /build-project/start.sh
 RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/target/debug/node-collector-backend /build-project/
 
 ### Wallet-proxy
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as wallet-proxy-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.11 as wallet-proxy-build
 WORKDIR /
+ENV STACK_ROOT /.stack
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
-RUN git checkout ff0c7d1056daa53058a523a87555ce72074cacd4
+RUN git checkout ad61aa064f65a23d10878332eacf2510141e3577
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
 RUN cp deps/simple-client/extra-libs/*.so /libs
