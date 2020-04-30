@@ -386,7 +386,7 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
                  -> LogMethod IO
                  -> FilePath
                  -> IO UpdateResult
-syncImportBlocks syncRunner logm filepath = flip catch (\(e :: IOException) ->
+syncImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
                                                            if isDoesNotExistError e then do
                                                              logm External LLError $ "The provided file for importing blocks doesn't exist."
                                                              return ResultMissingImportFile
@@ -404,7 +404,7 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
                         -> LogMethod IO
                         -> FilePath
                         -> IO UpdateResult
-syncPassiveImportBlocks syncRunner logm filepath = flip catch (\(e :: IOException) ->
+syncPassiveImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
                                                            if isDoesNotExistError e then do
                                                              logm External LLError $ "The provided file for importing blocks doesn't exist."
                                                              return ResultMissingImportFile
