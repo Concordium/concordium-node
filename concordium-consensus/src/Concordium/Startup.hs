@@ -61,13 +61,26 @@ makeBakerAccountKP bid amount =
 makeBakerAccount :: BakerId -> Amount -> Account
 makeBakerAccount bid = fst . makeBakerAccountKP bid
 
+defaultFinalizationParameters :: FinalizationParameters
+defaultFinalizationParameters = FinalizationParameters {
+    finalizationMinimumSkip = 0,
+    finalizationCommitteeMaxSize = 1000,
+    finalizationWaitingTime = 100,
+    finalizationIgnoreFirstWait = False,
+    finalizationOldStyleSkip = False,
+    finalizationSkipShrinkFactor = 0.8,
+    finalizationSkipGrowFactor = 2,
+    finalizationDelayShrinkFactor = 0.8,
+    finalizationDelayGrowFactor = 2,
+    finalizationAllowZeroDelay = False
+}
+
 makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
     -> Duration  -- ^Slot duration in seconds.
     -> ElectionDifficulty  -- ^Initial election difficulty.
-    -> BlockHeight -- ^Minimum finalization interval - 1
-    -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
+    -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
@@ -78,8 +91,7 @@ makeGenesisData
         nBakers
         genesisSlotDuration
         elecDiff
-        finMinSkip
-        finComMaxSize
+        genesisFinalizationParameters
         genesisCryptographicParameters
         genesisIdentityProviders
         genesisControlAccounts
@@ -90,7 +102,6 @@ makeGenesisData
         genesisBakers = fst (bakersFromList (snd <$> bakers))
         genesisElectionDifficulty = elecDiff
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
         (bakers, genesisAccounts) = unzip (makeBakers nBakers)
 
 

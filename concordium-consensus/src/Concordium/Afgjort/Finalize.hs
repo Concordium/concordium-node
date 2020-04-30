@@ -34,8 +34,6 @@ module Concordium.Afgjort.Finalize (
     ActiveFinalizationM(..),
     -- * For testing
     FinalizationRound(..),
-    -- TODO: Remove if unneeded
-    nextFinalizationJustifierHeight
 ) where
 
 import qualified Data.Vector as Vec
@@ -54,7 +52,6 @@ import Control.Monad
 import Data.Bits
 import Data.Time.Clock
 import qualified Data.OrdPSQ as PSQ
-import Data.Ratio
 
 import Concordium.Utils
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -122,6 +119,7 @@ data FinalizationState timer = FinalizationState {
     _finsHeight :: !BlockHeight,
     _finsIndexInitialDelta :: !BlockHeight,
     _finsCommittee :: !FinalizationCommittee,
+    -- TODO: Remove this; replaced by direct access to FinalizationParameters
     _finsMinSkip :: !BlockHeight,
     _finsGap :: !BlockHeight,
     _finsPendingMessages :: !PendingMessageMap,
@@ -197,8 +195,7 @@ initialPassiveFinalizationState genHash finParams genBakers totalGTU = Finalizat
     _finsQueue = initialFinalizationQueue
     }
     where
-        -- FIXME: 5 is based on the paper. Probably this should be a parameter.
-        initialGap = max (1 + finalizationMinimumSkip finParams) 5
+        initialGap = 1 + finalizationMinimumSkip finParams
 {-# INLINE initialPassiveFinalizationState #-}
 
 initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
@@ -273,7 +270,9 @@ nextRound oldFinIndex oldDelta = do
         forM_ oldRound $ \r ->
             when (roundDelta r == oldDelta) $ do
                 finFailedRounds %= (wmvbaWADBot (roundWMVBA r) :)
-                newRound (2 * oldDelta) (roundMe r)
+                FinalizationParameters{..} <- getFinalizationParameters
+                let newDelta = max (1 + oldDelta) (ceiling $ finalizationDelayGrowFactor * fromIntegral oldDelta)
+                newRound newDelta (roundMe r)
 
 pendingToFinMsg :: FinalizationSessionId -> FinalizationIndex -> BlockHeight -> PendingMessage -> FinalizationMessage
 pendingToFinMsg sessId finIx delta (PendingMessage src msg sig) =
@@ -381,7 +380,13 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
                     handleFinalizationProof _finsSessionId _finsIndex roundDelta _finsCommittee proof
                     handleEvs True evs'
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
-                handleEvs b (WMVBADelay delay action : evs') = do
+                handleEvs b (WMVBADelay ticks action : evs') = do
+                    FinalizationParameters{..} <- getFinalizationParameters
+                    let
+                        ticks'
+                            | finalizationIgnoreFirstWait = if ticks == 0 then 0 else (ticks - 1)
+                            | otherwise = ticks
+                        delay = fromIntegral ticks' * durationToNominalDiffTime finalizationWaitingTime
                     _ <- onTimeout (DelayFor delay) (triggerWMVBA _finsSessionId _finsIndex roundDelta action)
                     handleEvs b evs'
             handleEvs False evs
@@ -453,7 +458,7 @@ messageRequiresCatchUp msg = case messageValues msg of
                 minst <- getFinalizationInstance
                 case (_finsCurrentRound, minst) of
                     -- Check that the block is considered justified.
-                    (Right _, Just finInst) -> liftWMVBA finInst $ isJustifiedWMVBAInput b
+                    (Right _, Just finInst) -> liftWMVBA finInst $ not <$> isJustifiedWMVBAInput b
                     -- TODO: possibly we should also check if it is justified even when we are not active in finalization
                     _ -> return False
 
@@ -737,13 +742,13 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finPendingMessages . at' finalizationIndex .= Nothing
         pms <- use finPendingMessages
         logEvent Afgjort LLTrace $ "Finalization complete. Pending messages: " ++ show pms
-        fs <- use finMinSkip
         -- Compute the next finalization height
+        finParams <- getFinalizationParameters
         oldFinalizationGap <- use finGap
-        newFinalizationGap <- nextFinalizationGap bp fs oldFinalizationGap
+        newFinalizationGap <- nextFinalizationGap bp finParams oldFinalizationGap
         finGap .= newFinalizationGap
         finHeight += newFinalizationGap
-        let newFinDelay = nextFinalizationDelay fr
+        let newFinDelay = nextFinalizationDelay finParams fr
         finIndexInitialDelta .= newFinDelay
         finFailedRounds .= []
         -- Update finalization committee for the new round
@@ -756,44 +761,30 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
           Nothing ->
             newPassiveRound newFinDelay
 
-nextFinalizationDelay :: FinalizationRecord -> BlockHeight
--- nextFinalizationDelay FinalizationRecord{..} = if finalizationDelay > 2 then finalizationDelay `div` 2 else 1
-nextFinalizationDelay FinalizationRecord{..} = ceiling ((finalizationDelay * 4) % 5)
+nextFinalizationDelay :: FinalizationParameters -> FinalizationRecord -> BlockHeight
+nextFinalizationDelay FinalizationParameters{..} FinalizationRecord{..}
+        = if finalizationAllowZeroDelay then shrunk else max 1 shrunk
+    where
+        shrunk = truncate (finalizationDelayShrinkFactor * fromIntegral finalizationDelay)
 
 nextFinalizationGap :: (BlockPointerMonad m)
     => BlockPointerType m
     -- ^Last finalized block
-    -> BlockHeight
-    -- ^Finalization minimum skip
+    -> FinalizationParameters
+    -- ^Finalization parameters
     -> BlockHeight
     -- ^Previous finalization gap
     -> m BlockHeight
-nextFinalizationGap bp minSkip oldGap = do
+nextFinalizationGap bp FinalizationParameters{..} oldGap = do
     lf <- bpLastFinalized bp
-    return $ max (1 + minSkip) $ if bpHeight bp - bpHeight lf == oldGap then
-                ceiling ((oldGap * 4) % 5)
-            else
-                2 * oldGap
-
-
--- |Given the finalization minimum skip and an explicitly finalized block, compute
--- the height of the next finalized block.
-nextFinalizationHeight :: (BlockPointerMonad m)
-    => BlockHeight -- ^Finalization minimum skip
-    -> BlockPointerType m -- ^Last finalized block
-    -> m BlockHeight
-nextFinalizationHeight fs bp = do
-  lf <- bpLastFinalized bp
-  return $ bpHeight bp + max (1 + fs) ((bpHeight bp - bpHeight lf) `div` 2)
-
--- |The height that a chain must be for a block to be eligible for finalization.
--- This is the next finalization height + the next finalization delay.
-nextFinalizationJustifierHeight :: (BlockPointerMonad m)
-    => FinalizationParameters
-    -> FinalizationRecord -- ^Last finalization record
-    -> BlockPointerType m -- ^Last finalized block
-    -> m BlockHeight
-nextFinalizationJustifierHeight fp fr bp = (+ nextFinalizationDelay fr) <$> nextFinalizationHeight (finalizationMinimumSkip fp) bp
+    let
+        heightDiff = bpHeight bp - bpHeight lf
+        newGap
+            | finalizationOldStyleSkip = floor (finalizationSkipShrinkFactor * fromIntegral heightDiff)
+            | otherwise = if heightDiff == oldGap
+                    then floor (finalizationSkipShrinkFactor * fromIntegral oldGap)
+                    else ceiling (finalizationSkipGrowFactor * fromIntegral oldGap)
+    return $ max (1 + finalizationMinimumSkip) newGap
 
 getPartyWeight :: FinalizationCommittee -> Party -> VoterPower
 getPartyWeight com pid = case parties com ^? ix (fromIntegral pid) of

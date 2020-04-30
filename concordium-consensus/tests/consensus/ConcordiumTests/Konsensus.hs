@@ -64,7 +64,7 @@ import Concordium.TimeMonad
 
 import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState)
 
-import Concordium.Startup (makeBakerAccountKP)
+import Concordium.Startup (makeBakerAccountKP, defaultFinalizationParameters)
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
@@ -89,7 +89,7 @@ type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
-finalizationParameters = FinalizationParameters 2
+finalizationParameters finComSize = defaultFinalizationParameters{finalizationCommitteeMaxSize = finComSize}
 
 -- Maximum finalization-committee size for most tests, where we don't try to ensure that the committee members change.
 defaultMaxFinComSize :: FinalizationCommitteeSize

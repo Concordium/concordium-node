@@ -156,10 +156,16 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoH
 
 main :: IO ()
 main = do
-    let n = 6
+    let n = 20
     now <- currentTimestamp
-    let (gen, bis) = makeGenesisData now n 100 0.5 0
-                     (fromIntegral n + 1) -- dummyFinalizationCommitteeMaxSize
+    let (gen, bis) = makeGenesisData now n 40 0.2
+                     defaultFinalizationParameters{
+                         finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
+                         -- finalizationOldStyleSkip = True, finalizationSkipShrinkFactor = 0.5,
+                         finalizationOldStyleSkip = False, finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,
+                         finalizationAllowZeroDelay = True,
+                         finalizationIgnoreFirstWait = True
+                     }
                      dummyCryptographicParameters
                      dummyIdentityProviders
                      [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
@@ -168,7 +174,7 @@ main = do
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
-        let logM src lvl msg = when (lvl == LLInfo) $ do
+        let logM src lvl msg = {- when (lvl == LLInfo) $ -} do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
