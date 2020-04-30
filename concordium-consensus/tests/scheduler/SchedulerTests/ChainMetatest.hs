@@ -35,7 +35,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 100000 Acc.emptyAccounts 100000
+initialBlockState = blockStateWithAlesAccount 100000 Acc.emptyAccounts
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
