@@ -126,7 +126,7 @@ makeTestingGenesisData
         genesisBakers = fst (bakersFromList bakers)
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisElectionDifficulty = elecDiff
-        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
+        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize 100 False False 0.8 2 0.8 2 False
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
