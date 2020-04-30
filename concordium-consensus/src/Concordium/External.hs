@@ -435,6 +435,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    11 | ResultEarlyBlock                   | The block has a slot number exceeding our current + the early block threshold          | No       |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    12 | ResultMissingImportFile            | The file provided for importing doesn't exist                                          | N/A      |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -451,6 +453,7 @@ toReceiveResult ResultIncorrectFinalizationSession = 8
 toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
 toReceiveResult ResultEarlyBlock = 11
+toReceiveResult ResultMissingImportFile = 12
 
 
 -- |Handle receipt of a block.
