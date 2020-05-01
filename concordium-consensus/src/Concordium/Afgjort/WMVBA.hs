@@ -11,6 +11,7 @@ module Concordium.Afgjort.WMVBA (
     initialWMVBAState,
     WMVBAInstance(WMVBAInstance),
     WMVBAMonad(..),
+    DelayedABBAAction,
     WMVBAOutputEvent(..),
     WMVBA,
     runWMVBA,
@@ -18,6 +19,7 @@ module Concordium.Afgjort.WMVBA (
     isJustifiedWMVBAInput,
     receiveWMVBAMessage,
     startWMVBA,
+    triggerWMVBAAction,
     putWMVBAMessageBody,
     WMVBASummary(..),
     wmvbaSummary,
@@ -242,10 +244,12 @@ toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxPart
 class (MonadState (WMVBAState sig) m, MonadReader WMVBAInstance m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
     wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m ()
+    wmvbaDelay :: Word32 -> DelayedABBAAction -> m ()
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
     | WMVBAComplete (Maybe (Val, ([Party], Bls.Signature)))
+    | WMVBADelay Word32 DelayedABBAAction
     deriving (Show)
 
 newtype WMVBA sig a = WMVBA {
@@ -268,6 +272,7 @@ instance MonadState (WMVBAState sig) (WMVBA sig) where
 instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
+    wmvbaDelay delay action = WMVBA $ tell $ Endo (WMVBADelay delay action :)
 
 liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a
 liftFreeze a = do
@@ -321,6 +326,9 @@ liftABBA a = do
                     _ -> return ()
             else
                 wmvbaComplete Nothing
+            handleEvents r
+        handleEvents (ABBADelay ticks action : r) = do
+            wmvbaDelay ticks action
             handleEvents r
 
 witnessMessage :: BS.ByteString -> Val -> BS.ByteString
@@ -415,6 +423,10 @@ findCulprits lst toSign keys = culprits lst1 <> culprits lst2
 -- per instance, and the input should already be justified.
 startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
 startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
+
+-- |Trigger a delayed action.
+triggerWMVBAAction :: (WMVBAMonad sig m) => DelayedABBAAction -> m ()
+triggerWMVBAAction a = liftABBA (triggerABBAAction a)
 
 data WMVBASummary sig = WMVBASummary {
     summaryFreeze :: Maybe (FreezeSummary sig),

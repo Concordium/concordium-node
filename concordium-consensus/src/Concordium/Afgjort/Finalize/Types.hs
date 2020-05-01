@@ -187,6 +187,9 @@ data CatchUpMessage = CatchUpMessage {
     cuSignature :: !Sig.Signature
 }
 
+catchUpMessageDelta :: BlockHeight
+catchUpMessageDelta = BlockHeight maxBound
+
 signCatchUpMessage :: Sig.KeyPair -> FinalizationSessionId -> FinalizationIndex -> Party -> Party -> FinalizationSummary -> CatchUpMessage
 signCatchUpMessage keyPair cuSessionId cuFinalizationIndex cuSenderIndex cuMaxParty cuFinalizationSummary = CatchUpMessage{..}
     where
@@ -195,7 +198,7 @@ signCatchUpMessage keyPair cuSessionId cuFinalizationIndex cuSenderIndex cuMaxPa
             S.put FinalizationMessageHeader{
                 msgSessionId = cuSessionId,
                 msgFinalizationIndex = cuFinalizationIndex,
-                msgDelta = 0,
+                msgDelta = catchUpMessageDelta,
                 msgSenderIndex = cuSenderIndex
             }
             S.put cuMaxParty
@@ -210,7 +213,7 @@ checkCatchUpMessageSignature com CatchUpMessage{..} = isJust $ do
             S.put FinalizationMessageHeader{
                 msgSessionId = cuSessionId,
                 msgFinalizationIndex = cuFinalizationIndex,
-                msgDelta = 0,
+                msgDelta = catchUpMessageDelta,
                 msgSenderIndex = cuSenderIndex
             }
             S.put cuMaxParty
@@ -226,7 +229,7 @@ instance S.Serialize FinalizationPseudoMessage where
         S.put FinalizationMessageHeader{
             msgSessionId = cuSessionId,
             msgFinalizationIndex = cuFinalizationIndex,
-            msgDelta = 0,
+            msgDelta = catchUpMessageDelta,
             msgSenderIndex = cuSenderIndex
         }
         S.put cuMaxParty
@@ -234,7 +237,7 @@ instance S.Serialize FinalizationPseudoMessage where
         S.put cuSignature
     get = do
         msgHeader@FinalizationMessageHeader{..} <- S.get
-        if msgDelta == 0 then do
+        if msgDelta == catchUpMessageDelta then do
             cuMaxParty <- S.get
             cuFinalizationSummary <- getFinalizationSummary cuMaxParty
             cuSignature <- S.get
@@ -258,7 +261,7 @@ fpmHeader (FPMMessage m) = msgHeader m
 fpmHeader (FPMCatchUp CatchUpMessage{..}) = FinalizationMessageHeader {
             msgSessionId = cuSessionId,
             msgFinalizationIndex = cuFinalizationIndex,
-            msgDelta = 0,
+            msgDelta = catchUpMessageDelta,
             msgSenderIndex = cuSenderIndex
         }
 

@@ -100,8 +100,11 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                         }
                  ]
 
+expiryTime :: Types.TransactionExpiryTime
+expiryTime = 1
+
 slotTime :: Types.Timestamp
-slotTime = 1
+slotTime = fromIntegral (Types.expiry expiryTime) * 1000
 
 type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
@@ -126,9 +129,9 @@ testExpiryTime expiry = do
 checkExpiryTimeResult :: Types.TransactionExpiryTime ->
                          TestResult ->
                          Bool
-checkExpiryTimeResult (Types.TransactionExpiryTime expiry) (added, fails, unprocs) =
+checkExpiryTimeResult expiry (added, fails, unprocs) =
     null unprocs &&
-        if slotTime <= expiry
+        if expiryTime <= expiry
         -- transactions haven't expired, so they should all succeed
         then check fails added (\case (_, Types.TxSuccess{}) -> True
                                       _ -> False)
@@ -141,10 +144,10 @@ tests :: Spec
 tests =
   describe "Transaction expiry test:" $ do
     specify "Valid transactions of all payloads with expiry after slot time pass" $
-      testExpiry $ Types.TransactionExpiryTime $ slotTime + 1
+      testExpiry $ expiryTime + 1
     specify "Same transactions with expiry set to slot time pass" $
-       testExpiry $ Types.TransactionExpiryTime slotTime
+       testExpiry $ expiryTime
     specify "Same transactions with expiry set before slot time fail" $
-       testExpiry $ Types.TransactionExpiryTime $ slotTime - 1
+       testExpiry $ expiryTime - 1
   where testExpiry expiry = PR.evalContext Init.initialContextData (testExpiryTime expiry)
             `shouldReturnP` checkExpiryTimeResult expiry

@@ -88,6 +88,7 @@ checkUpdateHistory s inp _outp hist0 = do
 data CSSInput
         = JustifyChoice Choice
         | ReceiveCSSMessage Party CSSMessage
+        | FinishReporting
         deriving (Eq, Ord, Show)
 
 -- |Pick an element from a seqeunce, returning the element
@@ -141,6 +142,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                 let a = case inp of
                             JustifyChoice c -> justifyChoice c
                             ReceiveCSSMessage p msg -> receiveCSSMessage p msg ()
+                            FinishReporting -> finishReporting
                 let (_, s', out) = runCSS a cssInst (sts Vec.! fromIntegral rcpt)
                 {-return $ counterexample (show rcpt ++ ": " ++ show inp) $ -}
                 case invariantCSSState (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) s' of
@@ -153,6 +155,7 @@ runCSSTest' ccheck allparties nparties corruptWeight = go initialHistory
                             go hist' (msgs'' <> filterCSSMessages rcpt out msgs') sts' (cores & atParty rcpt %~ (<> core'))
         fromOut src (SendCSSMessage msg) = (Seq.fromList [(i,ReceiveCSSMessage src msg)|i <- parties], mempty)
         fromOut _ (SelectCoreSet theCore) = (mempty, First (Just theCore))
+        fromOut src WaitThenFinishReporting = (Seq.singleton (src, FinishReporting), mempty)
         cssInst = CSSInstance (fromIntegral allparties) (fromIntegral corruptWeight) (const 1) (fromIntegral nparties)
         parties = [0..fromIntegral nparties-1]
 
