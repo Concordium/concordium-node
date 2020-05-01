@@ -37,6 +37,7 @@ import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 import Concordium.Types (Energy(..))
+import Concordium.Startup (defaultFinalizationParameters)
 
 import ConcordiumTests.Konsensus hiding (tests)
 
@@ -93,7 +94,7 @@ initialiseStatesDictator n = do
         let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             elDiff = 0.5
             bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState 
-            fps = FinalizationParameters 2 1000
+            fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do

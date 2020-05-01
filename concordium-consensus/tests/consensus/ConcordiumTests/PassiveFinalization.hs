@@ -46,7 +46,7 @@ import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
-import Concordium.Startup (makeBakerAccount)
+import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -70,7 +70,7 @@ dummyTime = posixSecondsToUTCTime 0
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
-finalizationParameters = FinalizationParameters 100 1000 -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
+finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip=100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
 
 type MyHandlers = SkovHandlers DummyTimer (Config DummyTimer) (StateT () LogIO)
 
@@ -245,7 +245,7 @@ receiveFinMessage ind block delta sessId me bId expectedResult = do
                                                 (bakerAggregationKey bId)
         fmsg = signFinalizationMessage (bakerSignKey bId) msgHdr wmvbaMsg
     finalizationReceiveMessage (FPMMessage fmsg) >>= \result -> do
-        unless (result == expectedResult) $
+        unless (result == expectedResult || (result == ResultPendingBlock && expectedResult == ResultSuccess)) $
             fail $ "Could not receive finalization message for index " ++ show (theFinalizationIndex ind)
                 ++ "\nfor the following block:\n" ++ show block
                 ++ ".\nExpected result: " ++ show expectedResult ++ ". Actual result: " ++ show result

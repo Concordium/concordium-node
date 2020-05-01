@@ -27,6 +27,7 @@ import Concordium.GlobalState.Instance
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
+import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Logger
 import Concordium.Types
@@ -75,7 +76,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 1 :: Double
+                        let factor = 0.05 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -83,7 +84,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
                 MsgFinalization bs ->
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.1 :: Double
+                        let factor = 0.05 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -94,7 +95,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
                         _ -> return ()
                     forM_ outps $ \outp -> forkIO $ do
                         -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.1 :: Double
+                        let factor = 0.05 :: Double
                         r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
                         threadDelay r
                         --putStrLn $ "Delay: " ++ show r
@@ -155,10 +156,16 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoH
 
 main :: IO ()
 main = do
-    let n = 6
-    now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 0
-                     (fromIntegral n + 1) -- dummyFinalizationCommitteeMaxSize
+    let n = 20
+    now <- currentTimestamp
+    let (gen, bis) = makeGenesisData now n 40 0.2
+                     defaultFinalizationParameters{
+                         finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
+                         -- finalizationOldStyleSkip = True, finalizationSkipShrinkFactor = 0.5,
+                         finalizationOldStyleSkip = False, finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,
+                         finalizationAllowZeroDelay = True,
+                         finalizationIgnoreFirstWait = True
+                     }
                      dummyCryptographicParameters
                      dummyIdentityProviders
                      [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
@@ -167,7 +174,7 @@ main = do
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
 
-        let logM src lvl msg = when (lvl == LLInfo) $ do
+        let logM src lvl msg = {- when (lvl == LLInfo) $ -} do
                                     timestamp <- getCurrentTime
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile

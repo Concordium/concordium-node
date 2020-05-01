@@ -17,6 +17,7 @@ module Concordium.Afgjort.CSS(
     CSSInstance(CSSInstance), -- Don't export projections or constructor
     justifyChoice,
     receiveCSSMessage,
+    finishReporting,
     CSSSummary(..),
     cssSummary,
     DoneReportingDetails(..),
@@ -185,12 +186,15 @@ sawJustified seer c seen = to $ \s ->
 class (MonadState (CSSState sig) m, MonadReader CSSInstance m) => CSSMonad sig m where
     -- |Sign and broadcast a CSS message to all parties, __including__ our own 'CSSInstance'.
     sendCSSMessage :: CSSMessage -> m ()
-    -- |Determine the core set.
+    -- |Determine the core set.  This output should not be used until after waiting for deltaCSS.
     selectCoreSet :: CoreSet -> m ()
+    -- |Wait for deltaCSS and then call back 'finishReporting'
+    waitThenFinishReporting :: m ()
 
 data CSSOutputEvent
     = SendCSSMessage CSSMessage
     | SelectCoreSet CoreSet
+    | WaitThenFinishReporting
 
 newtype CSS sig a = CSS {
     runCSS' :: RWS CSSInstance (Endo [CSSOutputEvent]) (CSSState sig) a
@@ -213,6 +217,7 @@ instance MonadReader CSSInstance (CSS sig) where
 instance CSSMonad sig (CSS sig) where
     sendCSSMessage msg = CSS $ tell $ Endo (SendCSSMessage msg :)
     selectCoreSet cs = CSS $ tell $ Endo (SelectCoreSet cs :)
+    waitThenFinishReporting = CSS $ tell $ Endo (WaitThenFinishReporting :)
 
 whenM :: (Monad m) => m Bool -> m () -> m ()
 whenM t a = t >>= \r -> when r a
@@ -298,11 +303,19 @@ justifyNomination src c = do
 addManySaw :: (CSSMonad sig m) => Party -> m ()
 addManySaw party = do
     CSSInstance{..} <- ask
+    oldMSW <- PS.weight <$> use manySaw
     msw <- PS.weight <$> (manySaw <%= PS.insert party (partyWeight party))
-    when (msw >= totalWeight - corruptWeight) $ do
-        oldRep <- report <<.= False
-        when oldRep $
-            sendCSSMessage . DoneReporting =<< use iSaw
+    when (msw >= totalWeight - corruptWeight && oldMSW < totalWeight - corruptWeight)
+        waitThenFinishReporting
+
+-- |Call after waiting deltaCSS since 'waitThenFinishReporting' was called.
+{-# SPECIALIZE finishReporting :: CSS sig () #-}
+finishReporting :: (CSSMonad sig m) => m ()
+finishReporting = do
+    oldRep <- report <<.= False
+    when oldRep $
+        sendCSSMessage . DoneReporting =<< use iSaw
+
 {-# SPECIALIZE handleDoneReporting :: Party -> ([(Party, Choice)], DoneReportingDetails sig) -> CSS sig () #-}
 handleDoneReporting :: (CSSMonad sig m) => Party -> ([(Party, Choice)], DoneReportingDetails sig) -> m ()
 handleDoneReporting party ([], drd) = do

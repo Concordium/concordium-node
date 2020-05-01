@@ -19,6 +19,7 @@ import System.Random
 import Control.Monad.Trans.State
 import Data.Functor.Identity
 import Data.Either (isRight)
+import Data.Ratio
 
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe
@@ -63,7 +64,7 @@ import Concordium.TimeMonad
 
 import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState)
 
-import Concordium.Startup (makeBakerAccountKP)
+import Concordium.Startup (makeBakerAccountKP, defaultFinalizationParameters)
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
@@ -71,8 +72,6 @@ import Concordium.Types.DummyData (mateuszAccount)
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
-
--- import Debug.Trace
 
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
@@ -90,7 +89,7 @@ type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
-finalizationParameters = FinalizationParameters 2
+finalizationParameters finComSize = defaultFinalizationParameters{finalizationCommitteeMaxSize = finComSize}
 
 -- Maximum finalization-committee size for most tests, where we don't try to ensure that the committee members change.
 defaultMaxFinComSize :: FinalizationCommitteeSize
@@ -243,9 +242,13 @@ invariantSkovData TS.SkovData{..} = addContext $ do
 invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
         invariantSkovData sd
-        let (_ Seq.:|> (lfr, lfb)) = _finalizationList
+        let (flHead Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
-        checkBinary (==) _finsHeight (bpHeight lfb + max (1 + _finsMinSkip) ((bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) `div` 2)) "==" "finalization height"  "calculated finalization height"
+        let nextGap = case flHead of
+                Seq.Empty -> (1 + _finsMinSkip)
+                (_ Seq.:|> (_, pfb)) -> let oldGap = bpHeight lfb - bpHeight pfb in
+                    max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) == oldGap then truncate ((oldGap * 4) % 5) else 2 * oldGap
+        checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
         let prevState  = BS._bpState lfb
             prevBakers = BState._birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ BState._blockBank prevState

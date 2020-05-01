@@ -12,6 +12,7 @@ import Data.Time.Clock.POSIX
 import System.IO
 import Data.IORef
 import Data.Serialize
+import System.Directory
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
@@ -36,6 +37,7 @@ import Concordium.Skov
 import Concordium.Getters
 import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
 import Concordium.Birk.Bake
+import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Startup
 import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
@@ -215,9 +217,10 @@ genesisState GenesisData{..} = Example.initialState
 main :: IO ()
 main = do
     let n = 3
-    now <- truncate <$> getPOSIXTime
-    let (gen, bis) = makeGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    now <- currentTimestamp
+    let (gen, bis) = makeGenesisData now n 100 0.5 defaultFinalizationParameters{finalizationMinimumSkip = 1} dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
     trans <- transactions <$> newStdGen
+    createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         let logFile = "consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log"
         logChan <- newChan
@@ -229,7 +232,7 @@ main = do
         let logM src lvl msg = do
                                     timestamp <- getCurrentTime
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
-        gsconfig <- makeGlobalStateConfig defaultRuntimeParameters gen
+        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
             hconfig = NoHandler
