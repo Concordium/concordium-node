@@ -117,8 +117,8 @@ makeTestingGenesisData
   nBakers
   genesisSlotDuration
   elecDiff
-  finMinSkip
-  finComMaxSize
+  finalizationMinimumSkip
+  finalizationCommitteeMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
   genesisControlAccounts
@@ -129,7 +129,18 @@ makeTestingGenesisData
         genesisBakers = fst (bakersFromList bakers)
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisElectionDifficulty = elecDiff
-        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize 100 False False 0.8 2 0.8 2 False
+        genesisFinalizationParameters =
+          FinalizationParameters{
+           finalizationWaitingTime = 100,
+           finalizationIgnoreFirstWait = False,
+           finalizationOldStyleSkip = False,
+           finalizationSkipShrinkFactor = 0.8,
+           finalizationSkipGrowFactor = 2,
+           finalizationDelayShrinkFactor = 0.8,
+           finalizationDelayGrowFactor = 2,
+           finalizationAllowZeroDelay = False,
+           ..
+           }
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
