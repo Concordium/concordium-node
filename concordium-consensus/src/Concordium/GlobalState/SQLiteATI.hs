@@ -7,6 +7,7 @@
 {-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.SQLiteATI where
 
+import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
@@ -59,7 +60,7 @@ writeEntries pool BlockContext{..} hm sos = do
                          entryAccount = S.encode k,
                          entryBlock = S.encode bcHash,
                          entryBlockHeight = fromIntegral bcHeight,
-                         entryBlockTime = fromIntegral bcTime,
+                         entryBlockTime = timestampToSeconds bcTime,
                          entryHash = Just (S.encode (tsHash v)),
                          entrySummary = toStrict (AE.encode v)
                          })
@@ -70,7 +71,7 @@ writeEntries pool BlockContext{..} hm sos = do
                          entryAccount = S.encode stoBakerAccount,
                          entryBlock = S.encode bcHash,
                          entryBlockHeight = fromIntegral bcHeight,
-                         entryBlockTime = fromIntegral bcTime,
+                         entryBlockTime = timestampToSeconds bcTime,
                          entryHash = Nothing,
                          entrySummary = toStrict (AE.encode v)
                          })

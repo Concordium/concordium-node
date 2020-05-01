@@ -56,7 +56,7 @@ deriving via (PersistentTreeStateMonad
 
 createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
 createGlobalState dbDir = do
-  now <- truncate <$> getPOSIXTime
+  now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
     genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
