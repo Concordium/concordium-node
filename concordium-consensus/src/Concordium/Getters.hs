@@ -275,8 +275,6 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                     Nothing -> return Null
                     Just bp -> do
                         let slot = blockSlot bp
-                        st <- queryBlockState bp
-                        reward <- BS.getRewardStatus st
                         slotTime <- getSlotTime slot
                         bfin <- isFinalized bh
                         parent <- bpParent bp
@@ -296,13 +294,7 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp,
                             "transactionEnergyCost" .= toInteger (bpTransactionsEnergyCost bp),
-                            "transactionsSize" .= toInteger (bpTransactionsSize bp),
-
-                            "totalAmount" .= toInteger (reward ^. AT.totalGTU),
-                            "totalEncryptedAmount" .= toInteger (reward ^. AT.totalEncryptedGTU),
-                            "centralBankAmount" .= toInteger (reward ^. AT.centralBankGTU),
-                            "mintedAmountPerSlot" .= toInteger (reward ^. AT.mintedGTUPerSlot),
-                            "executionCost" .= toInteger (reward ^. AT.executionCost)
+                            "transactionsSize" .= toInteger (bpTransactionsSize bp)
                             ]
 
 getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
