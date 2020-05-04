@@ -24,7 +24,7 @@ import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.Birk.Bake
 import Concordium.Types
-import Concordium.ID.Types(randomAccountAddress, makeSingletonAC, cdvRegId)
+import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 
@@ -51,9 +51,8 @@ makeBakerAccountKP bid amount =
      kp)
   where
     vfKey = SigScheme.correspondingVerifyKey kp
-    credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
-    credentialList = Queue.singleton dummyMaxValidTo credential
-    acct = newAccount (makeSingletonAC vfKey) address (cdvRegId credential)
+    credentialList = Queue.singleton dummyMaxValidTo (dummyCredential address dummyMaxValidTo dummyCreatedAt)
+    acct = newAccount (makeSingletonAC vfKey) address
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)

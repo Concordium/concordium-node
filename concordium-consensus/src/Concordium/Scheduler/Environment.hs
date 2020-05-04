@@ -19,7 +19,7 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
-import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, auEncryptionKey)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -199,6 +199,10 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- separately.
   withInstanceState :: Instance -> Value -> m a -> m a
 
+  -- |Add account encryption key to account address. The account with this
+  -- address is assumed to exist.
+  addAccountEncryptionKey :: Account -> ID.AccountEncryptionKey -> m ()
+
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
   withAccountToContractAmount :: Account -> Instance -> Amount -> m a -> m a
@@ -317,6 +321,15 @@ addAmountToCS acc !amnt !cs =
                                           Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
   where addr = acc ^. accountAddress
+
+{-# INLINE addEncKeyToCS #-}
+addEncKeyToCS :: Account -> ID.AccountEncryptionKey -> ChangeSet -> ChangeSet
+addEncKeyToCS acc !encKey !cs =
+  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auEncryptionKey ?~ encKey)
+                                          Nothing -> Just (emptyAccountUpdate addr & auEncryptionKey ?~ encKey))
+
+  where addr = acc ^. accountAddress
+
 
 -- |Modify the amount on the given account in the changeset by a given delta.
 -- It is assumed that the account is already in the changeset and that its balance
@@ -582,6 +595,9 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS toAcc (amountToDelta amount)
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
+
+  addAccountEncryptionKey acc encKey = do
+    changeSet %= addEncKeyToCS acc encKey
 
   getCurrentAccount addr =
     liftLocal (getAccount addr) >>= \case
