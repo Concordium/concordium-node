@@ -155,8 +155,6 @@ data AccountUpdate = AccountUpdate {
   ,_auNonce :: !(Maybe Nonce)
   -- |Optionally an update to the account amount.
   ,_auAmount :: !(Maybe AmountDelta)
-  -- |Optionally an encryption key.
-  ,_auEncryptionKey :: !(Maybe ID.AccountEncryptionKey)
   -- |Optionally an update to the encrypted amounts.
   ,_auEncrypted :: !EncryptedAmountUpdate
   -- |Optionally a new credential.
@@ -165,7 +163,7 @@ data AccountUpdate = AccountUpdate {
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Empty Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
@@ -177,10 +175,6 @@ updateAccount !upd !acc =
           case upd ^. auCredential of
             Nothing -> acc ^. accountCredentials
             Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
-       _accountEncryptionKey =
-          case upd ^. auEncryptionKey of
-            Nothing -> acc ^. accountEncryptionKey
-            Just ek -> Just ek, -- relies on the invariant that the scheduler should have checked, encryption key cannot be redefined.
        _accountEncryptedAmount =
           case upd ^. auEncrypted of
             Empty -> acc ^. accountEncryptedAmount
