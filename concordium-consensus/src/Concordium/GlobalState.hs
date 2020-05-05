@@ -45,7 +45,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.SQLiteATI
+import Concordium.GlobalState.SQL.AccountTransactionIndex
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
