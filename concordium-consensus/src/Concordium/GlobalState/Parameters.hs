@@ -265,11 +265,11 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
                 (gaAddress gbAccount)
 
         mkAccount GenesisAccount{..} =
-          (newAccount gaVerifyKeys gaAddress) {_accountAmount = gaBalance,
-                                               _accountCredentials =
-                                                 let cdv = ID.cdiValues gaCredential
-                                                 in Queue.singleton (ID.pValidTo (ID.cdvPolicy cdv)) cdv
-                                              }
+          let cdv = ID.cdiValues gaCredential in
+          (newAccount gaVerifyKeys gaAddress (ID.cdvRegId cdv))
+                {_accountAmount = gaBalance,
+                 _accountCredentials = Queue.singleton (ID.pValidTo (ID.cdvPolicy cdv)) cdv
+                }
         -- special accounts will have some special privileges during beta.
         genesisControlAccounts = map mkAccount gpControlAccounts
         -- Baker accounts will have no special privileges.
