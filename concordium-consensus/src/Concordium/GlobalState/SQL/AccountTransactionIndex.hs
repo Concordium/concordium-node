@@ -5,36 +5,35 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE GADTs #-}
-module Concordium.GlobalState.SQLiteATI where
+module Concordium.GlobalState.SQL.AccountTransactionIndex where
 
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.SQL
 
 import Database.Persist
--- import Database.Persist.Sqlite
 import Database.Persist.Postgresql
 import Database.Persist.TH
 import Data.Pool
 
-import qualified Data.Serialize as S
 import qualified Data.Aeson as AE
 
 import Control.Monad.Logger
 import Control.Monad.Reader
 
-import Data.Word
 import Data.ByteString
 import Data.ByteString.Lazy(toStrict)
 
+
 share [mkPersist sqlSettings, mkSave "entityDefs", mkMigrate "migrateAll"] [persistLowerCase|
   Entry
-    account ByteString  maxlen=32
-    block ByteString  maxlen=32
-    blockHeight Word64
-    blockTime Word64
-    hash ByteString Maybe
+    account (ByteStringSerialized AccountAddress)  maxlen=32
+    block (ByteStringSerialized BlockHash)  maxlen=32
+    blockHeight BlockHeight
+    blockTime Timestamp
+    hash (ByteStringSerialized TransactionHash) Maybe
     summary ByteString
 
     deriving Eq Show
@@ -57,21 +56,21 @@ writeEntries pool BlockContext{..} hm sos = do
           insertMany_
               . Prelude.reverse -- reverse is because the latest entry is the head of the list
               . fmap (\(k, v) -> Entry{
-                         entryAccount = S.encode k,
-                         entryBlock = S.encode bcHash,
+                         entryAccount = ByteStringSerialized k,
+                         entryBlock = ByteStringSerialized bcHash,
                          entryBlockHeight = fromIntegral bcHeight,
-                         entryBlockTime = timestampToSeconds bcTime,
-                         entryHash = Just (S.encode (tsHash v)),
+                         entryBlockTime = bcTime,
+                         entryHash = Just (ByteStringSerialized (tsHash v)),
                          entrySummary = toStrict (AE.encode v)
                          })
               $ hm
 
           insertMany_
               . fmap (\v@BakingReward{..} -> Entry{
-                         entryAccount = S.encode stoBakerAccount,
-                         entryBlock = S.encode bcHash,
+                         entryAccount = ByteStringSerialized stoBakerAccount,
+                         entryBlock = ByteStringSerialized bcHash,
                          entryBlockHeight = fromIntegral bcHeight,
-                         entryBlockTime = timestampToSeconds bcTime,
+                         entryBlockTime = bcTime,
                          entryHash = Nothing,
                          entrySummary = toStrict (AE.encode v)
                          })
