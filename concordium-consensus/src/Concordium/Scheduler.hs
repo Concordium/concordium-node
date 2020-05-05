@@ -249,9 +249,6 @@ dispatch msg = do
                      let msgSize = fromIntegral (thPayloadSize meta)
                      in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
 
-                   DeployEncryptionKey encKey ->
-                     handleDeployEncryptionKey (mkWTC TTDeployEncryptionKey) encKey
-
                    AddBaker{..} ->
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
 
@@ -589,24 +586,6 @@ runInterpreter f =
   getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
                             Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
-handleDeployEncryptionKey ::
-  SchedulerMonad m
-    => WithDepositContext
-    -> ID.AccountEncryptionKey -- ^The encryption key.
-    -> m (Maybe TransactionSummary)
-handleDeployEncryptionKey wtc encKey =
-  withDeposit wtc c (defaultSuccess wtc)
-  where senderAccount = wtc ^. wtcSenderAccount
-        c = do
-          tickEnergy Cost.deployEncryptionKey
-          let aaddr = senderAccount ^. accountAddress
-          case senderAccount ^. accountEncryptionKey of
-            Nothing -> do
-              addAccountEncryptionKey senderAccount encKey
-              return [AccountEncryptionKeyDeployed encKey aaddr]
-            Just encKey' -> rejectTransaction (AccountEncryptionKeyAlreadyExists aaddr encKey')
-
-
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
 -- precise logic for when a baker can be added and removed should be analyzed
 -- from a security perspective.
@@ -922,7 +901,7 @@ handleDeployCredential cdi cdiHash = do
                 else do
                   let accountKeys = ID.makeAccountKeys keys threshold
                   let aaddr = ID.addressFromRegId regId
-                  let account = newAccount accountKeys aaddr
+                  let account = newAccount accountKeys aaddr regId
                   -- this check is extremely unlikely to fail (it would amount to a hash collision since
                   -- we checked regIdEx above already).
                   accExistsAlready <- isJust <$> getAccount aaddr
