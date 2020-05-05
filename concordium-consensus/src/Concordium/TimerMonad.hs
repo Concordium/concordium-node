@@ -54,7 +54,7 @@ makeThreadTimer timeout action = do
   return $ ThreadTimer thread enabled
 #else
   manager <- getSystemTimerManager
-  micros <- getDelay timeout
+  micros <- max 1 <$> getDelay timeout
   key <- registerTimeout manager micros action
   return $! ThreadTimer manager key
 #endif

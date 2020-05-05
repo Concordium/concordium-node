@@ -387,7 +387,10 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
                             | finalizationIgnoreFirstWait = if ticks == 0 then 0 else (ticks - 1)
                             | otherwise = ticks
                         delay = fromIntegral ticks' * durationToNominalDiffTime finalizationWaitingTime
-                    _ <- onTimeout (DelayFor delay) (triggerWMVBA _finsSessionId _finsIndex roundDelta action)
+                    if delay == 0 then
+                        triggerWMVBA _finsSessionId _finsIndex roundDelta action
+                    else 
+                        () <$ onTimeout (DelayFor delay) (triggerWMVBA _finsSessionId _finsIndex roundDelta action)
                     handleEvs b evs'
             handleEvs False evs
 
