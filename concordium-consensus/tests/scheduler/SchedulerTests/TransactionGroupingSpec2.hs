@@ -21,10 +21,6 @@ import Data.Foldable
 import Acorn.Core
 import qualified Acorn.Utils.Init as Init
 import qualified Acorn.Parser.Runner as PR
-import qualified Concordium.Crypto.BlockSignature as BlockSig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.VRF as VRF
-import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants

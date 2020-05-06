@@ -135,9 +135,10 @@ initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amoun
 
 createCustomAccount :: Amount -> Sig.KeyPair -> AccountAddress -> Account
 createCustomAccount amount kp address =
-    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address
+    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address (ID.cdvRegId credential)
         & (accountAmount .~ amount)
-        . (accountCredentials .~ Queue.singleton dummyMaxValidTo (dummyCredential address dummyMaxValidTo dummyCreatedAt))
+        . (accountCredentials .~ Queue.singleton dummyMaxValidTo credential)
+  where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
 
 -- |State with the given number of contract instances of the counter contract specified.
 {-# WARNING initialState "Dummy initial state, only use for testing." #-}
