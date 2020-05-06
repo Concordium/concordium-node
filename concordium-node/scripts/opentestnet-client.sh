@@ -28,4 +28,9 @@ then
   export BAKER_ID=node-0
 fi
 
+if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
+then
+  export IMPORT_BLOCKS_FROM="/var/lib/concordium/data/blocks_to_import.dat"
+fi
+
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
