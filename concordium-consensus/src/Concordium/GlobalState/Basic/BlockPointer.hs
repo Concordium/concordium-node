@@ -7,7 +7,6 @@
 module Concordium.GlobalState.Basic.BlockPointer where
 
 import Data.Time
-import Data.Time.Clock.POSIX
 import qualified Data.List as List
 import Control.Exception
 import Data.Functor.Identity
@@ -64,7 +63,7 @@ makeGenesisBasicBlockPointer genData _bpState = theBlockPointer
         _bpLastFinalized = Identity theBlockPointer
         _bpLastFinalizedHash = _bpHash
         _bpHeight = 0
-        _bpReceiveTime = posixSecondsToUTCTime (fromIntegral (genesisTime genData))
+        _bpReceiveTime = timestampToUTCTime (genesisTime genData)
         _bpArriveTime = _bpReceiveTime
         _bpTransactionCount = 0
         _bpTransactionsEnergyCost = 0

@@ -37,7 +37,7 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
-import Concordium.GlobalState.SQLiteATI
+import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Data.Time.Clock
 import Data.Foldable as Fold (foldl')
 -- * SkovPersistentData definition

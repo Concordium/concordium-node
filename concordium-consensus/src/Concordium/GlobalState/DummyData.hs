@@ -16,7 +16,10 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
+
 import qualified Concordium.GlobalState.SeedState as SeedState
+import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
+
 import Concordium.Types
 import System.Random
 import qualified Data.ByteString.Lazy.Char8 as BSL
@@ -114,8 +117,8 @@ makeTestingGenesisData
   nBakers
   genesisSlotDuration
   elecDiff
-  finMinSkip
-  finComMaxSize
+  finalizationMinimumSkip
+  finalizationCommitteeMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
   genesisControlAccounts
@@ -126,7 +129,18 @@ makeTestingGenesisData
         genesisBakers = fst (bakersFromList bakers)
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisElectionDifficulty = elecDiff
-        genesisFinalizationParameters = FinalizationParameters finMinSkip finComMaxSize
+        genesisFinalizationParameters =
+          FinalizationParameters{
+           finalizationWaitingTime = 100,
+           finalizationIgnoreFirstWait = False,
+           finalizationOldStyleSkip = False,
+           finalizationSkipShrinkFactor = 0.8,
+           finalizationSkipGrowFactor = 2,
+           finalizationDelayShrinkFactor = 0.8,
+           finalizationDelayGrowFactor = 2,
+           finalizationAllowZeroDelay = False,
+           ..
+           }
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
@@ -140,15 +154,15 @@ emptyBirkParameters = BasicBirkParameters {
   }
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: Accounts -> Amount -> BlockState
-createBlockState accounts gtuAmount =
+createBlockState :: Accounts -> BlockState
+createBlockState accounts =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters &
       (blockAccounts .~ accounts) .
-      (blockBank . Rewards.totalGTU .~ gtuAmount) .
+      (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
       (blockIdentityProviders .~ dummyIdentityProviders)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: Amount -> Accounts -> Amount -> BlockState
+blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
