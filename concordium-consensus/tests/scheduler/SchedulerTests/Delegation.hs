@@ -180,4 +180,4 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
 
 tests :: Spec
 tests = describe "SchedulerTests.Delegation" $
-    it "Delegation" $ withMaxSuccess 1000 testTransactions
+    it "Delegation" $ withMaxSuccess 100 testTransactions
