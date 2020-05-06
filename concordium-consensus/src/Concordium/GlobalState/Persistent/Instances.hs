@@ -5,7 +5,6 @@ import Data.Word
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
 import Control.Monad.IO.Class
-import Data.IORef
 import Data.Serialize
 import Data.HashMap.Strict(HashMap)
 import Data.Bits
@@ -398,9 +397,9 @@ makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> 
         conv (Transient.Branch lvl fll vac hsh l r) = do
             l' <- conv l
             r' <- conv r
-            return $ LBMemory (Branch lvl fll vac hsh l' r')
-        conv (Transient.Leaf i) = LBMemory .Leaf <$> convInst i
-        conv (Transient.VacantLeaf si) = return $ LBMemory (VacantLeaf si)
+            makeBufferedBlobbed (Branch lvl fll vac hsh l' r')
+        conv (Transient.Leaf i) = Leaf <$> convInst i >>= makeBufferedBlobbed
+        conv (Transient.VacantLeaf si) = makeBufferedBlobbed (VacantLeaf si)
         convInst Transient.Instance{instanceParameters=Transient.InstanceParameters{..}, ..} = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
                 pinstanceAddress = instanceAddress,

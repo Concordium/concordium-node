@@ -220,7 +220,7 @@ instance Show a => Show (BufferedRef a) where
     show (BRMemory _ v) = "{" ++ show v ++ "}"
 
 instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (BufferedRef a) where
-    store p b = storeBuffered b >>= store p
+    store p b = getBRRef b >>= store p
     load p = fmap BRBlobbed <$> load p
     storeUpdate p brm@(BRMemory ref v) = do
         r <- liftIO $ readIORef ref
@@ -232,9 +232,9 @@ instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Buffer
         else (,brm) <$> store p brm
     storeUpdate p x = (,x) <$> store p x
 
--- |Stores in-memory data to disk if it has not been stored yet
-storeBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BlobRef a)
-storeBuffered (BRMemory ref v) = do
+-- |Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
+getBRRef :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BlobRef a)
+getBRRef (BRMemory ref v) = do
     r <- liftIO $ readIORef ref
     if r == nullRef
     then do
@@ -243,7 +243,7 @@ storeBuffered (BRMemory ref v) = do
         return r'
     else
         return r
-storeBuffered (BRBlobbed r) = return r
+getBRRef (BRBlobbed r) = return r
 
 instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
     store _ Null = return $ put nullRef
@@ -296,7 +296,7 @@ flushBufferedRef (BRMemory ref v) = do
 flushBufferedRef b = return (b, brRef b)
 
 uncacheBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a)
-uncacheBuffered v@(BRMemory _ _) = BRBlobbed <$> storeBuffered v
+uncacheBuffered v@(BRMemory _ _) = BRBlobbed <$> getBRRef v
 uncacheBuffered b = return b
 
 
@@ -320,6 +320,13 @@ instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f))) => MRecu
 instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f))) => MCorecursive m (Blobbed ref f) where
     membed r = Blobbed <$> storeRef r
 
+class HasNull ref where
+    refNull :: ref
+    isNull :: ref -> Bool
+
+instance HasNull (Blobbed BlobRef a) where
+    refNull = Blobbed nullRef
+    isNull (Blobbed r) = r == nullRef
 
 data CachedBlobbed ref f
     = CBUncached (Blobbed ref f)
@@ -348,43 +355,64 @@ instance (MonadBlobStore m ref) => BlobStorable m ref (CachedBlobbed ref f)
 
 
 
-
+-- TODO (MRA) rename
 data BufferedBlobbed ref f
-    = LBMemory (f (BufferedBlobbed ref f))
+    = LBMemory (IORef (Blobbed ref f)) (f (BufferedBlobbed ref f))
     | LBCached (CachedBlobbed ref f)
+
+makeLBMemory :: (MonadIO m) => Blobbed ref f -> f (BufferedBlobbed ref f) -> m (BufferedBlobbed ref f)
+makeLBMemory r a = liftIO $ do
+    ref <- newIORef r
+    return $ LBMemory ref a
+
+makeBufferedBlobbed :: (MonadIO m, HasNull (Blobbed ref f)) => f (BufferedBlobbed ref f) -> m (BufferedBlobbed ref f)
+makeBufferedBlobbed = makeLBMemory refNull
 
 type instance Base (BufferedBlobbed ref f) = f
 
 instance (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f)), Functor f) => MRecursive m (BufferedBlobbed ref f) where
-    mproject (LBMemory r) = pure r
+    mproject (LBMemory _ r) = pure r
     mproject (LBCached c) = fmap LBCached <$> mproject c
     {-# INLINE mproject #-}
 
-instance Monad m => MCorecursive m (BufferedBlobbed ref f) where
-    membed = pure . LBMemory
+instance (MonadIO m, HasNull (Blobbed ref f)) => MCorecursive m (BufferedBlobbed ref f) where
+    membed = makeBufferedBlobbed
     {-# INLINE membed #-}
 
-instance (MonadBlobStore m ref, Traversable f, BlobStorable m ref (f (Blobbed ref f))) => BlobStorable m ref (BufferedBlobbed ref f) where
-    store p v = fst <$> storeUpdate p v
-
-    storeUpdate p v@(LBCached c) = (, v) <$> store p c
-    storeUpdate p v = do
-            (pu, v') <- sU v
-            return (pu, LBCached v')
-        where
-            sU :: BufferedBlobbed ref f -> m (Put, CachedBlobbed ref f)
-            sU (LBCached c) = storeUpdate p c
-            sU (LBMemory t) = do
-                t' <- mapM (fmap snd . sU) t
+-- |Stores in-memory data to disk if it has not been stored yet and returns pointer to saved data
+getBBRef :: (BlobStorable m ref (BufferedBlobbed ref f), BlobStorable m ref (f (Blobbed ref f)), MonadIO m, HasNull (Blobbed ref f), Traversable f)
+               => Proxy ref
+               -> BufferedBlobbed ref f
+               -> m ((Put, BufferedBlobbed ref f), Blobbed ref f)
+getBBRef p v@(LBCached c) = (, cachedBlob c) . (, v) <$> store p c
+getBBRef p v@(LBMemory ref _) = do
+    r <- liftIO $ readIORef ref
+    if isNull r
+    then do
+        (pu, cb) <- storeAndGetCached v
+        let r' = cachedBlob cb
+        liftIO $ writeIORef ref r'
+        return ((pu, LBCached cb), r')
+    else
+        (, r) . (, v) <$> store p v
+    where storeAndGetCached (LBCached c) = storeUpdate p c
+          storeAndGetCached (LBMemory ref' t) = do
+            t' <- mapM (fmap snd . storeAndGetCached) t
+            rm <- liftIO $ readIORef ref'
+            if (isNull rm)
+            then do
                 r <- storeRef (cachedBlob <$> t')
+                liftIO $ writeIORef ref' (Blobbed r)
                 return (put r, CBCached (Blobbed r) t')
+            else storeUpdate p (CBCached rm t')
+
+instance (MonadIO m, MonadBlobStore m ref, Traversable f, BlobStorable m ref (f (Blobbed ref f)), HasNull (Blobbed ref f))
+         => BlobStorable m ref (BufferedBlobbed ref f) where
+    store p v = getBBRef p v >>= store p . snd
+
+    storeUpdate p v = fst <$> getBBRef p v
+
     load _ = return . LBCached <$> get
-
-
--- |Flush a 'BufferedBlobbed' to the blob store.
-bufferedToCached :: (MonadBlobStore m ref, BlobStorable m ref (f (Blobbed ref f)), Traversable f) => BufferedBlobbed ref f -> m (CachedBlobbed ref f)
-bufferedToCached (LBMemory r) = mapM bufferedToCached r >>= membed
-bufferedToCached (LBCached c) = return c
 
 class FixShowable fix where
     showFix :: Functor f => (f String -> String) -> fix f -> String
@@ -397,7 +425,7 @@ instance (forall a. Show (ref a)) => FixShowable (CachedBlobbed ref) where
     showFix sh (CBUncached r) = showFix sh r
 
 instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
-    showFix sh (LBMemory v) = "{" ++ (sh (showFix sh <$> v)) ++ "}"
+    showFix sh (LBMemory _ v) = "{" ++ (sh (showFix sh <$> v)) ++ "}"
     showFix sh (LBCached r) = showFix sh r
 
 -- BlobStorable instances

@@ -10,6 +10,7 @@ module GlobalStateTests.Accounts where
 import Prelude hiding (fail)
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
 import Control.Exception
 import qualified Data.Set as Set
@@ -166,7 +167,7 @@ randomActions = sized (ra Set.empty Set.empty)
 
 
 
-runAccountAction :: (MonadBlobStore m BlobRef, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
+runAccountAction :: (MonadBlobStore m BlobRef, MonadFail m, MonadIO m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
 runAccountAction (PutAccount acct) (ba, pa) = do
         let ba' = B.putAccount acct ba
         pa' <- P.putAccount acct pa
