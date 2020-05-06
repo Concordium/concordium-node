@@ -25,8 +25,8 @@ import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    1000000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 testCases :: [TestCase]
 testCases =
@@ -55,7 +55,7 @@ testCases =
         )
       , ( TJSON { payload = Transfer { toaddress = Types.AddressContract (Types.ContractAddress 0 0)
                                      , amount = 10 }
-                , metadata = makeDummyHeader alesAccount 3 700
+                , metadata = makeDummyHeader alesAccount 3 70000
                 , keypair = alesKP
                 }
         , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
@@ -66,7 +66,7 @@ testCases =
         )
       -- SimpleTransfer to non-existing address
       , ( TJSON { payload = Transfer { toaddress = Types.AddressContract (Types.ContractAddress 1 0), amount = 10 }
-                , metadata = makeDummyHeader alesAccount 4 700
+                , metadata = makeDummyHeader alesAccount 4 70000
                 , keypair = alesKP
                 }
         , (Reject $ Types.InvalidContractAddress (Types.ContractAddress 1 0), emptySpec)

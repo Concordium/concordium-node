@@ -33,12 +33,12 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 1000000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 100000000 Acc.emptyAccounts
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "CommCounter"
-         , metadata = makeDummyHeader alesAccount 1 100000
+         , metadata = makeDummyHeader alesAccount 1 10000000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -46,7 +46,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "Unit.Unit"
                                   }
-         , metadata = makeDummyHeader alesAccount 2 100000
+         , metadata = makeDummyHeader alesAccount 2 10000000
          , keypair = alesKP
          }
   ,TJSON { payload = InitContract {amount = 100
@@ -54,7 +54,7 @@ transactionsInput =
                                   ,moduleName = "CommCounter"
                                   ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
-         , metadata = makeDummyHeader alesAccount 3 100000
+         , metadata = makeDummyHeader alesAccount 3 10000000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 101
@@ -62,7 +62,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Inc 100"
                             }
-         , metadata = makeDummyHeader alesAccount 4 100000
+         , metadata = makeDummyHeader alesAccount 4 10000000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -70,7 +70,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = makeDummyHeader alesAccount 5 100000
+         , metadata = makeDummyHeader alesAccount 5 10000000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -78,7 +78,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 50"
                             }
-         , metadata = makeDummyHeader alesAccount 6 120000
+         , metadata = makeDummyHeader alesAccount 6 12000000
          , keypair = alesKP
          }
   ,TJSON { payload = Update {amount = 100
@@ -86,7 +86,7 @@ transactionsInput =
                             ,moduleName = "CommCounter"
                             ,message = "Dec 1"
                             }
-         , metadata = makeDummyHeader alesAccount 7 120000
+         , metadata = makeDummyHeader alesAccount 7 12000000
          , keypair = alesKP
          }
   ]
