@@ -15,7 +15,6 @@ import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Data.Set as Set
 import Data.Maybe
-import Data.Functor.Identity
 import qualified Data.Vector as Vec
 
 import GHC.Generics (Generic)
@@ -142,7 +141,7 @@ emptyModules = Modules {
         runningHash = H.hash ""
     }
 
-instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Modules where
+instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Modules where
     storeUpdate p ms@Modules{..} = do
         (pm, modules') <- storeUpdate p modules
         return (pm >> put nextModuleIndex >> put runningHash, ms {modules = modules'})
@@ -155,10 +154,11 @@ instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Modules where
             modules <- mmodules
             return Modules{..}
 
-makePersistentModules :: TransientMods.Modules -> Modules
-makePersistentModules (TransientMods.Modules m nmi rh) = Modules m' nmi rh
+makePersistentModules :: MonadIO m => TransientMods.Modules -> m Modules
+makePersistentModules (TransientMods.Modules m nmi rh) = do
+    m' <- Trie.fromList $ upd <$> HM.toList m
+    return $ Modules m' nmi rh
     where
-        m' = runIdentity $ Trie.fromList $ fmap upd $ HM.toList m
         upd (mref, TransientMods.MemModule{..}) = (mref, PersistentModule{
                 pmInterface = mmoduleInterface,
                 pmValueInterface = mmoduleValueInterface,
@@ -235,11 +235,13 @@ makePersistent Basic.BlockState{..} = do
     persistentBlockInstances <- Instances.makePersistent _blockInstances
     persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
     liftIO $ do
-        modules <- makeBufferedRef $! makePersistentModules _blockModules
+        persistentMods <- makePersistentModules _blockModules
+        modules <- makeBufferedRef $! persistentMods
         identityProviders <- makeBufferedRef $! _blockIdentityProviders
         cryptographicParameters <- makeBufferedRef $! _blockCryptographicParameters
+        blockAccounts <- Account.makePersistent _blockAccounts
         bsp <- makeBufferedRef $ BlockStatePointers {
-            bspAccounts = Account.makePersistent _blockAccounts
+            bspAccounts = blockAccounts
             , bspInstances = persistentBlockInstances
             , bspModules = modules
             , bspBank = _blockBank
