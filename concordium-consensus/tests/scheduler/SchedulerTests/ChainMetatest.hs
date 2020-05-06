@@ -35,7 +35,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 100000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 10000000 Acc.emptyAccounts
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
@@ -47,7 +47,7 @@ chainMeta = Types.ChainMetadata{..}
 transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
-           , metadata = makeDummyHeader alesAccount 1 1000
+           , metadata = makeDummyHeader alesAccount 1 1000000
            , keypair = alesKP
            }
     ,TJSON { payload = InitContract {amount = 123
@@ -55,7 +55,7 @@ transactionsInput =
                                     ,moduleName = "ChainMetaTest"
                                     ,parameter = "Unit.Unit"
                                     }
-           , metadata = makeDummyHeader alesAccount 2 10000
+           , metadata = makeDummyHeader alesAccount 2 1000000
            , keypair = alesKP
            }
     ]
