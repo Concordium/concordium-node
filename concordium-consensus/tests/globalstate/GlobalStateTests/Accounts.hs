@@ -26,6 +26,7 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Crypto.DummyData
+import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Persistent.BlobStore
@@ -79,7 +80,7 @@ randomizeAccount _accountAddress _accountVerificationKeys = do
         _accountNonce <- Nonce <$> arbitrary
         _accountAmount <- Amount <$> arbitrary
         let _accountEncryptedAmount = []
-        let _accountEncryptionKey = Nothing
+        let _accountEncryptionKey = ID.makeEncryptionKey (dummyRegId _accountAddress)
         let _accountCredentials = Queue.empty
         let _accountStakeDelegate = Nothing
         let _accountInstances = mempty
@@ -87,7 +88,6 @@ randomizeAccount _accountAddress _accountVerificationKeys = do
 
 randomCredential :: Gen ID.CredentialRegistrationID
 randomCredential = ID.RegIdCred . FBS.pack <$> vectorOf 42 arbitrary
-
 
 randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)
