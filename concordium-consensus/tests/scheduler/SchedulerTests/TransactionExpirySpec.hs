@@ -34,7 +34,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 2000000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 2000000000 Acc.emptyAccounts
 
 baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
@@ -79,7 +79,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                       , keypair = alesKP
                       }
                  ,TJSON { payload = DeployModule "FibContract"
-                        , metadata = makeHeaderWithExpiry alesAccount 8 100000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 8 10000000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = InitContract { amount = 123
@@ -87,7 +87,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                                                  , moduleName = "FibContract"
                                                  , parameter = "Unit.Unit"
                                                  }
-                        , metadata = makeHeaderWithExpiry alesAccount 9 1000000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 9 100000000 t
                         , keypair = alesKP
                         }
                  ,TJSON { payload = Update { amount = 0
@@ -95,7 +95,7 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                                            , moduleName = "FibContract"
                                            , message = "Fib 30"
                                            }
-                        , metadata = makeHeaderWithExpiry alesAccount 10 1000000 t
+                        , metadata = makeHeaderWithExpiry alesAccount 10 100000000 t
                         , keypair = alesKP
                         }
                  ]

@@ -43,7 +43,7 @@ initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
-         , metadata = makeDummyHeader alesAccount 1 10000
+         , metadata = makeDummyHeader alesAccount 1 1000000
          , keypair = alesKP
          }
 
@@ -52,7 +52,7 @@ transactionsInput =
                                   , parameter = "Unit.Unit"
                                   , contractName = "Fibonacci"
                                   }
-        , metadata = makeDummyHeader alesAccount 2 100000
+        , metadata = makeDummyHeader alesAccount 2 10000000
         , keypair = alesKP
         }
   ,TJSON { payload = Update { amount = 0
@@ -60,7 +60,7 @@ transactionsInput =
                             , message = "Fib 30"
                             , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
-        , metadata = makeDummyHeader alesAccount 3 1000000
+        , metadata = makeDummyHeader alesAccount 3 100000000
         , keypair = alesKP
         }
   ]

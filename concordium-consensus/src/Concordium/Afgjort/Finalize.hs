@@ -34,6 +34,7 @@ module Concordium.Afgjort.Finalize (
     ActiveFinalizationM(..),
     -- * For testing
     FinalizationRound(..),
+    nextFinalizationDelay
 ) where
 
 import qualified Data.Vector as Vec

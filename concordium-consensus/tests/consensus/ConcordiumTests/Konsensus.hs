@@ -241,6 +241,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
 
 invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
+        let finParams = finalizationParameters maxFinComSize
         invariantSkovData sd
         let (flHead Seq.:|> (lfr, lfb)) = _finalizationList
         checkBinary (==) _finsIndex (succ $ finalizationIndex lfr) "==" "current finalization index" "successor of last finalized index"
@@ -252,15 +253,14 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         let prevState  = BS._bpState lfb
             prevBakers = BState._birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ BState._blockBank prevState
-        checkBinary (==) _finsCommittee (makeFinalizationCommittee (finalizationParameters maxFinComSize) prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
             bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
         checkBinary (==) bakerInFinCommittee (isRight _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
             -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
-            checkBinary (>=) roundDelta (max 1 (finalizationDelay lfr `div` 2)) ">=" "round delta" "half last finalization delay (or 1)"
-            unless (popCount (toInteger roundDelta) == 1) $ Left $ "Round delta (" ++ show roundDelta ++ ") is not a power of 2"
+            checkBinary (>=) roundDelta (nextFinalizationDelay finParams lfr) ">=" "round delta" "starting delta for this finalization"
             -- Determine which blocks are valid candidates for finalization
             -- i.e. they are at height _finsHeight and have descendants at height _finsHeight + roundDelta
             let descendants = case _branches Seq.!? (fromIntegral $ _finsHeight + roundDelta - bpHeight lfb - 1) of
