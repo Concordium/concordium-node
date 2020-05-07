@@ -10,7 +10,6 @@
     MultiParamTypeClasses,
     QuantifiedConstraints,
     UndecidableInstances,
-    CPP,
     RankNTypes,
     ScopedTypeVariables,
     ConstraintKinds,
@@ -21,15 +20,19 @@
 -- in this package.
 module Concordium.GlobalState where
 
+import Control.Exception
+import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
-import Data.Serialize.Put (runPut)
+import Data.Typeable
 import Data.ByteString.Char8(ByteString)
 import System.FilePath
+import System.Directory
+import System.IO.Error
 import Data.Pool(destroyAllResources)
 
 import Concordium.GlobalState.Classes
@@ -39,7 +42,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore)
+import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore, loadBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.TreeState
@@ -207,7 +210,7 @@ newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
-type PersistentTreeStateM ati bs m = TreeStateM (SkovPersistentData ati bs) m
+type PersistentTreeStateM ati m = TreeStateM (SkovPersistentData ati) m
 
 -- * Specialized implementations
 -- ** Memory implementations
@@ -232,27 +235,27 @@ deriving via PureTreeStateMonad bs m
               => TreeStateMonad (MemoryTreeStateM bs m)
 
 -- ** Disk implementations
-deriving via PersistentTreeStateMonad ati bs m
-    instance ATITypes (PersistentTreeStateMonad ati bs m)
-             => ATITypes (PersistentTreeStateM ati bs m)
+deriving via PersistentTreeStateMonad ati m
+    instance ATITypes (PersistentTreeStateMonad ati m)
+             => ATITypes (PersistentTreeStateM ati m)
 
-deriving via PersistentTreeStateMonad ati bs m
-    instance (Monad m, PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
-             => PerAccountDBOperations (PersistentTreeStateM ati bs m)
+deriving via PersistentTreeStateMonad ati m
+    instance (Monad m, PerAccountDBOperations (PersistentTreeStateMonad ati m))
+             => PerAccountDBOperations (PersistentTreeStateM ati m)
 
-deriving via PersistentTreeStateMonad ati bs m
-    instance GlobalStateTypes (PersistentTreeStateM ati bs m)
+deriving via PersistentTreeStateMonad ati m
+    instance GlobalStateTypes (PersistentTreeStateM ati m)
 
-deriving via PersistentTreeStateMonad ati bs m
+deriving via PersistentTreeStateMonad ati m
     instance (Monad m,
-              BlockPointerMonad (PersistentTreeStateMonad ati bs m))
-             => BlockPointerMonad (PersistentTreeStateM ati bs m)
+              BlockPointerMonad (PersistentTreeStateMonad ati m))
+             => BlockPointerMonad (PersistentTreeStateM ati m)
 
-deriving via PersistentTreeStateMonad ati bs m
+deriving via PersistentTreeStateMonad ati m
     instance (Monad m,
               BlockStateStorage m,
-              TreeStateMonad (PersistentTreeStateMonad ati bs m))
-             => TreeStateMonad (PersistentTreeStateM ati bs m)
+              TreeStateMonad (PersistentTreeStateMonad ati m))
+             => TreeStateMonad (PersistentTreeStateM ati m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
@@ -316,16 +319,13 @@ deriving via TreeStateBlockStateM g c r s m
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
 data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData BS.BlockState
 
--- |Configuration that uses the in-memory, Haskell implementation of tree state and the
--- persistent Haskell implementation of block state.
-data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData BS.BlockState
-
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
 data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState
 
 -- |Configuration that uses the disk implementation for both the tree state
--- and the block state, as well as a
+-- and the block state, as well as an external database for producing
+-- an index of transactions affecting a given account.
 data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configRP :: RuntimeParameters,
   configGD :: GenesisData,
@@ -335,19 +335,16 @@ data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
 
 type family GSContext c where
   GSContext MemoryTreeMemoryBlockConfig = ()
-  GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
   GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
   GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
 
 type family GSState c where
   GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
-  GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
-  GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
-  GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
+  GSState DiskTreeDiskBlockConfig = SkovPersistentData ()
+  GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump
 
 type family GSLogContext c where
   GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
-  GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
   GSLogContext DiskTreeDiskBlockConfig = NoLogContext
   GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
 
@@ -364,23 +361,32 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
 
--- |Configuration that uses the Haskell implementation of tree state and the
--- in-memory, Haskell implmentation of the block state.
-instance GlobalStateConfig MemoryTreeDiskBlockConfig where
-    initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
-        pbscModuleCache <- newIORef emptyModuleCache
-        let pbsc = PersistentBlockStateContext{..}
-        pbs <- makePersistent bs
-        _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
-        destroyTempBlobStore pbscBlobStore
-        writeIORef pbscModuleCache Persistent.emptyModuleCache
-
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+      -- check if all the necessary database files exist
+      let blockStateFile = rpBlockStateFile rtparams <.> "dat"
+      bsPathEx <- doesPathExist blockStateFile
+      -- if the block state file exists assume we have other database files available.
+      -- we don't want to automatically delete any data
+      if bsPathEx then do
+        -- check whether it is a normal file and whether we have the right permissions
+        bsFileEx <- doesFileExist blockStateFile
+        unless bsFileEx $ throwIO BlockStatePathDir
+        bsPerms <- catchJust (guard . isPermissionError)
+                             (getPermissions blockStateFile)
+                             (const (throwIO BlockStatePermissionError))
+        unless (readable bsPerms && writable bsPerms) $ throwIO BlockStatePermissionError
+
+        -- the block state file exists, is readable and writable
+        -- we ignore the given block state parameter in such a case.
+        pbscBlobStore <- loadBlobStore blockStateFile
+        -- we start with an empty module cache.
+        pbscModuleCache <- newIORef emptyModuleCache
+        let pbsc = PersistentBlockStateContext{..}
+        skovData <- loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)
+        return (pbsc, skovData, NoLogContext)
+      else do
+        pbscBlobStore <- createTempBlobStore blockStateFile
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
@@ -398,12 +404,12 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        handle <- connectPostgres txLog
-        createTable handle
+        dbHandle <- connectPostgres txLog
+        createTable dbHandle
         let ati = defaultValue
-        isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig handle) serBS
-        return (pbsc, isd, PAAIConfig handle)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig handle) = do
+        isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
+        return (pbsc, isd, PAAIConfig dbHandle)
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
         destroyTempBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
-        destroyAllResources handle
+        destroyAllResources dbHandle

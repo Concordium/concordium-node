@@ -54,6 +54,12 @@ createTempBlobStore blobStoreFilePath = do
     blobStoreFile <- newMVar h
     return $! BlobStore{..}
 
+-- |Load an existing blob store from a file.
+-- The file must be readable and writable.
+loadBlobStore :: FilePath -> IO BlobStore
+loadBlobStore = createTempBlobStore
+
+
 destroyTempBlobStore :: BlobStore -> IO ()
 destroyTempBlobStore BlobStore{..} = do
     h <- takeMVar blobStoreFile
