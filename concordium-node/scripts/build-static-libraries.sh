@@ -31,7 +31,6 @@ echo "We will run the following process:
 * Fetch dependencies
 * Fetch compiler tools
   - GHC
-  - Rust
   - Cabal
   - Stack
 * Copy the ghc libraries
@@ -55,12 +54,6 @@ echo "We will run the following process:
 
 #############################################################################################################################
 section "Fetching dependencies"
-
-
-pacman -Sy
-pacman -S reflector --noconfirm
-reflector --latest 20 --protocol http --protocol https --sort rate --save /etc/pacman.d/mirrorlist
-pacman -Su wget tar make m4 pkgconf autoconf automake grep python clang libtool ncurses which rustup binutils git file postgresql-libs libffi --noconfirm
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 
 # Compile lmdb
@@ -84,11 +77,6 @@ cp -r bootstrapped_out/* /
 rm -r bootstrapped_out
 
 subsection "GHC: OK"
-
-rustup set profile minimal
-rustup default 1.42.0
-
-rm -rf $HOME/.cargo
 
 sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/rust-src/.cargo/config
 

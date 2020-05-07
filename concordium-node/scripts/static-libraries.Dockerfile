@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM archlinux/base
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12
 
 ENV GHC_VERSION 8.8.3
 
