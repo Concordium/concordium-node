@@ -459,6 +459,12 @@ elif [ "$MODE" == "local_wallet_proxy" ]; then
     then
         ARGS="$ARGS --db $WALLET_PROXY_DATABASE"
     fi
+    if [ -n "$WALLET_PROXY_ACCOUNT_FILE" ];
+    then
+        ARGS="$ARGS --drop-account $WALLET_PROXY_ACCOUNT_FILE"
+    else
+        ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account.json"
+    fi
     if [ -n "$DB_SLEEP" ];
     then
         echo "Sleeping for $DB_SLEEP"
