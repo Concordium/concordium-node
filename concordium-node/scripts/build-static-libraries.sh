@@ -237,18 +237,18 @@ subsection "Rust libraries: OK"
 
 strip --strip-debug /target/vanilla/cabal/libHS* \
             /target/vanilla/concordium/libHS* \
-                /target/profiling/cabal/libHS* \
-                /target/profiling/concordium/libHS* \
-                /target/profiling/concordium/libHS* \
-                /target/vanilla/ghc/lib* \
-                /target/profiling/ghc/lib* \
-                /target-sc/vanilla/cabal/libHS* \
-                /target-sc/vanilla/concordium/libHS* \
-                /target-sc/profiling/cabal/libHS* \
-                /target-sc/profiling/concordium/libHS* \
-                /target-sc/profiling/concordium/libHS* \
-                /target-sc/vanilla/ghc/lib* \
-                /target-sc/profiling/ghc/lib*
+            /target/vanilla/ghc/lib* \
+            /target/profiling/ghc/lib* \
+            /target-sc/vanilla/cabal/libHS* \
+            /target-sc/vanilla/concordium/libHS* \
+            /target-sc/vanilla/ghc/lib*
+#           /target-sc/profiling/ghc/lib*
+#           /target/profiling/cabal/libHS* \
+#           /target/profiling/concordium/libHS* \
+#           /target/profiling/concordium/libHS* \
+#           /target-sc/profiling/cabal/libHS* \
+#           /target-sc/profiling/concordium/libHS* \
+#           /target-sc/profiling/concordium/libHS* 
 
 strip --strip-debug /binaries/bin/* \
             /binaries/lib/*
