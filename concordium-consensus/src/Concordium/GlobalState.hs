@@ -28,7 +28,6 @@ import Control.Monad.State.Class
 import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
-import Data.Typeable
 import Data.ByteString.Char8(ByteString)
 import System.FilePath
 import System.Directory
