@@ -212,14 +212,14 @@ loadSkovPersistentData rp gd pbsc atiPair = do
           Just (bh, Nothing) -> throwIO (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
           Just (bh, Just bytes) -> return (Just (bh, bytes))
         
-      getBlockPointer :: ByteString -> IO (PersistentBlockPointer (ATIValues ati), FinalizationIndex)
+      getBlockPointer :: ByteString -> IO (PersistentBlockPointer (ATIValues ati), FinalizationIndex, PBS.PersistentBlockState)
       getBlockPointer bytes =
         case runGet getQuadruple bytes of
           Left _ -> throwIO (DatabaseInvariantViolation "Cannot deserialize block.")
           Right (finIndex, blockInfo, newBlock, state') -> do
             st <- runReaderT (PBS.runPersistentBlockStateMonad state') pbsc
             let ati = defaultValue :: ATIValues ati
-            (, finIndex) <$> makeBlockPointerFromPersistentBlock newBlock st ati blockInfo
+            (, finIndex, st) <$> makeBlockPointerFromPersistentBlock newBlock st ati blockInfo
         where getQuadruple = do
                 finIndex <- S.get
                 blockInfo <- S.get
@@ -242,7 +242,8 @@ loadSkovPersistentData rp gd pbsc atiPair = do
       loadInSequence ::
         PersistentBlockPointer (ATIValues ati) -- Genesis block pointer
         -> ByteString -- Bytes of the genesis block as stored in the database.
-        -> IO ((PersistentBlockPointer (ATIValues ati), FinalizationIndex), [(BlockHash, PersistentBlockStatus (ATIValues ati))])
+        -> IO ((PersistentBlockPointer (ATIValues ati), FinalizationIndex, PBS.PersistentBlockState),
+               [(BlockHash, PersistentBlockStatus (ATIValues ati))])
       loadInSequence gbp gBytes = do
         (lastBytes, blocks) <- go 1 gBytes [(getHash gbp, BlockFinalized 0)]
         (, blocks) <$> getBlockPointer lastBytes
@@ -260,7 +261,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   (gbHash, gbBytes) <- lookupAtHeight 0 `failWith` GenesisBlockNotInDataBaseError
 
   -- Check that this is really a genesis pointer with the same genesis data
-  (gBlockPointer, _) <- getBlockPointer gbBytes
+  (gBlockPointer, _, _) <- getBlockPointer gbBytes
 
   unless (gbHash == getHash gBlockPointer) $ throwIO (DatabaseInvariantViolation $ "Genesis given hash and computed hash differ.")
 
@@ -268,32 +269,34 @@ loadSkovPersistentData rp gd pbsc atiPair = do
     GenesisBlock gd' -> unless (gd == gd') $ throwIO (GenesisBlockIncorrect (getHash gBlockPointer))
     _ -> throwIO (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
-  ((lastPointer, lastIndex), blocks) <- loadInSequence gBlockPointer gbBytes
+  ((lastPointer, lastBlockFinIndex, lastState), blocks) <- loadInSequence gBlockPointer gbBytes
 
-  lastFinRecord <-
-    L.transaction env (L.get dbFinRecords lastIndex:: (L.Transaction ReadOnly (Maybe FinalizationRecord)))
-      `failWith` (DatabaseInvariantViolation "Finalization record for known index does not exist.")
+  let getFinalizationRecord idx = L.readOnlyTransaction env (L.get dbFinRecords idx)
+  lastFinRecord <- getFinalizationRecord lastBlockFinIndex `failWith` (DatabaseInvariantViolation "Finalization record for known index does not exist.")
 
-  let initialStatistics = ConsensusStatistics {
-    _blocksReceivedCount = fromIntegral (bpHeight lastPointer), -- genesis block does not count
-    _blocksVerifiedCount = fromIntegral (bpHeight lastPointer), -- genesis block does not count
-    _blockLastReceived = Just (bpReceiveTime lastPointer),
-    _blockReceiveLatencyEMA = 0,
-    _blockReceiveLatencyEMVar = 0,
-    _blockReceivePeriodEMA = Nothing,
-    _blockReceivePeriodEMVar = Nothing,
-    _blockLastArrive = Just (bpArriveTime lastPointer),
-    _blockArriveLatencyEMA = 0,
-    _blockArriveLatencyEMVar = 0,
-    _blockArrivePeriodEMA = Nothing,
-    _blockArrivePeriodEMVar = Nothing,
-    _transactionsPerBlockEMA = 0, -- TODO: We could compute this, but it is expensive.
-    _transactionsPerBlockEMVar = 0, -- TODO: We could compute this, but it is expensive.
-    _finalizationCount = fromIntegral lastIndex,
-    _lastFinalizedTime = Nothing, -- TODO: Not clear whether we have this information.
-    _finalizationPeriodEMA = Nothing,
-    _finalizationPeriodEMVar = Nothing
-  }
+  -- make sure the block pointed to by the last finalization record is indeed in the database
+  _ <- readOnlyTransaction env (L.get dbB (finalizationBlockPointer lastFinRecord))
+       `failWith` (DatabaseInvariantViolation "Finalization record points to a block which does not exist.")
+
+  -- The final thing we need to establish is the transaction table invariants.
+  -- This specifically means for each account we need to determine the next available nonce.
+  -- For now we simply load all accounts, but after this table is also moved to
+  -- some sort of a database we should not need to do that.
+
+  let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext IO) TransactionTable
+      getTransactionTable = do
+        accs <- BS.getAccountList lastState
+        foldM (\table addr ->
+                 BS.getAccount lastState addr >>= \case
+                  Nothing -> liftIO (throwIO (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded."))
+                  Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+            emptyTransactionTable
+            accs
+  tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
+
+  -- traceM $ "Last finalized block: " ++ show (bpHash lastPointer)
+  -- traceShowM (lastFinRecord)
+  -- traceShowM lastBlockFinIndex
   
   return SkovPersistentData {
             _blockTable = HM.fromList blocks,
@@ -306,9 +309,12 @@ loadSkovPersistentData rp gd pbsc atiPair = do
             _genesisBlockPointer = gBlockPointer,
             _focusBlock = lastPointer,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTable,
+            _transactionTable = tt,
             _transactionTablePurgeCounter = 0,
-            _statistics = initialStatistics,
+            -- The best thing we can probably do is use the initial statistics,
+            -- and make the meaning of those with respect to the last time
+            -- consensus started.
+            _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _db = dbHandlers,
             _atiCtx = snd atiPair

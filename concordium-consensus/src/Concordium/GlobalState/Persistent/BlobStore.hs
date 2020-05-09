@@ -59,6 +59,9 @@ createTempBlobStore blobStoreFilePath = do
 loadBlobStore :: FilePath -> IO BlobStore
 loadBlobStore = createTempBlobStore
 
+flushBlobStore :: BlobStore -> IO ()
+flushBlobStore BlobStore{..} =
+    bracket (takeMVar blobStoreFile) (putMVar blobStoreFile) hFlush
 
 destroyTempBlobStore :: BlobStore -> IO ()
 destroyTempBlobStore BlobStore{..} = do
@@ -96,7 +99,7 @@ readBlob bstore ref = do
             Left e -> error e
             Right v -> return v
 
-writeBlobBS ::BlobStore -> BS.ByteString -> IO (BlobRef a)
+writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
 writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
         hSeek h SeekFromEnd 0
         offset <- fromIntegral <$> hTell h
