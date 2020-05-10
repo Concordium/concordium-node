@@ -605,14 +605,14 @@ instance (MonadIO (PersistentTreeStateMonad ati m),
       lfr <- use lastFinalizationRecord
       if finIndex == finalizationIndex lfr then do
         b <- use lastFinalized
-        return $ Just b
+        return $ Just (b, lfr)
       else do
         dfr <- readFinalizationRecord finIndex
         case dfr of
           Just diskFinRec -> do
              diskb <- readBlock (finalizationBlockPointer diskFinRec)
              case diskb of
-                Just diskBlock -> return $ Just diskBlock
+                Just diskBlock -> return $ Just (diskBlock, diskFinRec)
                 _ -> return Nothing
           _ -> return Nothing
 

@@ -147,7 +147,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
             _ -> error "empty finalization list"
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
-    getFinalizedAtIndex finIndex = fmap snd . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getFinalizedAtIndex finIndex = fmap (\(a,b) -> (b, a)) . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getFinalizedAtHeight bHeight = preuse (finalizedByHeightTable . ix bHeight)
     getBranches = use branches
     putBranches brs = branches .= brs
