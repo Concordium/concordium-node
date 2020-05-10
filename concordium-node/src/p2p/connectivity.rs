@@ -476,7 +476,8 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     }
 
     // reconnect to bootstrappers after a specified amount of time
-    if peer_type == PeerType::Node
+    if !node.config.no_bootstrap_dns
+        && peer_type == PeerType::Node
         && curr_stamp >= node.get_last_bootstrap() + node.config.bootstrapping_interval * 1000
     {
         attempt_bootstrap(node);
