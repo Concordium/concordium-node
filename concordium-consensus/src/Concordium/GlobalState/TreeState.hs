@@ -154,8 +154,10 @@ class (Eq (BlockPointerType m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointerType m -> FinalizationRecord -> m ()
-    -- |Get the block that is finalized at the given index, if any.
-    getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m))
+    -- |Get the block that is finalized at the given index together with the record
+    -- that finalizes it.
+    -- Returns 'Nothing' if no such pair exists.
+    getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m, FinalizationRecord))
 
     -- |Get the block that is finalized at the given height, if any.
     getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
