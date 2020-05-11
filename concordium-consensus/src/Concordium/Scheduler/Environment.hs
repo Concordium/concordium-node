@@ -168,6 +168,12 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- also exists in the global state.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
+  -- |Replace the given baker's aggregation verificatino key with the given
+  -- value. Return true if the key was succesfully updated and false in case
+  -- it leads to a duplicate aggregation key.
+  -- Precondition: The baker exists.
+  updateBakerAggregationKey :: BakerId -> BakerAggregationVerifyKey -> m Bool
+
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
   -- Returns 'True' if the delegation was successful, and 'False' if the baker is
   -- not valid.

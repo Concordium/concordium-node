@@ -269,6 +269,9 @@ dispatch msg = do
 
                    UpdateElectionDifficulty{..} ->
                      handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
+
+                   UpdateBakerAggregationVerifyKey{..} ->
+                     handleUpdateBakerAggregationVerifyKey (mkWTC TTUpdateBakerAggregationVerifyKey) ubavkId ubavkKey ubavkProof
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -913,6 +916,44 @@ handleDeployCredential cdi cdiHash = do
                     mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                   else return $ Just (TxInvalid AccountCredentialInvalid)
 
+-- |Update the baker's public signature key. The transaction is considered valid if
+--
+--  * The transaction is coming from the baker's current reward account.
+--  * The transaction proves that they own the private key corresponding to the __NEW__
+--    signature verification key.
+handleUpdateBakerAggregationVerifyKey ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> BakerId
+    -> BakerAggregationVerifyKey
+    -> BakerAggregationProof
+    -> m (Maybe TransactionSummary)
+handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.updateBakerAggregationVerifyKey
+        k ls _ = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+          getBakerInfo ubavkId >>= \case
+            Nothing ->
+              return $! (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
+            Just binfo ->
+              if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+                -- only the baker itself can update its own keys
+                -- now also check that they own the private key for the new aggregation key
+                let challenge = S.runPut (S.put ubavkId <> S.put ubavkKey)
+                    keyProof = Bls.checkProofOfKnowledgeSK challenge ubavkProof ubavkKey
+                in if keyProof then do
+                     success <- updateBakerAggregationKey ubavkId ubavkKey
+                     if success then
+                       return $! (TxSuccess [BakerAggregationKeyUpdated ubavkId ubavkKey], energyCost, usedEnergy)
+                     else return $! (TxReject (DuplicateAggregationKey ubavkKey), energyCost, usedEnergy)
+                   else return $ (TxReject InvalidProof, energyCost, usedEnergy)
+              else
+                return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 -- * Exposed methods.
 
