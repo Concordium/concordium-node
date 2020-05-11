@@ -29,7 +29,7 @@ PATH="$PATH:/usr/local/bin" git lfs install
 PATH="$PATH:/usr/local/bin" git lfs pull
 
 VERSION=`git rev-parse --verify HEAD`
-GENESIS_VERSION=$(cd genesis-data && git rev-parse --verify HEAD)
+GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
 
 ./scripts/build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
