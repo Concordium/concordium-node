@@ -204,11 +204,16 @@ checkExistingDatabase rp = do
 -- existing state.
 -- This can be for a number of reasons, but what is checked currently is
 --
--- * TODO
+--   * blocks cannot be deserialized.
+--   * database does not contain a block at height 0, i.e., genesis block
+--   * database does not contain the right genesis block (one that would match genesis data)
+--   * hash under which the genesis block is stored is not the computed hash of the genesis block
+--   * missing finalization record for the last stored block in the database.
+--   * in the block state, an account which is listed cannot be loaded
+--
 -- TODO: We should probably use cursors instead of manually traversing the database.
--- I think this should be fine right now for heights and indices since
--- they are serialized in big-endian, and the default ordering of keys in LMDB is lexicographic
--- but I prefer to do it in a simpler way for now.
+-- however the LMDB.Simple bindings for cursors are essentially unusable, leading to
+-- random segmentation faults and similar exceptions.
 loadSkovPersistentData :: forall ati . CanExtend (ATIValues ati)
                        => RuntimeParameters
                        -> GenesisData
@@ -307,6 +312,8 @@ loadSkovPersistentData rp gd pbsc atiPair = do
     GenesisBlock gd' -> unless (gd == gd') $ throwIO (GenesisBlockIncorrect (getHash gBlockPointer))
     _ -> throwIO (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
+  -- We would ideally be able to simply query for the last finalization record, but the limitations
+  -- of the LMDB bindings prevent us from doing that.
   ((lastPointer, lastBlockFinIndex, lastState), blocks) <- loadInSequence gBlockPointer gbBytes
 
   let getFinalizationRecord idx = L.readOnlyTransaction env (L.get dbFinRecords idx)
