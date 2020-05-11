@@ -21,7 +21,6 @@
 module Concordium.GlobalState where
 
 import Control.Exception
-import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
@@ -29,9 +28,6 @@ import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
-import System.FilePath
-import System.Directory
-import System.IO.Error
 import Data.Pool(destroyAllResources)
 
 import Concordium.GlobalState.Classes
@@ -363,23 +359,14 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
       -- check if all the necessary database files exist
-      let blockStateFile = rpBlockStateFile rtparams <.> "dat"
-      bsPathEx <- doesPathExist blockStateFile
-      -- if the block state file exists assume we have other database files available.
-      -- we don't want to automatically delete any data
-      if bsPathEx then do
-        -- check whether it is a normal file and whether we have the right permissions
-        bsFileEx <- doesFileExist blockStateFile
-        unless bsFileEx $ throwIO BlockStatePathDir
-        bsPerms <- catchJust (guard . isPermissionError)
-                             (getPermissions blockStateFile)
-                             (const (throwIO BlockStatePermissionError))
-        unless (readable bsPerms && writable bsPerms) $ throwIO BlockStatePermissionError
-
+      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      if existingDB then do
         -- the block state file exists, is readable and writable
         -- we ignore the given block state parameter in such a case.
         pbscBlobStore <- loadBlobStore blockStateFile
-        -- we start with an empty module cache.
+        -- we start with an empty module cache. It will be repopulated
+        -- on block execution, and the cache is only an optimization, it is
+        -- fine, if slow, if modules are always loaded from the database.
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         skovData <- loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)
@@ -398,15 +385,33 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+      -- check if all the necessary database files exist
+      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      dbHandle <- connectPostgres txLog
+      createTable dbHandle
+      if existingDB then do
+        -- the block state file exists, is readable and writable
+        -- we ignore the given block state parameter in such a case.
+        pbscBlobStore <- loadBlobStore blockStateFile
+        -- we start with an empty module cache. It will be repopulated
+        -- on block execution, and the cache is only an optimization, it is
+        -- fine, if slow, if modules are always loaded from the database.
+        pbscModuleCache <- newIORef emptyModuleCache
+        let pbsc = PersistentBlockStateContext{..}
+        let ati = defaultValue
+        skovData <-
+          loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)
+          `onException` (destroyAllResources dbHandle >> destroyTempBlobStore pbscBlobStore)
+        return (pbsc, skovData, PAAIConfig dbHandle)
+      else do
+        pbscBlobStore <- createTempBlobStore blockStateFile
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        dbHandle <- connectPostgres txLog
-        createTable dbHandle
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
+                 `onException` (destroyAllResources dbHandle >> destroyTempBlobStore pbscBlobStore)
         return (pbsc, isd, PAAIConfig dbHandle)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
         destroyTempBlobStore pbscBlobStore

@@ -2,7 +2,7 @@
              NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards,
              MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving,
              LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia,
-             StandaloneDeriving, UndecidableInstances, TypeApplications #-}
+             StandaloneDeriving, UndecidableInstances, TypeApplications, MultiWayIf #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
 --
@@ -45,6 +45,9 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
+import System.Directory
+import System.IO.Error
+import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Data.Time.Clock
 import Data.Foldable as Fold (foldl')
@@ -55,6 +58,8 @@ data InitException =
   BlockStatePathDir
   -- |Cannot get the read/write permissions for the block state file.
   | BlockStatePermissionError
+  -- |Cannot get the read/write permissions for the tree state file.
+  | TreeStatePermissionError
   -- |Generic database opening error
   | DatabaseOpeningError !IOError
   -- |Genesis block not in the database, but it should be.
@@ -70,6 +75,7 @@ data InitException =
 instance Exception InitException where
   displayException BlockStatePathDir = "Block state path points to a directory, not a file."
   displayException BlockStatePermissionError = "Cannot get read and write permissions to the block state file."
+  displayException TreeStatePermissionError = "Cannot get read and write permissions to the tree state file."
   displayException (DatabaseOpeningError err) = "Database error: " ++ displayException err
   displayException GenesisBlockNotInDataBaseError = "Genesis block not in the database."
   displayException (GenesisBlockIncorrect bh) =
@@ -163,9 +169,40 @@ initialSkovPersistentData rp gd genState ati serState = do
             _atiCtx = snd ati
         }
 
+checkExistingDatabase :: RuntimeParameters -> IO (FilePath, Bool)
+checkExistingDatabase rp = do
+  let blockStateFile = rpBlockStateFile rp <.> "dat"
+      treeStateFile = rpTreeStateDir rp </> "data.mdb"
+  bsPathEx <- doesPathExist blockStateFile
+  tsPathEx <- doesPathExist treeStateFile
+
+  -- Check whether a path is a normal file that is readable and writable
+  let checkRWFile path exc = do
+        fileEx <- doesFileExist path
+        unless fileEx $ throwIO BlockStatePathDir
+        perms <- catchJust (guard . isPermissionError)
+                           (getPermissions path)
+                           (const (throwIO exc))
+        unless (readable perms && writable perms) $ throwIO exc
+
+  -- if both files exist we check whether they are both readable and writable.
+  -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
+  if | bsPathEx && tsPathEx -> do
+         -- check whether it is a normal file and whether we have the right permissions
+         checkRWFile blockStateFile BlockStatePermissionError
+         checkRWFile treeStateFile TreeStatePermissionError
+         return (blockStateFile, True)
+     | bsPathEx -> 
+         throwIO (DatabaseInvariantViolation "Block state file exists, but tree state file does not.")
+     | tsPathEx -> 
+         throwIO (DatabaseInvariantViolation "Tree state file exists, but block state file does not.")
+     | otherwise ->
+         return (blockStateFile, False)
+
 -- |Try to load an existing instance of skov persistent data.
 -- This function will raise an exception if it detects invariant violation in the
--- existing state. This can be for a number of reasons, but what is checked currently is
+-- existing state.
+-- This can be for a number of reasons, but what is checked currently is
 --
 -- * TODO
 -- TODO: We should probably use cursors instead of manually traversing the database.
@@ -184,6 +221,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   -- This seems to not be an issue while we only read from the database,
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
+
   dbHandlers <- mapException DatabaseOpeningError $ databaseHandlers rp
 
   let env = dbHandlers ^. storeEnv -- database environment
