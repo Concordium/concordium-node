@@ -168,8 +168,14 @@ impl ConnectionLowLevel {
             // set socket's SO_LINGER to 0
             setsockopt(socket.as_raw_fd(), c::SOL_SOCKET, c::SO_LINGER, c::linger {
                 l_onoff:  1,
-                l_linger: 0,
+                l_linger: handler.config.socket_so_linger as i32,
             });
+        }
+
+        if handler.config.tcp_nodelay {
+            if let Err(e) = socket.set_nodelay(true) {
+                error!("Could not enable TCP no delay due to {:?}", e);
+            }
         }
 
         trace!(

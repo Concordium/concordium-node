@@ -314,6 +314,14 @@ pub struct ConnectionConfig {
         default_value = "131072"
     )]
     pub socket_read_size: usize,
+    #[structopt(
+        long = "linger-time",
+        help = "Max seconds a socket may linger",
+        default_value = "30"
+    )]
+    pub socket_so_linger: usize,
+    #[structopt(long = "no-tcp-nodelay", help = "Disable TCP nodelay")]
+    pub no_tcp_nodelay: bool,
 }
 
 #[derive(StructOpt, Debug)]
