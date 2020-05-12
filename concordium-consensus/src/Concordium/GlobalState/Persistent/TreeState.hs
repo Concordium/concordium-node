@@ -280,7 +280,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
           S.Partial _ -> throwIO (DatabaseInvariantViolation $ "Cannot deserialize block. Partially successful.")
           S.Done finIndex _ -> return finIndex
 
-      -- Given the geneis block pointer this function tries to load as many blocks as possible
+      -- Given the genesis block pointer this function tries to load as many blocks as possible
       -- from disk. It returns the last blockpointer that was loaded.
       loadInSequence ::
         PersistentBlockPointer (ATIValues ati) -- Genesis block pointer
