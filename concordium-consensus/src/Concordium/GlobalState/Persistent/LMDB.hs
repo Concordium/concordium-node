@@ -104,13 +104,20 @@ resizeDatabaseHandlers dbh size = do
   return DatabaseHandlers {..}
 
 -- |For now the database supports four stores: blocks, finalization records, transaction statuses,
--- and hashes of finalized blocks indexed by height.
--- In order to abstract the database access, this datatype was created.
--- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
-data LMDBStoreType = Block BlockHash BlockHeight ByteString -- ^The Blockhash, block height and the serialized form of the block
-                   | Finalization FinalizationIndex FinalizationRecord -- ^The finalization index and the associated finalization record
+-- and hashes of finalized blocks indexed by height. This type abstract access to those four stores.
+--
+-- * finalization records can be written separately.
+-- * Blocks are written together with adding an index to the by-height store. This is written in a single database transaction.
+-- * Transaction statuses can be written either individually, each in its own database transaction, or in one transaction.
+--   The latter is preferrable for performance reasons.
+data LMDBStoreType = Block BlockHash BlockHeight ByteString
+                   -- ^The Blockhash, block height and the serialized form of the block
+                   | Finalization FinalizationIndex FinalizationRecord
+                   -- ^The finalization index and the associated finalization record
                    | TxStatus TransactionHash T.TransactionStatus
+                   -- ^Write a single transaction record.
                    | TxStatuses [(TransactionHash, T.TransactionStatus)]
+                   -- ^Write all transaction records in a single database transaction.
                    deriving (Show)
 
 lmdbStoreTypeSize :: LMDBStoreType -> Int
