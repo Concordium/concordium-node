@@ -110,7 +110,6 @@ deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData 
 
 
 instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlockType (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where

@@ -156,7 +156,6 @@ type GSMR rc r rs s m = GlobalStateM NoLogContext rc (FocusRight r) rs (FocusRig
 
 instance (GlobalStateTypes (GSML lc r ls s m), GlobalStateTypes (GSMR rc r rs s m))
         => GlobalStateTypes (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
-    type PendingBlockType (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) = PairBlockData (PendingBlockType (GSML lc r ls s m)) (PendingBlockType (GSMR rc r rs s m))
     type BlockPointerType (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) = PairBlockData (BlockPointerType (GSML lc r ls s m)) (BlockPointerType (GSMR rc r rs s m))
 
 instance ATITypes (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
@@ -462,7 +461,7 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     makePendingBlock sk sl parent bid bp bn lf trs brtime = do
       pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs brtime
       pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs brtime
-      return $ PairBlockData (pb1, pb2)
+      assert (pb1 == pb2) $ return pb1
 
     getFinalizedAtHeight bHeight = do
       b1 <- coerceGSML $ getFinalizedAtHeight bHeight
@@ -492,11 +491,11 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
             (Just BlockDead, Just BlockDead) -> return $ Just BlockDead
             (Just (BlockFinalized bp1 fr1), Just (BlockFinalized bp2 fr2)) ->
                 assert (fr1 == fr2) $ return $ Just $ BlockFinalized (PairBlockData (bp1, bp2)) fr1
-            (Just (BlockPending pb1), Just (BlockPending pb2)) -> return $ Just (BlockPending (PairBlockData (pb1, pb2)))
+            (Just (BlockPending pb1), Just (BlockPending pb2)) -> assert (pb1 == pb2) $ return $ Just (BlockPending pb1)
             _ -> error $ "getBlockStatus (Paired): block statuses do not match: " ++ show bs1 ++ ", " ++ show bs2
-    makeLiveBlock (PairBlockData (pb1, pb2)) (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) () t e = do
-        r1 <- coerceGSML $ makeLiveBlock pb1 parent1 lf1 bs1 () t e
-        r2 <- coerceGSMR $ makeLiveBlock pb2 parent2 lf2 bs2 () t e
+    makeLiveBlock pb (PairBlockData (parent1, parent2)) (PairBlockData (lf1, lf2)) (bs1, bs2) () t e = do
+        r1 <- coerceGSML $ makeLiveBlock pb parent1 lf1 bs1 () t e
+        r2 <- coerceGSMR $ makeLiveBlock pb parent2 lf2 bs2 () t e
         return (PairBlockData (r1, r2))
     markDead bh = do
         coerceGSML $ markDead bh
@@ -504,9 +503,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     markFinalized bh fr = do
         coerceGSML $ markFinalized bh fr
         coerceGSMR $ markFinalized bh fr
-    markPending (PairBlockData (pb1, pb2)) = do
-        coerceGSML $ markPending pb1
-        coerceGSMR $ markPending pb2
+    markPending pb = do
+        coerceGSML $ markPending pb
+        coerceGSMR $ markPending pb
     getGenesisBlockPointer = do
         gen1 <- coerceGSML getGenesisBlockPointer
         gen2 <- coerceGSMR getGenesisBlockPointer
@@ -556,20 +555,20 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         pc2 <- coerceGSMR $ takePendingChildren bh
         let
             checkedZip [] [] = []
-            checkedZip (c1 : cs1) (c2 : cs2) = assert ((getHash c1 :: BlockHash) == getHash c2) $ PairBlockData (c1, c2) : checkedZip cs1 cs2
+            checkedZip (c1 : cs1) (c2 : cs2) = assert ((getHash c1 :: BlockHash) == getHash c2) $ c1 : checkedZip cs1 cs2
             checkedZip _ _ = error "takePendingChildren: lists have different lengths"
             sortPBs :: (HashableTo BlockHash z) => [z] -> [z]
             sortPBs = List.sortBy ((compare :: BlockHash -> BlockHash -> Ordering) `on` getHash)
         return $ checkedZip (sortPBs pc1) (sortPBs pc2)
-    addPendingBlock (PairBlockData (pb1, pb2)) = do
-        coerceGSML $ addPendingBlock pb1
-        coerceGSMR $ addPendingBlock pb2
+    addPendingBlock pb = do
+        coerceGSML $ addPendingBlock pb
+        coerceGSMR $ addPendingBlock pb
     takeNextPendingUntil sl = do
         r1 <- coerceGSML $ takeNextPendingUntil sl
         r2 <- coerceGSMR $ takeNextPendingUntil sl
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
-            (Just pb1, Just pb2) -> return $ Just $ PairBlockData (pb1, pb2)
+            (Just pb1, Just pb2) -> assert (pb1 == pb2) $ return $ Just pb1
             _ -> error "takeNextPendingUntil (Paired): implementations returned different results"
     getFocusBlock = do
         fb1 <- coerceGSML $ getFocusBlock

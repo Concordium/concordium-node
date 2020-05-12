@@ -393,7 +393,6 @@ instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccoun
     liftIO $ writeEntries handle bh ati sos
 
 instance GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
-    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PendingBlock
     type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where

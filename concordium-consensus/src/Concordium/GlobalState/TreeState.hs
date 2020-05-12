@@ -75,7 +75,6 @@ class (Eq (BlockPointerType m),
        HashableTo BlockHash (BlockPointerType m),
        BlockData (BlockPointerType m),
        BlockPointerData (BlockPointerType m),
-       BlockPendingData (PendingBlockType m),
        BlockStateStorage m,
        BlockPointerMonad m,
        PerAccountDBOperations m,
@@ -95,17 +94,17 @@ class (Eq (BlockPointerType m),
                             -- ^Finalization data
         -> [BlockItem]      -- ^List of transactions
         -> UTCTime          -- ^Block receive time
-        -> m (PendingBlockType m)
+        -> m PendingBlock
 
     -- * Operations on the block table
     -- |Get the current status of a block.
-    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) (PendingBlockType m)))
+    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) PendingBlock))
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
     makeLiveBlock ::
-        PendingBlockType m                       -- ^Block to make live
-        -> BlockPointerType m                    -- ^Parent block pointer
-        -> BlockPointerType m                    -- ^Last finalized block pointer
+        PendingBlock                         -- ^Block to make live
+        -> BlockPointerType m                -- ^Parent block pointer
+        -> BlockPointerType m                -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
         -> ATIStorage m                      -- ^This block's account -> transaction index.
         -> UTCTime                           -- ^Block arrival time
@@ -132,7 +131,7 @@ class (Eq (BlockPointerType m),
     -- Precondition: The block must be alive.
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
     -- |Mark a block as pending (i.e. awaiting parent)
-    markPending :: PendingBlockType m -> m ()
+    markPending :: PendingBlock -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
@@ -181,13 +180,13 @@ class (Eq (BlockPointerType m),
     --
     -- |Return a list of the blocks that are pending the given parent block,
     -- removing them from the pending table.
-    takePendingChildren :: BlockHash -> m [PendingBlockType m]
+    takePendingChildren :: BlockHash -> m [PendingBlock]
     -- |Add a pending block, that is pending on the arrival of its parent.
-    addPendingBlock :: PendingBlockType m -> m ()
+    addPendingBlock :: PendingBlock -> m ()
     -- |Return the next block that is pending its parent with slot number
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
-    takeNextPendingUntil :: Slot -> m (Maybe (PendingBlockType m))
+    takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
 
     -- * Operations on the pending transaction table
     --
