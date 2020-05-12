@@ -104,7 +104,7 @@ resizeDatabaseHandlers dbh size = do
   return DatabaseHandlers {..}
 
 -- |For now the database supports four stores: blocks, finalization records, transaction statuses,
--- and an index of finalized blocks by height.
+-- and hashes of finalized blocks indexed by height.
 -- In order to abstract the database access, this datatype was created.
 -- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
 data LMDBStoreType = Block BlockHash BlockHeight ByteString -- ^The Blockhash, block height and the serialized form of the block
