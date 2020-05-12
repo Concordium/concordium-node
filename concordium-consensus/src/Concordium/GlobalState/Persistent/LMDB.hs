@@ -104,7 +104,7 @@ resizeDatabaseHandlers dbh size = do
   return DatabaseHandlers {..}
 
 -- |For now the database supports four stores: blocks, finalization records, transaction statuses,
--- and hashes of finalized blocks indexed by height. This type abstract access to those four stores.
+-- and hashes of finalized blocks indexed by height. This type abstracts access to those four stores.
 --
 -- * finalization records can be written separately.
 -- * Blocks are written together with adding an index to the by-height store. This is written in a single database transaction.
