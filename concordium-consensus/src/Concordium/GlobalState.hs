@@ -334,26 +334,13 @@ data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configTxLog :: !ByteString
   }
 
-type family GSContext c where
-  GSContext MemoryTreeMemoryBlockConfig = ()
-  GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
-  GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
-  GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
 
-type family GSState c where
-  GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
-  GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
-  GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
-  GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
-
-type family GSLogContext c where
-  GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
-  GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
-  GSLogContext DiskTreeDiskBlockConfig = NoLogContext
-  GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
 
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig c where
+    type GSContext c
+    type GSState c
+    type GSLogContext c
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
     initialiseGlobalState :: c -> IO (GSContext c, GSState c, GSLogContext c)
@@ -361,6 +348,9 @@ class GlobalStateConfig c where
     shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> GSLogContext c -> IO ()
 
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
+    type instance GSContext MemoryTreeMemoryBlockConfig = ()
+    type instance GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
+    type instance GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
@@ -368,6 +358,9 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- |Configuration that uses the Haskell implementation of tree state and the
 -- in-memory, Haskell implmentation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
+    type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
+    type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
+    type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
         pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
@@ -380,6 +373,10 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
+    type GSLogContext DiskTreeDiskBlockConfig = NoLogContext
+    type GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
+    type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
+
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
       -- check if all the necessary database files exist
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
@@ -407,6 +404,9 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
+    type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
+    type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
+    type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
     initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
       -- check if all the necessary database files exist
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
