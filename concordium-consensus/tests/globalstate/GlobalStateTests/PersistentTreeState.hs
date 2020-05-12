@@ -40,27 +40,29 @@ import System.IO.Temp
 
 type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g IO)
 
-type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData ())
+type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState)
 type Test = TestM ()
 
 instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
   globalStateContext = id
 
-instance HasGlobalState (SkovPersistentData ()) (SkovPersistentData ()) where
+instance HasGlobalState (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState) where
   globalState = id
 
 deriving via (PersistentTreeStateMonad
               ()
+              PBS.PersistentBlockState
               TestM)
   instance LMDBStoreMonad TestM
 
 deriving via (PersistentTreeStateMonad
               ()
+              PBS.PersistentBlockState
               TestM)
   instance LMDBQueryMonad TestM
 
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData ())
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
@@ -71,7 +73,7 @@ createGlobalState dbDir = do
   (x, y, NoLogContext) <- initialiseGlobalState config
   return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData ()) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState) -> IO ()
 destroyGlobalState (c, s) =
   shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 

@@ -84,33 +84,33 @@ instance Exception InitException where
     "Database invariant violation: " ++ err
   
 
-data PersistentBlockStatus ati =
-    BlockAlive !(PersistentBlockPointer ati)
+data PersistentBlockStatus ati bs =
+    BlockAlive !(PersistentBlockPointer ati bs)
     | BlockDead
     | BlockFinalized !FinalizationIndex
     | BlockPending !PendingBlock
   deriving(Eq, Show)
 
 -- |Skov data for the persistent tree state version that also holds the database handlers
-data SkovPersistentData ati = SkovPersistentData {
+data SkovPersistentData ati bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (PersistentBlockStatus (ATIValues ati))),
+    _blockTable :: !(HM.HashMap BlockHash (PersistentBlockStatus (ATIValues ati) bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |Pointer to the last finalized block
-    _lastFinalized :: !(PersistentBlockPointer (ATIValues ati)),
+    _lastFinalized :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Pointer to the last finalization record
     _lastFinalizationRecord :: !FinalizationRecord,
     -- |Branches of the tree by height above the last finalized block
-    _branches :: !(Seq.Seq [PersistentBlockPointer (ATIValues ati)]),
+    _branches :: !(Seq.Seq [PersistentBlockPointer (ATIValues ati) bs]),
     -- |Genesis data
     _genesisData :: !GenesisData,
     -- |Block pointer to genesis block
-    _genesisBlockPointer :: !(PersistentBlockPointer (ATIValues ati)),
+    _genesisBlockPointer :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Current focus block
-    _focusBlock :: !(PersistentBlockPointer (ATIValues ati)),
+    _focusBlock :: !(PersistentBlockPointer (ATIValues ati) bs),
     -- |Pending transaction table
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
@@ -132,19 +132,19 @@ makeLenses ''SkovPersistentData
 initialSkovPersistentDataDefault
     :: FilePath
     -> GenesisData
-    -> PBS.PersistentBlockState
+    -> bs
     -> (ATIValues ati, ATIContext ati)
     -> S.Put -- ^How to serialize the block state reference for inclusion in the table.
-    -> IO (SkovPersistentData ati)
+    -> IO (SkovPersistentData ati bs)
 initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
 
 initialSkovPersistentData
     :: RuntimeParameters
     -> GenesisData
-    -> PBS.PersistentBlockState
+    -> bs
     -> (ATIValues ati, ATIContext ati)
     -> S.Put -- ^How to serialize the block state reference for inclusion in the table.
-    -> IO (SkovPersistentData ati)
+    -> IO (SkovPersistentData ati bs)
 initialSkovPersistentData rp gd genState ati serState = do
   gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
   let gbh = bpHash gb
@@ -219,7 +219,7 @@ loadSkovPersistentData :: forall ati . CanExtend (ATIValues ati)
                        -> GenesisData
                        -> PBS.PersistentBlockStateContext
                        -> (ATIValues ati, ATIContext ati)
-                       -> IO (SkovPersistentData ati)
+                       -> IO (SkovPersistentData ati PBS.PersistentBlockState)
 loadSkovPersistentData rp gd pbsc atiPair = do
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
@@ -255,7 +255,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
           Just (bh, Nothing) -> throwIO (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
           Just (bh, Just bytes) -> return (Just (bh, bytes))
         
-      getBlockPointer :: ByteString -> IO (PersistentBlockPointer (ATIValues ati), FinalizationIndex, PBS.PersistentBlockState)
+      getBlockPointer :: ByteString -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState)
       getBlockPointer bytes =
         case runGet getQuadruple bytes of
           Left _ -> throwIO (DatabaseInvariantViolation "Cannot deserialize block.")
@@ -283,17 +283,17 @@ loadSkovPersistentData rp gd pbsc atiPair = do
       -- Given the genesis block pointer this function tries to load as many blocks as possible
       -- from disk. It returns the last blockpointer that was loaded.
       loadInSequence ::
-        PersistentBlockPointer (ATIValues ati) -- Genesis block pointer
+        PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState -- Genesis block pointer
         -> ByteString -- Bytes of the genesis block as stored in the database.
-        -> IO ((PersistentBlockPointer (ATIValues ati), FinalizationIndex, PBS.PersistentBlockState),
-               [(BlockHash, PersistentBlockStatus (ATIValues ati))])
+        -> IO ((PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState),
+               [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
       loadInSequence gbp gBytes = do
         (lastBytes, blocks) <- go 1 gBytes [(getHash gbp, BlockFinalized 0)]
         (, blocks) <$> getBlockPointer lastBytes
         where go :: BlockHeight
                  -> ByteString
-                 -> [(BlockHash, PersistentBlockStatus (ATIValues ati))]
-                 -> IO (ByteString, [(BlockHash, PersistentBlockStatus (ATIValues ati))])
+                 -> [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)]
+                 -> IO (ByteString, [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
               go height lastBytes acc =
                 lookupAtHeight height >>= \case
                   Nothing -> return (lastBytes, acc)
@@ -373,41 +373,41 @@ loadSkovPersistentData rp gd pbsc atiPair = do
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PersistentTreeStateMonad ati m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
+newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
 
-deriving instance (Monad m, MonadState (SkovPersistentData ati) m)
-         => MonadState (SkovPersistentData ati) (PersistentTreeStateMonad ati m)
+deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
+         => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)
 
 instance (CanExtend (ATIValues ati),
           CanRecordFootprint (Footprint (ATIValues ati)))
-         => ATITypes (PersistentTreeStateMonad ati m) where
-  type ATIStorage (PersistentTreeStateMonad ati m) = ATIValues ati
+         => ATITypes (PersistentTreeStateMonad ati bs m) where
+  type ATIStorage (PersistentTreeStateMonad ati bs m) = ATIValues ati
 
-instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad () m)
+instance (Monad m) => PerAccountDBOperations (PersistentTreeStateMonad () bs m)
 
-instance (MonadIO m, MonadState (SkovPersistentData DiskDump) m) => PerAccountDBOperations (PersistentTreeStateMonad DiskDump m) where
+instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccountDBOperations (PersistentTreeStateMonad DiskDump bs m) where
   flushBlockSummaries bh ati sos = do
     PAAIConfig handle <- use logContext
     liftIO $ writeEntries handle bh ati sos
 
-instance GlobalStateTypes (PersistentTreeStateMonad ati m) where
-    type PendingBlockType (PersistentTreeStateMonad ati m) = PendingBlock
-    type BlockPointerType (PersistentTreeStateMonad ati m) = PersistentBlockPointer (ATIValues ati)
+instance GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
+    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PendingBlock
+    type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
-instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump) where
+instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
   logContext = atiCtx
 
-getWeakPointer :: (MonadIO (PersistentTreeStateMonad ati m),
-                   BS.BlockStateStorage (PersistentTreeStateMonad ati m),
-                   GS.BlockState (PersistentTreeStateMonad ati m) ~ PBS.PersistentBlockState,
+getWeakPointer :: (MonadIO (PersistentTreeStateMonad ati bs m),
+                   BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+                   GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
                    CanExtend (ATIValues ati),
-                   MonadState (SkovPersistentData ati) (PersistentTreeStateMonad ati m))
-               => Weak (PersistentBlockPointer (ATIValues ati))
+                   MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+               => Weak (PersistentBlockPointer (ATIValues ati) bs)
                -> BlockHash
                -> String
-               -> PersistentTreeStateMonad ati m (PersistentBlockPointer (ATIValues ati))
+               -> PersistentTreeStateMonad ati bs m (PersistentBlockPointer (ATIValues ati) bs)
 getWeakPointer weakPtr ptrHash name = do
         d <- liftIO $ deRefWeak weakPtr
         case d of
@@ -416,14 +416,14 @@ getWeakPointer weakPtr ptrHash name = do
             nb <- readBlock ptrHash
             return $ fromMaybe (error ("Couldn't find " ++ name ++ " block in disk")) nb
 
-instance (Monad (PersistentTreeStateMonad ati m),
-          MonadIO (PersistentTreeStateMonad ati m),
-          TS.BlockState m ~ PBS.PersistentBlockState,
-          BS.BlockStateStorage (PersistentTreeStateMonad ati m),
-          MonadState (SkovPersistentData ati) (PersistentTreeStateMonad ati m),
+instance (Monad (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
+          TS.BlockState m ~ bs,
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
           CanRecordFootprint (Footprint (ATIValues ati)))
-         => BlockPointerMonad (PersistentTreeStateMonad ati m) where
+         => BlockPointerMonad (PersistentTreeStateMonad ati bs m) where
   blockState = return . _bpState
   bpParent block = case _bpBlock block of
       GenesisBlock{} -> return block
@@ -436,9 +436,9 @@ instance (Monad (PersistentTreeStateMonad ati m),
 -- The @ati@ is filled with a default value.
 constructBlock :: (MonadIO m,
                    BS.BlockStateStorage m,
-                   TS.BlockState m ~ PBS.PersistentBlockState,
+                   TS.BlockState m ~ bs,
                    CanExtend (ATIStorage m))
-               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m)))
+               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) bs))
 constructBlock Nothing = return Nothing
 constructBlock (Just bytes) =
   case runGet getTriple bytes of
@@ -454,11 +454,11 @@ constructBlock (Just bytes) =
           state' <- BS.getBlockState
           return (blockInfo, newBlock, state')
 
-instance (MonadIO (PersistentTreeStateMonad ati m),
-          TS.BlockState m ~ PBS.PersistentBlockState,
-          BS.BlockStateStorage (PersistentTreeStateMonad ati m),
-          MonadState (SkovPersistentData ati) (PersistentTreeStateMonad ati m))
-         => LMDBStoreMonad (PersistentTreeStateMonad ati m) where
+instance (MonadIO (PersistentTreeStateMonad ati bs m),
+          TS.BlockState m ~ bs,
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+         => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
 
   writeBlock bp fr = do
     dbh <- use db
@@ -483,12 +483,12 @@ instance (MonadIO (PersistentTreeStateMonad ati m),
     db .= dbh'
 
 
-instance (MonadIO (PersistentTreeStateMonad ati m),
-          BS.BlockStateStorage (PersistentTreeStateMonad ati m),
-          TS.BlockState m ~ PBS.PersistentBlockState,
+instance (MonadIO (PersistentTreeStateMonad ati bs m),
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          TS.BlockState m ~ bs,
           CanExtend (ATIValues ati),
-          MonadState (SkovPersistentData ati) (PersistentTreeStateMonad ati m))
-         => LMDBQueryMonad (PersistentTreeStateMonad ati m) where
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+         => LMDBQueryMonad (PersistentTreeStateMonad ati bs m) where
   readBlock bh = do
     env <- use (db . storeEnv)
     dbB <- use (db . blockStore)
@@ -521,9 +521,9 @@ instance (MonadIO (PersistentTreeStateMonad ati m),
 -- The `ttNonFinalizedTransactions` map is updated and afterwards the transactions are removed from the `ttHashMap`.
 -- The `PendingTransactionTable` is updated doing a rollback to the last seen nonce on the right side of each entry in
 -- `pttWithSender`.
-purgeTransactionTable :: (MonadIO (PersistentTreeStateMonad ati m),
-                          MonadState (SkovPersistentData ati) (PersistentTreeStateMonad ati m))
-                      => PersistentTreeStateMonad ati m ()
+purgeTransactionTable :: (MonadIO (PersistentTreeStateMonad ati bs m),
+                          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+                      => PersistentTreeStateMonad ati bs m ()
 purgeTransactionTable = do
   purgeCount <- use transactionTablePurgeCounter
   RuntimeParameters{..} <- use runtimeParameters
@@ -587,12 +587,12 @@ purgeTransactionTable = do
                                                                      else if n2 > n then Nothing
                                                                      else Just (n1, n2)) acc pt) _pttWithSender e in v,
                                    ..}
-instance (MonadIO (PersistentTreeStateMonad ati m),
-          GS.BlockState (PersistentTreeStateMonad ati m) ~ PBS.PersistentBlockState,
-          BS.BlockStateStorage (PersistentTreeStateMonad ati m),
-          PerAccountDBOperations (PersistentTreeStateMonad ati m),
-          MonadState (SkovPersistentData ati) m)
-         => TS.TreeStateMonad (PersistentTreeStateMonad ati m) where
+instance (MonadIO (PersistentTreeStateMonad ati bs m),
+          GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
+          MonadState (SkovPersistentData ati bs) m)
+         => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = do

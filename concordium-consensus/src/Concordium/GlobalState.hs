@@ -207,7 +207,7 @@ newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
-type PersistentTreeStateM ati m = TreeStateM (SkovPersistentData ati) m
+type PersistentTreeStateM ati bs m = TreeStateM (SkovPersistentData ati bs) m
 
 -- * Specialized implementations
 -- ** Memory implementations
@@ -232,27 +232,27 @@ deriving via PureTreeStateMonad bs m
               => TreeStateMonad (MemoryTreeStateM bs m)
 
 -- ** Disk implementations
-deriving via PersistentTreeStateMonad ati m
-    instance ATITypes (PersistentTreeStateMonad ati m)
-             => ATITypes (PersistentTreeStateM ati m)
+deriving via PersistentTreeStateMonad ati bs m
+    instance ATITypes (PersistentTreeStateMonad ati bs m)
+             => ATITypes (PersistentTreeStateM ati bs m)
 
-deriving via PersistentTreeStateMonad ati m
-    instance (Monad m, PerAccountDBOperations (PersistentTreeStateMonad ati m))
-             => PerAccountDBOperations (PersistentTreeStateM ati m)
+deriving via PersistentTreeStateMonad ati bs m
+    instance (Monad m, PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
+             => PerAccountDBOperations (PersistentTreeStateM ati bs m)
 
-deriving via PersistentTreeStateMonad ati m
-    instance GlobalStateTypes (PersistentTreeStateM ati m)
+deriving via PersistentTreeStateMonad ati bs m
+    instance GlobalStateTypes (PersistentTreeStateM ati bs m)
 
-deriving via PersistentTreeStateMonad ati m
+deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
-              BlockPointerMonad (PersistentTreeStateMonad ati m))
-             => BlockPointerMonad (PersistentTreeStateM ati m)
+              BlockPointerMonad (PersistentTreeStateMonad ati bs m))
+             => BlockPointerMonad (PersistentTreeStateM ati bs m)
 
-deriving via PersistentTreeStateMonad ati m
+deriving via PersistentTreeStateMonad ati bs m
     instance (Monad m,
               BlockStateStorage m,
-              TreeStateMonad (PersistentTreeStateMonad ati m))
-             => TreeStateMonad (PersistentTreeStateM ati m)
+              TreeStateMonad (PersistentTreeStateMonad ati bs m))
+             => TreeStateMonad (PersistentTreeStateM ati bs m)
 
 -- |A newtype wrapper for providing instances of global state monad classes.
 -- The block state monad instances are derived directly from 'BlockStateM'.
@@ -343,8 +343,8 @@ type family GSContext c where
 type family GSState c where
   GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
   GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
-  GSState DiskTreeDiskBlockConfig = SkovPersistentData ()
-  GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump
+  GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
+  GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
 
 type family GSLogContext c where
   GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
