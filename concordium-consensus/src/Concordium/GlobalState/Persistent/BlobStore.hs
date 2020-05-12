@@ -1,7 +1,7 @@
 
 {-# LANGUAGE RecordWildCards, MultiParamTypeClasses, FunctionalDependencies, TypeFamilies, FlexibleInstances, QuantifiedConstraints,
     GeneralizedNewtypeDeriving, BangPatterns, StandaloneDeriving, UndecidableInstances, DefaultSignatures, DeriveFunctor, ConstraintKinds, RankNTypes,
-    ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable, DerivingStrategies, FlexibleContexts #-}
+    ScopedTypeVariables, TupleSections, DeriveFoldable, DeriveTraversable, DerivingStrategies, FlexibleContexts, DeriveGeneric #-}
 {-|
 
 -}
@@ -13,6 +13,7 @@ import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
 import Control.Exception
+import GHC.Generics
 import Data.Functor.Foldable
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
@@ -390,11 +391,9 @@ getBBRef p v@(LBMemory ref _) = do
     if isNull r
     then do
         (pu, cb) <- storeAndGetCached v
-        let r' = cachedBlob cb
-        liftIO $ writeIORef ref r'
-        return ((pu, LBCached cb), r')
+        return ((pu, LBCached cb), cachedBlob cb)
     else
-        (, r) . (, v) <$> store p v
+        getBBRef p (LBCached (CBUncached r))
     where storeAndGetCached (LBCached c) = storeUpdate p c
           storeAndGetCached (LBMemory ref' t) = do
             t' <- mapM (fmap snd . storeAndGetCached) t
