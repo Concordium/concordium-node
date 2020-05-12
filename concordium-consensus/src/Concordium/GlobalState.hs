@@ -39,7 +39,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore, loadBlobStore)
+import Concordium.GlobalState.Persistent.BlobStore (createBlobStore, closeBlobStore, loadBlobStore, destroyBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.TreeState
@@ -369,14 +369,14 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- in-memory, Haskell implmentation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+        pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
         _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
-        destroyTempBlobStore pbscBlobStore
+        closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
@@ -395,7 +395,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         skovData <- loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)
         return (pbsc, skovData, NoLogContext)
       else do
-        pbscBlobStore <- createTempBlobStore blockStateFile
+        pbscBlobStore <- createBlobStore blockStateFile
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
@@ -403,7 +403,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
         return (pbsc, isd, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
-        destroyTempBlobStore pbscBlobStore
+        closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
@@ -424,19 +424,19 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         let ati = defaultValue
         skovData <-
           loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)
-          `onException` (destroyAllResources dbHandle >> destroyTempBlobStore pbscBlobStore)
+          `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
         return (pbsc, skovData, PAAIConfig dbHandle)
       else do
-        pbscBlobStore <- createTempBlobStore blockStateFile
+        pbscBlobStore <- createBlobStore blockStateFile
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
-                 `onException` (destroyAllResources dbHandle >> destroyTempBlobStore pbscBlobStore)
+                 `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
         return (pbsc, isd, PAAIConfig dbHandle)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
-        destroyTempBlobStore pbscBlobStore
+        closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
         destroyAllResources dbHandle
