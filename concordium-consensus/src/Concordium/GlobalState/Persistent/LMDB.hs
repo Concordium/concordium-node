@@ -70,7 +70,7 @@ databaseHandlers RuntimeParameters{..} = do
   return DatabaseHandlers{..}
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initializeDatabase :: PersistentBlockPointer ati -> S.Put -> RuntimeParameters -> IO DatabaseHandlers
+initializeDatabase :: PersistentBlockPointer ati bs -> S.Put -> RuntimeParameters -> IO DatabaseHandlers
 initializeDatabase gb serState rp@RuntimeParameters{..} = do
   -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
   -- initialization would fail. It also needs to be a multiple of the OS page size. We considered keeping 4096 as a typical
