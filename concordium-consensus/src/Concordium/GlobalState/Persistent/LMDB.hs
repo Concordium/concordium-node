@@ -107,7 +107,7 @@ resizeDatabaseHandlers dbh size = do
 -- and an index of finalized blocks by height.
 -- In order to abstract the database access, this datatype was created.
 -- When implementing `putOrResize` a tuple will need to be created and `putInProperDB` will choose the correct database.
-data LMDBStoreType = Block BlockHash BlockHeight ByteString -- ^The Blockhash and the serialized form of the block
+data LMDBStoreType = Block BlockHash BlockHeight ByteString -- ^The Blockhash, block height and the serialized form of the block
                    | Finalization FinalizationIndex FinalizationRecord -- ^The finalization index and the associated finalization record
                    | TxStatus TransactionHash T.TransactionStatus
                    | TxStatuses [(TransactionHash, T.TransactionStatus)]
