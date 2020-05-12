@@ -61,7 +61,7 @@ loadBlobStore = createTempBlobStore
 
 flushBlobStore :: BlobStore -> IO ()
 flushBlobStore BlobStore{..} =
-    bracket (takeMVar blobStoreFile) (putMVar blobStoreFile) hFlush
+    withMVar blobStoreFile hFlush
 
 destroyTempBlobStore :: BlobStore -> IO ()
 destroyTempBlobStore BlobStore{..} = do
