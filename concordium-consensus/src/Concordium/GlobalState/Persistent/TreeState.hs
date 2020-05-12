@@ -339,10 +339,6 @@ loadSkovPersistentData rp gd pbsc atiPair = do
             accs
   tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
 
-  -- traceM $ "Last finalized block: " ++ show (bpHash lastPointer)
-  -- traceShowM (lastFinRecord)
-  -- traceShowM lastBlockFinIndex
-  
   return SkovPersistentData {
             _blockTable = HM.fromList blocks,
             _possiblyPendingTable = HM.empty,

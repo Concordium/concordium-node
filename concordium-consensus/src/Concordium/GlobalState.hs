@@ -28,7 +28,9 @@ import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
+import Data.Serialize(runPut)
 import Data.Pool(destroyAllResources)
+import System.FilePath
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Types
@@ -314,6 +316,10 @@ deriving via TreeStateBlockStateM g c r s m
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
 data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData BS.BlockState
 
+-- |Configuration that uses the in-memory, Haskell implementation of tree state and the
+-- persistent Haskell implementation of block state.
+data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData BS.BlockState
+
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
 data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState
@@ -330,16 +336,19 @@ data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
 
 type family GSContext c where
   GSContext MemoryTreeMemoryBlockConfig = ()
+  GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
   GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
   GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
 
 type family GSState c where
   GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
+  GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
   GSState DiskTreeDiskBlockConfig = SkovPersistentData ()
   GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump
 
 type family GSLogContext c where
   GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
+  GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
   GSLogContext DiskTreeDiskBlockConfig = NoLogContext
   GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
 
@@ -355,6 +364,20 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
+
+-- |Configuration that uses the Haskell implementation of tree state and the
+-- in-memory, Haskell implmentation of the block state.
+instance GlobalStateConfig MemoryTreeDiskBlockConfig where
+    initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
+        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+        pbscModuleCache <- newIORef emptyModuleCache
+        let pbsc = PersistentBlockStateContext{..}
+        pbs <- makePersistent bs
+        _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
+        destroyTempBlobStore pbscBlobStore
+        writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
