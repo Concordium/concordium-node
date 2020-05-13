@@ -9,6 +9,21 @@ import Concordium.Scheduler.Types
 
 import Control.Exception(assert)
 
+
+-- * Cost factors
+
+-- | The amount of interpreter energy corresponding to one unit of energy.
+interpreterEnergy :: Energy
+interpreterEnergy = 100 -- TODO find suitable factor
+
+-- | Convert an energy amount to interpreter energy.
+toInterpreterEnergy :: Energy -> Energy
+toInterpreterEnergy = (* interpreterEnergy)
+
+-- | Convert interpreter energy to general energy (rounding down).
+fromInterpreterEnergy :: Energy -> Energy
+fromInterpreterEnergy = (`div` interpreterEnergy)
+
 -- |The cost to process the header.
 -- Processing includes hashing the transaction and checking all signatures against this hash,
 -- so transaction size and number of signatures are parameters of this cost.

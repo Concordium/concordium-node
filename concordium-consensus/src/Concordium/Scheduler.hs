@@ -582,9 +582,11 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
 runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
-runInterpreter f =
-  getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
-                            Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+runInterpreter f = do
+  remainingEnergy <- getEnergy
+  let iEnergy = Cost.toInterpreterEnergy remainingEnergy
+  f iEnergy >>= \case Just (x, iEnergy') -> x <$ putEnergy (Cost.fromInterpreterEnergy iEnergy')
+                      Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
 -- precise logic for when a baker can be added and removed should be analyzed
