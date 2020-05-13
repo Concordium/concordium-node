@@ -40,6 +40,7 @@ import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
 import qualified Data.Text as T
+import qualified Data.Set as S
 import Data.String(fromString)
 import Data.Word
 import Data.Vector (fromList)
@@ -178,6 +179,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
                                         -- credentials in descending order
                                         ,"accountCredentials" .= Queue.elems (acc ^. accountCredentials)
                                         ,"accountDelegation" .= (acc ^. T.accountStakeDelegate)
+                                        ,"accountInstances" .= S.toList (acc ^. T.accountInstances)
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
