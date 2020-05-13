@@ -104,12 +104,6 @@ transferAccount = 0
 deployCredential :: Energy
 deployCredential = 35000
 
--- |Cost to add an encryption key to an account.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
-deployEncryptionKey :: Energy
-deployEncryptionKey = 500
-
 -- |Cost to register a new baker.
 addBaker :: Energy
 addBaker = 3000
