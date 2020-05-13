@@ -390,6 +390,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         skovData <- loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)
+                      `onException` (closeBlobStore pbscBlobStore)
         return (pbsc, skovData, NoLogContext)
       else do
         pbscBlobStore <- createBlobStore blockStateFile
@@ -398,6 +399,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
+                 `onException` (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
         closeBlobStore pbscBlobStore
@@ -424,7 +426,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         let ati = defaultValue
         skovData <-
           loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)
-          `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
+          `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore)
         return (pbsc, skovData, PAAIConfig dbHandle)
       else do
         pbscBlobStore <- createBlobStore blockStateFile
