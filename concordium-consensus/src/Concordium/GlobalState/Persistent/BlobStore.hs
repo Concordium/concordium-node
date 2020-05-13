@@ -22,6 +22,7 @@ import System.Directory
 import Data.Proxy
 import GHC.Stack
 import Data.IORef
+import Concordium.GlobalState.Bakers (Bakers)
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -285,7 +286,7 @@ blobToCached :: BlobRef a -> CachedRef a
 blobToCached = CRBlobbed
 
 flushBufferedRef :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a, BlobRef a)
-flushBufferedRef (BRMemory ref v) = do
+flushBufferedRef brm@(BRMemory ref v) = do
     r <- liftIO $ readIORef ref
     if r == nullRef
     then do
@@ -293,7 +294,7 @@ flushBufferedRef (BRMemory ref v) = do
         liftIO $ writeIORef ref r'
         (,r') <$> makeBRMemory r' v'
     else
-        (,r) <$> makeBRMemory r v
+        return (brm, r)
 flushBufferedRef b = return (b, brRef b)
 
 uncacheBuffered :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a)
@@ -430,6 +431,7 @@ instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
 -- BlobStorable instances
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
 instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicParameters
+instance (MonadBlobStore m ref) => BlobStorable m ref Bakers
 -- FIXME: This uses serialization of accounts for storing them.
 -- This is potentially quite wasteful when only small changes are made.
 instance (MonadBlobStore m ref) => BlobStorable m ref Account

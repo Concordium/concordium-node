@@ -59,9 +59,6 @@ data BlockStatePointers = BlockStatePointers {
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
 
--- TODO (MRA) move to Concordium.GlobalState.Bakers or wrap Bakers in newtype
-instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Bakers
-
 instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef BlockStatePointers where
     storeUpdate p bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate p bspAccounts
