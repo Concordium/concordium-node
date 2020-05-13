@@ -87,6 +87,8 @@ pub struct NodeConfig {
     pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
+    pub socket_so_linger: usize,
+    pub tcp_nodelay: bool,
 }
 
 /// The collection of connections to peer nodes.
@@ -323,6 +325,8 @@ impl P2PNode {
             breakage,
             bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
             default_network: NetworkId::from(conf.common.network_ids[0]), // always present
+            socket_so_linger: conf.connection.socket_so_linger,
+            tcp_nodelay: !conf.connection.no_tcp_nodelay,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
