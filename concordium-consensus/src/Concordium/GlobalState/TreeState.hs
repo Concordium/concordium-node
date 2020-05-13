@@ -153,10 +153,11 @@ class (Eq (BlockPointerType m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointerType m -> FinalizationRecord -> m ()
-    -- |Get the block that is finalized at the given index together with the record
-    -- that finalizes it.
-    -- Returns 'Nothing' if no such pair exists.
-    getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m, FinalizationRecord))
+    -- |Get the block that is finalized at the given index.
+    -- Returns 'Nothing' if no such block exists.
+    getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m))
+    -- |Get the finalization record at the given index, if any.
+    getRecordAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
 
     -- |Get the block that is finalized at the given height, if any.
     getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
@@ -288,6 +289,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
     getFinalizedAtIndex = lift . getFinalizedAtIndex
+    getRecordAtIndex = lift . getRecordAtIndex
     getFinalizedAtHeight = lift . getFinalizedAtHeight
     getBranches = lift getBranches
     putBranches = lift . putBranches
@@ -326,6 +328,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getNextFinalizationIndex #-}
     {-# INLINE addFinalization #-}
     {-# INLINE getFinalizedAtIndex #-}
+    {-# INLINE getRecordAtIndex #-}
+    {-# INLINE getFinalizedAtHeight #-}
     {-# INLINE getBranches #-}
     {-# INLINE putBranches #-}
     {-# INLINE takePendingChildren #-}

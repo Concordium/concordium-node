@@ -644,17 +644,20 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     getFinalizedAtIndex finIndex = do
       lfr <- use lastFinalizationRecord
       if finIndex == finalizationIndex lfr then do
-        b <- use lastFinalized
-        return $ Just (b, lfr)
+        preuse lastFinalized
       else do
         dfr <- readFinalizationRecord finIndex
         case dfr of
           Just diskFinRec -> do
-             diskb <- readBlock (finalizationBlockPointer diskFinRec)
-             case diskb of
-                Just diskBlock -> return $ Just (diskBlock, diskFinRec)
-                _ -> return Nothing
+             readBlock (finalizationBlockPointer diskFinRec)
           _ -> return Nothing
+
+    getRecordAtIndex finIndex = do
+      lfr <- use lastFinalizationRecord
+      if finIndex == finalizationIndex lfr then
+        return (Just lfr)
+      else
+        readFinalizationRecord finIndex
 
     getFinalizedAtHeight bHeight = do
       lfin <- use lastFinalized

@@ -538,10 +538,19 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r2 <- coerceGSMR $ getFinalizedAtIndex fi
         case (r1, r2) of
             (Nothing, Nothing) -> return Nothing
-            (Just (bp1, rec1), Just (bp2, rec2)) ->
-              assert (rec1 == rec2) $ -- TODO: Perhaps they don't have to be the same
-                return $ Just (PairBlockData (bp1, bp2), rec1)
+            (Just bp1, Just bp2) ->
+              assert (bpHash bp1 == bpHash bp2) $
+                return $ Just (PairBlockData (bp1, bp2))
             _ -> error $ "getFinalizationAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
+    getRecordAtIndex fi = do
+        r1 <- coerceGSML $ getRecordAtIndex fi
+        r2 <- coerceGSMR $ getRecordAtIndex fi
+        case (r1, r2) of
+            (Nothing, Nothing) -> return Nothing
+            (Just rec1, Just rec2) ->
+              assert (rec1 == rec2) $ -- TODO: Perhaps they don't have to be the same
+                return $ Just rec1
+            _ -> error $ "getRecordAtindex (Paired): no match " ++ show r1 ++ ", " ++ show r2
     getBranches = do
         r1 <- coerceGSML getBranches
         r2 <- coerceGSMR getBranches
