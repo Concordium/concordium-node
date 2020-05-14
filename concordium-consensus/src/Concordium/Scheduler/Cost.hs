@@ -108,6 +108,19 @@ typeCheck size = (fromIntegral size) * 3 -- TODO find factor
 lookupModule :: Word64 -> Energy
 lookupModule size = lookup size
 
+-- | Cost for linking a term of resulting size 100 (as determined by 'linkWithMaxSize').
+linkPer100Size :: Energy
+linkPer100Size = 1
+
+-- | Cost for linking a term of the given resulting size (as determined by 'linkWithMaxSize').
+link :: Word64 -> Energy
+link size = ((fromIntegral size + 99) `div` 100) * linkPer100Size
+
+-- | For a given amount of energy, determine the maximum resulting size of a tearm that can be
+-- linked using that energy.
+maxLink :: Energy -> Word64
+maxLink e = fromIntegral $ (e * 100) `div` linkPer100Size
+
 -- * Cost for individual transactions / actions
 
 -- |Cost to deploy the module (cost for typechecking and storing it), excluding cost for
