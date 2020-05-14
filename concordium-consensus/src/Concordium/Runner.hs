@@ -90,7 +90,7 @@ makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => Lo
                   (CatchUpStatus -> IO ()) ->
                   IO (SyncRunner c)
 makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback = do
-        (syncContext, st0) <- initialiseSkov config
+        (syncContext, st0) <- runLoggerT (initialiseSkov config) syncLogMethod
         syncState <- newMVar st0
         syncBakerThread <- newEmptyMVar
         syncFinalizationCatchUpActive <- newMVar Nothing
@@ -179,7 +179,7 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
 shutdownSyncRunner :: (SkovConfiguration c) => SyncRunner c -> IO ()
 shutdownSyncRunner sr@SyncRunner{..} = do
         stopSyncRunner sr
-        takeMVar syncState >>= shutdownSkov syncContext
+        takeMVar syncState >>= flip runLoggerT syncLogMethod . shutdownSkov syncContext
 
 isSlotTooEarly :: (TimeMonad m, SkovQueryMonad m) => Slot -> m Bool
 isSlotTooEarly s = do
@@ -248,7 +248,7 @@ makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)
                         (CatchUpStatus -> IO ()) ->
                         IO (SyncPassiveRunner c)
 makeSyncPassiveRunner syncPLogMethod config cusCallback = do
-        (syncPContext, st0) <- initialiseSkov config
+        (syncPContext, st0) <- runLoggerT (initialiseSkov config) syncPLogMethod
         syncPState <- newMVar st0
         pendingLiveMVar <- newMVar Nothing
         let
@@ -258,7 +258,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
         return spr
 
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
-shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
+shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= flip runLoggerT syncPLogMethod . shutdownSkov syncPContext
 
 syncPassiveReceiveBlock :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
                         => SyncPassiveRunner c -> PendingBlock -> IO UpdateResult

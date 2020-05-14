@@ -105,7 +105,7 @@ data PhaseState sig = PhaseState {
     _phaseCSSState :: Either (Maybe Choices, Seq (Party, CSSMessage, sig)) (CSSState sig),
     _topInputWeight :: Maybe PartySet,
     _botInputWeight :: Maybe PartySet
-} deriving (Show)
+} deriving (Eq, Show)
 makeLenses ''PhaseState
 
 -- |The total weight and set of parties nominating a particular choice.
@@ -134,7 +134,7 @@ data ABBAState sig = ABBAState {
     _topWeAreDone :: PartyMap sig,
     _botWeAreDone :: PartyMap sig,
     _completed :: Bool
-} deriving (Show)
+} deriving (Eq, Show)
 makeLenses ''ABBAState
 
 -- |The state of a particular phase

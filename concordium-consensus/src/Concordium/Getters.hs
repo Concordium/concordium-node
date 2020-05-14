@@ -269,7 +269,7 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
                 "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. Stat.finalizationPeriodEMVar))
             ]
 
-getBlockInfo :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> IO Value
+getBlockInfo :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m)) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -299,7 +299,8 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "transactionsSize" .= toInteger (bpTransactionsSize bp)
                             ]
 
-getAncestors :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> String -> BlockHeight -> IO Value
+getAncestors :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m))
+             => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -316,7 +317,8 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
                          a' <- f a
                          go (a:acc) (n-1) a'
 
-getBranches :: forall z m. (SkovStateQueryable z m, Ord (BlockPointerType m), HashableTo BlockHash (BlockPointerType m), BlockPointerMonad m) => z -> IO Value
+getBranches :: forall z m. (SkovStateQueryable z m, TS.TreeStateMonad m)
+            => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
             brs <- branchesFromTop :: m [[BlockPointerType m]]
             brt <- foldM up Map.empty brs :: m (Map.Map (BlockPointerType m) [Value])
@@ -328,7 +330,8 @@ getBranches sfsRef = runStateQuery sfsRef $ do
                                     parent <- bpParent b :: m (BlockPointerType m)
                                     return $ (at parent . non [] %~ (object ["blockHash" .= hsh b, "children" .= (Map.findWithDefault [] b childrenMap :: [Value])] :)) ma) Map.empty
 
-getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> BlockHash -> IO (Maybe FinalizationRecord)
+getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m)
+                     => z -> BlockHash -> IO (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
             bs <- TS.getBlockStatus bh
             case bs of
