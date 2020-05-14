@@ -7,6 +7,7 @@
 -}
 module Concordium.GlobalState.Persistent.BlobStore where
 
+import Control.Monad
 import Control.Concurrent.MVar
 import System.IO
 import Data.Serialize
@@ -51,17 +52,49 @@ class HasBlobStore a where
 instance HasBlobStore BlobStore where
     blobStore = id
 
-createTempBlobStore :: FilePath -> IO BlobStore
-createTempBlobStore blobStoreFilePath = do
+-- |Create a new blob store at a given location.
+-- Fails if a file or directory at that location already exists.
+createBlobStore :: FilePath -> IO BlobStore
+createBlobStore blobStoreFilePath = do
+    pathEx <- doesPathExist blobStoreFilePath
+    when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
     h <- openBinaryFile blobStoreFilePath ReadWriteMode
     blobStoreFile <- newMVar h
-    return $! BlobStore{..}
+    return BlobStore{..}
 
-destroyTempBlobStore :: BlobStore -> IO ()
-destroyTempBlobStore BlobStore{..} = do
+-- |Load an existing blob store from a file.
+-- The file must be readable and writable, but this is not checked here.
+loadBlobStore :: FilePath -> IO BlobStore
+loadBlobStore blobStoreFilePath = do
+  h <- openBinaryFile blobStoreFilePath ReadWriteMode
+  blobStoreFile <- newMVar h
+  return BlobStore{..}
+
+-- |Flush all buffers associated with the blob store,
+-- ensuring all the contents is written out.
+flushBlobStore :: BlobStore -> IO ()
+flushBlobStore BlobStore{..} =
+    withMVar blobStoreFile hFlush
+
+-- |Close all references to the blob store, flushing it
+-- in the process.
+closeBlobStore :: BlobStore -> IO ()
+closeBlobStore BlobStore{..} = do
     h <- takeMVar blobStoreFile
     hClose h
 
+-- |Close all references to the blob store and delete the backing file.
+
+destroyBlobStore :: BlobStore -> IO ()
+destroyBlobStore BlobStore{..} = do
+    h <- takeMVar blobStoreFile
+    hClose h
+    removeFile blobStoreFilePath
+
+-- |Run a computation with temporary access to the blob store.
+-- The given FilePath is a directory where the temporary blob
+-- store will be created.
+-- The blob store file is deleted afterwards.
 runBlobStoreTemp :: FilePath -> ReaderT BlobStore IO a -> IO a
 runBlobStoreTemp dir a = bracket openf closef usef
     where
@@ -93,7 +126,7 @@ readBlob bstore ref = do
             Left e -> error e
             Right v -> return v
 
-writeBlobBS ::BlobStore -> BS.ByteString -> IO (BlobRef a)
+writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
 writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
         hSeek h SeekFromEnd 0
         offset <- fromIntegral <$> hTell h

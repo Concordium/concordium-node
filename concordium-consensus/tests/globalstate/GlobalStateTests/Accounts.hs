@@ -20,6 +20,8 @@ import Data.Either
 import Lens.Micro.Platform
 import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.Map.Strict as OrdMap
+import System.IO.Temp
+import System.FilePath
 
 import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
@@ -210,7 +212,7 @@ runAccountAction (RecordRegId rid) (ba, pa) = do
 
 emptyTest :: SpecWith BlobStore
 emptyTest = it "empty" $ runReaderT
-        (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
+            (checkEquivalent B.emptyAccounts P.emptyAccounts :: ReaderT BlobStore IO ())
 
 actionTest :: Word -> SpecWith BlobStore
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
@@ -222,6 +224,8 @@ actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegra
 
 tests :: Word -> Spec
 tests lvl = describe "GlobalStateTests.Accounts" $
-    around (bracket (createTempBlobStore "blockstate.dat") destroyTempBlobStore) $ do
-        emptyTest
-        actionTest lvl
+            around (\kont ->
+                      withTempDirectory "." "blockstate" $ \dir ->
+                       createBlobStore (dir </> "blockstate.dat") >>= kont
+                   ) $ do emptyTest
+                          actionTest lvl

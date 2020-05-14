@@ -24,7 +24,7 @@ import Data.Time.Clock
 import System.Mem.Weak
 import Data.Serialize
 
-type PersistentBlockPointer ati s = BlockPointer ati Weak s
+type PersistentBlockPointer ati = BlockPointer ati Weak
 
 -- |Create an empty weak pointer
 --
@@ -41,17 +41,17 @@ emptyWeak = do
 makePersistentBlockPointer :: (Monad m) => Block                               -- ^Pending block
                            -> Maybe BlockHash                    -- ^Precomputed hash of this block. If not provided, it will be computed in-place.
                            -> BlockHeight                        -- ^Height of the block
-                           -> Weak (PersistentBlockPointer ati s)    -- ^Parent block pointer
-                           -> Weak (PersistentBlockPointer ati s)    -- ^Last finalized block pointer
+                           -> Weak (PersistentBlockPointer ati bs)    -- ^Parent block pointer
+                           -> Weak (PersistentBlockPointer ati bs)    -- ^Last finalized block pointer
                            -> BlockHash                          -- ^Last finalized block hash
-                           -> s                                  -- ^Block state
+                           -> bs                                 -- ^Block state
                            -> ati                                -- ^Account index table for this block
                            -> UTCTime                            -- ^Block arrival time
                            -> UTCTime                            -- ^Receive time
                            -> Maybe Int                          -- ^Transaction count (only non available if we are upgrading a pending block)
                            -> Maybe Int                          -- ^Transction size (only non available if we are upgrading a pending block)
                            -> Energy                       -- ^Energy cost of all transactions in the block. If not provided, it will be computed in-place.
-                           -> m (PersistentBlockPointer ati s)
+                           -> m (PersistentBlockPointer ati bs)
 makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFinalizedHash _bpState _bpATI _bpArriveTime _bpReceiveTime txcount txsize _bpTransactionsEnergyCost = do
   let _bpHash = maybe (getHash b) id hs
   return $ BlockPointer {
@@ -71,9 +71,9 @@ makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFina
 -- block we don't even deref these pointers so they can be empty.
 makeGenesisPersistentBlockPointer :: (MonadIO m) =>
                                     GenesisData
-                                  -> s
+                                  -> bs
                                   -> ati
-                                  -> m (PersistentBlockPointer ati s)
+                                  -> m (PersistentBlockPointer ati bs)
 makeGenesisPersistentBlockPointer genData _bpState _bpATI = do
   let _bpReceiveTime = timestampToUTCTime (genesisTime genData)
       b = GenesisBlock genData
@@ -93,15 +93,15 @@ makeGenesisPersistentBlockPointer genData _bpState _bpATI = do
       ..}
 
 -- |Converts a Pending Block into a PersistentBlockPointer
-makePersistentBlockPointerFromPendingBlock :: forall m ati s. (MonadIO m) =>
+makePersistentBlockPointerFromPendingBlock :: forall m ati bs. (MonadIO m) =>
                                    PendingBlock      -- ^Pending block
-                                 -> PersistentBlockPointer ati s    -- ^Parent block
-                                 -> PersistentBlockPointer ati s    -- ^Last finalized block
-                                 -> s                           -- ^Block state
+                                 -> PersistentBlockPointer ati bs  -- ^Parent block
+                                 -> PersistentBlockPointer ati bs  -- ^Last finalized block
+                                 -> bs                             -- ^Block state
                                  -> ati                         -- ^Account transaction index table for this block
                                  -> UTCTime                     -- ^Block arrival time
                                  -> Energy                      -- ^Energy cost of all transactions in the block
-                                 -> m (PersistentBlockPointer ati s)
+                                 -> m (PersistentBlockPointer ati bs)
 makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
   parentW <- liftIO $ mkWeakPtr parent Nothing
   lfinW <- liftIO $ mkWeakPtr lfin Nothing
@@ -113,10 +113,10 @@ makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
 -- | Create an unlinked persistent block pointer
 makeBlockPointerFromPersistentBlock :: (MonadIO m) =>
                                       Block                      -- ^Block deserialized as retrieved from the disk
-                                    -> s                         -- ^Block state
+                                    -> bs                        -- ^Block state
                                     -> ati                       -- ^Account index table for this block
                                     -> BasicBlockPointerData     -- ^Block info
-                                    -> m (PersistentBlockPointer ati s)
+                                    -> m (PersistentBlockPointer ati bs)
 makeBlockPointerFromPersistentBlock _bpBlock _bpState _bpATI _bpInfo = do
   _bpParent <- liftIO emptyWeak
   _bpLastFinalized <- liftIO emptyWeak

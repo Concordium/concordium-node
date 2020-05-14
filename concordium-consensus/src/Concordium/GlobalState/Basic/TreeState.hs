@@ -110,7 +110,6 @@ deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData 
 
 
 instance (bs ~ GS.BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
-    type PendingBlockType (PureTreeStateMonad bs m) = PendingBlock
     type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
 
 instance (bs ~ GS.BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
@@ -148,6 +147,7 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
     getNextFinalizationIndex = FinalizationIndex . fromIntegral . Seq.length <$> use finalizationList
     addFinalization newFinBlock finRec = finalizationList %= (Seq.:|> (finRec, newFinBlock))
     getFinalizedAtIndex finIndex = fmap snd . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
+    getRecordAtIndex finIndex = fmap fst . Seq.lookup (fromIntegral finIndex) <$> use finalizationList
     getFinalizedAtHeight bHeight = preuse (finalizedByHeightTable . ix bHeight)
     getBranches = use branches
     putBranches brs = branches .= brs
