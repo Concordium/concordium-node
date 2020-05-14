@@ -132,37 +132,17 @@ deployModule size =
   -- As we store considerably more than the source of the module (also interfaces), we add a factor.
   + storage (2*size)
 
--- |Cost to charge when preprocessing a contract init transaction.
--- This includes checking the references to modules, and contracts withing the modules.
--- The cost of this is constant per transaction.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
-initPreprocess :: Energy
-initPreprocess = 100
-
 -- |Cost of type-checking and linking the parameters of the init method.
 -- Dependent on the serialized size of the parameters.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
 initParamsTypecheck :: Word64 -> Energy
-initParamsTypecheck size = fromIntegral size
-
--- |Cost to charge when preprocessing a contract update transaction.
--- This includes checking the references to modules, and contracts withing the modules.
--- The cost of this is constant per transaction.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
-updatePreprocess :: Energy
-updatePreprocess = 100
+initParamsTypecheck = typeCheck
 
 -- |Cost of type-checking and linking the message of the init method. Dependent
 -- on the serialized size of the parameters. Note that this is only explicitly
 -- charged for the top-level update. Inter-contract messages are known to be
 -- type-correct and are already in linked/compiled form.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
 updateMessageTypecheck :: Word64 -> Energy
-updateMessageTypecheck size = fromIntegral size
+updateMessageTypecheck = typeCheck
 
 -- |Fixed cost per generated inter-contract message.
 -- TODO This cost is outdated and has to be set in relation to the other cost when

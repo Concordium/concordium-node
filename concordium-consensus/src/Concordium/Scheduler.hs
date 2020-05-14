@@ -380,19 +380,23 @@ handleInitContract wtc amount modref cname param paramSize =
           txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
           c = do
-            tickEnergy Cost.initPreprocess
-
             -- Check whether the sender account's amount can cover the amount to initialize the contract
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAmount senderAccount
             unless (senderAmount >= amount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
 
             -- First try to get the module interface of the parent module of the contract.
+            -- TODO We currently charge for this after the lookup, as we do not have the size
+            -- available before.
             (iface, viface) <- getModuleInterfaces modref `rejectingWith` InvalidModuleReference modref
+            tickEnergy $ Cost.lookupModule $ iSize iface
+
             -- Then get the particular contract interface (in particular the type of the init method).
             ciface <- pure (Map.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
             -- Now typecheck the parameter expression (whether it has the parameter type specified
             -- in the contract). The cost of type-checking is dependent on the size of the term.
+            -- TODO Here we currently do not account for possible dependent modules looked up
+            -- when typechecking the term.
             tickEnergy (Cost.initParamsTypecheck paramSize)
             qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
             -- Link the contract, i.e., its init and receive functions as well as the constraint
@@ -475,12 +479,13 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
   withDeposit wtc c (defaultSuccess wtc)
   where senderAccount = wtc ^. wtcSenderAccount
         c = do
-          tickEnergy Cost.updatePreprocess
           i <- getCurrentContractInstanceTicking cref
           let rf = Ins.ireceiveFun i
               msgType = Ins.imsgTy i
               (iface, _) = Ins.iModuleIface i
               model = Ins.instanceModel i
+          -- TODO Here we currently do not account for possible dependent modules looked up
+          -- when typechecking the term.
           tickEnergy (Cost.updateMessageTypecheck msgSize)
           -- Type check the message expression, as coming from a top-level transaction it can be
           -- an arbitrary expression. The cost of type-checking is dependent on the size of the term.
