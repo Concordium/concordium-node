@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -24,11 +24,10 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
     sha256sum genesis.dat && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and concordium-client
-RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
-    mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
+RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
     git checkout bce26a5d0b7b655dc832784cd20d6f874294bc7d && \
@@ -74,7 +73,7 @@ RUN npm i
 RUN npm run build
 # Node dashbaord built
 
-FROM ubuntu:19.10
+FROM ubuntu:20.04
 EXPOSE 8888
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
