@@ -52,8 +52,6 @@ echo "We will run the following process:
 * Remove duplicate objects
 "
 
-#############################################################################################################################
-section "Fetching dependencies"
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 
 # Compile lmdb

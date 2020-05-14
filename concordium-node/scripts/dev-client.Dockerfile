@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12 as build
 
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
@@ -29,7 +29,7 @@ RUN \
 RUN \
     ( cd deps/internal/consensus/crypto/rust-bins && cargo build --release ) && \
     mv deps/internal/consensus/crypto/rust-bins/target/release/wallet_server .
-    
+
 ### P2P client
 RUN --mount=type=ssh ./build-binaries.sh "collector"
 
@@ -53,7 +53,7 @@ RUN stack build --copy-bins --ghc-options -j4 --local-bin-path target
 RUN mkdir -p /bins
 RUN cp target/wallet-proxy-exe /bins/wallet-proxy
 
-FROM ubuntu:19.10
+FROM ubuntu:20.04
 
 EXPOSE 8950
 EXPOSE 8888
