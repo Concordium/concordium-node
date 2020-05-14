@@ -114,8 +114,12 @@ for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*[^_p].a"); do
     cp $lib /target/vanilla/ghc/
 done
 
-for l in /target/profiling/ghc/libHSrts_p.a \
-             /target/profiling/ghc/libCffi_p.a \
+# When copying the profiling libraries we are copying a bunch of libs that are
+# in the ghc libs directory but would contain duplicated symbols, namely the
+# debug versions of the libraries and the non threaded versions.
+for l in /target/profiling/ghc/libCffi_p.a \
+             /target/profiling/ghc/libHSrts_p.a \
+             $(find /target/profiling/ghc -name "*debug_p*.a") \
              /target/vanilla/ghc/libCffi.a \
              /target/vanilla/ghc/libHSrts.a \
              /target/vanilla/ghc/libHSCabal-3.0.1.0.a \
