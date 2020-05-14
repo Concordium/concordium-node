@@ -307,9 +307,9 @@ createInitStates additionalFinMembers = do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
                                            (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] 2 []))
-                                           (ActiveFinalization fininst gen)
+                                           (ActiveFinalization fininst)
                                            NoHandler
-                                   (initCtx, initState) <- liftIO $ initialiseSkov config
+                                   (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
                                    return (bid, initCtx, initState))
     b1 <- createState baker1
     b2 <- createState baker2
@@ -319,9 +319,6 @@ createInitStates additionalFinMembers = do
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
-
-instance Show FinalizationInstance where
-    show _ = "[Finalization Instance]"
 
 withInitialStates :: Int -> (BakerState -> BakerState -> BakerState -> [BakerState] -> IO ()) -> IO ()
 withInitialStates addFinMembers r = do

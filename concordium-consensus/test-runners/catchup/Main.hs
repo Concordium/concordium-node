@@ -33,21 +33,18 @@ import Concordium.Types
 import Concordium.Runner
 import Concordium.Logger
 import Concordium.Skov
--- import Concordium.Skov.CatchUp
 import Concordium.Getters
 import Concordium.Afgjort.Finalize (FinalizationPseudoMessage(..),FinalizationInstance(..))
 import Concordium.Birk.Bake
 import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Startup
-import Concordium.GlobalState.DummyData(dummyFinalizationCommitteeMaxSize)
 
-type TreeConfig = MemoryTreeDiskBlockConfig
+type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
-
 
 newtype Peer = Peer {
     peerChan :: Chan (InMessage Peer)
@@ -234,7 +231,7 @@ main = do
                                     writeChan logChan $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg ++ "\n"
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen
         let
-            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
+            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
             hconfig = NoHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
