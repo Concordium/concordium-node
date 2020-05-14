@@ -33,6 +33,8 @@ import Concordium.GlobalState.Finalization
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
+import Concordium.Afgjort.Finalize.Types
+import Concordium.Kontrol (getFinalizationCommittee)
 
 import Control.Concurrent.MVar
 import Data.IORef
@@ -44,6 +46,7 @@ import qualified Data.Set as S
 import Data.String(fromString)
 import Data.Word
 import Data.Vector (fromList)
+import qualified Data.Vector as Vector
 import Control.Monad
 import Data.Foldable (foldrM)
 
@@ -141,16 +144,29 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
       outcomes <- BS.getOutcomes bs
       specialOutcomes <- BS.getSpecialOutcomes bs
       let finData = blockFinalizationData <$> blockFields bp
-      let finDataJSON =
+      finDataJSON <-
             case finData of
-              Just (BlockFinalizationData FinalizationRecord{..}) -> object [
-                "finalizationBlockPointer" .= finalizationBlockPointer,
-                "finalizationIndex" .= finalizationIndex,
-                "finalizationDelay" .= finalizationDelay
-                ] -- don't include proofs for now since they are not interpretable without a lot of supporting structures which are not
-                  -- currently exposed.
-              Just NoFinalizationData -> Null
-              Nothing -> Null
+              Just (BlockFinalizationData FinalizationRecord{..}) -> do
+                  -- Get the finalization committee by examining the previous finalized block
+                  finalizers <- blockAtFinIndex (finalizationIndex - 1) >>= \case
+                      Nothing -> return Vector.empty -- This should not be possible
+                      Just prevFin -> do
+                          com <- getFinalizationCommittee prevFin
+                          let signers = S.fromList (finalizationProofParties finalizationProof)
+                          let fromPartyInfo i PartyInfo{..} = object [
+                                "bakerId" .= partyBakerId,
+                                "weight" .= (fromIntegral partyWeight :: Integer),
+                                "signed" .= S.member (fromIntegral i) signers
+                                ]
+                          return (Vector.imap fromPartyInfo (parties com))
+                  return $ object [
+                    "finalizationBlockPointer" .= finalizationBlockPointer,
+                    "finalizationIndex" .= finalizationIndex,
+                    "finalizationDelay" .= finalizationDelay,
+                    "finalizers" .= finalizers
+                    ] -- don't include proofs for now since they are not interpretable without a lot of supporting structures which are not
+                      -- currently exposed.
+              _ -> return Null
 
       return $ object [
         "transactionSummaries" .= outcomes,
