@@ -164,8 +164,7 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
                     "finalizationIndex" .= finalizationIndex,
                     "finalizationDelay" .= finalizationDelay,
                     "finalizers" .= finalizers
-                    ] -- don't include proofs for now since they are not interpretable without a lot of supporting structures which are not
-                      -- currently exposed.
+                    ]
               _ -> return Null
 
       return $ object [
