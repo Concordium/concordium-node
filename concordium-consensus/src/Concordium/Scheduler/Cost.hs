@@ -5,6 +5,8 @@ Definition of cost functions for the different transactions.
 -}
 module Concordium.Scheduler.Cost where
 
+import Prelude hiding (lookup)
+
 import Data.Word
 
 import Concordium.Scheduler.Types
@@ -23,6 +25,14 @@ toInterpreterEnergy = (* interpreterEnergy)
 -- | Convert interpreter energy to general energy (rounding down).
 fromInterpreterEnergy :: Energy -> Energy
 fromInterpreterEnergy = (`div` interpreterEnergy)
+
+
+-- * General cost
+
+-- FIXME Some costs with parameters are currently prone to overflow in the 'Energy' datatype.
+-- This will probably not happen in practice as the required high parameter values will not be reached.
+-- But to be defensive, the functions should return 'maxBound' in case the maximum energy would be
+-- exceeded.
 
 -- ** Cost for storage
 
@@ -86,20 +96,28 @@ checkHeader size nSig =
   + (fromIntegral size) `div` 232
   + (fromIntegral nSig) * 53
 
+-- |Cost for type checking a module or term based on its serialized size (excluding cost for
+-- loading dependencies, see 'lookupModule'). This also includes cost for compiling.
+typeCheck :: Word64 -> Energy
+typeCheck size = (fromIntegral size) * 3 -- TODO find factor
 
--- |Cost to deploy the module. Computed from the serialized size of the module.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
-deployModule :: Word64 -> Energy
-deployModule size = fromIntegral size
-
--- |Cost per import. The argument is the number of imports. 
+-- |Cost per import when typechecking a module. The argument is the size of the
+-- imported module as specified by its 'Interface'.
 -- NOTE: It might make sense to charge non-linearly, but this might incentivize
 -- deep dependencies which we might not want.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
-importedModule :: Word64 -> Energy
-importedModule imports = 10 * fromIntegral imports
+lookupModule :: Word64 -> Energy
+lookupModule size = lookup size
+
+-- * Cost for individual transactions / actions
+
+-- |Cost to deploy the module (cost for typechecking and storing it), excluding cost for
+-- loading dependencies (see 'lookupModule'). Also includes cost for compiling the module.
+-- Computed from the serialized size of the module.
+deployModule :: Word64 -> Energy
+deployModule size =
+    typeCheck size
+  -- As we store considerably more than the source of the module (also interfaces), we add a factor.
+  + storage (2*size)
 
 -- |Cost to charge when preprocessing a contract init transaction.
 -- This includes checking the references to modules, and contracts withing the modules.

@@ -294,6 +294,18 @@ handleDeployModule wtc psize mod =
       tickEnergy (Cost.deployModule (fromIntegral psize))
       let mhash = Core.moduleHash mod
       imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral psize) mod)) `rejectingWith'` (const MissingImports)
+      -- Before typechecking, we charge for loading the dependencies of the to-be-typechecked module
+      -- (as typechecking will load these if used). For now, we do so by loading the interface of
+      -- each dependency one after the other and then charging based on its size.
+      -- TODO This performs some work before charging for it. When we have module sizes available
+      -- without loading their interface, we do not have to load them here.
+      let imports = Map.elems $ Core.imImports imod
+      forM_ imports $ \ref -> do
+        -- As the given module is not typechecked yet, it might contain imports of
+        -- non-existing modules.
+        iface <- getInterface ref `rejectingWith` ModuleNotWF
+        tickEnergy $ Cost.lookupModule (iSize iface)
+
       -- Typecheck the module, resulting in the module 'Interface'.
       -- The cost of type-checking is dependent on the size of the module.
       iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
