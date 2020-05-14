@@ -19,6 +19,7 @@ import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
+import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
@@ -629,12 +630,11 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Just (delta, _) -> return $! applyAmountDelta delta amnt
       Nothing -> return amnt
 
-  -- FIXME: Determine what is best ratio for energy/term size.
   linkExpr mref unlinked = do
     energy <- use energyLeft
-    linkWithMaxSize mref unlinked (fromIntegral energy `div` 100) >>= \case
+    linkWithMaxSize mref unlinked (Cost.maxLink energy) >>= \case
       Just (le, termSize) -> do
-        tickEnergy (fromIntegral termSize * 100)
+        tickEnergy (Cost.link termSize)
         return (leExpr le, termSize)
       Nothing -> rejectTransaction OutOfEnergy
 
