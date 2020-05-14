@@ -140,9 +140,22 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
       bs <- queryBlockState bp
       outcomes <- BS.getOutcomes bs
       specialOutcomes <- BS.getSpecialOutcomes bs
+      let finData = blockFinalizationData <$> blockFields bp
+      let finDataJSON =
+            case finData of
+              Just (BlockFinalizationData FinalizationRecord{..}) -> object [
+                "finalizationBlockPointer" .= finalizationBlockPointer,
+                "finalizationIndex" .= finalizationIndex,
+                "finalizationDelay" .= finalizationDelay
+                ] -- don't include proofs for now since they are not interpretable without a lot of supporting structures which are not
+                  -- currently exposed.
+              Just NoFinalizationData -> Null
+              Nothing -> Null
+
       return $ object [
         "transactionSummaries" .= outcomes,
-        "specialEvents" .= specialOutcomes
+        "specialEvents" .= specialOutcomes,
+        "finalizationData" .= finDataJSON
         ]
 
 withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
