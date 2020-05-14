@@ -13,7 +13,7 @@
 -- |This module pairs together two global state implementations
 -- for testing purposes.
 module Concordium.GlobalState.Paired where
-import Control.Monad (unless)
+
 import Lens.Micro.Platform
 import Control.Exception
 import Control.Monad.Reader.Class
@@ -24,7 +24,7 @@ import Data.Function
 import qualified Data.Sequence as Seq
 import qualified Data.List as List
 import Data.Proxy
-import Debug.Trace
+
 import Concordium.Types.HashableTo
 import Concordium.Types
 
@@ -610,9 +610,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     addCommitTransaction tr sl = do
         r1 <- coerceGSML $ addCommitTransaction tr sl
         r2 <- coerceGSMR $ addCommitTransaction tr sl
-        unless (r1 == r2) $ traceM $ "r1: " ++ show r1 ++ "\nr2: " ++ show r2 ++
-                                     "\ntr: " ++ show tr ++
-                                     "\nsl: " ++ show sl
         assert (r1 == r2) $ return r1
     purgeTransaction tr = do
         r1 <- coerceGSML $ purgeTransaction tr
