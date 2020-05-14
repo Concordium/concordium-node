@@ -395,7 +395,7 @@ syncImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
                                                              return ResultInvalid) $ do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
-  readBlock h now logm syncReceiveBlock syncRunner
+  readBlocks h now logm syncReceiveBlock syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
 -- and import it into the passive global state.
@@ -413,29 +413,34 @@ syncPassiveImportBlocks syncRunner logm filepath = handle (\(e :: IOException) -
                                                              return ResultInvalid) $ do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
-  readBlock h now logm syncPassiveReceiveBlock syncRunner
+  readBlocks h now logm syncPassiveReceiveBlock syncRunner
 
-readBlock :: Handle
-          -> UTCTime
-          -> LogMethod IO
-          -> (t -> PendingBlock -> IO UpdateResult)
-          -> t
-          -> IO UpdateResult
-readBlock h tm logm f syncRunner =  do
+readBlocks :: Handle
+           -> UTCTime
+           -> LogMethod IO
+           -> (t -> PendingBlock -> IO UpdateResult)
+           -> t
+           -> IO UpdateResult
+readBlocks h tm logm f syncRunner = loop
+  where loop = do
          lenS <- hGet h 8
          if not $ BS.null lenS then
            case runGet getInt64be lenS of
              Left err -> do
+               -- this should not happen
                logm External LLError $ "Error deserializing length: " ++ err
                return ResultSerializationFail
              Right len -> do
                blockBS <- hGet h (fromIntegral len)
                result <- importBlock blockBS tm logm f syncRunner
                case result of
-                 ResultSuccess -> readBlock h tm logm f syncRunner
-                 ResultPendingBlock -> readBlock h tm logm f syncRunner
-                 ResultSerializationFail -> return ResultSerializationFail
-                 err -> do
+                 ResultSuccess -> loop
+                 ResultPendingBlock -> do
+                   -- this shouldn't happen
+                   logm External LLWarning $ "Imported pending block."
+                   loop
+                 ResultDuplicate -> loop
+                 err -> do -- stop processing at first error that we encounter.
                    logm External LLError $ "Error importing block: " ++ show err
                    return err
          else
