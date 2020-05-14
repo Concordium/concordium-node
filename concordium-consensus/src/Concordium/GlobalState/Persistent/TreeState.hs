@@ -1,5 +1,10 @@
-  {-# LANGUAGE ConstraintKinds, BangPatterns, TypeFamilies, TemplateHaskell, NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards, MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving, LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia, StandaloneDeriving, UndecidableInstances #-}
--- |This module provides a monad that is an instance of both `LMDBStoreMonad` and `TreeStateMonad` effectively adding persistence to the tree state.
+{-# LANGUAGE ConstraintKinds, BangPatterns, TypeFamilies, TemplateHaskell,
+             NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards,
+             MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving,
+             LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia,
+             StandaloneDeriving, UndecidableInstances, TypeApplications, MultiWayIf #-}
+-- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
+-- and `TreeStateMonad` effectively adding persistence to the tree state.
 --
 -- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
 module Concordium.GlobalState.Persistent.TreeState where
@@ -8,6 +13,7 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
+import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Finalization
@@ -22,27 +28,63 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions as T
 import Control.Exception hiding (handle)
+import Control.Monad.Reader
 import Control.Monad.State
 import Data.ByteString (ByteString)
 import Data.HashMap.Strict hiding (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.List as List
 import qualified Data.Map.Strict as Map
+import Data.Typeable
 import Data.Maybe
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
-import Data.Serialize as S (runGet, put, get, runPut, runGet, Put)
+import Data.Serialize as S (runGet, runGetPartial, Result(..), put, get, runPut, Put)
 import qualified Data.Set as Set
 import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
+import System.Directory
+import System.IO.Error
+import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Data.Time.Clock
 import Data.Foldable as Fold (foldl')
 -- * SkovPersistentData definition
 
-data PersistenBlockStatus ati bs =
+data InitException =
+  -- |Block state path is a directory.
+  BlockStatePathDir
+  -- |Cannot get the read/write permissions for the block state file.
+  | BlockStatePermissionError
+  -- |Cannot get the read/write permissions for the tree state file.
+  | TreeStatePermissionError
+  -- |Generic database opening error
+  | DatabaseOpeningError !IOError
+  -- |Genesis block not in the database, but it should be.
+  | GenesisBlockNotInDataBaseError
+  -- |Genesis block incorrect.
+  | GenesisBlockIncorrect {
+      -- |Hash of genesis as in the database.
+      ieIs :: !BlockHash
+      }
+  | DatabaseInvariantViolation !String
+  deriving(Show, Typeable)
+
+instance Exception InitException where
+  displayException BlockStatePathDir = "Block state path points to a directory, not a file."
+  displayException BlockStatePermissionError = "Cannot get read and write permissions to the block state file."
+  displayException TreeStatePermissionError = "Cannot get read and write permissions to the tree state file."
+  displayException (DatabaseOpeningError err) = "Database error: " ++ displayException err
+  displayException GenesisBlockNotInDataBaseError = "Genesis block not in the database."
+  displayException (GenesisBlockIncorrect bh) =
+    "Incorrect genesis block. Genesis block in the database does not match the genesis data. Hash of the database genesis block is: " ++ show bh
+  displayException (DatabaseInvariantViolation err) =
+    "Database invariant violation: " ++ err
+  
+
+data PersistentBlockStatus ati bs =
     BlockAlive !(PersistentBlockPointer ati bs)
     | BlockDead
     | BlockFinalized !FinalizationIndex
@@ -52,7 +94,7 @@ data PersistenBlockStatus ati bs =
 -- |Skov data for the persistent tree state version that also holds the database handlers
 data SkovPersistentData ati bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (PersistenBlockStatus (ATIValues ati) bs)),
+    _blockTable :: !(HM.HashMap BlockHash (PersistentBlockStatus (ATIValues ati) bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
@@ -80,22 +122,34 @@ data SkovPersistentData ati bs = SkovPersistentData {
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
     -- | Database handlers
-    _db :: !(DatabaseHandlers bs),
+    _db :: !DatabaseHandlers,
     -- |Context for the transaction log.
     _atiCtx :: !(ATIContext ati)
 }
 makeLenses ''SkovPersistentData
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovPersistentDataDefault ::  FilePath -> GenesisData -> bs -> (ATIValues ati, ATIContext ati) -> S.Put -> IO (SkovPersistentData ati bs)
+initialSkovPersistentDataDefault
+    :: FilePath
+    -> GenesisData
+    -> bs
+    -> (ATIValues ati, ATIContext ati)
+    -> S.Put -- ^How to serialize the block state reference for inclusion in the table.
+    -> IO (SkovPersistentData ati bs)
 initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
 
-initialSkovPersistentData :: RuntimeParameters -> GenesisData -> bs -> (ATIValues ati, ATIContext ati) -> S.Put -> IO (SkovPersistentData ati bs)
+initialSkovPersistentData
+    :: RuntimeParameters
+    -> GenesisData
+    -> bs
+    -> (ATIValues ati, ATIContext ati)
+    -> S.Put -- ^How to serialize the block state reference for inclusion in the table.
+    -> IO (SkovPersistentData ati bs)
 initialSkovPersistentData rp gd genState ati serState = do
   gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  initialDb <- initialDatabaseHandlers gb serState rp
+  initialDb <- initializeDatabase gb serState rp
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -113,6 +167,198 @@ initialSkovPersistentData rp gd genState ati serState = do
             _runtimeParameters = rp,
             _db = initialDb,
             _atiCtx = snd ati
+        }
+
+checkExistingDatabase :: RuntimeParameters -> IO (FilePath, Bool)
+checkExistingDatabase rp = do
+  let blockStateFile = rpBlockStateFile rp <.> "dat"
+      treeStateFile = rpTreeStateDir rp </> "data.mdb"
+  bsPathEx <- doesPathExist blockStateFile
+  tsPathEx <- doesPathExist treeStateFile
+
+  -- Check whether a path is a normal file that is readable and writable
+  let checkRWFile path exc = do
+        fileEx <- doesFileExist path
+        unless fileEx $ throwIO BlockStatePathDir
+        perms <- catchJust (guard . isPermissionError)
+                           (getPermissions path)
+                           (const (throwIO exc))
+        unless (readable perms && writable perms) $ throwIO exc
+
+  -- if both files exist we check whether they are both readable and writable.
+  -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
+  if | bsPathEx && tsPathEx -> do
+         -- check whether it is a normal file and whether we have the right permissions
+         checkRWFile blockStateFile BlockStatePermissionError
+         checkRWFile treeStateFile TreeStatePermissionError
+         return (blockStateFile, True)
+     | bsPathEx -> 
+         throwIO (DatabaseInvariantViolation "Block state file exists, but tree state file does not.")
+     | tsPathEx -> 
+         throwIO (DatabaseInvariantViolation "Tree state file exists, but block state file does not.")
+     | otherwise ->
+         return (blockStateFile, False)
+
+-- |Try to load an existing instance of skov persistent data.
+-- This function will raise an exception if it detects invariant violation in the
+-- existing state.
+-- This can be for a number of reasons, but what is checked currently is
+--
+--   * blocks cannot be deserialized.
+--   * database does not contain a block at height 0, i.e., genesis block
+--   * database does not contain the right genesis block (one that would match genesis data)
+--   * hash under which the genesis block is stored is not the computed hash of the genesis block
+--   * missing finalization record for the last stored block in the database.
+--   * in the block state, an account which is listed cannot be loaded
+--
+-- TODO: We should probably use cursors instead of manually traversing the database.
+-- however the LMDB.Simple bindings for cursors are essentially unusable, leading to
+-- random segmentation faults and similar exceptions.
+loadSkovPersistentData :: forall ati . CanExtend (ATIValues ati)
+                       => RuntimeParameters
+                       -> GenesisData
+                       -> PBS.PersistentBlockStateContext
+                       -> (ATIValues ati, ATIContext ati)
+                       -> IO (SkovPersistentData ati PBS.PersistentBlockState)
+loadSkovPersistentData rp gd pbsc atiPair = do
+  -- we open the environment first.
+  -- It might be that the database is bigger than the default environment size.
+  -- This seems to not be an issue while we only read from the database,
+  -- and on insertions we resize the environment anyhow.
+  -- But this behaviour of LMDB is poorly documented, so we might experience issues.
+
+  dbHandlers <- mapException DatabaseOpeningError $ databaseHandlers rp
+
+  let env = dbHandlers ^. storeEnv -- database environment
+      dbFH = dbHandlers  ^. finalizedByHeightStore -- finalized by height table
+      dbB = dbHandlers ^. blockStore
+      dbFinRecords = dbHandlers ^. finalizationRecordStore
+
+  let failWith :: IO (Maybe a) -> InitException -> IO a
+      failWith x exc =
+        x >>= \case Nothing -> throwIO exc
+                    Just v -> return v
+
+      -- Lookup a finalized block at a given height.
+      -- Raises an exception at internal database violation.
+      lookupAtHeight :: BlockHeight -> IO (Maybe (BlockHash, ByteString))
+      lookupAtHeight bHeight = do
+        result <-
+          transaction env $ do
+            (L.get dbFH bHeight :: (L.Transaction ReadOnly (Maybe BlockHash))) >>= \case
+              Nothing -> return Nothing
+              Just bh -> Just . (bh, ) <$> L.get dbB bh
+        -- the reason for doing it this way is that I am wary of throwing exceptions
+        -- inside an LMDB transaction.
+        case result of
+          Nothing -> return Nothing
+          Just (bh, Nothing) -> throwIO (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
+          Just (bh, Just bytes) -> return (Just (bh, bytes))
+        
+      getBlockPointer :: ByteString -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState)
+      getBlockPointer bytes =
+        case runGet getQuadruple bytes of
+          Left _ -> throwIO (DatabaseInvariantViolation "Cannot deserialize block.")
+          Right (finIndex, blockInfo, newBlock, state') -> do
+            st <- runReaderT (PBS.runPersistentBlockStateMonad state') pbsc
+            let ati = defaultValue :: ATIValues ati
+            (, finIndex, st) <$> makeBlockPointerFromPersistentBlock newBlock st ati blockInfo
+        where getQuadruple = do
+                finIndex <- S.get
+                blockInfo <- S.get
+                newBlock <- getBlock (utcTimeToTransactionTime (_bpReceiveTime blockInfo))
+                state' <- BS.getBlockState
+                return (finIndex, blockInfo, newBlock, state')
+
+      -- Look up the minimal data, without deserializing the rest of it.
+      -- Due to the way LMDB works right now this still involves loading the entire block
+      -- into memory.
+      getMinimalBlockData :: ByteString -> IO FinalizationIndex
+      getMinimalBlockData bytes =
+        case runGetPartial S.get bytes of
+          S.Fail err _ -> throwIO (DatabaseInvariantViolation $ "Cannot deserialize block: " ++ show err)
+          S.Partial _ -> throwIO (DatabaseInvariantViolation $ "Cannot deserialize block. Partially successful.")
+          S.Done finIndex _ -> return finIndex
+
+      -- Given the genesis block pointer this function tries to load as many blocks as possible
+      -- from disk. It returns the last blockpointer that was loaded.
+      loadInSequence ::
+        PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState -- Genesis block pointer
+        -> ByteString -- Bytes of the genesis block as stored in the database.
+        -> IO ((PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState),
+               [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
+      loadInSequence gbp gBytes = do
+        (lastBytes, blocks) <- go 1 gBytes [(getHash gbp, BlockFinalized 0)]
+        (, blocks) <$> getBlockPointer lastBytes
+        where go :: BlockHeight
+                 -> ByteString
+                 -> [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)]
+                 -> IO (ByteString, [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
+              go height lastBytes acc =
+                lookupAtHeight height >>= \case
+                  Nothing -> return (lastBytes, acc)
+                  Just (bh, bytes) ->
+                    getMinimalBlockData bytes >>=
+                    \finIndex -> go (height + 1) bytes ((bh, BlockFinalized finIndex):acc)
+
+  (gbHash, gbBytes) <- lookupAtHeight 0 `failWith` GenesisBlockNotInDataBaseError
+
+  -- Check that this is really a genesis pointer with the same genesis data
+  (gBlockPointer, _, _) <- getBlockPointer gbBytes
+
+  unless (gbHash == getHash gBlockPointer) $ throwIO (DatabaseInvariantViolation $ "Genesis given hash and computed hash differ.")
+
+  case _bpBlock gBlockPointer of
+    GenesisBlock gd' -> unless (gd == gd') $ throwIO (GenesisBlockIncorrect (getHash gBlockPointer))
+    _ -> throwIO (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+
+  -- We would ideally be able to simply query for the last finalization record, but the limitations
+  -- of the LMDB bindings prevent us from doing that.
+  ((lastPointer, lastBlockFinIndex, lastState), blocks) <- loadInSequence gBlockPointer gbBytes
+
+  let getFinalizationRecord idx = L.readOnlyTransaction env (L.get dbFinRecords idx)
+  lastFinRecord <- getFinalizationRecord lastBlockFinIndex `failWith` (DatabaseInvariantViolation "Finalization record for known index does not exist.")
+
+  -- make sure the block pointed to by the last finalization record is indeed in the database
+  _ <- readOnlyTransaction env (L.get dbB (finalizationBlockPointer lastFinRecord))
+       `failWith` (DatabaseInvariantViolation "Finalization record points to a block which does not exist.")
+
+  -- The final thing we need to establish is the transaction table invariants.
+  -- This specifically means for each account we need to determine the next available nonce.
+  -- For now we simply load all accounts, but after this table is also moved to
+  -- some sort of a database we should not need to do that.
+
+  let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext IO) TransactionTable
+      getTransactionTable = do
+        accs <- BS.getAccountList lastState
+        foldM (\table addr ->
+                 BS.getAccount lastState addr >>= \case
+                  Nothing -> liftIO (throwIO (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded."))
+                  Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
+            emptyTransactionTable
+            accs
+  tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
+
+  return SkovPersistentData {
+            _blockTable = HM.fromList blocks,
+            _possiblyPendingTable = HM.empty,
+            _possiblyPendingQueue = MPQ.empty,
+            _lastFinalized = lastPointer,
+            _lastFinalizationRecord = lastFinRecord,
+            _branches = Seq.empty,
+            _genesisData = gd,
+            _genesisBlockPointer = gBlockPointer,
+            _focusBlock = lastPointer,
+            _pendingTransactions = emptyPendingTransactionTable,
+            _transactionTable = tt,
+            _transactionTablePurgeCounter = 0,
+            -- The best thing we can probably do is use the initial statistics,
+            -- and make the meaning of those with respect to the last time
+            -- consensus started.
+            _statistics = initialConsensusStatistics,
+            _runtimeParameters = rp,
+            _db = dbHandlers,
+            _atiCtx = snd atiPair
         }
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
@@ -146,22 +392,21 @@ instance (MonadIO m, MonadState (SkovPersistentData DiskDump bs) m) => PerAccoun
     PAAIConfig handle <- use logContext
     liftIO $ writeEntries handle bh ati sos
 
-instance (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m)) => GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
-    type PendingBlockType (PersistentTreeStateMonad ati bs m) = PendingBlock
+instance GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
     type BlockPointerType (PersistentTreeStateMonad ati bs m) = PersistentBlockPointer (ATIValues ati) bs
 
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
   logContext = atiCtx
 
-getWeakPointer :: (bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
-                   MonadIO (PersistentTreeStateMonad ati bs m),
+getWeakPointer :: (MonadIO (PersistentTreeStateMonad ati bs m),
                    BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+                   GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
                    CanExtend (ATIValues ati),
                    MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
-               => Weak (PersistentBlockPointer (ATIValues ati) (TS.BlockState m))
+               => Weak (PersistentBlockPointer (ATIValues ati) bs)
                -> BlockHash
                -> String
-               -> PersistentTreeStateMonad ati (TS.BlockState m) m (PersistentBlockPointer (ATIValues ati) (TS.BlockState m))
+               -> PersistentTreeStateMonad ati bs m (PersistentBlockPointer (ATIValues ati) bs)
 getWeakPointer weakPtr ptrHash name = do
         d <- liftIO $ deRefWeak weakPtr
         case d of
@@ -171,8 +416,8 @@ getWeakPointer weakPtr ptrHash name = do
             return $ fromMaybe (error ("Couldn't find " ++ name ++ " block in disk")) nb
 
 instance (Monad (PersistentTreeStateMonad ati bs m),
-          bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
           MonadIO (PersistentTreeStateMonad ati bs m),
+          TS.BlockState m ~ bs,
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
@@ -190,8 +435,9 @@ instance (Monad (PersistentTreeStateMonad ati bs m),
 -- The @ati@ is filled with a default value.
 constructBlock :: (MonadIO m,
                    BS.BlockStateStorage m,
+                   TS.BlockState m ~ bs,
                    CanExtend (ATIStorage m))
-               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) (TS.BlockState m)))
+               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) bs))
 constructBlock Nothing = return Nothing
 constructBlock (Just bytes) =
   case runGet getTriple bytes of
@@ -201,56 +447,30 @@ constructBlock (Just bytes) =
       let ati = defaultValue
       Just <$> (makeBlockPointerFromPersistentBlock newBlock st ati blockInfo)
   where getTriple = do
+          (_ :: FinalizationIndex) <- S.get -- TODO: This is ugly, but needed when loading from existing database.
           blockInfo <- S.get
           newBlock <- getBlock (utcTimeToTransactionTime (_bpReceiveTime blockInfo))
           state' <- BS.getBlockState
           return (blockInfo, newBlock, state')
 
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
-          bs ~ GS.BlockState (PersistentTreeStateMonad ati bs m),
+          TS.BlockState m ~ bs,
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
-          CanExtend (ATIValues ati),
           MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
          => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
-  writeBlock bp = do
+
+  writeBlock bp fr = do
     dbh <- use db
     bs <- BS.putBlockState (_bpState bp)
-    let blockBS = runPut (do
-                             S.put (_bpInfo bp)
-                             putBlock bp
-                             bs)
-    dbh' <- putOrResize dbh (Block (getHash bp) blockBS)
-    db .= dbh'
-  readBlock bh = do
-    env <- use (db . storeEnv)
-    dbB <- use (db . blockStore)
-    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
-    constructBlock bytes
-  readFinalizationRecord bh = do
-    env <- use (db . storeEnv)
-    dbF <- use (db . finalizationRecordStore)
-    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
-  readFinalizedBlockAtHeight bHeight = do
-    env <- use (db . storeEnv)
-    dbFH <- use (db . finalizedByHeightStore)
-    mbh <- liftIO $ transaction env (L.get dbFH bHeight :: L.Transaction ReadOnly (Maybe BlockHash))
-    case mbh of
-      Nothing -> return Nothing
-      Just bh -> readBlock bh
-
-  updateFinalizedByHeight bp = do
-    dbh <- use db
-    dbh' <- putOrResize dbh (FinalizedByHeight (bpHeight bp) (getHash bp))
+    let blockBS = runPut (S.put (finalizationIndex fr) <> S.put (_bpInfo bp) <> putBlock bp <> bs)
+    dbh' <- putOrResize dbh (Block (getHash bp) (bpHeight bp) blockBS)
     db .= dbh'
 
   writeFinalizationRecord fr = do
     dbh <- use db
     dbh' <- putOrResize dbh (Finalization (finalizationIndex fr) fr)
     db .= dbh'
-  readTransactionStatus th = do
-    env <- use (db . storeEnv)
-    dbT <- use (db . transactionStatusStore)
-    liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe T.TransactionStatus))
+
   writeTransactionStatus th t = do
     dbh <- use db
     dbh' <- putOrResize dbh (TxStatus th t)
@@ -260,6 +480,37 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     dbh <- use db
     dbh' <- putOrResize dbh (TxStatuses tss)
     db .= dbh'
+
+
+instance (MonadIO (PersistentTreeStateMonad ati bs m),
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          TS.BlockState m ~ bs,
+          CanExtend (ATIValues ati),
+          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
+         => LMDBQueryMonad (PersistentTreeStateMonad ati bs m) where
+  readBlock bh = do
+    env <- use (db . storeEnv)
+    dbB <- use (db . blockStore)
+    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
+    constructBlock bytes
+
+  readFinalizationRecord bh = do
+    env <- use (db . storeEnv)
+    dbF <- use (db . finalizationRecordStore)
+    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
+
+  readFinalizedBlockAtHeight bHeight = do
+    env <- use (db . storeEnv)
+    dbFH <- use (db . finalizedByHeightStore)
+    mbh <- liftIO $ transaction env (L.get dbFH bHeight :: L.Transaction ReadOnly (Maybe BlockHash))
+    case mbh of
+      Nothing -> return Nothing
+      Just bh -> readBlock bh
+
+  readTransactionStatus th = do
+    env <- use (db . storeEnv)
+    dbT <- use (db . transactionStatusStore)
+    liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe T.TransactionStatus))
 
 
 -- | This function will remove transactions that are pending for a long time.
@@ -336,8 +587,8 @@ purgeTransactionTable = do
                                                                      else Just (n1, n2)) acc pt) _pttWithSender e in v,
                                    ..}
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
-          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
@@ -375,8 +626,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     markDead bh = blockTable . at' bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
-              writeBlock bp
-              updateFinalizedByHeight bp
+              writeBlock bp fr
               blockTable . at' bh ?= BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?= BlockPending pb
@@ -394,17 +644,20 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     getFinalizedAtIndex finIndex = do
       lfr <- use lastFinalizationRecord
       if finIndex == finalizationIndex lfr then do
-        b <- use lastFinalized
-        return $ Just b
+        preuse lastFinalized
       else do
         dfr <- readFinalizationRecord finIndex
         case dfr of
           Just diskFinRec -> do
-             diskb <- readBlock (finalizationBlockPointer diskFinRec)
-             case diskb of
-                Just diskBlock -> return $ Just diskBlock
-                _ -> return Nothing
+             readBlock (finalizationBlockPointer diskFinRec)
           _ -> return Nothing
+
+    getRecordAtIndex finIndex = do
+      lfr <- use lastFinalizationRecord
+      if finIndex == finalizationIndex lfr then
+        return (Just lfr)
+      else
+        readFinalizationRecord finIndex
 
     getFinalizedAtHeight bHeight = do
       lfin <- use lastFinalized
