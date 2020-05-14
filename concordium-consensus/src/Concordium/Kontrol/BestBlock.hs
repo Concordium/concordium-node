@@ -35,7 +35,10 @@ blockLuck block = case blockFields block of
                 Just (_, lotteryPower) ->
                     return (electionLuck elDiff lotteryPower (blockProof bf))
 
-compareBlocks :: (SkovQueryMonad m, BlockPointerMonad m) => BlockPointerType m -> (BlockPointerType m, Maybe BlockLuck) -> m (BlockPointerType m, Maybe BlockLuck)
+compareBlocks :: (SkovQueryMonad m, BlockPointerMonad m)
+              => BlockPointerType m
+              -> (BlockPointerType m, Maybe BlockLuck)
+              -> m (BlockPointerType m, Maybe BlockLuck)
 compareBlocks contender best@(bestb, mbestLuck) =
     case compare (blockSlot bestb) (blockSlot contender) of
         LT -> return best -- if bestb has the smaller slot it is to be prefered 

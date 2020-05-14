@@ -19,9 +19,10 @@ import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
--- import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.Paired
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
@@ -56,11 +57,11 @@ sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
         (writeChan chan (MsgTransactionReceived $ runPut $ put t))
         -- r <- randomRIO (5000, 15000)
-        threadDelay 10000
+        threadDelay 200000
         sendTransactions bakerId chan ts
 sendTransactions _ _ _ = return ()
 
-relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, [Instance]) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
+relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, (Maybe BlockHeight, [Instance])) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
 relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn stderr $ "// *** relay thread exited on exception: " ++ show e)
     where
         loop = do
@@ -102,12 +103,12 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
                         writeChan outp (MsgFinalizationRecordReceived () fr)
                 _ -> return ()
             loop
-        bInsts :: BlockHash -> SkovT () ActiveConfig LogIO [Instance]
+        bInsts :: BlockHash -> SkovT () ActiveConfig LogIO (Maybe BlockHeight, [Instance])
         bInsts bh = do
             bst <- resolveBlock bh
             case bst of
-                Nothing -> return []
-                Just bs -> getContractInstanceList =<< queryBlockState bs
+                Nothing -> return (Nothing, [])
+                Just bs -> fmap (Just (bpHeight bs), ) . getContractInstanceList =<< queryBlockState bs
 
 removeEach :: [a] -> [(a,[a])]
 removeEach = re []
@@ -151,14 +152,20 @@ makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState 
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 -- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
+-- uncomment if wanting paired config
+-- type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
 
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- makeGlobalStateConfig rp genData =
+--    return $ PairGSConfig (MTMBConfig rp genData (genesisState genData), DTDBConfig rp genData (genesisState genData))
+
+type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
 main :: IO ()
 main = do
-    let n = 20
-    now <- currentTimestamp
-    let (gen, bis) = makeGenesisData now n 40 0.2
+    let n = 5
+    now <- currentTimestamp -- return 1588916588000
+    let (gen, bis) = makeGenesisData now n 200 0.2
                      defaultFinalizationParameters{
                          finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
                          -- finalizationOldStyleSkip = True, finalizationSkipShrinkFactor = 0.5,
@@ -181,7 +188,7 @@ main = do
         --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
-            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) gen
+            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
             hconfig = NoHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
@@ -197,7 +204,7 @@ main = do
                     let finInfo = case bfBlockFinalizationData (bbFields block) of
                             NoFinalizationData -> ""
                             BlockFinalizationData fr -> "\\lfin.wits:" ++ show (finalizationProofParties $ finalizationProof fr)
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++  "\"];"
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++ show (fst gs') ++ "\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
                     case (blockFinalizationData block) of
                         NoFinalizationData -> return ()

@@ -33,6 +33,13 @@ data FinalizationInstance = FinalizationInstance {
     finMyBlsKey :: !Bls.SecretKey
 }
 
+-- Show instance only exposing public data.
+instance Show FinalizationInstance where
+  show FinalizationInstance{..} =
+    "{ Ed25519Key = " ++ show (Sig.verifyKey finMySignKey) ++ ", " ++
+    "VRFKey = " ++ show (VRF.publicKey finMyVRFKey) ++ ", " ++
+    "BLSKey = " ++ show (Bls.derivePublicKey finMyBlsKey) ++ "}"
+
 class HasFinalizationInstance f where
     finalizationInstance :: f -> Maybe FinalizationInstance
 instance HasFinalizationInstance FinalizationInstance where
@@ -99,7 +106,7 @@ data FinalizationMessageHeader = FinalizationMessageHeader {
     msgFinalizationIndex :: !FinalizationIndex,
     msgDelta :: !BlockHeight,
     msgSenderIndex :: !Party
-} deriving (Eq, Ord)
+} deriving (Eq, Ord, Show)
 
 instance S.Serialize FinalizationMessageHeader where
     put FinalizationMessageHeader{..} = do

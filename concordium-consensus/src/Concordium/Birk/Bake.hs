@@ -165,7 +165,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     putPendingTransactions ptWithUnprocessedCreds
 
 
-doBakeForSlot :: (BlockPointerMonad m, FinalizationMonad m, SkovMonad m, MonadIO m, TreeStateMonad m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+doBakeForSlot :: (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
@@ -212,6 +212,6 @@ class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
-instance (FinalizationMonad (SkovT h c m), MonadIO m, TreeStateMonad (SkovT h c m), SkovMonad (SkovT h c m)) =>
+instance (FinalizationMonad (SkovT h c m), MonadIO m, SkovMonad (SkovT h c m), TreeStateMonad (SkovT h c m)) =>
         BakerMonad (SkovT h c m) where
     bakeForSlot = doBakeForSlot

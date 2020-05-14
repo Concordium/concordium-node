@@ -221,7 +221,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
 --    it is added to the appropriate pending queue.  'addBlock'
 --    should be called again when the pending criterion is fulfilled.
 -- 3. The block is determined to be valid and added to the tree.
-addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlockType m -> m UpdateResult
+addBlock :: forall m. (HasCallStack, TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m) => PendingBlock -> m UpdateResult
 addBlock block = do
         lfs <- getLastFinalizedSlot
         -- The block must be later than the last finalized block
@@ -289,13 +289,13 @@ addBlock block = do
                     check finOK $ do
                         -- check that the finalized block at the previous index
                         -- is the last finalized block of the parent
-                        previousFinalized <- getFinalizedAtIndex (finalizationIndex - 1)
+                        previousFinalized <- blockAtFinIndex (finalizationIndex - 1)
                         check ((bpHash <$> previousFinalized) == Just (bpLastFinalizedHash parentP)) $
                             -- Check that the finalized block at the given index
                             -- is actually the one named in the finalization record.
-                            getFinalizedAtIndex finalizationIndex >>= \case
+                            blockAtFinIndex finalizationIndex >>= \case
                                 Just fbp -> check (bpHash fbp == finalizationBlockPointer) $
-                                                tryAddParentLastFin parentP fbp
+                                              tryAddParentLastFin parentP fbp
                                 Nothing -> invalidBlock
         tryAddParentLastFin :: BlockPointerType m -> BlockPointerType m -> m UpdateResult
         tryAddParentLastFin parentP lfBlockP =
@@ -358,7 +358,7 @@ addBlock block = do
 -- This is used by 'addBlock' and 'doStoreBakedBlock', and should not
 -- be called directly otherwise.
 blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
-        => PendingBlockType m    -- ^Block to add
+        => PendingBlock           -- ^Block to add
         -> BlockPointerType m     -- ^Parent pointer
         -> BlockPointerType m    -- ^Last finalized pointer
         -> ExecutionResult m -- ^Result of block execution (state, energy used, ...)
@@ -392,7 +392,7 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
-doStoreBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m, PendingBlockType m ~ PendingBlock) => PendingBlock -> m UpdateResult
+doStoreBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => PendingBlock -> m UpdateResult
 {-# INLINE doStoreBlock #-}
 doStoreBlock pb@GB.PendingBlock{..} = do
     let cbp = getHash pb
@@ -416,7 +416,7 @@ doStoreBlock pb@GB.PendingBlock{..} = do
 -- |Store a block that is baked by this node in the tree.  The block
 -- is presumed to be valid.
 doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m)
-        => PendingBlockType m     -- ^Block to add
+        => PendingBlock          -- ^Block to add
         -> BlockPointerType m    -- ^Parent pointer
         -> BlockPointerType m     -- ^Last finalized pointer
         -> ExecutionResult m  -- ^Result of block execution.
