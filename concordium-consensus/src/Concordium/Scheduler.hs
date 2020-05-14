@@ -354,7 +354,9 @@ getCurrentContractInstanceTicking cref = do
   -- First take all remaining energy and check whether it is enough to cover the maximum possible lookup.
   remainingEnergy <- getEnergy
   unless (remainingEnergy >= Cost.lookup Cost.maxInstanceSize) $ putEnergy 0 >> rejectTransaction OutOfEnergy
-  inst <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+  inst <- getCurrentContractInstance cref >>= \case
+    Just i -> return i
+    Nothing -> putEnergy 0 >> rejectTransaction (InvalidContractAddress cref)
   -- Now calculate the actual cost.
   case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
     Just size -> do
