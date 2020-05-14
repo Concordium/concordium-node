@@ -37,7 +37,10 @@ fn main() -> Result<(), Error> {
     );
 
     spawn(&node, poll, None);
-    attempt_bootstrap(&node);
+
+    if !conf.connection.no_bootstrap_dns {
+        attempt_bootstrap(&node);
+    }
 
     loop {
         thread::sleep(Duration::from_millis(500));
