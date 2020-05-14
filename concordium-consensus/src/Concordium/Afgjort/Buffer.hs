@@ -18,11 +18,12 @@ import Concordium.Logger
 type BufferId = (FinalizationMessageHeader, Phase)
 
 data FinalizationDelay = FinalizationDelay !UTCTime !UTCTime !FinalizationMessage
+  deriving(Show)
 
 data FinalizationBuffer = FinalizationBuffer {
     _fbDelays :: !(Map BufferId FinalizationDelay),
     _fbCurrentDelayStep :: !(Maybe (BufferId, NominalDiffTime))
-}
+} deriving(Show)
 makeLenses ''FinalizationBuffer
 
 -- |The maximum time to delay a Seen message.

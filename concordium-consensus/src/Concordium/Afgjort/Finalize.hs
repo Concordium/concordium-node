@@ -26,6 +26,7 @@ module Concordium.Afgjort.Finalize (
     FinalizationMessage(..),
     FinalizationPseudoMessage(..),
     FinalizationMessageHeader,
+    recoverFinalizationState,
     initialFinalizationState,
     initialPassiveFinalizationState,
     verifyFinalProof,
@@ -50,6 +51,8 @@ import Control.Monad.State.Strict (runState)
 import Control.Monad.Reader.Class
 import Control.Monad.IO.Class
 import Control.Monad
+import Control.Exception
+import qualified Data.Sequence as Seq
 import Data.Bits
 import Data.Time.Clock
 import qualified Data.OrdPSQ as PSQ
@@ -67,6 +70,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Block
 import Concordium.Kontrol
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.WMVBA
@@ -85,14 +89,14 @@ data FinalizationRound = FinalizationRound {
     roundDelta :: !BlockHeight,
     roundMe :: !Party,
     roundWMVBA :: !(WMVBAState Sig.Signature)
-}
+} deriving(Eq)
 
 instance Show FinalizationRound where
     show FinalizationRound{..} = "roundInput: " ++ take 11 (show roundInput) ++ " roundDelta: " ++ show roundDelta
 
 data PassiveFinalizationRound = PassiveFinalizationRound {
     passiveWitnesses :: Map BlockHeight WMVBAPassiveState
-} deriving (Show)
+} deriving (Eq, Show)
 
 initialPassiveFinalizationRound :: PassiveFinalizationRound
 initialPassiveFinalizationRound = PassiveFinalizationRound Map.empty
@@ -114,14 +118,25 @@ data PendingMessage = PendingMessage !Party !WMVBAMessage !Sig.Signature
 
 type PendingMessageMap = Map FinalizationIndex (Map BlockHeight (Set PendingMessage))
 
+-- |State of the finalization. In the documentation of the fields "current" refers
+-- to the round currently being executed, or if we are waiting for the tree to grow,
+-- the upcoming finalization round.
 data FinalizationState timer = FinalizationState {
+    -- |Session identifier of the current session.
     _finsSessionId :: !FinalizationSessionId,
+    -- |Index of the current finalization.
     _finsIndex :: !FinalizationIndex,
+    -- |Height at which we are supposed to finalize in the current round.
     _finsHeight :: !BlockHeight,
+    -- |How many descendants a block should have before it is considered
+    -- for finalization at the beginning of the round.
     _finsIndexInitialDelta :: !BlockHeight,
+    -- |Finalization committee for the current round.
     _finsCommittee :: !FinalizationCommittee,
     -- TODO: Remove this; replaced by direct access to FinalizationParameters
     _finsMinSkip :: !BlockHeight,
+    -- |Gap (difference in height of blocks) after the last finalized block
+    -- before finalization should start again.
     _finsGap :: !BlockHeight,
     _finsPendingMessages :: !PendingMessageMap,
     _finsCurrentRound :: !(Either PassiveFinalizationRound FinalizationRound),
@@ -129,13 +144,115 @@ data FinalizationState timer = FinalizationState {
     _finsCatchUpTimer :: !(Maybe timer),
     _finsCatchUpAttempts :: !Int,
     _finsCatchUpDeDup :: !(PSQ.OrdPSQ Sig.Signature UTCTime ()),
+    -- |Queue of finalization records that have not yet been included in blocks.
     _finsQueue :: !FinalizationQueue
-}
+} deriving(Eq)
 makeLenses ''FinalizationState
+
+-- |Recover finalization state from the tree state.
+-- This method looks up the last finalized block in the tree state
+-- and the surrounding context and constructs the finalization state the
+-- finaler should use to continue from this point onward.
+--
+-- If a finalization instance is provided this function will try to construct an
+-- active finalization round, provided the keys of the instance are in the
+-- committee as well. If no finalization instance is given a passive
+-- finalization round is constructed.
+-- NB: This function should for now only be used in a tree state that has no branches,
+-- and will raise an exception otherwise.
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad m, BlockPointerMonad m)
+                         => Maybe FinalizationInstance
+                         -> m (FinalizationState timer)
+recoverFinalizationState mfinInstance = do
+  (lastFinBlockPointer, lastFinRec) <- lastFinalizedBlockWithRecord
+  currentHeight <- getCurrentHeight
+  unless (currentHeight == bpHeight lastFinBlockPointer) $ do
+    let msg = "Precondition violation: Trying to recover finalization state in a tree state with branches. This is currently unsupported."
+    liftIO (throwIO (userError msg))
+
+  finParams <- getFinalizationParameters
+  let lastFinIndex = finalizationIndex lastFinRec
+
+  -- Block finalized at the previous index (if applicable)
+  prevFinalized <-
+    if lastFinIndex == 0 then
+      return lastFinBlockPointer
+    else fromMaybe
+         (error "Invariant violation: previous finalization index does not exist.")
+         <$> (blockAtFinIndex (lastFinIndex - 1))
+
+  -- Gap between the last two finalizations. This will be 0 if
+  -- last finalized block is genesis, and
+  -- the new gap will be 1 + finalizationMinimumSkip.
+  let oldGap = bpHeight lastFinBlockPointer - bpHeight prevFinalized
+  _finsGap <- nextFinalizationGap lastFinBlockPointer finParams oldGap
+  _finsCommittee <- getFinalizationCommittee lastFinBlockPointer
+
+  genHash <- bpHash <$> genesisBlock
+
+  -- Find the finalization index of the first finalization record that is not
+  -- yet included in a finalized block.
+  let findFirstUnsettledIndex curPtr =
+          case blockFinalizationData <$> blockFields curPtr of
+            Nothing -> return 1 -- we've reached the genesis block
+            Just NoFinalizationData -> findFirstUnsettledIndex =<< bpParent curPtr
+            Just (BlockFinalizationData fRec) -> return (finalizationIndex fRec + 1)
+
+  let sessId = FinalizationSessionId genHash 0 -- FIXME: This should not be hardcoded
+
+  -- load all unsettled records and construct the initial
+  -- finalization queue. Note that the queue might be empty.
+  finalizationQueue <- do
+    firstIdx <- findFirstUnsettledIndex lastFinBlockPointer
+    proofs <-
+      forM [firstIdx..finalizationIndex lastFinRec] $ \idx ->
+        recordAtFinIndex idx >>= \case
+          Nothing -> do
+            error $ "Invariant violation. Lost block at finalization index " ++ show idx
+          Just fRec -> do
+            -- Finalization committee used to produce the record.
+            -- This is, right now at least, the committee that finalized
+            -- at the last finalization index.
+            -- idx - 1 is fine here because findFirstUnsettledIndex is at least 1
+            blockAtFinIndex (idx - 1) >>= \case
+              Nothing -> error $ "Invariant violation: Missing block at known finalization index: " ++ show (idx - 1)
+              Just bp ->
+                do committee <- getFinalizationCommittee bp
+                   return (newFinalizationProven sessId committee fRec)
+    return $ FinalizationQueue firstIdx (Seq.fromList proofs)
+
+  let _finsSessionId = sessId
+      _finsIndexInitialDelta = nextFinalizationDelay finParams lastFinRec
+      _finsHeight = bpHeight lastFinBlockPointer + _finsGap
+      _finsMinSkip = finalizationMinimumSkip finParams
+      _finsPendingMessages = Map.empty
+      _finsFailedRounds = []
+      _finsCatchUpTimer = Nothing
+      _finsCatchUpAttempts = 0
+      _finsCatchUpDeDup = PSQ.empty
+      -- genesis block is finalized by definition and it does not have a valid
+      -- finalization record, so it should not be included in subsequent blocks
+      _finsQueue = finalizationQueue
+      _finsIndex = finalizationIndex lastFinRec + 1
+      _finsCurrentRound =
+        case mfinInstance of
+          Just finInstance
+              | Just me <- findInstanceInCommittee finInstance _finsCommittee ->
+                  Right (FinalizationRound {
+                            roundInput = Nothing,
+                            roundDelta = _finsIndexInitialDelta,
+                            roundMe = me,
+                            roundWMVBA = initialWMVBAState
+                            }
+                        )
+          -- NB: The below should be correct since we don't have any pending messages stored.
+          _ -> Left initialPassiveFinalizationRound
+  return FinalizationState{..}
 
 instance Show (FinalizationState timer) where
     show FinalizationState{..} = "finIndex: " ++ show (theFinalizationIndex _finsIndex) ++ " finHeight: " ++ show (theBlockHeight _finsHeight) ++ " currentRound:" ++ show _finsCurrentRound
         ++ "\n pendingMessages:" ++ show (Map.toList $ fmap (Map.toList . fmap Set.size)  _finsPendingMessages)
+        ++ "\n finQueue: " ++ show _finsQueue
 
 class FinalizationQueueLenses s => FinalizationStateLenses s timer | s -> timer where
     finState :: Lens' s (FinalizationState timer)
@@ -201,9 +318,9 @@ initialPassiveFinalizationState genHash finParams genBakers totalGTU = Finalizat
 
 initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
 initialFinalizationState FinalizationInstance{..} genHash finParams genBakers totalGTU = (initialPassiveFinalizationState genHash finParams genBakers totalGTU) {
-    _finsCurrentRound = case filter (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (Vec.toList (parties com)) of
-        [] -> Left initialPassiveFinalizationRound
-        (p:_) -> Right FinalizationRound {
+    _finsCurrentRound = case Vec.find (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (parties com) of
+        Nothing -> Left initialPassiveFinalizationRound
+        Just p -> Right FinalizationRound {
             roundInput = Nothing,
             roundDelta = 1,
             roundMe = partyIndex p,
@@ -643,7 +760,8 @@ notifyBlockArrivalForPending b = do
         Just finRec
             | finalizationBlockPointer finRec == bpHash b ->
                 trustedFinalize finRec >>= \case
-                    Right newFinBlock -> finalizationBlockFinal finRec newFinBlock
+                    Right newFinBlock ->
+                      finalizationBlockFinal finRec newFinBlock
                     Left _ -> return ()
         _ -> return ()
 
@@ -665,14 +783,19 @@ notifyBlockArrival b = do
 getMyParty :: (FinalizationBaseMonad r s m) => m (Maybe Party)
 getMyParty = getFinalizationInstance >>= \case
     Nothing -> return Nothing
-    Just finInst -> do
-        let
-            myVerifyKey = (Sig.verifyKey . finMySignKey) finInst
-            myPublicVRFKey = (VRF.publicKey . finMyVRFKey) finInst
-        ps <- parties <$> use finCommittee
-        case filter (\p -> partySignKey p == myVerifyKey && partyVRFKey p == myPublicVRFKey) (Vec.toList ps) of
-            (p:_) -> return $ Just (partyIndex p)
-            [] -> return Nothing
+    Just finInst -> findInstanceInCommittee finInst <$> use finCommittee
+
+-- |Find the party in the given finalization committee.
+-- This simply finds the first party in the committee whose
+-- public keys match the instance.
+findInstanceInCommittee :: FinalizationInstance -> FinalizationCommittee -> Maybe Party
+findInstanceInCommittee finInst committee =
+  let myVerifyKey = (Sig.verifyKey . finMySignKey) finInst
+      myPublicVRFKey = (VRF.publicKey . finMyVRFKey) finInst
+      ps = parties committee
+  in case Vec.find (\p -> partySignKey p == myVerifyKey && partyVRFKey p == myPublicVRFKey) ps of
+       Just p -> Just (partyIndex p)
+       Nothing -> Nothing        
 
 -- |Produce 'OutputWitnesses' based on the pending finalization messages.
 -- This is used when we know finalization has occurred (by receiving a
@@ -722,7 +845,8 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finCatchUpDeDup .= PSQ.empty
         -- Move to next index
         oldFinIndex <- finIndex <<.= finalizationIndex + 1
-        unless (finalizationIndex == oldFinIndex) $ error "Non-sequential finalization"
+        unless (finalizationIndex == oldFinIndex) $
+            error $ "Non-sequential finalization, finalizationIndex = " ++ show finalizationIndex ++ ", oldIndex = " ++ show oldFinIndex
         -- Update the finalization queue index as necessary
         getBlockStatus (bpLastFinalizedHash bp) >>= \case
             Just (BlockFinalized _ FinalizationRecord{finalizationIndex = fi}) -> updateQueuedFinalizationIndex (fi + 1)
@@ -892,24 +1016,19 @@ nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType
 nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
-
+    
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovQueryMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
 
-deriving instance (BlockPointerData (BlockPointerType m), BlockPendingData (PendingBlockType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
+deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
 deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM r s m)
--- deriving instance (Convert a b m) => Convert a b (ActiveFinalizationM r s m)
 
-{-
-instance GlobalStateTypes m => GlobalStateTypes (ActiveFinalizationM r s m) where
-    type PendingBlock (ActiveFinalizationM r s m) = PendingBlock m
-    type BlockPointer (ActiveFinalizationM r s m) = BlockPointer m
--}
+
 instance (FinalizationBaseMonad r s m) => FinalizationMonad (ActiveFinalizationM r s m) where
     finalizationBlockArrival = notifyBlockArrival
-    finalizationBlockFinal fr b = (notifyBlockFinalized fr b)
+    finalizationBlockFinal fr b = notifyBlockFinalized fr b
     finalizationReceiveMessage = receiveFinalizationPseudoMessage
     finalizationReceiveRecord b fr = receiveFinalizationRecord b fr
     finalizationUnsettledRecordAt = getQueuedFinalization

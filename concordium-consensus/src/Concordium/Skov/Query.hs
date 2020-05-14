@@ -1,8 +1,11 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.Skov.Query where
 
 import Control.Monad
 import Data.Functor
+import qualified Data.List as List
 import qualified Data.Sequence as Seq
+import Data.Foldable
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
@@ -11,6 +14,7 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.Kontrol.UpdateLeaderElectionParameters
+import Concordium.Skov.CatchUp.Types
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
 {-# INLINE doResolveBlock #-}
@@ -46,7 +50,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
         revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 
-doGetBlocksAtHeight :: (BlockPointerMonad m, TreeStateMonad m) => BlockHeight -> m [BlockPointerType m]
+doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointerType m]
 {-# INLINE doGetBlocksAtHeight #-}
 doGetBlocksAtHeight h = do
         lastFin <- fst <$> getLastFinalized
@@ -73,3 +77,36 @@ doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m Finaliz
 doBlockLastFinalizedIndex bp = getBlockStatus (bpLastFinalizedHash bp) <&> \case
         Just (BlockFinalized _ fr) -> finalizationIndex fr
         _ -> error "Invariant violation: last finalized block is not finalized."
+
+
+-- |Get a catch-up status message. The flag indicates if the
+-- message should be a catch-up request.
+doGetCatchUpStatus :: (TreeStateMonad m) => Bool -> m CatchUpStatus
+doGetCatchUpStatus cusIsRequest = do
+        lfb <- fst <$> getLastFinalized
+        br <- toList <$> getBranches
+        (leaves, branches) <- leavesBranches br
+        makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
+
+makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
+makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
+    where
+        cusLastFinalizedBlock = bpHash lfb
+        cusLastFinalizedHeight = bpHeight lfb
+        cusLeaves = bpHash <$> leaves
+        cusBranches = bpHash <$> branches
+
+-- |Given a list of lists representing branches (ordered by height),
+-- produce a pair of lists @(leaves, branches)@, which partions
+-- those blocks that are leaves (@leaves@) from those that are not
+-- (@branches@).
+leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
+leavesBranches = lb ([], [])
+    where
+        lb :: ([BlockPointerType m], [BlockPointerType m]) -> [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
+        lb lsbs [] = return lsbs
+        lb (ls, bs) [ls'] = return (ls ++ ls', bs)
+        lb (ls, bs) (s:r@(n:_)) = do
+          parent <- mapM bpParent n
+          let (bs', ls') = List.partition (`elem` parent) s
+          lb (ls ++ ls', bs ++ bs') r
