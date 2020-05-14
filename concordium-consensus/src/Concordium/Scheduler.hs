@@ -1117,7 +1117,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
                    (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
               -- If the stated energy of a single transaction exceeds the block energy limit the
               -- transaction is invalid. Add it to the list of failed transactions and
-              -- determine whether following transaction have to fail as well.
+              -- determine whether following transactions have to fail as well.
               else if tenergy > maxEnergy then
                 let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
                 in runTransactionGroup size newFts remainingGroups rest
