@@ -12,7 +12,7 @@ pipeline {
             }
             steps {
                 sshagent (credentials: ['jenkins']) {
-                    sh './scripts/download-genesis-data.sh && ./scripts/download-genesis-complementary-bundle.sh && ./scripts/build-docker-compose-image.sh develop default false && docker push concordium/dev-client:develop'
+                    sh './scripts/download-genesis-data.sh && ./scripts/download-genesis-complementary-bundle.sh && ./scripts/build-docker-compose-image.sh develop true false && docker push concordium/dev-client:develop'
                 }
             }
         }
