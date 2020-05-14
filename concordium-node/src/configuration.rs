@@ -12,8 +12,8 @@ use structopt::StructOpt;
 
 /// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
-    name:   "ConcordiumP2P",
-    author: "Concordium",
+    name:   "concordium",
+    author: "concordium",
 };
 
 /// A list of peer client versions applicable for connections.
