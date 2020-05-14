@@ -765,6 +765,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         inner <- liftIO $ readIORef pbs
         (inner', ref) <- flushBufferedRef inner
         liftIO $ writeIORef pbs inner'
+        bs <- blobStore <$> ask
+        liftIO $ flushBlobStore bs
         return (put ref)
 
     getBlockState = liftIO . newIORef . BRBlobbed <$> get
