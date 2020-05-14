@@ -47,8 +47,10 @@ import Acorn.Types(compile)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
+import Data.Word
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
+
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
@@ -358,7 +360,7 @@ handleInitContract ::
     -> ModuleRef  -- ^The module to initialize a contract from.
     -> Core.TyName  -- ^Name of the contract to initialize from the given module.
     -> Core.Expr Core.UA Core.ModuleName  -- ^Parameter expression to initialize the contract with.
-    -> Int -- ^Serialized size of the parameter expression. Used for computing typechecking cost.
+    -> Word64 -- ^Serialized size of the parameter expression. Used for computing typechecking cost.
     -> m (Maybe TransactionSummary)
 handleInitContract wtc amount modref cname param paramSize =
   withDeposit wtc c k
@@ -455,7 +457,7 @@ handleUpdateContract ::
     -> ContractAddress -- ^Address of the contract to invoke.
     -> Amount -- ^Amount to invoke the contract's receive method with.
     -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
-    -> Int  -- ^Serialized size of the message.
+    -> Word64  -- ^Serialized size of the message.
     -> m (Maybe TransactionSummary)
 handleUpdateContract wtc cref amount maybeMsg msgSize =
   withDeposit wtc c (defaultSuccess wtc)

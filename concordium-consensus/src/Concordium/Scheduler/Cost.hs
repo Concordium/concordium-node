@@ -9,8 +9,6 @@ import Data.Word
 
 import Concordium.Scheduler.Types
 
-import Control.Exception(assert)
-
 
 -- * Cost factors
 
@@ -43,7 +41,7 @@ storagePer100Byte = 5
 
 -- | Cost for storing the given number of bytes. It is charged for every started 100 bytes.
 storage :: Word64 -> Energy
-storage n = assert (n >= 0) $ storageBase + ((fromIntegral n + 99) `div` 100) * storagePer100Byte
+storage n = storageBase + ((fromIntegral n + 99) `div` 100) * storagePer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
 maxStorage :: Energy -> Word64
@@ -59,7 +57,7 @@ lookupPer100Byte = 3
 
 -- | Cost for looking up the given number of bytes. It is charged for every started 100 bytes.
 lookup :: Word64 -> Energy
-lookup n = assert (n >= 0) $ lookupBase + ((fromIntegral n + 99) `div` 100) * lookupPer100Byte
+lookup n = lookupBase + ((fromIntegral n + 99) `div` 100) * lookupPer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
 maxLookup :: Energy -> Word64
@@ -80,7 +78,7 @@ maxInstanceSize = 1000000 -- TODO set based on calculated restrictions
 --
 -- * @SPEC: <$DOCS/Transactions#transaction-cost-header>
 checkHeader
-  :: Int -- ^ The number of bytes of serialized transaction header and payload.
+  :: Word64 -- ^ The number of bytes of serialized transaction header and payload.
   -> Int -- ^ The number of signatures the transaction signature contains.
   -> Energy
 checkHeader size nSig =
@@ -92,15 +90,15 @@ checkHeader size nSig =
 -- |Cost to deploy the module. Computed from the serialized size of the module.
 -- TODO This cost is outdated and has to be set in relation to the other cost when
 -- the respective transactions are enabled.
-deployModule :: Int -> Energy
-deployModule size = assert (size > 0) (fromIntegral size)
+deployModule :: Word64 -> Energy
+deployModule size = fromIntegral size
 
 -- |Cost per import. The argument is the number of imports. 
 -- NOTE: It might make sense to charge non-linearly, but this might incentivize
 -- deep dependencies which we might not want.
 -- TODO This cost is outdated and has to be set in relation to the other cost when
 -- the respective transactions are enabled.
-importedModule :: Int -> Energy
+importedModule :: Word64 -> Energy
 importedModule imports = 10 * fromIntegral imports
 
 -- |Cost to charge when preprocessing a contract init transaction.
@@ -115,8 +113,8 @@ initPreprocess = 100
 -- Dependent on the serialized size of the parameters.
 -- TODO This cost is outdated and has to be set in relation to the other cost when
 -- the respective transactions are enabled.
-initParamsTypecheck :: Int -> Energy
-initParamsTypecheck size = assert (size > 0) (fromIntegral size)
+initParamsTypecheck :: Word64 -> Energy
+initParamsTypecheck size = fromIntegral size
 
 -- |Cost to charge when preprocessing a contract update transaction.
 -- This includes checking the references to modules, and contracts withing the modules.
@@ -132,8 +130,8 @@ updatePreprocess = 100
 -- type-correct and are already in linked/compiled form.
 -- TODO This cost is outdated and has to be set in relation to the other cost when
 -- the respective transactions are enabled.
-updateMessageTypecheck :: Int -> Energy
-updateMessageTypecheck size = assert (size > 0) (fromIntegral size)
+updateMessageTypecheck :: Word64 -> Energy
+updateMessageTypecheck size = fromIntegral size
 
 -- |Fixed cost per generated inter-contract message.
 -- TODO This cost is outdated and has to be set in relation to the other cost when
