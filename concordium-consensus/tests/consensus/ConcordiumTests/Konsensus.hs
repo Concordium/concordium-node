@@ -255,7 +255,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
-            bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
+            bakerEqParty PartyInfo{..} = baker ^. bakerSignatureVerifyKey == partySignKey
         checkBinary (==) bakerInFinCommittee (isRight _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
             -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
