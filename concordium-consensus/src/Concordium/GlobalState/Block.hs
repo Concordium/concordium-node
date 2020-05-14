@@ -9,6 +9,7 @@ import Data.Time
 import Data.Serialize
 import qualified Data.ByteString as ByteString
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
@@ -138,6 +139,7 @@ instance BlockMetadata BakedBlock where
 
 blockBody :: (BlockMetadata b, BlockData b) => b -> Put
 blockBody b = do
+        put __versionBlock
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
