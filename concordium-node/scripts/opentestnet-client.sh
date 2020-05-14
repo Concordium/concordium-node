@@ -33,4 +33,9 @@ then
   export IMPORT_BLOCKS_FROM="/var/lib/concordium/data/blocks_to_import.dat"
 fi
 
+if [ -f /var/lib/concordium/data/node-dashboard-config.json ]; 
+then
+  cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/config.json
+fi
+
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
