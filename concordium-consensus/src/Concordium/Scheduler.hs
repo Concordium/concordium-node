@@ -314,6 +314,42 @@ handleDeployModule wtc psize mod =
         -- this check can be done even earlier, since the module hash is the hash of module serialization.
         return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
+-- | Tick energy for storing the given 'Value'.
+-- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
+-- that cannot be paid for.
+tickEnergyValueStorage ::
+  TransactionMonad m
+  => Value
+  -> m ()
+tickEnergyValueStorage val = do
+  remainingEnergy <- getEnergy
+  let maxSize = Cost.maxStorage remainingEnergy
+  case storableSizeWithLimit val maxSize of
+    Just size -> putEnergy (remainingEnergy - Cost.storage size)
+    Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+
+-- | Tick energy for looking up a contract instance, then do the lookup.
+-- FIXME: Currently we do not know the size of the instance before looking it up.
+-- Therefore we have to require enough energy available to cover the maximum possible size.
+-- We also charge all remaining energy in case it is not sufficient to cover the most expensive lookup.
+getCurrentContractInstanceTicking ::
+  TransactionMonad m
+  => ContractAddress
+  -> m Instance
+getCurrentContractInstanceTicking cref = do
+  -- First take all remaining energy and check whether it is enough to cover the maximum possible lookup.
+  remainingEnergy <- getEnergy
+  unless (remainingEnergy >= Cost.lookup Cost.maxInstanceSize) $ putEnergy 0 >> rejectTransaction OutOfEnergy
+  inst <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+  -- Now calculate the actual cost.
+  case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
+    Just size -> do
+      putEnergy (remainingEnergy - Cost.lookup size)
+      return inst
+    -- NB: This should not happen with the above check of enough energy.
+    Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+
+
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
   SchedulerMonad m
@@ -364,8 +400,12 @@ handleInitContract wtc amount modref cname param paramSize =
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
-            return (linkedContract, iface, viface, (msgTy ciface), res, amount)
+            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
+
+            -- Charge for storing the contract state.
+            tickEnergyValueStorage model
+
+            return (linkedContract, iface, viface, (msgTy ciface), model, amount)
 
           k ls (linkedContract, iface, viface, msgty, model, initamount) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -393,7 +433,7 @@ handleSimpleTransfer wtc toaddr amount =
     where senderAccount = wtc ^. wtcSenderAccount
           c = case toaddr of
                 AddressContract cref -> do
-                  i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+                  i <- getCurrentContractInstanceTicking cref
                   -- Send a Nothing message to the contract with the amount to be transferred.
                   let rf = Ins.ireceiveFun i
                       model = Ins.instanceModel i
@@ -422,7 +462,7 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
   where senderAccount = wtc ^. wtcSenderAccount
         c = do
           tickEnergy Cost.updatePreprocess
-          i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+          i <- getCurrentContractInstanceTicking cref
           let rf = Ins.ireceiveFun i
               msgType = Ins.imsgTy i
               (iface, _) = Ins.iModuleIface i
@@ -495,9 +535,13 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
     -- transaction for the execution cost ticked so far.
     Nothing -> rejectTransaction Rejected
     -- The contract accepted the message and returned a new state as well as outgoing messages.
-    Just (newmodel, txout) ->
-      -- Process the generated messages in the new context (transferred amount, updated state) in
-      -- sequence from left to right, depth first.
+    Just (newmodel, txout) -> do
+        -- Charge for eventually storing the new contract state (even if it might not be stored
+        -- in the end because the transaction fails).
+        -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+        tickEnergyValueStorage newmodel
+        -- Process the generated messages in the new context (transferred amount, updated state) in
+        -- sequence from left to right, depth first.
         withToContractAmount sender istance transferamount $
           withInstanceState istance newmodel $
             foldM (\res tx -> combineProcessing res $ do
@@ -506,9 +550,10 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                         -- NB: The sender of all the newly generated messages is the contract instance 'istance'.
                         case tx of
                           TSend cref' transferamount' message' -> do
-                            -- NOTE: This relies on Acorn only allowing the creation of
-                            -- messages with addresses to existing instances.
-                            cinstance <- fromJust <$> getCurrentContractInstance cref'
+                            -- NB: Acorn only allows the creation of messages with addresses of existing
+                            -- instances. If the instance does however not exist, this rejects the
+                            -- transaction.
+                            cinstance <- getCurrentContractInstanceTicking cref'
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
                             handleMessage origin
@@ -522,8 +567,8 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                           -- with the to be transferred amount.
                           TSimpleTransfer (AddressContract cref') transferamount' -> do
                             -- We can make a simple transfer without checking existence of a contract.
-                            -- Hence we need to handle the failure case here.
-                            cinstance <- getCurrentContractInstance cref' `rejectingWith` (InvalidContractAddress cref')
+                            -- The following rejects the transaction in case the instance does not exist.
+                            cinstance <- getCurrentContractInstanceTicking cref'
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
                             handleMessage origin
