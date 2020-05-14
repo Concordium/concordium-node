@@ -15,7 +15,7 @@ This repository relies on git submodules for internal component dependencies, so
 * PostGreSQL >= 10
 
 ### Optional dependencies
-* Stack (and GHC-8.6.5, if not building using static libraries)
+* Stack (and GHC-8.8.3, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features
@@ -36,7 +36,7 @@ Install the needed dependencies from the list above, and run the script (require
 Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux, and requries that you download them using [scripts/download-static-libs.sh](/scripts/download-static-libs.sh) before first compilation, and whenever the pointer to any internal dependencies are updated).
 
 ## Installing genesis data
-Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/ConcordiumP2P`). This determines how many bakers you need to run for the network to be able to work properly.
+Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/concordium`). This determines how many bakers you need to run for the network to be able to work properly.
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
@@ -168,4 +168,3 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.wallet-
 
 ### Delay baker startup if PostGreSQL starts too slowly
 If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP` (the wallet-proxy and wallet-server has a default value of 30 set to delay start until PostGreSQL is up).
-
