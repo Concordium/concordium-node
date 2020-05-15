@@ -398,7 +398,7 @@ handleInitContract wtc amount modref cname param paramSize =
             -- Now typecheck the parameter expression (whether it has the parameter type specified
             -- in the contract). The cost of type-checking is dependent on the size of the term.
             -- TODO Here we currently do not account for possible dependent modules looked up
-            -- when typechecking the term.
+            -- when typechecking the term. We might want to tick energy on demand while typechecking.
             tickEnergy (Cost.initParamsTypecheck paramSize)
             qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
             -- Link the contract, i.e., its init and receive functions as well as the constraint
@@ -487,7 +487,7 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
               (iface, _) = Ins.iModuleIface i
               model = Ins.instanceModel i
           -- TODO Here we currently do not account for possible dependent modules looked up
-          -- when typechecking the term.
+          -- when typechecking the term. We might want to tick energy on demand while typechecking.
           tickEnergy (Cost.updateMessageTypecheck msgSize)
           -- Type check the message expression, as coming from a top-level transaction it can be
           -- an arbitrary expression. The cost of type-checking is dependent on the size of the term.
