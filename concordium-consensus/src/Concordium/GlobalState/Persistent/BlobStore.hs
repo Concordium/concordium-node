@@ -14,7 +14,6 @@ import Data.Serialize
 import Data.Word
 import qualified Data.ByteString as BS
 import Control.Exception
-import GHC.Generics
 import Data.Functor.Foldable
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
@@ -37,9 +36,6 @@ newtype BlobRef a = BlobRef Word64
 
 instance Show (BlobRef a) where
     show (BlobRef v) = '@' : show v
-
-nullRef :: BlobRef a
-nullRef = BlobRef maxBound
 
 data BlobStore = BlobStore {
     blobStoreFile :: !(MVar Handle),
@@ -208,11 +204,11 @@ data Nullable v = Null | Some !v
     deriving (Eq, Ord, Show, Functor, Foldable, Traversable)
 
 instance Serialize (Nullable (BlobRef a)) where
-    put Null = put nullRef
+    put Null = put (refNull :: BlobRef a)
     put (Some v) = put v
     get = do
         r <- get
-        return $! if r == nullRef then Null else Some r
+        return $! if isNull r then Null else Some r
 
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (BlobRef a)
 instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef (Nullable (BlobRef a))
@@ -236,7 +232,7 @@ data BufferedRef a
     -- ^Value stored on disk
     | BRMemory {brIORef :: !(IORef (BlobRef a)), brValue :: !a}
     -- ^Value stored in memory and possibly on disk.
-    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'nullRef'.
+    -- When a new 'BRMemory' instance is created, we initialize 'brIORef' to 'refNull'.
     -- When we store the instance in persistent storage, we update 'brIORef' with the corresponding pointer.
     -- That way, when we store the same instance again on disk (this could be, e.g., a child block
     -- that inherited its parent's state) we can store the pointer to the 'brValue' data rather than
@@ -248,7 +244,7 @@ makeBRMemory r a = liftIO $ do
     return $ BRMemory ref a
 
 makeBufferedRef :: (MonadIO m) => a -> m (BufferedRef a)
-makeBufferedRef = makeBRMemory nullRef
+makeBufferedRef = makeBRMemory refNull
 
 instance Show a => Show (BufferedRef a) where
     show (BRBlobbed r) = show r
@@ -259,7 +255,7 @@ instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Buffer
     load p = fmap BRBlobbed <$> load p
     storeUpdate p brm@(BRMemory ref v) = do
         r <- liftIO $ readIORef ref
-        if r == nullRef
+        if isNull r
         then do
             (r' :: BlobRef a, v') <- storeUpdateRef v
             liftIO $ writeIORef ref r'
@@ -271,7 +267,7 @@ instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Buffer
 getBRRef :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BlobRef a)
 getBRRef (BRMemory ref v) = do
     r <- liftIO $ readIORef ref
-    if r == nullRef
+    if isNull r
     then do
         (r' :: BlobRef a) <- storeRef v
         liftIO $ writeIORef ref r'
@@ -281,15 +277,15 @@ getBRRef (BRMemory ref v) = do
 getBRRef (BRBlobbed r) = return r
 
 instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Nullable (BufferedRef a)) where
-    store _ Null = return $ put nullRef
+    store _ Null = return $ put (refNull :: BlobRef a)
     store p (Some v) = store p v
     load p = do
-        r <- get
-        if r == nullRef then
+        (r :: BlobRef a) <- get
+        if isNull r then
             return (pure Null)
         else
             fmap Some <$> load p
-    storeUpdate _ n@Null = return (put nullRef, n)
+    storeUpdate _ n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate p (Some v) = do
         (r, v') <- storeUpdate p v
         return (r, Some v')
@@ -321,7 +317,7 @@ blobToCached = CRBlobbed
 flushBufferedRef :: (BlobStorable m BlobRef a, MonadIO m) => BufferedRef a -> m (BufferedRef a, BlobRef a)
 flushBufferedRef brm@(BRMemory ref v) = do
     r <- liftIO $ readIORef ref
-    if r == nullRef
+    if isNull r
     then do
         (r' :: BlobRef a, v') <- storeUpdateRef v
         liftIO $ writeIORef ref r'
@@ -359,9 +355,17 @@ class HasNull ref where
     refNull :: ref
     isNull :: ref -> Bool
 
+instance HasNull (BlobRef a) where
+    refNull = BlobRef maxBound
+    isNull = (== refNull)
+    
+instance Eq a => HasNull (Nullable a) where
+    refNull = Null
+    isNull = (== refNull)
+
 instance HasNull (Blobbed BlobRef a) where
-    refNull = Blobbed nullRef
-    isNull (Blobbed r) = r == nullRef
+    refNull = Blobbed refNull
+    isNull (Blobbed r) = r == refNull
 
 data CachedBlobbed ref f
     = CBUncached (Blobbed ref f)
