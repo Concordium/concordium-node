@@ -14,7 +14,7 @@ import Concordium.Scheduler.Types
 
 -- | The amount of interpreter energy corresponding to one unit of energy.
 interpreterEnergy :: Energy
-interpreterEnergy = 100 -- TODO find suitable factor
+interpreterEnergy = 1000
 
 -- | Convert an energy amount to interpreter energy.
 toInterpreterEnergy :: Energy -> Energy
