@@ -297,10 +297,11 @@ handleDeployModule wtc psize mod =
       -- Before typechecking, we charge for loading the dependencies of the to-be-typechecked module
       -- (as typechecking will load these if used). For now, we do so by loading the interface of
       -- each dependency one after the other and then charging based on its size.
-      -- TODO This performs some work before charging for it. When we have module sizes available
-      -- without loading their interface, we do not have to load them here.
+      -- TODO We currently first charge the full amount after each lookup, as we do not have the
+      -- module sizes available before.
       let imports = Map.elems $ Core.imImports imod
       forM_ imports $ \ref -> do
+        tickEnergy $ Cost.lookupBytesPre
         -- As the given module is not typechecked yet, it might contain imports of
         -- non-existing modules.
         iface <- getInterface ref `rejectingWith` ModuleNotWF
@@ -344,20 +345,18 @@ tickEnergyValueStorage val = do
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
 -- FIXME: Currently we do not know the size of the instance before looking it up.
--- Therefore we have to require enough energy available to cover the maximum possible size.
--- We also charge all remaining energy in case it is not sufficient to cover the most expensive lookup.
+-- Therefore we charge a "pre-lookup cost" before the lookup and the actual cost after.
+-- after lookup.
 getCurrentContractInstanceTicking ::
   TransactionMonad m
   => ContractAddress
   -> m Instance
 getCurrentContractInstanceTicking cref = do
-  -- First take all remaining energy and check whether it is enough to cover the maximum possible lookup.
-  remainingEnergy <- getEnergy
-  unless (remainingEnergy >= Cost.lookupBytes Cost.maxInstanceSize) $ putEnergy 0 >> rejectTransaction OutOfEnergy
+  tickEnergy $ Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref >>= \case
     Just i -> return i
-    Nothing -> tickEnergy Cost.lookupBytesBase >> rejectTransaction (InvalidContractAddress cref)
-  -- Now calculate the actual cost.
+    Nothing -> rejectTransaction (InvalidContractAddress cref)
+  remainingEnergy <- getEnergy
   case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
     Just size -> do
       tickEnergy $ Cost.lookupBytes size
@@ -388,8 +387,9 @@ handleInitContract wtc amount modref cname param paramSize =
             unless (senderAmount >= amount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
 
             -- First try to get the module interface of the parent module of the contract.
-            -- TODO We currently charge for this after the lookup, as we do not have the size
-            -- available before.
+            -- TODO We currently first charge the full amount after the lookup, as we do not have the
+            -- size available before.
+            tickEnergy $ Cost.lookupBytesPre
             (iface, viface) <- getModuleInterfaces modref `rejectingWith` InvalidModuleReference modref
             tickEnergy $ Cost.lookupModule $ iSize iface
 
