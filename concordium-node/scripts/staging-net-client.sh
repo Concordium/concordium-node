@@ -26,7 +26,7 @@ chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 if ! [ -f /var/lib/concordium/data/baker-0-credentials.json ];
 then
     # The ip+port can be fake as they are not used in this specific command
-    concordium-client-bin --grpc-ip localhost --grpc-port 1234 baker generate-keys /var/lib/concordium/data/baker-0-credentials.json
+    /usr/local/bin/concordium-client --grpc-ip localhost --grpc-port 1234 baker generate-keys /var/lib/concordium/data/baker-0-credentials.json
 fi
 export BAKER_ID=node-0
 
