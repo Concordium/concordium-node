@@ -339,7 +339,7 @@ tickEnergyValueStorage val = do
   remainingEnergy <- getEnergy
   let maxSize = Cost.maxStorage remainingEnergy
   case storableSizeWithLimit val maxSize of
-    Just size -> tickEnergy $ Cost.storage size
+    Just size -> tickEnergy $ Cost.storeBytes size
     Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
@@ -353,14 +353,14 @@ getCurrentContractInstanceTicking ::
 getCurrentContractInstanceTicking cref = do
   -- First take all remaining energy and check whether it is enough to cover the maximum possible lookup.
   remainingEnergy <- getEnergy
-  unless (remainingEnergy >= Cost.lookup Cost.maxInstanceSize) $ putEnergy 0 >> rejectTransaction OutOfEnergy
+  unless (remainingEnergy >= Cost.lookupBytes Cost.maxInstanceSize) $ putEnergy 0 >> rejectTransaction OutOfEnergy
   inst <- getCurrentContractInstance cref >>= \case
     Just i -> return i
-    Nothing -> tickEnergy Cost.lookupBase >> rejectTransaction (InvalidContractAddress cref)
+    Nothing -> tickEnergy Cost.lookupBytesBase >> rejectTransaction (InvalidContractAddress cref)
   -- Now calculate the actual cost.
   case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
     Just size -> do
-      tickEnergy $ Cost.lookup size
+      tickEnergy $ Cost.lookupBytes size
       return inst
     -- NB: This should not happen with the above check of enough energy.
     Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
