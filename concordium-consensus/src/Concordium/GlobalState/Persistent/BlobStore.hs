@@ -38,8 +38,17 @@ instance Show (BlobRef a) where
 nullRef :: BlobRef a
 nullRef = BlobRef maxBound
 
+data BlobHandle = BlobHandle{
+  -- |File handle that should be opened in read/write mode.
+  bhWriteHandle :: !Handle,
+  -- |Whether we are already at the end of the file, to avoid the need to seek on writes.
+  bhAtEnd :: !Bool,
+  -- |Current size of the file.
+  bhSize :: !Int
+  }
+
 data BlobStore = BlobStore {
-    blobStoreFile :: !(MVar Handle),
+    blobStoreFile :: !(MVar BlobHandle),
     blobStoreFilePath :: !FilePath
 }
 
@@ -55,37 +64,38 @@ createBlobStore :: FilePath -> IO BlobStore
 createBlobStore blobStoreFilePath = do
     pathEx <- doesPathExist blobStoreFilePath
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
-    h <- openBinaryFile blobStoreFilePath ReadWriteMode
-    blobStoreFile <- newMVar h
+    bhWriteHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
+    hSetBuffering bhWriteHandle (BlockBuffering (Just (2^22)))
+    blobStoreFile <- newMVar BlobHandle{bhSize=0, bhAtEnd=True,..}
     return BlobStore{..}
 
 -- |Load an existing blob store from a file.
 -- The file must be readable and writable, but this is not checked here.
 loadBlobStore :: FilePath -> IO BlobStore
 loadBlobStore blobStoreFilePath = do
-  h <- openBinaryFile blobStoreFilePath ReadWriteMode
-  blobStoreFile <- newMVar h
+  bhWriteHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
+  bhSize <- fromIntegral <$> hFileSize bhWriteHandle
+  blobStoreFile <- newMVar BlobHandle{bhAtEnd=bhSize==0,..}
   return BlobStore{..}
 
 -- |Flush all buffers associated with the blob store,
 -- ensuring all the contents is written out.
 flushBlobStore :: BlobStore -> IO ()
 flushBlobStore BlobStore{..} =
-    withMVar blobStoreFile hFlush
+    withMVar blobStoreFile (hFlush . bhWriteHandle)
 
 -- |Close all references to the blob store, flushing it
 -- in the process.
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
-    h <- takeMVar blobStoreFile
-    hClose h
+    BlobHandle{..} <- takeMVar blobStoreFile
+    hClose bhWriteHandle
 
 -- |Close all references to the blob store and delete the backing file.
 
 destroyBlobStore :: BlobStore -> IO ()
-destroyBlobStore BlobStore{..} = do
-    h <- takeMVar blobStoreFile
-    hClose h
+destroyBlobStore bs@BlobStore{..} = do
+    closeBlobStore bs
     removeFile blobStoreFilePath
 
 -- |Run a computation with temporary access to the blob store.
@@ -100,20 +110,20 @@ runBlobStoreTemp dir a = bracket openf closef usef
             hClose h
             removeFile tempFP
         usef (fp, h) = do
-            mv <- newMVar h
+            mv <- newMVar (BlobHandle h True 0)
             res <- runReaderT a (BlobStore mv fp)
             _ <- takeMVar mv
             return res
 
 readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBS BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
-        hSeek h AbsoluteSeek (fromIntegral offset)
-        esize <- decode <$> BS.hGet h 8
+readBlobBS BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \bh@BlobHandle{..} -> do
+        hSeek bhWriteHandle AbsoluteSeek (fromIntegral offset)
+        esize <- decode <$> BS.hGet bhWriteHandle 8
         case esize :: Either String Word64 of
             Left e -> error e
             Right size -> do
-                bs <- BS.hGet h (fromIntegral size)
-                putMVar blobStoreFile h
+                bs <- BS.hGet bhWriteHandle (fromIntegral size)
+                putMVar blobStoreFile bh{bhAtEnd=False}
                 return bs
 
 readBlob :: (Serialize a) => BlobStore -> BlobRef a -> IO a
@@ -124,13 +134,12 @@ readBlob bstore ref = do
             Right v -> return v
 
 writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
-writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
-        hSeek h SeekFromEnd 0
-        offset <- fromIntegral <$> hTell h
-        BS.hPut h size
-        BS.hPut h bs
-        putMVar blobStoreFile h
-        return (BlobRef offset)
+writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \bh@BlobHandle{bhWriteHandle=writeHandle,bhAtEnd=atEnd} -> do
+        unless atEnd (hSeek writeHandle SeekFromEnd 0)
+        BS.hPut writeHandle size
+        BS.hPut writeHandle bs
+        putMVar blobStoreFile bh{bhSize = bhSize bh + 8 + BS.length bs, bhAtEnd=True}
+        return (BlobRef (fromIntegral (bhSize bh)))
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
