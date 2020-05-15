@@ -29,7 +29,7 @@ fromInterpreterEnergy = (`div` interpreterEnergy)
 
 -- * General cost
 
--- FIXME Some costs with parameters are currently prone to overflow in the 'Energy' datatype.
+-- TODO Check for potential overflows in the 'Energy' datatype when calculating cost.
 -- This will probably not happen in practice as the required high parameter values will not be reached.
 -- But to be defensive, the functions should return 'maxBound' in case the maximum energy would be
 -- exceeded.
