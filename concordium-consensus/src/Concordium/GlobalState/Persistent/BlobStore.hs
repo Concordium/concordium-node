@@ -325,7 +325,7 @@ flushBufferedRef brm@(BRMemory ref v) = do
     then do
         (r' :: BlobRef a, v') <- storeUpdateRef v
         liftIO $ writeIORef ref r'
-        (,r') <$> makeBRMemory r' v'
+        return (BRMemory ref v', r')
     else
         return (brm, r)
 flushBufferedRef b = return (b, brRef b)
