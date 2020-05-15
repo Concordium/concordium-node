@@ -37,9 +37,6 @@ newtype BlobRef a = BlobRef Word64
 instance Show (BlobRef a) where
     show (BlobRef v) = '@' : show v
 
-nullRef :: BlobRef a
-nullRef = BlobRef maxBound
-
 data BlobHandle = BlobHandle{
   -- |File handle that should be opened in read/write mode.
   bhHandle :: !Handle,
@@ -67,7 +64,6 @@ createBlobStore blobStoreFilePath = do
     pathEx <- doesPathExist blobStoreFilePath
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
     bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
-    hSetBuffering bhHandle (BlockBuffering (Just (2^22)))
     blobStoreFile <- newMVar BlobHandle{bhSize=0, bhAtEnd=True,..}
     return BlobStore{..}
 
