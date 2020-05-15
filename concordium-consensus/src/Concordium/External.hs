@@ -753,33 +753,34 @@ getBirkParameters cptr blockcstr = do
 
 
 -- |Check whether we are a baker from the perspective of the best block.
--- Returns 0 if we are not added as a baker.
--- Returns 1 if we are added as a baker, but not part of the baking committee yet.
--- Returns 2 if we are part of the baking committee.
-checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
-checkIfWeAreBaker cptr = do
+-- Returns -1 if we are not added as a baker.
+-- Returns -2 if we are added as a baker, but not part of the baking committee yet.
+-- Returns >= 0 if we are part of the baking committee. The return value is the
+-- baker id as appearing in blocks.
+bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
+bakerIdBestBlock cptr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLTrace "Checking whether we are a baker."
     case c of
       PassiveRunner _ -> do
         logm External LLTrace "Passive consensus, not a baker."
-        return 0
+        return (-1)
       PassiveRunnerWithLog _ -> do
         logm External LLTrace "Passive consensus, not a baker."
-        return 0
+        return (-1)
       BakerRunner s -> do
         logm External LLTrace "Active consensus, querying best block."
         let bid = syncBakerIdentity s
         let signKey = Baker.bakerSignPublicKey bid
-        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
+        r <- runConsensusQuery c (Get.bakerIdBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
         return r
       BakerRunnerWithLog s -> do
         logm External LLTrace "Active consensus, querying best block."
         let bid = syncBakerIdentity s
         let signKey = Baker.bakerSignPublicKey bid
-        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
+        r <- runConsensusQuery c (Get.bakerIdBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
         return r
 
@@ -1080,7 +1081,7 @@ foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
+foreign export ccall bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 
 -- maintenance
