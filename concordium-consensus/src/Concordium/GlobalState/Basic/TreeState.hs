@@ -218,6 +218,8 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
               CredentialDeployment{..} -> do
                 transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
                 return (TS.Added bi)
+          Just (_, Finalized{}) ->
+            return TS.ObsoleteNonce
           Just (tr', results) -> do
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
             return $ TS.Duplicate tr'
