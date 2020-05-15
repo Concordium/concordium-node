@@ -56,9 +56,16 @@ maxStorage :: Energy -> Word64
 maxStorage e = if e < storeBytesBase then 0
                else fromIntegral $ ((e-storeBytesBase) * 100) `div` storeBytesPer100Byte
 
+-- | Cost for doing a pre-lookup (used to determine the cost for the actual lookup).
+-- This is especially important now where potentially (depending on laziness) lookups are performed
+-- before we can charge for it with its actual size.
+lookupBytesPre :: Energy
+lookupBytesPre = 15 -- NOTE: This is currently set quite high, to pay at least something for potential
+                    -- expensive lookups that are only paid for after the lookup.
+
 -- | Cost for performing a lookup operation.
 lookupBytesBase :: Energy
-lookupBytesBase = 3
+lookupBytesBase = 0 -- NOTE: This is currently 0 because we use 'lookupBytesPre'.
 
 -- | Cost for looking up 100 bytes.
 lookupBytesPer100Byte :: Energy
@@ -75,8 +82,8 @@ maxLookup e = if e < lookupBytesBase then 0
 
 -- | A bound on the maximum size of a contract state ('Value') in bytes.
 -- This is used to calculate the maximum possible energy an instance lookup can cost.
-maxInstanceSize :: Word64
-maxInstanceSize = 1000000 -- TODO set based on calculated restrictions
+-- maxInstanceSize :: Word64
+-- maxInstanceSize = 1000000 -- TODO set based on calculated restrictions
 
 -- |The cost to process the header.
 -- Processing includes hashing the transaction and checking all signatures against this hash,
