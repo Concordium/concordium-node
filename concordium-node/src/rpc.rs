@@ -11,7 +11,7 @@ use crate::{
 };
 
 use byteorder::WriteBytesExt;
-use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsIBakingCommitteeResponse, PacketType};
 use consensus_rust::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
     messaging::{ConsensusMessage, MessageType},
@@ -342,18 +342,29 @@ impl P2p for RpcServerImpl {
             }
         };
         Ok(Response::new(match self.consensus {
-            Some(ref consensus) => NodeInfoResponse {
-                node_id,
-                current_localtime,
-                peer_type,
-                consensus_baker_running: consensus.is_baking(),
-                consensus_running: true,
-                consensus_type: consensus.consensus_type.to_string(),
-                consensus_baker_committee: consensus.in_baking_committee()
-                    == ConsensusIsInCommitteeResponse::ActiveInCommittee,
-                consensus_finalizer_committee: consensus.in_finalization_committee(),
-                staging_net_username,
-            },
+            Some(ref consensus) => {
+                let consensus_baking_committee_status = consensus.in_baking_committee();
+                NodeInfoResponse {
+                    node_id,
+                    current_localtime,
+                    peer_type,
+                    consensus_baker_running: consensus.is_baking(),
+                    consensus_running: true,
+                    consensus_type: consensus.consensus_type.to_string(),
+                    consensus_baker_committee: match consensus_baking_committee_status {
+                        ConsensusIsIBakingCommitteeResponse::ActiveInCommittee(_) => true,
+                        _ => false,
+                    },
+                    consensus_finalizer_committee: consensus.in_finalization_committee(),
+                    staging_net_username,
+                    consensus_baker_id: match consensus_baking_committee_status {
+                        ConsensusIsIBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
+                            Some(baker_id)
+                        }
+                        _ => None,
+                    },
+                }
+            }
             None => NodeInfoResponse {
                 node_id,
                 current_localtime,
@@ -364,6 +375,7 @@ impl P2p for RpcServerImpl {
                 consensus_baker_committee: false,
                 consensus_finalizer_committee: false,
                 staging_net_username,
+                consensus_baker_id: None,
             },
         }))
     }
