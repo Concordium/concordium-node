@@ -45,7 +45,7 @@ storeBytesBase = 5
 
 -- | Cost for storing 100 bytes.
 storeBytesPer100Byte :: Energy
-storeBytesPer100Byte = 5 -- NB: This number must be positive.
+storeBytesPer100Byte = 50 -- NB: This number must be positive.
 
 -- | Cost for storing the given number of bytes. It is charged for every started 100 bytes.
 storeBytes :: Word64 -> Energy
