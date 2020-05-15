@@ -47,7 +47,7 @@ storageBase = 5
 
 -- | Cost for storing 100 bytes.
 storagePer100Byte :: Energy
-storagePer100Byte = 5
+storagePer100Byte = 5 -- NB: This number must be positive.
 
 -- | Cost for storing the given number of bytes. It is charged for every started 100 bytes.
 storage :: Word64 -> Energy
@@ -55,7 +55,8 @@ storage n = storageBase + ((fromIntegral n + 99) `div` 100) * storagePer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
 maxStorage :: Energy -> Word64
-maxStorage e = fromIntegral $ ((max 0 (e-storageBase)) * 100) `div` storagePer100Byte
+maxStorage e = if e < storageBase then 0
+               else fromIntegral $ ((e-storageBase) * 100) `div` storagePer100Byte
 
 -- | Cost for performing a lookup operation.
 lookupBase :: Energy
@@ -63,7 +64,7 @@ lookupBase = 3
 
 -- | Cost for looking up 100 bytes.
 lookupPer100Byte :: Energy
-lookupPer100Byte = 3
+lookupPer100Byte = 3 -- NB: This number must be positive.
 
 -- | Cost for looking up the given number of bytes. It is charged for every started 100 bytes.
 lookup :: Word64 -> Energy
@@ -71,7 +72,8 @@ lookup n = lookupBase + ((fromIntegral n + 99) `div` 100) * lookupPer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
 maxLookup :: Energy -> Word64
-maxLookup e = fromIntegral $ ((max 0 (e-lookupBase)) * 100) `div` lookupPer100Byte
+maxLookup e = if e < lookupBase then 0
+              else fromIntegral $ ((e-lookupBase) * 100) `div` lookupPer100Byte
 
 -- | A bound on the maximum size of a contract state ('Value') in bytes.
 -- This is used to calculate the maximum possible energy an instance lookup can cost.
