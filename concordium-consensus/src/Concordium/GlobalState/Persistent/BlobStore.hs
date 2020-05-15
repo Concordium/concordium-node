@@ -358,7 +358,7 @@ class HasNull ref where
 instance HasNull (BlobRef a) where
     refNull = BlobRef maxBound
     isNull = (== refNull)
-    
+
 instance Eq a => HasNull (Nullable a) where
     refNull = Null
     isNull = (== refNull)
@@ -445,7 +445,7 @@ getBBRef p v@(LBMemory ref _) = do
 
 instance (MonadIO m, MonadBlobStore m ref, Traversable f, BlobStorable m ref (f (Blobbed ref f)), HasNull (Blobbed ref f))
          => BlobStorable m ref (BufferedBlobbed ref f) where
-    store p v = getBBRef p v >>= store p . snd
+    store p v = fst . fst <$> getBBRef p v
 
     storeUpdate p v = fst <$> getBBRef p v
 
