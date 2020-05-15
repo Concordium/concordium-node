@@ -334,6 +334,7 @@ async fn collect_data<'a>(
         json_block_info_value["transactionEnergyCost"].as_f64();
     let best_block_execution_cost = json_block_info_value["executionCost"].as_f64();
     let best_block_central_bank_amount = json_block_info_value["centralBankAmount"].as_f64();
+    let best_block_baker_id = json_block_info_value["blockBaker"].as_f64();
 
     Ok(NodeInfo {
         nodeName: node_name.to_string(),
@@ -346,6 +347,7 @@ async fn collect_data<'a>(
         peersList: peers_list,
         bestBlock: best_block,
         bestBlockHeight: best_block_height,
+        bestBlockBakerId: best_block_baker_id,
         bestArrivedTime: best_arrived_time,
         blockArrivePeriodEMA: block_arrive_period_ema,
         blockArrivePeriodEMSD: block_arrive_period_emsd,
