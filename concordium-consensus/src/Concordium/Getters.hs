@@ -33,6 +33,8 @@ import Concordium.GlobalState.Finalization
 import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
+import Concordium.Afgjort.Finalize.Types
+import Concordium.Kontrol (getFinalizationCommittee)
 
 import Control.Concurrent.MVar
 import Data.IORef
@@ -43,7 +45,9 @@ import qualified Data.Text as T
 import qualified Data.Set as S
 import Data.String(fromString)
 import Data.Word
+import Data.Int
 import Data.Vector (fromList)
+import qualified Data.Vector as Vector
 import Control.Monad
 import Data.Foldable (foldrM)
 
@@ -140,9 +144,34 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
       bs <- queryBlockState bp
       outcomes <- BS.getOutcomes bs
       specialOutcomes <- BS.getSpecialOutcomes bs
+      let finData = blockFinalizationData <$> blockFields bp
+      finDataJSON <-
+            case finData of
+              Just (BlockFinalizationData FinalizationRecord{..}) -> do
+                  -- Get the finalization committee by examining the previous finalized block
+                  finalizers <- blockAtFinIndex (finalizationIndex - 1) >>= \case
+                      Nothing -> return Vector.empty -- This should not be possible
+                      Just prevFin -> do
+                          com <- getFinalizationCommittee prevFin
+                          let signers = S.fromList (finalizationProofParties finalizationProof)
+                          let fromPartyInfo i PartyInfo{..} = object [
+                                "bakerId" .= partyBakerId,
+                                "weight" .= (fromIntegral partyWeight :: Integer),
+                                "signed" .= S.member (fromIntegral i) signers
+                                ]
+                          return (Vector.imap fromPartyInfo (parties com))
+                  return $ object [
+                    "finalizationBlockPointer" .= finalizationBlockPointer,
+                    "finalizationIndex" .= finalizationIndex,
+                    "finalizationDelay" .= finalizationDelay,
+                    "finalizers" .= finalizers
+                    ]
+              _ -> return Null
+
       return $ object [
         "transactionSummaries" .= outcomes,
-        "specialEvents" .= specialOutcomes
+        "specialEvents" .= specialOutcomes,
+        "finalizationData" .= finDataJSON
         ]
 
 withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
@@ -339,24 +368,26 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
                 _ -> return Nothing
 
 -- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
--- Returns 0 if keypair is not added as a baker.
--- Returns 1 if keypair is added as a baker, but not part of the baking committee yet.
--- Returns 2 if keypair is part of the baking committee.
-checkBakerExistsBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
+-- Returns -1 if keypair is not added as a baker.
+-- Returns -2 if keypair is added as a baker, but not part of the baking committee yet.
+-- Returns >= 0 if keypair is part of the baking committee. In this case the return value
+-- is the baker id as appearing in blocks.
+-- NB: this function will not work correctly when there are more than 2^63-1 bakers.
+bakerIdBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
     => BakerSignVerifyKey
     -> z
-    -> IO Word8
-checkBakerExistsBestBlock key sfsRef = runStateQuery sfsRef $ do
+    -> IO Int64
+bakerIdBestBlock key sfsRef = runStateQuery sfsRef $ do
   bb <- bestBlock
   bps <- BS.getBlockBirkParameters =<< queryBlockState bb
   lotteryBakers <- BS.getLotteryBakers bps
   currentBakers <- BS.getCurrentBakers bps
   case lotteryBakers ^. bakersByKey . at key of
-    Just _ -> return 2
+    Just bid -> return (fromIntegral bid)
     Nothing ->
       case currentBakers ^. bakersByKey . at key of
-        Just _ -> return 1
-        Nothing -> return 0
+        Just _ -> return (-2)
+        Nothing -> return (-1)
 
 -- |Check whether the node is currently a member of the finalization committee.
 checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
