@@ -341,7 +341,7 @@ tickEnergyValueStorage val = do
   let maxSize = Cost.maxStorage remainingEnergy
   case storableSizeWithLimit val maxSize of
     Just size -> tickEnergy $ Cost.storeBytes size
-    Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+    Nothing -> rejectTransaction OutOfEnergy
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
 -- FIXME: Currently we do not know the size of the instance before looking it up.
@@ -353,16 +353,14 @@ getCurrentContractInstanceTicking ::
   -> m Instance
 getCurrentContractInstanceTicking cref = do
   tickEnergy $ Cost.lookupBytesPre
-  inst <- getCurrentContractInstance cref >>= \case
-    Just i -> return i
-    Nothing -> rejectTransaction (InvalidContractAddress cref)
+  inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
   remainingEnergy <- getEnergy
+
   case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
     Just size -> do
-      tickEnergy $ Cost.lookupBytes size
+      tickEnergy (Cost.lookupBytes size)
       return inst
-    -- NB: This should not happen with the above check of enough energy.
-    Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+    Nothing -> rejectTransaction OutOfEnergy
 
 
 -- | Handle the initialization of a contract instance.
@@ -651,8 +649,9 @@ runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
 runInterpreter f = do
   remainingEnergy <- getEnergy
   let iEnergy = Cost.toInterpreterEnergy remainingEnergy
-  f iEnergy >>= \case Just (x, iEnergy') -> x <$ putEnergy (Cost.fromInterpreterEnergy iEnergy')
-                      Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+  (result, remainingInterpreterEnergy) <- f iEnergy `rejectingWith` OutOfEnergy
+  putEnergy (Cost.fromInterpreterEnergy remainingInterpreterEnergy)
+  return result
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
 -- precise logic for when a baker can be added and removed should be analyzed
@@ -870,11 +869,12 @@ handleDelegateStake wtc targetBaker =
                 currentDelegate = senderAccount ^. accountStakeDelegate
             in return $! (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
           else
-            return $! (TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker), energyCost, usedEnergy)
+            return $! (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
 -- |Update the election difficulty birk parameter.
 -- The given difficulty must be valid (see 'isValidElectionDifficulty').
+-- This precondition is ensured by the transaction (de)serialization.
 handleUpdateElectionDifficulty
   :: SchedulerMonad m
   => WithDepositContext
