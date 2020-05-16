@@ -1,6 +1,6 @@
 use crate::{catch_up::*, consensus::*, messaging::*};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsIBakingCommitteeResponse, PacketType};
 use crypto_common::Serial;
 use failure::{bail, format_err, Fallible};
 use std::{
@@ -358,7 +358,7 @@ extern "C" {
         object_limit: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
-    pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
+    pub fn bakerIdBestBlock(consensus: *mut consensus_runner) -> i64;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
     pub fn getAccountNonFinalizedTransactions(
         consensus: *mut consensus_runner,
@@ -635,8 +635,8 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn in_baking_committee(&self) -> ConsensusIsInCommitteeResponse {
-        wrap_c_committee_call!(self, |consensus| checkIfWeAreBaker(consensus))
+    pub fn in_baking_committee(&self) -> ConsensusIsIBakingCommitteeResponse {
+        wrap_c_committee_call!(self, |consensus| bakerIdBestBlock(consensus))
     }
 
     pub fn in_finalization_committee(&self) -> bool {
