@@ -20,6 +20,7 @@ import Lens.Micro.Platform
 import qualified Acorn.Core as Core
 import Concordium.Scheduler.Types
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.Bakers(BakerError)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -150,9 +151,10 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
-  -- If a baker with the same SignatureVerifyKey already exists in the block state,
-  -- do nothing and return Nothing.
-  addBaker :: BakerCreationInfo -> m (Maybe BakerId)
+  -- If succesful, return the baker's ID
+  -- If the baker's signature key or aggregation key is already in used it returns
+  -- a baker error (either DuplicateSignKey or DuplicateAggregationKey)
+  addBaker :: BakerCreationInfo -> m (Either BakerId BakerError)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
