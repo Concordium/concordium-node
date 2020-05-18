@@ -269,7 +269,7 @@ runWithConsensus PassiveRunnerWithLog{..} = runSkovPassive passiveSyncRunnerWith
 -- |Default value for early block threshold.
 -- Set to 30 seconds.
 defaultEarlyBlockThreshold :: Timestamp
-defaultEarlyBlockThreshold = 30
+defaultEarlyBlockThreshold = 30000
 
 data StartResult = StartSuccess
                  | StartGenesisFailure
