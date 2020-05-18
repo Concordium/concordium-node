@@ -412,8 +412,12 @@ getWeakPointer weakPtr ptrHash name = do
         case d of
           Just v -> return v
           Nothing -> do
-            nb <- readBlock ptrHash
-            return $ fromMaybe (error ("Couldn't find " ++ name ++ " block in disk")) nb
+            lf <- use lastFinalized
+            if ptrHash == getHash lf then
+              return lf
+            else do
+              nb <- readBlock ptrHash
+              return $ fromMaybe (error ("Couldn't find " ++ name ++ " block in disk")) nb
 
 instance (Monad (PersistentTreeStateMonad ati bs m),
           MonadIO (PersistentTreeStateMonad ati bs m),
