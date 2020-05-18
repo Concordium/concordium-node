@@ -30,7 +30,7 @@ COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout 4c4a857d1e39b94d96b55de37779f0c065a04a91 && \
+    git checkout bce26a5d0b7b655dc832784cd20d6f874294bc7d && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
@@ -67,11 +67,10 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
-RUN git checkout 9318468bc91bd71c646e598372ec6cf176228287
-RUN npm i
+ENV NODE_ENV=development
 # Building node dashboard
-RUN npm install
-RUN npm run build-client-dev
+RUN npm i
+RUN npm run build
 # Node dashbaord built
 
 FROM ubuntu:20.04
