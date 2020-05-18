@@ -251,22 +251,24 @@ instance BlockPendingData PendingBlock where
 instance HashableTo BlockHash PendingBlock where
   getHash = pbHash
 
-
 -- |Deserialize a block.
 -- NB: This does not check transaction signatures.
 getBlock :: TransactionTime -> Get Block
 getBlock arrivalTime = do
-  sl <- get
-  if sl == 0 then GenesisBlock <$> get
+  version <- Version <$> get
+  if version /= __versionBlock then fail "Invalid block version"
   else do
-    bfBlockPointer <- get
-    bfBlockBaker <- get
-    bfBlockProof <- get
-    bfBlockNonce <- get
-    bfBlockFinalizationData <- get
-    bbTransactions <- getListOf (getBlockItem arrivalTime)
-    bbSignature <- get
-    return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
+    sl <- get
+    if sl == 0 then GenesisBlock <$> get
+    else do
+        bfBlockPointer <- get
+        bfBlockBaker <- get
+        bfBlockProof <- get
+        bfBlockNonce <- get
+        bfBlockFinalizationData <- get
+        bbTransactions <- getListOf (getBlockItem arrivalTime)
+        bbSignature <- get
+        return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
 makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
