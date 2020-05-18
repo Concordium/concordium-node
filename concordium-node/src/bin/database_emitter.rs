@@ -26,7 +26,6 @@ fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = utils::get_config_and_logging_setup()?;
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    conf.connection.thread_pool_size = 4;
     conf.connection.dnssec_disabled = true;
     conf.connection.no_bootstrap_dns = true;
     conf.connection.bootstrap_server = "foo:8888".to_string();
@@ -59,55 +58,70 @@ fn main() -> Result<(), Error> {
         },
     );
 
+    info!("Sleeping to let network connections settle");
     thread::sleep(Duration::from_millis(10000));
     if !(node.connections().read().unwrap()).is_empty() {
         info!("Connected to network");
 
         if let Ok(mut file) = File::open(&conf.database_emitter.import_file) {
-            let mut blocks_len_buffer = [0; 8];
-            if file.read_exact(&mut blocks_len_buffer).is_ok() {
-                let block_count = u64::from_be_bytes(blocks_len_buffer);
-                info!(
-                    "Going to read {} blocks from file {}",
-                    block_count, &conf.database_emitter.import_file
-                );
-                for i in 0..block_count {
-                    let mut block_len_buffer = [0; 8];
-                    if file.read_exact(&mut block_len_buffer).is_ok() {
-                        let block_size = u64::from_be_bytes(block_len_buffer);
-                        info!(
-                            "Going to {} read {} bytes for block from file {}",
-                            i, block_size, &conf.database_emitter.import_file
-                        );
-                        let mut blocks_data_buffer = vec![0; block_size as usize];
-                        if file.read_exact(&mut blocks_data_buffer[..]).is_ok() {
-                            if i < conf.database_emitter.skip_first {
-                                info!("- skipping as already sent");
-                                continue;
-                            }
-                            let mut data_out = vec![0; 0];
-                            (PacketType::Block as u8).serial(&mut data_out);
-                            data_out.extend(blocks_data_buffer);
-                            info!(
-                                "- Sent {} byte(s)",
-                                send_broadcast_message(
-                                    &node,
-                                    vec![],
-                                    NetworkId::from(conf.common.network_ids.clone()[1]),
-                                    Arc::from(data_out),
-                                )
-                            );
+            let mut counter = 0;
+            loop {
+                let mut block_len_buffer = [0; 8];
+                if let Ok(read_bytes) = file.read(&mut block_len_buffer) {
+                    if read_bytes != block_len_buffer.len() {
+                        if read_bytes == 0 {
+                            info!("No more blocks to be read from file");
+                            break;
                         } else {
-                            bail!("Error reading block!");
+                            error!("No enough bytes to read");
+                            break;
                         }
                     }
-                    if i != 0 && i % conf.database_emitter.batch_sizes == 0 {
-                        info!("Will stall for {} ms", &conf.database_emitter.delay_between_batches);
-                        thread::sleep(Duration::from_millis(
-                            conf.database_emitter.delay_between_batches,
-                        ));
+                    let block_size = u64::from_be_bytes(block_len_buffer);
+                    info!(
+                        "Block#{} - will read {} bytes for block from file {}",
+                        counter, block_size, &conf.database_emitter.import_file
+                    );
+                    let mut blocks_data_buffer = vec![0; block_size as usize];
+                    if let Ok(blocks_bytes_read) = file.read(&mut blocks_data_buffer[..]) {
+                        if blocks_bytes_read != block_size as usize {
+                            error!(
+                                "The file didn't contain all the {} byte(s) needed to properly \
+                                 read the block!",
+                                block_size
+                            );
+                            break;
+                        }
+                        if counter < conf.database_emitter.skip_first {
+                            info!("- skipping as per request");
+                            counter += 1;
+                            continue;
+                        }
+                        let mut data_out = vec![0; 0];
+                        (PacketType::Block as u8).serial(&mut data_out);
+                        data_out.extend(blocks_data_buffer);
+                        info!(
+                            "- Sent {} byte(s)",
+                            send_broadcast_message(
+                                &node,
+                                vec![],
+                                NetworkId::from(conf.common.network_ids.clone()[0]),
+                                Arc::from(data_out),
+                            )
+                        );
+                    } else {
+                        bail!("Error reading block!");
                     }
+                } else {
+                    bail!("Can't read size of next block from file!");
                 }
+                if counter != 0 && counter % conf.database_emitter.batch_sizes == 0 {
+                    info!("Will stall for {} ms", &conf.database_emitter.delay_between_batches);
+                    thread::sleep(Duration::from_millis(
+                        conf.database_emitter.delay_between_batches,
+                    ));
+                }
+                counter += 1;
             }
         }
     }
