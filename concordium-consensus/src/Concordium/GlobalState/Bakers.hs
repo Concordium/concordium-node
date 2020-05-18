@@ -19,6 +19,7 @@ data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVer
 data BakerError =
       DuplicateSignKey
     | DuplicateAggregationKey
+  deriving (Eq, Show)
 
 data BakerInfo = BakerInfo {
     -- |The baker's public VRF key
