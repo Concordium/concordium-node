@@ -172,7 +172,7 @@ instance S.Serialize WMVBAMessage where
         13 -> WMVBAWitnessCreatorMessage <$> (getTwoOf getVal S.get)
         _ -> fail "Incorrect message type"
 
-data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone Val deriving (Show)
+data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone Val deriving (Eq, Show)
 
 outcomeVal :: OutcomeState -> Maybe Val
 outcomeVal (OSFrozen v) = Just v
@@ -209,7 +209,7 @@ data WMVBAState sig = WMVBAState {
     -- the BLS signature has been checked.
     _justifications :: Map Val (PartyMap (sig, Bls.Signature)),
     _badJustifications :: Map Val (PartySet)
-} deriving (Show)
+} deriving (Eq, Show)
 makeLenses ''WMVBAState
 
 initialWMVBAState :: WMVBAState sig

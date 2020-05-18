@@ -63,7 +63,7 @@ updateArriveStatistics bp = do
                   & (transactionsPerBlockEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block is received to update the statistics.
-updateReceiveStatistics :: (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlockType m -> m ()
+updateReceiveStatistics :: (TreeStateMonad m, LoggerMonad m, SkovQueryMonad m) => PendingBlock -> m ()
 updateReceiveStatistics pb = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksReceivedCount +~ 1

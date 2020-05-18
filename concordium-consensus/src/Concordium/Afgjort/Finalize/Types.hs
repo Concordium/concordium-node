@@ -33,6 +33,13 @@ data FinalizationInstance = FinalizationInstance {
     finMyBlsKey :: !Bls.SecretKey
 }
 
+-- Show instance only exposing public data.
+instance Show FinalizationInstance where
+  show FinalizationInstance{..} =
+    "{ Ed25519Key = " ++ show (Sig.verifyKey finMySignKey) ++ ", " ++
+    "VRFKey = " ++ show (VRF.publicKey finMyVRFKey) ++ ", " ++
+    "BLSKey = " ++ show (Bls.derivePublicKey finMyBlsKey) ++ "}"
+
 class HasFinalizationInstance f where
     finalizationInstance :: f -> Maybe FinalizationInstance
 instance HasFinalizationInstance FinalizationInstance where
@@ -47,7 +54,8 @@ data PartyInfo = PartyInfo {
     partyWeight :: !VoterPower,
     partySignKey :: !Sig.VerifyKey,
     partyVRFKey :: !VRF.PublicKey,
-    partyBlsKey :: !Bls.PublicKey
+    partyBlsKey :: !Bls.PublicKey,
+    partyBakerId :: BakerId
 } deriving (Eq, Ord)
 
 instance Show PartyInfo where
@@ -67,20 +75,23 @@ committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 makeFinalizationCommittee :: FinalizationParameters -> Amount -> Bakers -> FinalizationCommittee
 makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = FinalizationCommittee {..}
     where
-        voters = bakerInfoToVoterInfo <$> filterFinalizationBakers finalizationCommitteeMaxSize bakers totalGTU
+        voters = filterFinalizationBakers finalizationCommitteeMaxSize bakers totalGTU
         parties = Vec.fromList $ zipWith makeParty [0..] voters
-        makeParty pix (VoterInfo psk pvk pow pbls) = PartyInfo pix pow psk pvk pbls
+        makeParty partyIndex (partyBakerId, BakerInfo{_bakerStake = Amount stake, ..}) = PartyInfo {
+                    partyWeight = VoterPower stake,
+                    partySignKey = _bakerSignatureVerifyKey,
+                    partyVRFKey = _bakerElectionVerifyKey,
+                    partyBlsKey = _bakerAggregationVerifyKey,
+                    ..
+                }
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
 
 -- |Filter out the bakers whose stake exceeds the total stake fraction.
-filterFinalizationBakers :: FinalizationCommitteeSize -> Bakers -> Amount -> [BakerInfo]
+filterFinalizationBakers :: FinalizationCommitteeSize -> Bakers -> Amount -> [(BakerId, BakerInfo)]
 filterFinalizationBakers maxSize bakers totalGTU =
-        [bkr | bkr <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalGTU `div` fromIntegral maxSize]
-        where bakerInfos = Map.elems $ _bakerMap bakers
-
-bakerInfoToVoterInfo :: BakerInfo -> VoterInfo
-bakerInfoToVoterInfo (BakerInfo vrfk vvk vblsk (Amount stake) _) = VoterInfo vvk vrfk (VoterPower stake) vblsk
+        [(bid, bkr) | (bid, bkr) <- bakerInfos, fromIntegral (_bakerStake bkr) >= totalGTU `div` fromIntegral maxSize]
+        where bakerInfos = Map.toList $ _bakerMap bakers
 
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: !BlockHash,
@@ -99,7 +110,7 @@ data FinalizationMessageHeader = FinalizationMessageHeader {
     msgFinalizationIndex :: !FinalizationIndex,
     msgDelta :: !BlockHeight,
     msgSenderIndex :: !Party
-} deriving (Eq, Ord)
+} deriving (Eq, Ord, Show)
 
 instance S.Serialize FinalizationMessageHeader where
     put FinalizationMessageHeader{..} = do

@@ -136,7 +136,7 @@ data CSSState sig = CSSState {
     _justifiedDoneReporting :: !(PartyMap (DoneReportingDetails sig)),
     -- |If @PM.weight _justifiedDoneReporting@ is at least @(totalWeight-corruptWeight)@, then the core set determined at that time.  Otherwise @Nothing@.
     _core :: Maybe CoreSet
-} deriving (Show)
+} deriving (Eq, Show)
 makeLenses ''CSSState
 
 initialCSSState :: CSSState sig

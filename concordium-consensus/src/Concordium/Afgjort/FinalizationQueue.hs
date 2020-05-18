@@ -38,7 +38,7 @@ data FinalizationProven = FinalizationProven {
     fpBadSignatureSet :: !BitSet.BitSet,
     fpCheckedAggregateSet :: !BitSet.BitSet,
     fpCheckedAggregateSignature :: !Bls.Signature
-}
+} deriving(Eq)
 
 instance Show FinalizationProven where
     show FinalizationProven{..} = "FinalizationProven{fpIndex=" ++ show fpIndex ++ ",fpBlock=" ++ show fpBlock ++ "}"
@@ -222,9 +222,11 @@ fpGetProofTrivial FinalizationProven{..} = FinalizationRecord {
 -- |The finalization queue stores finalization records that are not yet
 -- included in blocks that are themselves finalized.
 data FinalizationQueue = FinalizationQueue {
+    -- |Index of the first finalization record that is not yet included in any
+    -- finalized block.
     _fqFirstIndex :: !FinalizationIndex,
     _fqProofs :: !(Seq.Seq FinalizationProven)
-} deriving (Show)
+} deriving (Eq, Show)
 makeLenses ''FinalizationQueue
 
 initialFinalizationQueue :: FinalizationQueue
@@ -276,8 +278,7 @@ getQueuedFinalization fi = do
             let (fr, fp') = fpGetProof fp
             finQueue . fqProofs . ix index .= fp'
             return fr
-    else
-        return Nothing
+    else return Nothing
 
 -- |Update the finalization queue by removing finalization information below the
 -- given index. This should be used so that the queue doesn't hold records where

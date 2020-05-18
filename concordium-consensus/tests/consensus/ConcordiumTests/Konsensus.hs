@@ -11,7 +11,6 @@ import qualified Data.Set as Set
 import Control.Monad
 import Control.Monad.IO.Class
 import Lens.Micro.Platform
-import Data.Bits
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -256,7 +255,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
-            bakerEqParty PartyInfo{..} = voterVerificationKey (bakerInfoToVoterInfo baker) == partySignKey
+            bakerEqParty PartyInfo{..} = baker ^. bakerSignatureVerifyKey == partySignKey
         checkBinary (==) bakerInFinCommittee (isRight _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
         forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
             -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
@@ -539,17 +538,14 @@ createInitStates bis maxFinComSize specialAccounts = do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig
                                                (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts specialAccounts))
-                                               (ActiveFinalization fininst gen)
+                                               (ActiveFinalization fininst)
                                                NoHandler
-                                       (initCtx, initState) <- liftIO $ initialiseSkov config
+                                       (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
                                        return (bid, binfo, kp, initCtx, initState))
         Vec.fromList <$> createStates bis
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
-
-instance Show FinalizationInstance where
-    show _ = "[Finalization Instance]"
 
 {-
 

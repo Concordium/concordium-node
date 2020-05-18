@@ -11,6 +11,7 @@ import Data.Aeson
 import qualified Data.Serialize as S
 import Control.Monad
 import Text.Printf
+import Data.Time.Format
 
 import Data.Text
 import qualified Data.HashMap.Strict as Map
@@ -114,6 +115,7 @@ main = cmdArgsRun mode >>=
                             let balance = _accountAmount account
                             in printf "%d (= %.4f%%)" (toInteger balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
                       putStrLn "Successfully generated genesis data."
+                      putStrLn $ "Genesis time is set to: " ++  (formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime (genesisTime genesisData)))
                       putStrLn $ "There are the following " ++ show (Prelude.length (genesisAccounts genesisData)) ++ " initial accounts in genesis:"
                       forM_ (genesisAccounts genesisData) $ \account ->
                         putStrLn $ "\tAccount: " ++ show (_accountAddress account) ++ ", balance = " ++ showBalance account

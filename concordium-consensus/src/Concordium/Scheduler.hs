@@ -47,8 +47,10 @@ import Acorn.Types(compile)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
+import Data.Word
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
+
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
@@ -296,6 +298,19 @@ handleDeployModule wtc psize mod =
       tickEnergy (Cost.deployModule (fromIntegral psize))
       let mhash = Core.moduleHash mod
       imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral psize) mod)) `rejectingWith'` (const MissingImports)
+      -- Before typechecking, we charge for loading the dependencies of the to-be-typechecked module
+      -- (as typechecking will load these if used). For now, we do so by loading the interface of
+      -- each dependency one after the other and then charging based on its size.
+      -- TODO We currently first charge the full amount after each lookup, as we do not have the
+      -- module sizes available before.
+      let imports = Map.elems $ Core.imImports imod
+      forM_ imports $ \ref -> do
+        tickEnergy $ Cost.lookupBytesPre
+        -- As the given module is not typechecked yet, it might contain imports of
+        -- non-existing modules.
+        iface <- getInterface ref `rejectingWith` ModuleNotWF
+        tickEnergy $ Cost.lookupModule (iSize iface)
+
       -- Typecheck the module, resulting in the module 'Interface'.
       -- The cost of type-checking is dependent on the size of the module.
       iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
@@ -318,6 +333,40 @@ handleDeployModule wtc psize mod =
         -- this check can be done even earlier, since the module hash is the hash of module serialization.
         return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
+-- | Tick energy for storing the given 'Value'.
+-- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
+-- that cannot be paid for.
+tickEnergyValueStorage ::
+  TransactionMonad m
+  => Value
+  -> m ()
+tickEnergyValueStorage val = do
+  remainingEnergy <- getEnergy
+  let maxSize = Cost.maxStorage remainingEnergy
+  case storableSizeWithLimit val maxSize of
+    Just size -> tickEnergy $ Cost.storeBytes size
+    Nothing -> rejectTransaction OutOfEnergy
+
+-- | Tick energy for looking up a contract instance, then do the lookup.
+-- FIXME: Currently we do not know the size of the instance before looking it up.
+-- Therefore we charge a "pre-lookup cost" before the lookup and the actual cost after.
+-- after lookup.
+getCurrentContractInstanceTicking ::
+  TransactionMonad m
+  => ContractAddress
+  -> m Instance
+getCurrentContractInstanceTicking cref = do
+  tickEnergy $ Cost.lookupBytesPre
+  inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
+  remainingEnergy <- getEnergy
+
+  case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
+    Just size -> do
+      tickEnergy (Cost.lookupBytes size)
+      return inst
+    Nothing -> rejectTransaction OutOfEnergy
+
+
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
   SchedulerMonad m
@@ -326,7 +375,7 @@ handleInitContract ::
     -> ModuleRef  -- ^The module to initialize a contract from.
     -> Core.TyName  -- ^Name of the contract to initialize from the given module.
     -> Core.Expr Core.UA Core.ModuleName  -- ^Parameter expression to initialize the contract with.
-    -> Int -- ^Serialized size of the parameter expression. Used for computing typechecking cost.
+    -> Word64 -- ^Serialized size of the parameter expression. Used for computing typechecking cost.
     -> m (Maybe TransactionSummary)
 handleInitContract wtc amount modref cname param paramSize =
   withDeposit wtc c k
@@ -334,19 +383,24 @@ handleInitContract wtc amount modref cname param paramSize =
           txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
           c = do
-            tickEnergy Cost.initPreprocess
-
             -- Check whether the sender account's amount can cover the amount to initialize the contract
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAmount senderAccount
             unless (senderAmount >= amount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
 
             -- First try to get the module interface of the parent module of the contract.
+            -- TODO We currently first charge the full amount after the lookup, as we do not have the
+            -- size available before.
+            tickEnergy $ Cost.lookupBytesPre
             (iface, viface) <- getModuleInterfaces modref `rejectingWith` InvalidModuleReference modref
+            tickEnergy $ Cost.lookupModule $ iSize iface
+
             -- Then get the particular contract interface (in particular the type of the init method).
             ciface <- pure (Map.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
             -- Now typecheck the parameter expression (whether it has the parameter type specified
             -- in the contract). The cost of type-checking is dependent on the size of the term.
+            -- TODO Here we currently do not account for possible dependent modules looked up
+            -- when typechecking the term. We might want to tick energy on demand while typechecking.
             tickEnergy (Cost.initParamsTypecheck paramSize)
             qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
             -- Link the contract, i.e., its init and receive functions as well as the constraint
@@ -368,8 +422,12 @@ handleInitContract wtc amount modref cname param paramSize =
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            res <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
-            return (linkedContract, iface, viface, (msgTy ciface), res, amount)
+            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
+
+            -- Charge for storing the contract state.
+            tickEnergyValueStorage model
+
+            return (linkedContract, iface, viface, (msgTy ciface), model, amount)
 
           k ls (linkedContract, iface, viface, msgty, model, initamount) = do
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -397,7 +455,7 @@ handleSimpleTransfer wtc toaddr amount =
     where senderAccount = wtc ^. wtcSenderAccount
           c = case toaddr of
                 AddressContract cref -> do
-                  i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+                  i <- getCurrentContractInstanceTicking cref
                   -- Send a Nothing message to the contract with the amount to be transferred.
                   let rf = Ins.ireceiveFun i
                       model = Ins.instanceModel i
@@ -419,18 +477,19 @@ handleUpdateContract ::
     -> ContractAddress -- ^Address of the contract to invoke.
     -> Amount -- ^Amount to invoke the contract's receive method with.
     -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
-    -> Int  -- ^Serialized size of the message.
+    -> Word64  -- ^Serialized size of the message.
     -> m (Maybe TransactionSummary)
 handleUpdateContract wtc cref amount maybeMsg msgSize =
   withDeposit wtc c (defaultSuccess wtc)
   where senderAccount = wtc ^. wtcSenderAccount
         c = do
-          tickEnergy Cost.updatePreprocess
-          i <- getCurrentContractInstance cref `rejectingWith` InvalidContractAddress cref
+          i <- getCurrentContractInstanceTicking cref
           let rf = Ins.ireceiveFun i
               msgType = Ins.imsgTy i
               (iface, _) = Ins.iModuleIface i
               model = Ins.instanceModel i
+          -- TODO Here we currently do not account for possible dependent modules looked up
+          -- when typechecking the term. We might want to tick energy on demand while typechecking.
           tickEnergy (Cost.updateMessageTypecheck msgSize)
           -- Type check the message expression, as coming from a top-level transaction it can be
           -- an arbitrary expression. The cost of type-checking is dependent on the size of the term.
@@ -499,9 +558,13 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
     -- transaction for the execution cost ticked so far.
     Nothing -> rejectTransaction Rejected
     -- The contract accepted the message and returned a new state as well as outgoing messages.
-    Just (newmodel, txout) ->
-      -- Process the generated messages in the new context (transferred amount, updated state) in
-      -- sequence from left to right, depth first.
+    Just (newmodel, txout) -> do
+        -- Charge for eventually storing the new contract state (even if it might not be stored
+        -- in the end because the transaction fails).
+        -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+        tickEnergyValueStorage newmodel
+        -- Process the generated messages in the new context (transferred amount, updated state) in
+        -- sequence from left to right, depth first.
         withToContractAmount sender istance transferamount $
           withInstanceState istance newmodel $
             foldM (\res tx -> combineProcessing res $ do
@@ -510,9 +573,10 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                         -- NB: The sender of all the newly generated messages is the contract instance 'istance'.
                         case tx of
                           TSend cref' transferamount' message' -> do
-                            -- NOTE: This relies on Acorn only allowing the creation of
-                            -- messages with addresses to existing instances.
-                            cinstance <- fromJust <$> getCurrentContractInstance cref'
+                            -- NB: Acorn only allows the creation of messages with addresses of existing
+                            -- instances. If the instance does however not exist, this rejects the
+                            -- transaction.
+                            cinstance <- getCurrentContractInstanceTicking cref'
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
                             handleMessage origin
@@ -526,8 +590,8 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                           -- with the to be transferred amount.
                           TSimpleTransfer (AddressContract cref') transferamount' -> do
                             -- We can make a simple transfer without checking existence of a contract.
-                            -- Hence we need to handle the failure case here.
-                            cinstance <- getCurrentContractInstance cref' `rejectingWith` (InvalidContractAddress cref')
+                            -- The following rejects the transaction in case the instance does not exist.
+                            cinstance <- getCurrentContractInstanceTicking cref'
                             let receivefun' = Ins.ireceiveFun cinstance
                             let model' = Ins.instanceModel cinstance
                             handleMessage origin
@@ -586,9 +650,12 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
 runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
-runInterpreter f =
-  getEnergy >>= f >>= \case Just (x, energy') -> x <$ putEnergy energy'
-                            Nothing -> putEnergy 0 >> rejectTransaction OutOfEnergy
+runInterpreter f = do
+  remainingEnergy <- getEnergy
+  let iEnergy = Cost.toInterpreterEnergy remainingEnergy
+  (result, remainingInterpreterEnergy) <- f iEnergy `rejectingWith` OutOfEnergy
+  putEnergy (Cost.fromInterpreterEnergy remainingInterpreterEnergy)
+  return result
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
 -- precise logic for when a baker can be added and removed should be analyzed
@@ -807,11 +874,12 @@ handleDelegateStake wtc targetBaker =
                 currentDelegate = senderAccount ^. accountStakeDelegate
             in return $! (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
           else
-            return $! (TxReject (InvalidStakeDelegationTarget $! fromJust targetBaker), energyCost, usedEnergy)
+            return $! (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
 
 -- |Update the election difficulty birk parameter.
 -- The given difficulty must be valid (see 'isValidElectionDifficulty').
+-- This precondition is ensured by the transaction (de)serialization.
 handleUpdateElectionDifficulty
   :: SchedulerMonad m
   => WithDepositContext
@@ -1111,7 +1179,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
                    (Nothing, _) -> error "Unreachable. Dispatch honors maximum transaction energy."
               -- If the stated energy of a single transaction exceeds the block energy limit the
               -- transaction is invalid. Add it to the list of failed transactions and
-              -- determine whether following transaction have to fail as well.
+              -- determine whether following transactions have to fail as well.
               else if tenergy > maxEnergy then
                 let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
                 in runTransactionGroup size newFts remainingGroups rest
