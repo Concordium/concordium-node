@@ -53,6 +53,7 @@ import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Bakers(bakerAccount)
+import qualified Concordium.GlobalState.Bakers as Bakers (BakerError(DuplicateAggregationKey, DuplicateSignKey))
 import qualified Concordium.GlobalState.Instance as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
@@ -668,8 +669,9 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                         -- Thus we can create the baker, starting it off with 0 lottery power.
                         mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
                         case mbid of
-                          Nothing -> return $! (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
-                          Just bid -> return $! (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
+                          Right Bakers.DuplicateSignKey -> return $! (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
+                          Right Bakers.DuplicateAggregationKey -> return $! (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
+                          Left bid -> return $! (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
                       else return $ (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- |Remove a baker from the baker pool.
