@@ -916,11 +916,11 @@ handleDeployCredential cdi cdiHash = do
                     mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                   else return $ Just (TxInvalid AccountCredentialInvalid)
 
--- |Update the baker's public signature key. The transaction is considered valid if
+-- |Update the baker's public aggregation key. The transaction is considered valid if
 --
 --  * The transaction is coming from the baker's current reward account.
 --  * The transaction proves that they own the private key corresponding to the __NEW__
---    signature verification key.
+--    aggregation verification key.
 handleUpdateBakerAggregationVerifyKey ::
   SchedulerMonad m
     => WithDepositContext
