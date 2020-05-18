@@ -186,7 +186,8 @@ removeBaker bid !bakers =
         Just bkr -> (True, bakers
                             & (bakerMap . at' bid .~ Nothing)
                             & bakersByKey . at' (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as wel.
-                            & (bakerTotalStake %~ subtract (bkr ^. bakerStake)))
+                            & (bakerTotalStake %~ subtract (bkr ^. bakerStake))
+                            & aggregationKeys %~ Set.delete (bkr ^. bakerAggregationVerifyKey))
 
 modifyStake :: Maybe BakerId -> AmountDelta -> Bakers -> Bakers
 modifyStake (Just bid) delta bakers = case bakers ^. bakerMap . at' bid of
