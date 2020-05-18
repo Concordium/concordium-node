@@ -380,12 +380,12 @@ doPutLinkedContract pbs modRef n !lc = do
 doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m PersistentBirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
-doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Maybe BakerId, PersistentBlockState)
+doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Either BakerId BakerError, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
         case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
-            Nothing -> return $! (Nothing, pbs)
-            Just (bid, newBakers) -> (Just bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
+            Right err -> return $! (Right err, pbs)
+            Left (bid, newBakers) -> (Left bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
@@ -671,7 +671,7 @@ instance MonadIO m => BirkParametersOperations (PersistentBlockStateMonad r m) w
     getElectionDifficulty = return . _birkElectionDifficulty
 
     getCurrentBakers = return . _birkCurrentBakers
-    
+
     getLotteryBakers = return . _birkLotteryBakers
 
     updateSeedState f bps = return $ bps & birkSeedState %~ f

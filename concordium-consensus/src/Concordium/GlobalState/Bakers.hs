@@ -16,6 +16,10 @@ import Concordium.Types
 
 data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVerifyKey !BakerAggregationVerifyKey !AccountAddress
 
+data BakerError =
+      DuplicateSignKey
+    | DuplicateAggregationKey
+
 data BakerInfo = BakerInfo {
     -- |The baker's public VRF key
     _bakerElectionVerifyKey :: !BakerElectionVerifyKey,
@@ -96,16 +100,17 @@ bakerData bid bkrs = (bkrs ^. bakerMap . at' bid) <&>
                         \bkr -> (bkr, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
 
 -- |Add a baker to the set of known bakers.
--- If a baker with the given signing key already exists then return 'Nothing',
--- If a baker with the given aggregation key already exists, return 'Nothing',
+-- If a baker with the given signing key already exists then return Right DuplicateSignKey,
+-- If a baker with the given aggregation key already exists, return Left DuplicateAggregationKey,
 -- otherwise assign it a fresh id and add it to the set of known bakers.a
+createBaker :: BakerCreationInfo -> Bakers -> Either (BakerId, Bakers) BakerError
 createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
   case bkrs ^. bakersByKey . at' _bakerSignatureVerifyKey of
     Nothing -> -- key does not yet exist
         if Set.member _bakerAggregationVerifyKey (bkrs ^. aggregationKeys) then
-          Nothing
+          Right DuplicateAggregationKey
         else -- aggregation keys is not already in use, so we insert baker
-          Just (bid, bkrs
+          Left (bid, bkrs
                      & bakerMap . at' bid ?~ BakerInfo{..}
                      & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                      & nextBakerId .~ bid + 1
@@ -113,7 +118,7 @@ createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey 
             where
               _bakerStake = 0
               bid = _nextBakerId bkrs
-    Just _ -> Nothing
+    Just _ -> Right DuplicateSignKey
 
 data BakerUpdate = BakerUpdate {
   -- |Identity of the baker to update.
