@@ -45,6 +45,6 @@ stages:
     - echo "Running clippy with without extra features"
     - cargo clippy --color=always --all --features=static -- -Dclippy::all
     - echo "Running clippy with network dump, instrumentation, collector and staging net features"
-    - cargo clippy --features=static,instrumentation,collector,network_dump,staging_net --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n features"
     - cargo clippy --features=static,s11n_capnp,s11n_serde_cbor --color=always --all -- -Dclippy::all
