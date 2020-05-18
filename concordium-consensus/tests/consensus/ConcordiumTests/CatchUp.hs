@@ -101,9 +101,9 @@ initialiseStatesDictator n = do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
                                         (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
-                                        (ActiveFinalization fininst gen)
+                                        (ActiveFinalization fininst)
                                         NoHandler
-                                (initCtx, initState) <- liftIO $ initialiseSkov config
+                                (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
                                 return (bid, binfo, kp, initCtx, initState)
                              ) bis
         return $ Vec.fromList res

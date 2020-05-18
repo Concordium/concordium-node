@@ -1,6 +1,6 @@
 use crate::{catch_up::*, consensus::*, messaging::*};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsIBakingCommitteeResponse, PacketType};
 use crypto_common::Serial;
 use failure::{bail, format_err, Fallible};
 use std::{
@@ -262,7 +262,8 @@ extern "C" {
         appdata_dir_len: i64,
         database_connection_url: *const u8,
         database_connection_url_len: i64,
-    ) -> *mut consensus_runner;
+        runner_ptr_ptr: *mut *mut consensus_runner,
+    ) -> i64;
     pub fn startConsensusPassive(
         max_block_size: u64,
         insertions_before_purging: u64,
@@ -276,7 +277,8 @@ extern "C" {
         appdata_dir_len: i64,
         database_connection_url: *const u8,
         database_connection_url_len: i64,
-    ) -> *mut consensus_runner;
+        runner_ptr_ptr: *mut *mut consensus_runner,
+    ) -> i64;
     #[allow(improper_ctypes)]
     pub fn startBaker(consensus: *mut consensus_runner);
     pub fn receiveBlock(
@@ -356,7 +358,7 @@ extern "C" {
         object_limit: i64,
         direct_callback: DirectMessageCallback,
     ) -> i64;
-    pub fn checkIfWeAreBaker(consensus: *mut consensus_runner) -> u8;
+    pub fn bakerIdBestBlock(consensus: *mut consensus_runner) -> i64;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
     pub fn getAccountNonFinalizedTransactions(
         consensus: *mut consensus_runner,
@@ -402,14 +404,15 @@ pub fn get_consensus_ptr(
 
     let c_string_genesis = unsafe { CString::from_vec_unchecked(genesis_data) };
 
-    let consensus_ptr = match private_data {
+    let mut runner_ptr = std::ptr::null_mut();
+    let runner_ptr_ptr = &mut runner_ptr;
+    let ret_code = match private_data {
         Some(ref private_data_bytes) => {
             let private_data_len = private_data_bytes.len();
             let appdata_buf = appdata_dir.as_path().to_str().unwrap();
             unsafe {
                 let c_string_private_data =
                     CString::from_vec_unchecked(private_data_bytes.to_owned());
-
                 startConsensus(
                     max_block_size,
                     insertions_before_purging,
@@ -426,6 +429,7 @@ pub fn get_consensus_ptr(
                     appdata_buf.len() as i64,
                     database_connection_url.as_ptr() as *const u8,
                     database_connection_url.len() as i64,
+                    runner_ptr_ptr,
                 )
             }
         }
@@ -446,16 +450,27 @@ pub fn get_consensus_ptr(
                         appdata_buf.len() as i64,
                         database_connection_url.as_ptr() as *const u8,
                         database_connection_url.len() as i64,
+                        runner_ptr_ptr,
                     )
                 }
             }
         }
     };
-
-    if consensus_ptr.is_null() {
-        bail!("Could not start consensus")
-    } else {
-        Ok(consensus_ptr)
+    match ret_code {
+        0 => Ok(runner_ptr),
+        // NB: the following errors should be in line with
+        // the enumeration defined by `toStartResult` in External.hs
+        1 => bail!("Cannot decode given genesis data."),
+        2 => bail!("Cannot decode baker keys."),
+        3 => bail!("Error reading database files."),
+        4 => bail!("Given block state path is a directory, not a file."),
+        5 => bail!("Cannot read block state database due to incorrect permissions."),
+        6 => bail!("Cannot read tree state database due to incorrect permissions."),
+        7 => bail!("Cannot open supplied tree state database."),
+        8 => bail!("Genesis block is not in the supplied tree state database."),
+        9 => bail!("Database genesis block does not align with the supplied genesis data."),
+        10 => bail!("Database invariant violation. See logs for details."),
+        n => bail!("Unknown error code: {}.", n),
     }
 }
 
@@ -620,8 +635,8 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn in_baking_committee(&self) -> ConsensusIsInCommitteeResponse {
-        wrap_c_committee_call!(self, |consensus| checkIfWeAreBaker(consensus))
+    pub fn in_baking_committee(&self) -> ConsensusIsIBakingCommitteeResponse {
+        wrap_c_committee_call!(self, |consensus| bakerIdBestBlock(consensus))
     }
 
     pub fn in_finalization_committee(&self) -> bool {
