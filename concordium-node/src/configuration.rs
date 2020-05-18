@@ -53,6 +53,31 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
 pub const MAX_PEER_NETWORKS: usize = 20;
 
+#[cfg(feature = "database_emitter")]
+#[derive(StructOpt, Debug)]
+/// Parameters related to the database emitter.
+pub struct DatabaseEmitterConfig {
+    #[structopt(long = "import-file", help = "File to import from")]
+    pub import_file: String,
+
+    #[structopt(
+        long = "batches-delay",
+        help = "Delay between batches in miliseconds",
+        default_value = "2000"
+    )]
+    pub delay_between_batches: u64,
+
+    #[structopt(long = "batche-size", help = "Size of each batch to emit", default_value = "40")]
+    pub batch_sizes: u64,
+
+    #[structopt(
+        long = "skip-first",
+        help = "Amount of the initial blocks to skip",
+        default_value = "0"
+    )]
+    pub skip_first: u64,
+}
+
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
 /// Parameters related to Prometheus.
@@ -520,6 +545,9 @@ pub struct Config {
     pub cli: CliConfig,
     #[structopt(flatten)]
     pub bootstrapper: BootstrapperConfig,
+    #[cfg(feature = "database_emitter")]
+    #[structopt(flatten)]
+    pub database_emitter: DatabaseEmitterConfig,
 }
 
 impl Config {

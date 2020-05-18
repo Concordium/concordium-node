@@ -20,7 +20,7 @@ use p2p_client::{
     stats_export_service::instantiate_stats_export_engine,
     utils,
 };
-use std::{env, fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
+use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = utils::get_config_and_logging_setup()?;
@@ -31,12 +31,6 @@ fn main() -> Result<(), Error> {
     conf.connection.no_bootstrap_dns = true;
     conf.connection.bootstrap_server = "foo:8888".to_string();
     conf.connection.desired_nodes = conf.connection.connect_to.len() as u16;
-
-    let data_file = env::var("DATA_FILE")?;
-
-    let delay_between_batches = 2000;
-    let batch_sizes = 40;
-    let skip_first = 0;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
@@ -69,22 +63,25 @@ fn main() -> Result<(), Error> {
     if !(node.connections().read().unwrap()).is_empty() {
         info!("Connected to network");
 
-        if let Ok(mut file) = File::open(&data_file) {
+        if let Ok(mut file) = File::open(&conf.database_emitter.import_file) {
             let mut blocks_len_buffer = [0; 8];
-            if let Ok(_) = file.read_exact(&mut blocks_len_buffer) {
+            if file.read_exact(&mut blocks_len_buffer).is_ok() {
                 let block_count = u64::from_be_bytes(blocks_len_buffer);
-                info!("Going to read {} blocks from file {}", block_count, data_file);
+                info!(
+                    "Going to read {} blocks from file {}",
+                    block_count, &conf.database_emitter.import_file
+                );
                 for i in 0..block_count {
                     let mut block_len_buffer = [0; 8];
-                    if let Ok(_) = file.read_exact(&mut block_len_buffer) {
+                    if file.read_exact(&mut block_len_buffer).is_ok() {
                         let block_size = u64::from_be_bytes(block_len_buffer);
                         info!(
                             "Going to {} read {} bytes for block from file {}",
-                            i, block_size, data_file
+                            i, block_size, &conf.database_emitter.import_file
                         );
                         let mut blocks_data_buffer = vec![0; block_size as usize];
-                        if let Ok(_) = file.read_exact(&mut blocks_data_buffer[..]) {
-                            if i < skip_first {
+                        if file.read_exact(&mut blocks_data_buffer[..]).is_ok() {
+                            if i < conf.database_emitter.skip_first {
                                 info!("- skipping as already sent");
                                 continue;
                             }
@@ -96,7 +93,7 @@ fn main() -> Result<(), Error> {
                                 send_broadcast_message(
                                     &node,
                                     vec![],
-                                    NetworkId::from(1000),
+                                    NetworkId::from(conf.common.network_ids.clone()[1]),
                                     Arc::from(data_out),
                                 )
                             );
@@ -104,14 +101,16 @@ fn main() -> Result<(), Error> {
                             bail!("Error reading block!");
                         }
                     }
-                    if i != 0 && i % batch_sizes == 0 {
-                        info!("Will stall for {} ms", delay_between_batches);
-                        thread::sleep(Duration::from_millis(delay_between_batches));
+                    if i != 0 && i % conf.database_emitter.batch_sizes == 0 {
+                        info!("Will stall for {} ms", &conf.database_emitter.delay_between_batches);
+                        thread::sleep(Duration::from_millis(
+                            conf.database_emitter.delay_between_batches,
+                        ));
                     }
                 }
             }
         }
     }
 
-    return node.close_and_join();
+    node.close_and_join()
 }
