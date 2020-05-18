@@ -59,16 +59,20 @@ data FinalizationRecord = FinalizationRecord {
 
 instance Serialize FinalizationRecord where
     put FinalizationRecord{..} = do
+        put __versionFinalizationRecord
         put finalizationIndex
         put finalizationBlockPointer
         put finalizationProof
         put finalizationDelay
     get = do
-        finalizationIndex <- get
-        finalizationBlockPointer <- get
-        finalizationProof <- get
-        finalizationDelay <- get
-        return $ FinalizationRecord{..}
+        version <- Version <$> S.get
+        if version /= __versionFinalizationRecord then fail "Invalid finalization record version"
+        else do
+            finalizationIndex <- get
+            finalizationBlockPointer <- get
+            finalizationProof <- get
+            finalizationDelay <- get
+            return $ FinalizationRecord{..}
 
 instance Show FinalizationRecord where
     show FinalizationRecord{..} = "FinalizationRecord{index=" ++ show (theFinalizationIndex finalizationIndex)  ++ ", block=" ++ show finalizationBlockPointer ++ "}"
