@@ -109,7 +109,7 @@ transactionsInput =
            , keypair = thomasKP
            -- baker 2's account is Thomas account, so only it can update it
            },
-     TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
+     TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 55)) (BlockSig.signKey (bakerSignKey 55))
            , metadata = makeDummyHeader alesAccount 6 10000
            , keypair = alesKP
            },
@@ -141,6 +141,27 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 9 10000
+           , keypair = alesKP
+           },
+     TJSON { payload = UpdateBakerAggregationVerifyKey 0 (Bls.derivePublicKey $ bakerAggregationKey 42) (bakerAggregationKey 42)
+           , metadata = makeDummyHeader alesAccount 10 10000
+           , keypair = alesKP
+           },
+     -- Add a baker with a duplicate aggregation key, SHOULD FAIL
+     TJSON { payload = AddBaker (baker3 ^. _1 . bakerElectionVerifyKey)
+                                (baker3 ^. _2)
+                                (baker3 ^. _1 . bakerSignatureVerifyKey)
+                                (baker2 ^. _1 . bakerAggregationVerifyKey) -- aggregation key of baker 2
+                                (baker2 ^. _4) -- aggregation key of baker 2
+                                (baker3 ^. _3)
+                                alesAccount
+                                alesKP
+           , metadata = makeDummyHeader alesAccount 11 10000
+           , keypair = alesKP
+           },
+     -- Update baker1 (id 3) aggregation key to be the same as the one baker0 just changed to
+     TJSON { payload = UpdateBakerAggregationVerifyKey 3 (Bls.derivePublicKey $ bakerAggregationKey 42) (bakerAggregationKey 42)
+           , metadata = makeDummyHeader alesAccount 12 10000
            , keypair = alesKP
            }
     ]
@@ -213,16 +234,14 @@ tests = do
         ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
           Map.keys (bps6 ^. birkCurrentBakers . bakerMap) == [0,2] &&
           let b0 = (bps6 ^. birkCurrentBakers . bakerMap) Map.! 0
-          in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&
+          in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 55) &&
              ((bps5 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
         _ -> False
 
     specify "Readding removed baker shouldn't fail due to duplicated keys" $
       case results !! 7 of
         ([(_,Types.TxSuccess [Types.BakerAdded 3])], [], bps7) ->
-          traceShow (Map.keys (bps7 ^. birkCurrentBakers . bakerMap)) $
             Map.keys (bps7 ^. birkCurrentBakers . bakerMap) == [0,2,3]
-        ([(_, s)], [], _) -> traceShow s $ False
         _ -> False
 
     specify "Fail to update baker's signature key to a duplicate" $
@@ -232,7 +251,6 @@ tests = do
                 b0_bps8 = (bps8 ^. birkCurrentBakers . bakerMap) Map.! 3
             in b0_bps7 ^. bakerSignatureVerifyKey == b0_bps8 ^. bakerSignatureVerifyKey
               && duplicated == (baker2 ^. _1 . bakerSignatureVerifyKey)
-        ((_,_, bps6), ([(_, Types.TxReject err)], [], bps7)) -> traceShow err $ False
         _ -> False
 
     specify "Fail to add baker with duplicated signature key" $
@@ -242,11 +260,26 @@ tests = do
               && duplicated == (baker2 ^. _1 . bakerSignatureVerifyKey)
         _ -> False
 
-    -- specify "Fail to add baker with duplicated aggregation key"
+    specify "Update first baker's aggregation key." $
+      case (results !! 9, results !! 10) of
+        ((_, _, bps9), ([(_,Types.TxSuccess [Types.BakerAggregationKeyUpdated 0 k])], [], bps10)) ->
+          ((bps10 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerAggregationVerifyKey == (Bls.derivePublicKey $ bakerAggregationKey 42) &&
+          ((bps9 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerAggregationVerifyKey == baker0 ^. _1 ^. bakerAggregationVerifyKey &&
+          k == (Bls.derivePublicKey $ bakerAggregationKey 42)
+        _ -> False
 
-    -- specify "Fail to update baker's aggregation key to a duplicate"
+    specify "Fail to add baker with duplicated aggregation key" $
+      case (results !! 10, results !! 11) of
+        ((_,_, bps10), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps11)) ->
+            Map.keys (bps10 ^. birkCurrentBakers . bakerMap) == Map.keys (bps11 ^. birkCurrentBakers . bakerMap)
+              && duplicated == (baker2 ^. _1 . bakerAggregationVerifyKey)
+        _ -> False
 
-
-    --
-    --
-    -- specify "Update first baker's aggregation key"
+    specify "Fail to update baker's aggregation key to a duplicate" $
+      case (results !! 11, results !! 12) of
+        ((_,_, bps11), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps12)) ->
+            let b0_bps11 = (bps11 ^. birkCurrentBakers . bakerMap) Map.! 3
+                b0_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3
+            in b0_bps11 ^. bakerSignatureVerifyKey == b0_bps12 ^. bakerSignatureVerifyKey
+              && duplicated == (Bls.derivePublicKey $ bakerAggregationKey 42)
+        _ -> False
