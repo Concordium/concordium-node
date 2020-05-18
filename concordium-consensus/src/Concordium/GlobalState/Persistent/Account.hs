@@ -9,7 +9,7 @@ import Lens.Micro.Platform
 import Data.Serialize
 import GHC.Generics
 import Data.Maybe
-import Data.Functor.Identity
+import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
@@ -54,11 +54,12 @@ data Accounts = Accounts {
 
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
 -- The new object is not yet stored on disk.
-makePersistent :: Transient.Accounts -> Accounts
-makePersistent (Transient.Accounts amap atbl aregids) = Accounts {..}
+makePersistent :: MonadIO m => Transient.Accounts -> m Accounts
+makePersistent (Transient.Accounts amap atbl aregids) = do
+    accountTable <- AT.makePersistent atbl
+    accountMap <- Trie.fromList (Map.toList amap)
+    return Accounts {..}
     where
-        accountMap = runIdentity (Trie.fromList (Map.toList amap))
-        accountTable = AT.makePersistent atbl
         accountRegIds = Some aregids
         accountRegIdHistory = RegIdHistory (Set.toList aregids) Null
 
@@ -89,7 +90,7 @@ loadRegIds a@Accounts{accountRegIds = Null, ..} = do
         loadRegIdHist (RegIdHistory l Null) = return l
         loadRegIdHist (RegIdHistory l (Some ref)) = (l ++) <$> (loadRegIdHist =<< loadRef ref)
 
-instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef Accounts where
+instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Accounts where
     storeUpdate p Accounts{..} = do
         (pMap, accountMap') <- storeUpdate p accountMap
         (pTable, accountTable') <- storeUpdate p accountTable
@@ -126,7 +127,7 @@ emptyAccounts = Accounts Trie.empty AT.empty (Some Set.empty) (RegIdHistory [] N
 -- and recording it in 'accountMap'.
 -- If an account with the address already exists, 'accountTable' is updated
 -- to reflect the new state of the account.
-putAccount :: (MonadBlobStore m BlobRef) => Account -> Accounts -> m Accounts
+putAccount :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> Accounts -> m Accounts
 putAccount !acct accts0 = do
         (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
         newAccountTable <- case isFresh of
@@ -143,7 +144,7 @@ putAccount !acct accts0 = do
 
 -- |Add a new account. Returns @False@ and leaves the accounts unchanged if
 -- there is already an account with the same address.
-putNewAccount :: (MonadBlobStore m BlobRef) => Account -> Accounts -> m (Bool, Accounts)
+putNewAccount :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> Accounts -> m (Bool, Accounts)
 putNewAccount !acct accts0 = do
         (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
         if isFresh then do
@@ -197,7 +198,7 @@ recordRegId rid accts0 = do
 -- Does nothing (returning @Nothing@) if the account does not exist.
 -- This should not be used to alter the address of an account (which is
 -- disallowed).
-updateAccount :: (MonadBlobStore m BlobRef) => (Account -> m (a, Account)) -> AccountAddress -> Accounts -> m (Maybe a, Accounts)
+updateAccount :: (MonadBlobStore m BlobRef, MonadIO m) => (Account -> m (a, Account)) -> AccountAddress -> Accounts -> m (Maybe a, Accounts)
 updateAccount fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return (Nothing, a0)
         Just ai -> AT.update fupd ai accountTable >>= \case

@@ -36,6 +36,7 @@ import Concordium.Crypto.VRF as VRF
 import Data.ByteString (ByteString)
 import System.FilePath ((</>))
 import System.Random
+import System.IO.Temp
 
 type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g IO)
 
@@ -54,6 +55,13 @@ deriving via (PersistentTreeStateMonad
               TestM)
   instance LMDBStoreMonad TestM
 
+deriving via (PersistentTreeStateMonad
+              ()
+              PBS.PersistentBlockState
+              TestM)
+  instance LMDBQueryMonad TestM
+
+
 createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
@@ -61,7 +69,7 @@ createGlobalState dbDir = do
     n = 3
     genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
     state = basicGenesisState genesis
-    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir }) genesis state
+    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis state
   (x, y, NoLogContext) <- initialiseGlobalState config
   return (x, y)
 
@@ -69,14 +77,11 @@ destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PB
 destroyGlobalState (c, s) =
   shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
-specifyWithGS :: String -> FilePath -> Test -> SpecWith (Arg (IO ()))
-specifyWithGS s dbDir f = specify s $
-                    bracket
-                      (createGlobalState dbDir)
-                      destroyGlobalState
-                      (\(c, d) -> do
-                          (ret, _, _) <- runRWST (runGlobalStateM $ f) c d
-                          return ret)
+specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
+specifyWithGS s f =
+  specify s $
+    withTempDirectory "." "test-directory"
+    (\dbDir -> void (uncurry (runRWST (runGlobalStateM $ f)) =<< createGlobalState dbDir))
 
 useI :: MonadState (Identity s) f => Getting b s b -> f b
 useI f = (^. f) <$> runIdentity <$> RWS.get
@@ -187,11 +192,6 @@ testEmptyGS = do
 
 tests :: Spec
 tests = do
-  dbPath <- runIO $ (</> "databases") `fmap` getCurrentDirectory
-  around (
-    bracket
-      (createDirectoryIfMissing False dbPath)
-      (\_ -> removePathForcibly dbPath)) $
    describe "GlobalState:PersistentTreeState" $ do
-    specifyWithGS "empty gs wrote the genesis to disk" dbPath testEmptyGS
-    specifyWithGS "finalize a block" dbPath testFinalizeABlock
+    specifyWithGS "empty gs wrote the genesis to disk" testEmptyGS
+    specifyWithGS "finalize a block" testFinalizeABlock

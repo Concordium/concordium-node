@@ -7,6 +7,7 @@ import Data.Bits
 import Data.Serialize
 import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Exception
 import Data.Functor
 
@@ -161,7 +162,7 @@ instance Show AccountTable where
     show Empty = "Empty"
     show (Tree _ _ t) = showFix showATFString t
 
-instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef AccountTable where
+instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef AccountTable where
     store _ Empty = return (put (0 :: AccountIndex))
     store p (Tree nai _ t) = do
         pt <- store p t
@@ -188,7 +189,7 @@ lookup :: (MonadBlobStore m BlobRef) => AccountIndex -> AccountTable -> m (Maybe
 lookup _ Empty = return Nothing
 lookup x (Tree _ _ t) = lookupF x t
 
-append :: (MonadBlobStore m BlobRef) => Account -> AccountTable -> m (AccountIndex, AccountTable)
+append :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> AccountTable -> m (AccountIndex, AccountTable)
 append acct Empty = (0,) . (Tree 1 (getHash leaf)) <$> membed leaf
     where
         leaf = mkLeaf acct
@@ -196,7 +197,7 @@ append acct (Tree nai _ t) = do
     (i, _, _, hsh, t') <- appendF acct t
     assert (i == nai) $ return (i, Tree (nai + 1) hsh t')
 
-update :: (MonadBlobStore m BlobRef) => (Account -> m (a, Account)) -> AccountIndex -> AccountTable -> m (Maybe (a, AccountTable))
+update :: (MonadBlobStore m BlobRef, MonadIO m) => (Account -> m (a, Account)) -> AccountIndex -> AccountTable -> m (Maybe (a, AccountTable))
 update _ _ Empty = return Nothing
 update upd i (Tree nai _ t) = fmap (\(res, h, t') -> (res, Tree nai h t')) <$> updateF upd i t
 
@@ -204,10 +205,16 @@ toList :: (MonadBlobStore m BlobRef) => AccountTable -> m [(AccountIndex, Accoun
 toList Empty = return []
 toList (Tree _ _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t
 
-makePersistent :: Transient.AccountTable -> AccountTable
-makePersistent Transient.Empty = Empty
-makePersistent (Transient.Tree t0) = tree (conv t0)
+makePersistent :: MonadIO m => Transient.AccountTable -> m AccountTable
+makePersistent Transient.Empty = return Empty
+makePersistent (Transient.Tree t0) = tree <$> conv t0
     where
-        conv (Transient.Branch lvl fll hsh l r) = let (nxtr, _, cr) = conv r in (nxtr + 2^lvl, hsh, LBMemory (Branch lvl fll hsh ((\(_, _, t) -> t) $ conv l) cr))
-        conv (Transient.Leaf hsh acct) = (1, hsh, LBMemory (Leaf hsh acct))
+        conv (Transient.Branch lvl fll hsh l r) = do
+            l' <- conv l
+            (nxtr, _, cr) <- conv r
+            b <- makeBufferedBlobbed (Branch lvl fll hsh ((\(_, _, t) -> t) l') cr)
+            return (nxtr + 2^lvl, hsh, b)
+        conv (Transient.Leaf hsh acct) = do
+            b <- makeBufferedBlobbed (Leaf hsh acct)
+            return (1, hsh, b)
         tree (ai, hsh, t) = Tree ai hsh t

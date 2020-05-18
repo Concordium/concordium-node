@@ -10,7 +10,6 @@
     MultiParamTypeClasses,
     QuantifiedConstraints,
     UndecidableInstances,
-    CPP,
     RankNTypes,
     ScopedTypeVariables,
     ConstraintKinds,
@@ -21,16 +20,17 @@
 -- in this package.
 module Concordium.GlobalState where
 
+import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
-import Data.Serialize.Put (runPut)
 import Data.ByteString.Char8(ByteString)
-import System.FilePath
+import Data.Serialize(runPut)
 import Data.Pool(destroyAllResources)
+import System.FilePath
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Types
@@ -39,7 +39,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore (createTempBlobStore,destroyTempBlobStore)
+import Concordium.GlobalState.Persistent.BlobStore (createBlobStore, closeBlobStore, loadBlobStore, destroyBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as Persistent
 import Concordium.GlobalState.Persistent.TreeState
@@ -325,7 +325,8 @@ data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData BS.Blo
 data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState
 
 -- |Configuration that uses the disk implementation for both the tree state
--- and the block state, as well as a
+-- and the block state, as well as an external database for producing
+-- an index of transactions affecting a given account.
 data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configRP :: RuntimeParameters,
   configGD :: GenesisData,
@@ -333,26 +334,13 @@ data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configTxLog :: !ByteString
   }
 
-type family GSContext c where
-  GSContext MemoryTreeMemoryBlockConfig = ()
-  GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
-  GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
-  GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
 
-type family GSState c where
-  GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
-  GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
-  GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
-  GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
-
-type family GSLogContext c where
-  GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
-  GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
-  GSLogContext DiskTreeDiskBlockConfig = NoLogContext
-  GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
 
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig c where
+    type GSContext c
+    type GSState c
+    type GSLogContext c
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
     initialiseGlobalState :: c -> IO (GSContext c, GSState c, GSLogContext c)
@@ -360,6 +348,9 @@ class GlobalStateConfig c where
     shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> GSLogContext c -> IO ()
 
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
+    type instance GSContext MemoryTreeMemoryBlockConfig = ()
+    type instance GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
+    type instance GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
@@ -367,43 +358,87 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 -- |Configuration that uses the Haskell implementation of tree state and the
 -- in-memory, Haskell implmentation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
+    type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
+    type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
+    type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+        pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
         _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
-        destroyTempBlobStore pbscBlobStore
+        closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
+    type GSLogContext DiskTreeDiskBlockConfig = NoLogContext
+    type GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
+    type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
+
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+      -- check if all the necessary database files exist
+      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      if existingDB then do
+        -- the block state file exists, is readable and writable
+        -- we ignore the given block state parameter in such a case.
+        pbscBlobStore <- loadBlobStore blockStateFile
+        -- we start with an empty module cache. It will be repopulated
+        -- on block execution, and the cache is only an optimization, it is
+        -- fine, if slow, if modules are always loaded from the database.
+        pbscModuleCache <- newIORef emptyModuleCache
+        let pbsc = PersistentBlockStateContext{..}
+        skovData <- loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)
+                      `onException` (closeBlobStore pbscBlobStore)
+        return (pbsc, skovData, NoLogContext)
+      else do
+        pbscBlobStore <- createBlobStore blockStateFile
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
+                 `onException` (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
-        destroyTempBlobStore pbscBlobStore
+        closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
+    type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
+    type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
+    type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
     initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
-        pbscBlobStore <- createTempBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+      -- check if all the necessary database files exist
+      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      dbHandle <- connectPostgres txLog
+      createTable dbHandle
+      if existingDB then do
+        -- the block state file exists, is readable and writable
+        -- we ignore the given block state parameter in such a case.
+        pbscBlobStore <- loadBlobStore blockStateFile
+        -- we start with an empty module cache. It will be repopulated
+        -- on block execution, and the cache is only an optimization, it is
+        -- fine, if slow, if modules are always loaded from the database.
+        pbscModuleCache <- newIORef emptyModuleCache
+        let pbsc = PersistentBlockStateContext{..}
+        let ati = defaultValue
+        skovData <-
+          loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)
+          `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore)
+        return (pbsc, skovData, PAAIConfig dbHandle)
+      else do
+        pbscBlobStore <- createBlobStore blockStateFile
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
         serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
-        handle <- connectPostgres txLog
-        createTable handle
         let ati = defaultValue
-        isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig handle) serBS
-        return (pbsc, isd, PAAIConfig handle)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig handle) = do
-        destroyTempBlobStore pbscBlobStore
+        isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
+                 `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
+        return (pbsc, isd, PAAIConfig dbHandle)
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
+        closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
-        destroyAllResources handle
+        destroyAllResources dbHandle
