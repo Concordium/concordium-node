@@ -32,6 +32,8 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
+import Debug.Trace
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -110,7 +112,36 @@ transactionsInput =
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
            , metadata = makeDummyHeader alesAccount 6 10000
            , keypair = alesKP
-           -- baker 0's account is Thomas account, so only it can update it
+           },
+     -- Readd baker1 (new bakerId will be 3), which shouldn't result in an error due to duplicated keys, since they
+     -- were deleted
+     TJSON { payload = AddBaker (baker1 ^. _1 . bakerElectionVerifyKey)
+                                (baker1 ^. _2)
+                                (baker1 ^. _1 . bakerSignatureVerifyKey)
+                                (baker1 ^. _1 . bakerAggregationVerifyKey)
+                                (baker1 ^. _4)
+                                (baker1 ^. _3)
+                                alesAccount
+                                alesKP
+           , metadata = makeDummyHeader alesAccount 7 10000
+           , keypair = alesKP
+           },
+     -- Update baker1 (id 3) signature key to be the same as baker 2's, SHOULD FAIL
+     TJSON { payload = UpdateBakerSignKey 3 (baker2 ^. _1 . bakerSignatureVerifyKey) (baker2 ^. _3)
+           , metadata = makeDummyHeader alesAccount 8 10000
+           , keypair = alesKP
+           },
+     -- Add a baker with a duplicate signature key, SHOULD FAIL
+     TJSON { payload = AddBaker (baker3 ^. _1 . bakerElectionVerifyKey)
+                                (baker3 ^. _2)
+                                (baker2 ^. _1 . bakerSignatureVerifyKey) -- signature key of baker2
+                                (baker3 ^. _1 . bakerAggregationVerifyKey)
+                                (baker3 ^. _4)
+                                (baker2 ^. _3) -- signature key of baker2
+                                alesAccount
+                                alesKP
+           , metadata = makeDummyHeader alesAccount 9 10000
+           , keypair = alesKP
            }
     ]
 
@@ -177,7 +208,6 @@ tests = do
              ((bps4 ^. birkCurrentBakers . bakerMap) Map.! 2) ^. bakerAccount == thomasAccount
         _ -> False
 
-
     specify "Update first baker's sign key." $
       case (results !! 5, results !! 6) of
         ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
@@ -186,3 +216,37 @@ tests = do
           in b0 ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 3) &&
              ((bps5 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
         _ -> False
+
+    specify "Readding removed baker shouldn't fail due to duplicated keys" $
+      case results !! 7 of
+        ([(_,Types.TxSuccess [Types.BakerAdded 3])], [], bps7) ->
+          traceShow (Map.keys (bps7 ^. birkCurrentBakers . bakerMap)) $
+            Map.keys (bps7 ^. birkCurrentBakers . bakerMap) == [0,2,3]
+        ([(_, s)], [], _) -> traceShow s $ False
+        _ -> False
+
+    specify "Fail to update baker's signature key to a duplicate" $
+      case (results !! 7, results !! 8) of
+        ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) ->
+            let b0_bps7 = (bps7 ^. birkCurrentBakers . bakerMap) Map.! 3
+                b0_bps8 = (bps8 ^. birkCurrentBakers . bakerMap) Map.! 3
+            in b0_bps7 ^. bakerSignatureVerifyKey == b0_bps8 ^. bakerSignatureVerifyKey
+              && duplicated == (baker2 ^. _1 . bakerSignatureVerifyKey)
+        ((_,_, bps6), ([(_, Types.TxReject err)], [], bps7)) -> traceShow err $ False
+        _ -> False
+
+    specify "Fail to add baker with duplicated signature key" $
+      case (results !! 8, results !! 9) of
+        ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) ->
+            Map.keys (bps7 ^. birkCurrentBakers . bakerMap) == Map.keys (bps8 ^. birkCurrentBakers . bakerMap)
+              && duplicated == (baker2 ^. _1 . bakerSignatureVerifyKey)
+        _ -> False
+
+    -- specify "Fail to add baker with duplicated aggregation key"
+
+    -- specify "Fail to update baker's aggregation key to a duplicate"
+
+
+    --
+    --
+    -- specify "Update first baker's aggregation key"
