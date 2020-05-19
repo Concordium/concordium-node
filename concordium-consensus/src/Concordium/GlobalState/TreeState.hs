@@ -75,7 +75,6 @@ class (Eq (BlockPointerType m),
        HashableTo BlockHash (BlockPointerType m),
        BlockData (BlockPointerType m),
        BlockPointerData (BlockPointerType m),
-       BlockPendingData (PendingBlockType m),
        BlockStateStorage m,
        BlockPointerMonad m,
        PerAccountDBOperations m,
@@ -95,17 +94,17 @@ class (Eq (BlockPointerType m),
                             -- ^Finalization data
         -> [BlockItem]      -- ^List of transactions
         -> UTCTime          -- ^Block receive time
-        -> m (PendingBlockType m)
+        -> m PendingBlock
 
     -- * Operations on the block table
     -- |Get the current status of a block.
-    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) (PendingBlockType m)))
+    getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) PendingBlock))
     -- |Make a live 'BlockPointer' from a 'PendingBlock'.
     -- The parent and last finalized pointers must be correct.
     makeLiveBlock ::
-        PendingBlockType m                       -- ^Block to make live
-        -> BlockPointerType m                    -- ^Parent block pointer
-        -> BlockPointerType m                    -- ^Last finalized block pointer
+        PendingBlock                         -- ^Block to make live
+        -> BlockPointerType m                -- ^Parent block pointer
+        -> BlockPointerType m                -- ^Last finalized block pointer
         -> BlockState m                      -- ^Block state
         -> ATIStorage m                      -- ^This block's account -> transaction index.
         -> UTCTime                           -- ^Block arrival time
@@ -132,7 +131,7 @@ class (Eq (BlockPointerType m),
     -- Precondition: The block must be alive.
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
     -- |Mark a block as pending (i.e. awaiting parent)
-    markPending :: PendingBlockType m -> m ()
+    markPending :: PendingBlock -> m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
@@ -154,8 +153,11 @@ class (Eq (BlockPointerType m),
     -- The block must be the one finalized by the record, and the finalization
     -- index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointerType m -> FinalizationRecord -> m ()
-    -- |Get the block that is finalized at the given index, if any.
+    -- |Get the block that is finalized at the given index.
+    -- Returns 'Nothing' if no such block exists.
     getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m))
+    -- |Get the finalization record at the given index, if any.
+    getRecordAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
 
     -- |Get the block that is finalized at the given height, if any.
     getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
@@ -179,13 +181,13 @@ class (Eq (BlockPointerType m),
     --
     -- |Return a list of the blocks that are pending the given parent block,
     -- removing them from the pending table.
-    takePendingChildren :: BlockHash -> m [PendingBlockType m]
+    takePendingChildren :: BlockHash -> m [PendingBlock]
     -- |Add a pending block, that is pending on the arrival of its parent.
-    addPendingBlock :: PendingBlockType m -> m ()
+    addPendingBlock :: PendingBlock -> m ()
     -- |Return the next block that is pending its parent with slot number
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
-    takeNextPendingUntil :: Slot -> m (Maybe (PendingBlockType m))
+    takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
 
     -- * Operations on the pending transaction table
     --
@@ -287,6 +289,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getNextFinalizationIndex = lift getNextFinalizationIndex
     addFinalization bp fr = lift $ addFinalization bp fr
     getFinalizedAtIndex = lift . getFinalizedAtIndex
+    getRecordAtIndex = lift . getRecordAtIndex
     getFinalizedAtHeight = lift . getFinalizedAtHeight
     getBranches = lift getBranches
     putBranches = lift . putBranches
@@ -325,6 +328,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getNextFinalizationIndex #-}
     {-# INLINE addFinalization #-}
     {-# INLINE getFinalizedAtIndex #-}
+    {-# INLINE getRecordAtIndex #-}
+    {-# INLINE getFinalizedAtHeight #-}
     {-# INLINE getBranches #-}
     {-# INLINE putBranches #-}
     {-# INLINE takePendingChildren #-}
