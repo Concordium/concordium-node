@@ -36,12 +36,13 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
+import Concordium.GlobalState.Persistent.TreeState(InitException(..))
 import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, getCatchUpStatus, MessageType)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
@@ -257,11 +258,9 @@ consensusLogMethod PassiveRunner{passiveSyncRunner=SyncPassiveRunner{syncPLogMet
 consensusLogMethod BakerRunnerWithLog{bakerSyncRunnerWithLog=SyncRunner{syncLogMethod=logM}} = logM
 consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
-runWithConsensus :: ConsensusRunner -> (forall h f gs.
-                                        (TS.TreeStateMonad (SkovT h (SkovConfig gs f NoHandler) LogIO),
-                                        TS.PendingBlockType
-                                         (SkovT h (SkovConfig gs f NoHandler) (LoggerT IO)) ~ PendingBlock
-                                        ) => SkovT h (SkovConfig gs f NoHandler) LogIO a) -> IO a
+runWithConsensus :: ConsensusRunner
+                 -> (forall h f gs. TS.TreeStateMonad (SkovT h (SkovConfig gs f NoHandler) LogIO)
+                     => SkovT h (SkovConfig gs f NoHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
 runWithConsensus BakerRunnerWithLog{..} = runSkovTransaction bakerSyncRunnerWithLog
@@ -270,7 +269,36 @@ runWithConsensus PassiveRunnerWithLog{..} = runSkovPassive passiveSyncRunnerWith
 -- |Default value for early block threshold.
 -- Set to 30 seconds.
 defaultEarlyBlockThreshold :: Timestamp
-defaultEarlyBlockThreshold = 30
+defaultEarlyBlockThreshold = 30000
+
+data StartResult = StartSuccess
+                 | StartGenesisFailure
+                 | StartBakerIdentityFailure
+                 | StartIOException
+                 | StartInitException InitException
+
+toStartResult :: StartResult -> Int64
+toStartResult =
+  \case StartSuccess -> 0
+        StartGenesisFailure -> 1
+        StartBakerIdentityFailure -> 2
+        StartIOException -> 3
+        StartInitException ie ->
+          case ie of
+            BlockStatePathDir -> 4
+            BlockStatePermissionError -> 5
+            TreeStatePermissionError -> 6
+            DatabaseOpeningError _ -> 7
+            GenesisBlockNotInDataBaseError -> 8
+            GenesisBlockIncorrect _ -> 9
+            DatabaseInvariantViolation _ -> 10
+
+handleStartExceptions :: LogMethod IO -> IO Int64 -> IO Int64
+handleStartExceptions logM c =
+  c `catches`
+    [Handler (\(ex :: IOError) -> toStartResult StartIOException <$ logM External LLError (displayException ex)),
+     Handler (\(ex :: InitException) -> toStartResult (StartInitException ex) <$ logM External LLError (displayException ex))
+    ]
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -287,8 +315,9 @@ startConsensus ::
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
-           -> IO (StablePtr ConsensusRunner)
-startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
+           -> Ptr (StablePtr ConsensusRunner)
+           -> IO Int64
+startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -301,29 +330,33 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                         connString
-                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
+                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
                     hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
-                bakerSyncRunnerWithLog <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
-                newStablePtr BakerRunnerWithLog{..}
+                bakerSyncRunnerWithLog <-
+                  makeSyncRunner logM bid config bakerBroadcast catchUpCallback
+                poke runnerPtrPtr =<< newStablePtr BakerRunnerWithLog{..}
+                return (toStartResult StartSuccess)
               else do
                 let
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
-                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)) genData
+                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
                     hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
-                newStablePtr BakerRunner{..}
+                poke runnerPtrPtr =<< newStablePtr BakerRunner{..}
+                return (toStartResult StartSuccess)
             (Left err, _) -> do
                 logM External LLError $ "Failed to decode genesis data: " ++ err
-                return $ castPtrToStablePtr nullPtr
+                return (toStartResult StartGenesisFailure)
             (_, Left err) -> do
                 logM External LLError $ "Failed to decode baker identity data: " ++ err
-                return $ castPtrToStablePtr nullPtr
+                return (toStartResult StartBakerIdentityFailure)
+
     where
         logM = toLogMethod maxLogLevel lcbk
         -- logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
@@ -343,8 +376,9 @@ startConsensusPassive ::
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
-            -> IO (StablePtr ConsensusRunner)
-startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen = do
+           -> Ptr (StablePtr ConsensusRunner)
+           -> IO Int64
+startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
@@ -356,24 +390,26 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
                         connString
-                    finconfig = NoFinalization genData
+                    finconfig = NoFinalization
                     hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback
-                newStablePtr PassiveRunnerWithLog{..}
+                poke runnerPtrPtr =<< newStablePtr PassiveRunnerWithLog{..}
+                return (toStartResult StartSuccess)
               else do
                 let
                     gsconfig = makeGlobalStateConfig
                         (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
                         genData
-                    finconfig = NoFinalization genData
+                    finconfig = NoFinalization
                     hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
-                newStablePtr PassiveRunner{..}
+                poke runnerPtrPtr =<< newStablePtr PassiveRunner{..}
+                return (toStartResult StartSuccess)
             Left err -> do
                 logM External LLError $ "Failed to decode genesis data: " ++ err
-                return $ castPtrToStablePtr nullPtr
+                return (toStartResult StartGenesisFailure)
     where
         logM = toLogMethod maxLogLevel lcbk
         catchUpCallback = callCatchUpStatusCallback cucbk . encode
@@ -717,33 +753,34 @@ getBirkParameters cptr blockcstr = do
 
 
 -- |Check whether we are a baker from the perspective of the best block.
--- Returns 0 if we are not added as a baker.
--- Returns 1 if we are added as a baker, but not part of the baking committee yet.
--- Returns 2 if we are part of the baking committee.
-checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
-checkIfWeAreBaker cptr = do
+-- Returns -1 if we are not added as a baker.
+-- Returns -2 if we are added as a baker, but not part of the baking committee yet.
+-- Returns >= 0 if we are part of the baking committee. The return value is the
+-- baker id as appearing in blocks.
+bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
+bakerIdBestBlock cptr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLTrace "Checking whether we are a baker."
     case c of
       PassiveRunner _ -> do
         logm External LLTrace "Passive consensus, not a baker."
-        return 0
+        return (-1)
       PassiveRunnerWithLog _ -> do
         logm External LLTrace "Passive consensus, not a baker."
-        return 0
+        return (-1)
       BakerRunner s -> do
         logm External LLTrace "Active consensus, querying best block."
         let bid = syncBakerIdentity s
         let signKey = Baker.bakerSignPublicKey bid
-        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
+        r <- runConsensusQuery c (Get.bakerIdBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
         return r
       BakerRunnerWithLog s -> do
         logm External LLTrace "Active consensus, querying best block."
         let bid = syncBakerIdentity s
         let signKey = Baker.bakerSignPublicKey bid
-        r <- runConsensusQuery c (Get.checkBakerExistsBestBlock signKey)
+        r <- runConsensusQuery c (Get.bakerIdBestBlock signKey)
         logm External LLTrace $ "Replying with " ++ show r
         return r
 
@@ -1009,8 +1046,8 @@ importBlocks cptr cstr len = do
   logm External LLDebug "Done importing file."
   return ret
 
-foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> IO (StablePtr ConsensusRunner)
-foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> IO (StablePtr ConsensusRunner)
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
@@ -1044,7 +1081,7 @@ foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> 
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
-foreign export ccall checkIfWeAreBaker :: StablePtr ConsensusRunner -> IO Word8
+foreign export ccall bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
 
 -- maintenance

@@ -22,39 +22,10 @@ import Concordium.Types
 
 import Concordium.Logger
 import Concordium.Skov.CatchUp.Types
+import Concordium.Skov.Query
 import Concordium.Skov.Monad
 import Concordium.Kontrol.BestBlock
 import Concordium.Afgjort.Finalize
-
-makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
-makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
-    where
-        cusLastFinalizedBlock = bpHash lfb
-        cusLastFinalizedHeight = bpHeight lfb
-        cusLeaves = bpHash <$> leaves
-        cusBranches = bpHash <$> branches
-
--- |Given a list of lists representing branches (ordered by height),
--- produce a pair of lists @(leaves, branches)@, which partions
--- those blocks that are leaves (@leaves@) from those that are not
--- (@branches@).
-leavesBranches :: forall m. (BlockPointerMonad m) => [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
-leavesBranches = lb ([], [])
-    where
-        lb :: ([BlockPointerType m], [BlockPointerType m]) -> [[BlockPointerType m]] -> m ([BlockPointerType m], [BlockPointerType m])
-        lb lsbs [] = return lsbs
-        lb (ls, bs) [ls'] = return (ls ++ ls', bs)
-        lb (ls, bs) (s:r@(n:_)) = do
-          parent <- mapM bpParent n
-          let (bs', ls') = List.partition (`elem` parent) s
-          lb (ls ++ ls', bs ++ bs') r
-
-doGetCatchUpStatus :: (TreeStateMonad m, SkovQueryMonad m) => Bool -> m CatchUpStatus
-doGetCatchUpStatus cusIsRequest = do
-        lfb <- lastFinalizedBlock
-        br <- toList <$> getBranches
-        (leaves, branches) <- leavesBranches br
-        makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
 
 -- |Merge finalization records and block pointers.
 -- This function ensures that the resulting list is no longer than the given limit.
@@ -94,12 +65,12 @@ doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMo
                 -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 doHandleCatchUp peerCUS limit = do
         let resultDoCatchUp = if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp
-        lfb <- lastFinalizedBlock
+        lfb <- fst <$> getLastFinalized
         if cusLastFinalizedHeight peerCUS > bpHeight lfb then do
             -- Our last finalized height is below the peer's last finalized height
             response <-
                 if cusIsRequest peerCUS then do
-                    myCUS <- doGetCatchUpStatus False
+                    myCUS <- getCatchUpStatus False
                     return $ Just ([], myCUS {cusIsResponse = True})
                 else
                     return Nothing
@@ -117,7 +88,7 @@ doHandleCatchUp peerCUS limit = do
                         testLeaves [] = return False
                         testLeaves (l:ls) = resolveBlock l >>= \case
                             Nothing -> return True
-                            Just _ -> testLeaves ls
+                            Just _ -> testLeaves ls  -- FIXME: Once globalstate is more optimized just query for block existence
                     catchUpWithPeer <- testLeaves (cusLeaves peerCUS)
                     let catchUpResult = if catchUpWithPeer then resultDoCatchUp else ResultSuccess
 
