@@ -2,73 +2,35 @@
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
-import qualified Data.Sequence as Seq
-import Data.Sequence (Seq)
 import qualified Data.Vector as Vec
-import qualified Data.HashMap.Strict as HM
-import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Control.Monad
 import Control.Monad.IO.Class
 import Lens.Micro.Platform
-import Data.Bits
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
-import qualified Data.PQueue.Prio.Min as MPQ
-import System.Random
 import Control.Monad.Trans.State (StateT(..),execStateT)
 import Control.Monad.State.Class
-import Data.Functor.Identity
-import Data.Either (isRight)
-import Data.Ratio
 import qualified Data.PQueue.Min as MinPQ
-
-import qualified Data.ByteString.Lazy as BSL
-import System.IO.Unsafe
-import Criterion
-import Criterion.Main
-
-import Concordium.Crypto.SHA256
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
-import Concordium.Types.HashableTo
-import Concordium.GlobalState.Rewards (BankStatus(..))
-import qualified Concordium.GlobalState.TreeState as TreeState
-import qualified Concordium.GlobalState.Basic.TreeState as TS
-import qualified Concordium.GlobalState.Block as B
-import Concordium.GlobalState.TransactionTable
-import Concordium.GlobalState.Basic.BlockPointer
 import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.BlockPointer as BS
-import Concordium.GlobalState.BlockPointer (bpHash, bpHeight)
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Bakers
-import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 
-import qualified Concordium.Crypto.VRF as VRF
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
-import Concordium.Afgjort.Freeze
-import Concordium.Afgjort.WMVBA
 import Concordium.Afgjort.Finalize
-import Concordium.Afgjort.FinalizationQueue
 import Concordium.Logger
 import Concordium.Birk.Bake
-import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Kontrol
-
-import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState)
 
 import Concordium.Startup
 
@@ -105,6 +67,14 @@ data Event
     | EFinalization FinalizationPseudoMessage
     | EFinalizationRecord FinalizationRecord
     | ETimer Integer (BakerM ())
+
+instance Show Event where
+    show (EBake sl) = "Bake in slot " ++ show sl
+    show (EBlock _) = "Receive block"
+    show (ETransaction _) = "Receive transaction"
+    show (EFinalization _) = "Receive finalization message"
+    show (EFinalizationRecord _ ) = "Receive finalization record"
+    show (ETimer _ _) = "Timer event"
 
 data GEvent
     = BakerEvent Int Event
@@ -167,7 +137,7 @@ initialState = do
         _ssNextTimer = 0
 
 logFor :: Int -> LogMethod IO
-logFor i src lvl msg = return () -- putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+logFor i src lvl msg = putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
 
 layerLogger :: StateT s LogIO a -> LogMethod IO -> StateT s IO a
 layerLogger a logm = do
@@ -216,7 +186,7 @@ stepConsensus =
                     nonce <- ssNextTransactionNonce <<%= (1+)
                     let (bi, nxt) = mktr nonce
                     ssEvents %= \e -> MinPQ.insert (PEvent (t+1) nxt) (foldr MinPQ.insert e [PEvent t (BakerEvent bid (ETransaction bi)) | bid <- allBakers])
-                (PEvent t (BakerEvent i ev)) -> case ev of
+                (PEvent t (BakerEvent i ev)) -> (liftIO $ putStrLn $ show i ++ "> " ++ show ev ) >> case ev of
                     EBake sl -> do
                         bakerIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
                         let doBake =
@@ -241,36 +211,9 @@ stepConsensus =
                         return ()
                     ETimer _ a -> runBaker t i a
 
-{-
-    case 
-
-    
-    
-    case nextEvent ss of
-    Nothing -> return ss
-    Just (PEvent t (TransactionEvent mktr), ss0) -> do
-        let (bi, nxt) = mktr (ss0 ^. ssNextTransactionNonce)
-        return $ ss0 &
-            (ssEvents %~ \e -> MinPQ.insert (PEvent (t+1) nxt) (foldr MinPQ.insert e [PEvent t (BakerEvent bid (ETransaction bi)) | bid <- allBakers]))
-            &
-            ssNextTransactionNonce %~ (1+)
-
-    Just (PEvent t (BakerEvent i ev), ss0) -> case ev of
-        EBake sl -> do
-            let doBake = do
-
-            (mb, ss1) <- runBaker t i (bakeForSlot (ss0 ^?! ssBakers . ix i . bsIdentity) sl) ss0
-            forM_ (BS._bpBlock <$> mb) $ \case
-                GenesisBlock{} -> return ()
-                NormalBlock b -> broadcastEvent t (EBlock b)
-            return ss1
--}
-
-
 main :: IO ()
 main = do
         b 10000
-        -- defaultMain [bench "10000" $ nfIO (b 10000), bench "1000" $ nfIO (b 1000)]
     where
         loop 0 _ = return ()
         loop n s = do
