@@ -157,10 +157,10 @@ initialState = do
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
             let
-                finconfig = ActiveFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity)) genData
+                finconfig = ActiveFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler
                 config = SkovConfig gsconfig finconfig hconfig
-            (_bsContext, _bsState) <- initialiseSkov config
+            (_bsContext, _bsState) <- runLoggerT (initialiseSkov config) (logFor (fromIntegral bakerId))
             return BakerState{..}
         _ssEvents = MinPQ.fromList [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTransactionNonce = 1
