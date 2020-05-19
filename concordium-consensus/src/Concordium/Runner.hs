@@ -90,7 +90,7 @@ makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => Lo
                   (CatchUpStatus -> IO ()) ->
                   IO (SyncRunner c)
 makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback = do
-        (syncContext, st0) <- initialiseSkov config
+        (syncContext, st0) <- runLoggerT (initialiseSkov config) syncLogMethod
         syncState <- newMVar st0
         syncBakerThread <- newEmptyMVar
         syncFinalizationCatchUpActive <- newMVar Nothing
@@ -179,7 +179,7 @@ stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
 shutdownSyncRunner :: (SkovConfiguration c) => SyncRunner c -> IO ()
 shutdownSyncRunner sr@SyncRunner{..} = do
         stopSyncRunner sr
-        takeMVar syncState >>= shutdownSkov syncContext
+        takeMVar syncState >>= flip runLoggerT syncLogMethod . shutdownSkov syncContext
 
 isSlotTooEarly :: (TimeMonad m, SkovQueryMonad m) => Slot -> m Bool
 isSlotTooEarly s = do
@@ -248,7 +248,7 @@ makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)
                         (CatchUpStatus -> IO ()) ->
                         IO (SyncPassiveRunner c)
 makeSyncPassiveRunner syncPLogMethod config cusCallback = do
-        (syncPContext, st0) <- initialiseSkov config
+        (syncPContext, st0) <- runLoggerT (initialiseSkov config) syncPLogMethod
         syncPState <- newMVar st0
         pendingLiveMVar <- newMVar Nothing
         let
@@ -258,7 +258,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
         return spr
 
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
-shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= shutdownSkov syncPContext
+shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= flip runLoggerT syncPLogMethod . shutdownSkov syncPContext
 
 syncPassiveReceiveBlock :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
                         => SyncPassiveRunner c -> PendingBlock -> IO UpdateResult
@@ -395,7 +395,7 @@ syncImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
                                                              return ResultInvalid) $ do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
-  readBlock h now logm syncReceiveBlock syncRunner
+  readBlocks h now logm syncReceiveBlock syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
 -- and import it into the passive global state.
@@ -413,29 +413,34 @@ syncPassiveImportBlocks syncRunner logm filepath = handle (\(e :: IOException) -
                                                              return ResultInvalid) $ do
   h <- openBinaryFile filepath ReadMode
   now <- currentTime
-  readBlock h now logm syncPassiveReceiveBlock syncRunner
+  readBlocks h now logm syncPassiveReceiveBlock syncRunner
 
-readBlock :: Handle
-          -> UTCTime
-          -> LogMethod IO
-          -> (t -> PendingBlock -> IO UpdateResult)
-          -> t
-          -> IO UpdateResult
-readBlock h tm logm f syncRunner =  do
+readBlocks :: Handle
+           -> UTCTime
+           -> LogMethod IO
+           -> (t -> PendingBlock -> IO UpdateResult)
+           -> t
+           -> IO UpdateResult
+readBlocks h tm logm f syncRunner = loop
+  where loop = do
          lenS <- hGet h 8
          if not $ BS.null lenS then
            case runGet getInt64be lenS of
              Left err -> do
+               -- this should not happen
                logm External LLError $ "Error deserializing length: " ++ err
                return ResultSerializationFail
              Right len -> do
                blockBS <- hGet h (fromIntegral len)
                result <- importBlock blockBS tm logm f syncRunner
                case result of
-                 ResultSuccess -> readBlock h tm logm f syncRunner
-                 ResultPendingBlock -> readBlock h tm logm f syncRunner
-                 ResultSerializationFail -> return ResultSerializationFail
-                 err -> do
+                 ResultSuccess -> loop
+                 ResultPendingBlock -> do
+                   -- this shouldn't happen
+                   logm External LLWarning $ "Imported pending block."
+                   loop
+                 ResultDuplicate -> loop
+                 err -> do -- stop processing at first error that we encounter.
                    logm External LLError $ "Error importing block: " ++ show err
                    return err
          else

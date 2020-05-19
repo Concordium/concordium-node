@@ -3,6 +3,8 @@
     StandaloneDeriving,
     RecordWildCards,
     ScopedTypeVariables,
+    GeneralizedNewtypeDeriving,
+    UndecidableInstances,
     DefaultSignatures #-}
 module Concordium.Skov.Monad(
     module Concordium.Skov.CatchUp.Types,
@@ -13,17 +15,25 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Time
+import Data.Set(toList)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.ByteString (ByteString)
+import Control.Monad.IO.Class
 
-import Concordium.GlobalState.Types
+import Concordium.Skov.Query
+
 import Concordium.Types
+import Concordium.GlobalState.Types
+import Concordium.Types.HashableTo
+import Concordium.GlobalState
+import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block as B
-import Concordium.GlobalState.BlockState (BlockStateQuery)
-import Concordium.GlobalState.BlockPointer (BlockPointerData)
+import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockState (BlockStateQuery, BirkParametersOperations, BlockStateStorage, BlockStateOperations)
 import Concordium.GlobalState.Classes as C
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -68,8 +78,13 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     isFinalized :: BlockHash -> m Bool
     -- |Determine the last finalized block.
     lastFinalizedBlock :: m (BlockPointerType m)
-    -- |Retrieve the finalized block at a given finalization index.
+    -- |Determine the last finalized block and return it together with the finalization record
+    -- that finalizes it..
+    lastFinalizedBlockWithRecord :: m (BlockPointerType m, FinalizationRecord)
+    -- |Retrieve the finalized block at a given finalization index, if any.
     blockAtFinIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m))
+    -- |Retrieve the finalization record at a given finalization index, if any.
+    recordAtFinIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
     -- |Determine the next index for finalization.
     nextFinalizationIndex :: m FinalizationIndex
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
@@ -118,7 +133,7 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- This assumes the block is valid and that there can be nothing
     -- pending for it (children or finalization).
     storeBakedBlock ::
-        PendingBlockType m        -- ^The block to add
+        PendingBlock              -- ^The block to add
         -> BlockPointerType m     -- ^Parent pointer
         -> BlockPointerType m     -- ^Last finalized pointer
         -> ExecutionResult m  -- ^Result of the execution of the block.
@@ -137,11 +152,14 @@ class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
     -- |Handle a catch-up status message.
     handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 
+
 instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
+    lastFinalizedBlockWithRecord = lift lastFinalizedBlockWithRecord
     blockAtFinIndex = lift . blockAtFinIndex
+    recordAtFinIndex = lift . recordAtFinIndex
     nextFinalizationIndex = lift nextFinalizationIndex
     getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData
@@ -159,6 +177,9 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     {-# INLINE resolveBlock #-}
     {-# INLINE isFinalized #-}
     {-# INLINE lastFinalizedBlock #-}
+    {-# INLINE lastFinalizedBlockWithRecord #-}
+    {-# INLINE blockAtFinIndex #-}
+    {-# INLINE recordAtFinIndex #-}
     {-# INLINE getBirkParameters #-}
     {-# INLINE getGenesisData #-}
     {-# INLINE genesisBlock #-}
@@ -173,6 +194,10 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     {-# INLINE getCatchUpStatus #-}
     {-# INLINE getRuntimeParameters #-}
 
+deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
+
+deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
+
 instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
     storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
@@ -185,10 +210,8 @@ instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) wh
     {-# INLINE trustedFinalize #-}
     {-# INLINE handleCatchUpStatus #-}
 
-deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
 
-deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)
 
 getGenesisTime :: (SkovQueryMonad m) => m Timestamp
@@ -201,3 +224,75 @@ getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime $ 0.001 * (fromIntegral (tsMillis $ genesisTime genData) + fromIntegral (durationMillis $ genesisSlotDuration genData) * fromIntegral s)
+
+-- * Generic instance of SkovQueryMonad based on a TreeStateMonad.
+
+newtype SkovQueryMonadT m a = SkovQueryMonadT { runSkovQueryMonad :: m a }
+  deriving (Functor, Applicative, Monad, MonadIO)
+
+instance MonadTrans SkovQueryMonadT where
+  {-# INLINE lift #-}
+  lift = SkovQueryMonadT
+
+deriving via (MGSTrans SkovQueryMonadT m) instance ATITypes m => ATITypes (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance GlobalStateTypes m => GlobalStateTypes (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BirkParametersOperations m => BirkParametersOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
+
+instance (Monad m,
+          BlockStateQuery m,
+          TS.TreeStateMonad m)
+          => SkovQueryMonad (SkovQueryMonadT m) where
+    {-# INLINE resolveBlock #-}
+    resolveBlock = lift . doResolveBlock
+    {-# INLINE isFinalized #-}
+    isFinalized = lift . doIsFinalized
+    {-# INLINE blockAtFinIndex #-}
+    blockAtFinIndex = lift . TS.getFinalizedAtIndex
+    {-# INLINE recordAtFinIndex #-}
+    recordAtFinIndex = lift . TS.getRecordAtIndex
+    {-# INLINE lastFinalizedBlock #-}
+    lastFinalizedBlock = lift (fst <$> TS.getLastFinalized)
+    {-# INLINE lastFinalizedBlockWithRecord #-}
+    lastFinalizedBlockWithRecord = lift TS.getLastFinalized
+    {-# INLINE nextFinalizationIndex #-}
+    nextFinalizationIndex = lift TS.getNextFinalizationIndex
+    {-# INLINE getBirkParameters #-}
+    getBirkParameters slot = lift . doGetBirkParameters slot 
+    {-# INLINE getGenesisData #-}
+    getGenesisData = lift TS.getGenesisData
+    {-# INLINE genesisBlock #-}
+    genesisBlock = lift TS.getGenesisBlockPointer
+    {-# INLINE getCurrentHeight #-}
+    getCurrentHeight = lift doGetCurrentHeight
+    {-# INLINE branchesFromTop #-}
+    branchesFromTop = lift doBranchesFromTop
+    {-# INLINE getBlocksAtHeight #-}
+    getBlocksAtHeight = lift . doGetBlocksAtHeight
+    {-# INLINE queryBlockState #-}
+    queryBlockState = lift . blockState
+    {-# INLINE blockLastFinalizedIndex #-}
+    blockLastFinalizedIndex = lift . doBlockLastFinalizedIndex
+    {-# INLINE getCatchUpStatus #-}
+    getCatchUpStatus = doGetCatchUpStatus
+    {-# INLINE queryTransactionStatus #-}
+    queryTransactionStatus = lift . TS.lookupTransaction
+    {-# INLINE queryNonFinalizedTransactions #-}
+    queryNonFinalizedTransactions addr = lift $ do
+      txs <- TS.getAccountNonFinalized addr minNonce
+      return $! map getHash . concatMap (toList . snd) $ txs
+
+    {-# INLINE queryNextAccountNonce #-}
+    queryNextAccountNonce = lift . TS.getNextAccountNonce
+
+deriving via SkovQueryMonadT (GlobalStateM db c r g s m)
+      instance (Monad m,
+                BlockStateQuery (BlockStateM c r g s m),
+                BlockStateStorage (BlockStateM c r g s m),
+                TS.TreeStateMonad (TreeStateBlockStateM g c r s m)) => SkovQueryMonad (GlobalStateM db c r g s m)
