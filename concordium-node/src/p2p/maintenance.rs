@@ -195,6 +195,8 @@ pub struct P2PNode {
     pub kvs: Arc<RwLock<Rkv>>,
     /// The catch-up list of peers.
     pub peers: RwLock<PeerList>,
+    /// Seed used for all deduplication
+    pub deduplication_seed: u64,
 }
 
 impl P2PNode {
@@ -338,6 +340,8 @@ impl P2PNode {
             .get_or_create(config.data_dir_path.as_path(), Rkv::new)
             .unwrap();
 
+        use rand::Rng;
+
         let node = Arc::new(P2PNode {
             poll_registry,
             start_time: Utc::now(),
@@ -351,11 +355,23 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             peers: Default::default(),
+            deduplication_seed: rand::thread_rng().gen::<u64>(),
         });
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
         (node, poll)
+    }
+
+    /// Get the hash to be used for deduplication queues for a message
+    pub fn hash_message_for_deduplication(&self, input: &[u8]) -> u64 {
+        use digest::Digest;
+        use twox_hash::XxHash64;
+        let mut hash = [0u8; 8];
+        let mut hasher = XxHash64::with_seed(self.deduplication_seed);
+        hasher.input(&input);
+        hash.copy_from_slice(&hasher.result()[..]);
+        u64::from_le_bytes(hash)
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
