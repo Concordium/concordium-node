@@ -51,10 +51,10 @@ emptyFinalizationProof = FinalizationProof ([], Bls.emptySignature) -- this sign
 
 
 data FinalizationRecord = FinalizationRecord {
-    finalizationIndex :: FinalizationIndex,
-    finalizationBlockPointer :: BlockHash,
-    finalizationProof :: FinalizationProof,
-    finalizationDelay :: BlockHeight
+    finalizationIndex :: !FinalizationIndex,
+    finalizationBlockPointer :: !BlockHash,
+    finalizationProof :: !FinalizationProof,
+    finalizationDelay :: !BlockHeight
 } deriving (Eq)
 
 

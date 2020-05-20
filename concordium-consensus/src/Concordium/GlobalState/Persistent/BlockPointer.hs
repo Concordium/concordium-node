@@ -22,6 +22,7 @@ import Control.Monad.IO.Class
 import qualified Data.List as List
 import Data.Time.Clock
 import System.Mem.Weak
+import System.IO
 import Data.Serialize
 
 type PersistentBlockPointer ati = BlockPointer ati Weak
@@ -74,12 +75,12 @@ makeGenesisPersistentBlockPointer :: (MonadIO m) =>
                                   -> bs
                                   -> ati
                                   -> m (PersistentBlockPointer ati bs)
-makeGenesisPersistentBlockPointer genData _bpState _bpATI = do
+makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO . fixIO $ \gp -> do
   let _bpReceiveTime = timestampToUTCTime (genesisTime genData)
       b = GenesisBlock genData
       _bpHash = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
-  _bpParent <- liftIO emptyWeak
-  _bpLastFinalized <- liftIO emptyWeak
+  _bpParent <- mkWeakPtr gp Nothing
+  _bpLastFinalized <- mkWeakPtr gp Nothing
   return $ BlockPointer {
       _bpInfo = BasicBlockPointerData{
           _bpHeight = 0,
@@ -102,9 +103,9 @@ makePersistentBlockPointerFromPendingBlock :: forall m ati bs. (MonadIO m) =>
                                  -> UTCTime                     -- ^Block arrival time
                                  -> Energy                      -- ^Energy cost of all transactions in the block
                                  -> m (PersistentBlockPointer ati bs)
-makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
-  parentW <- liftIO $ mkWeakPtr parent Nothing
-  lfinW <- liftIO $ mkWeakPtr lfin Nothing
+makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = liftIO $ do
+  parentW <- mkWeakPtr parent Nothing
+  lfinW <- mkWeakPtr lfin Nothing
   let block = pbBlock pb
       bf = bbFields block
   assert (getHash parent == blockPointer bf) $
@@ -117,7 +118,7 @@ makeBlockPointerFromPersistentBlock :: (MonadIO m) =>
                                     -> ati                       -- ^Account index table for this block
                                     -> BasicBlockPointerData     -- ^Block info
                                     -> m (PersistentBlockPointer ati bs)
-makeBlockPointerFromPersistentBlock _bpBlock _bpState _bpATI _bpInfo = do
-  _bpParent <- liftIO emptyWeak
-  _bpLastFinalized <- liftIO emptyWeak
+makeBlockPointerFromPersistentBlock _bpBlock _bpState _bpATI _bpInfo = liftIO $ do
+  _bpParent <- emptyWeak
+  _bpLastFinalized <- emptyWeak
   return $ BlockPointer {..}
