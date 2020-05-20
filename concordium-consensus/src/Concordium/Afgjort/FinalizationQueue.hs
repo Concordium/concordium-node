@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns, TemplateHaskell, BangPatterns #-}
 module Concordium.Afgjort.FinalizationQueue where
 
 import qualified Data.Sequence as Seq
@@ -269,7 +269,7 @@ addNewQueuedFinalization sessId fc fr@FinalizationRecord{..} ow = do
 getQueuedFinalization :: (MonadState s m, FinalizationQueueLenses s)
     => FinalizationIndex
     -- ^Finalization index to get for
-    -> m (Maybe FinalizationRecord)
+    -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
 getQueuedFinalization fi = do
     FinalizationQueue{..} <- use finQueue
     if fi >= _fqFirstIndex then do
@@ -277,7 +277,7 @@ getQueuedFinalization fi = do
         forM (_fqProofs Seq.!? index) $ \fp -> do
             let (fr, fp') = fpGetProof fp
             finQueue . fqProofs . ix index .= fp'
-            return fr
+            return (fpSessionId fp', fpCommittee fp', fr)
     else return Nothing
 
 -- |Update the finalization queue by removing finalization information below the
@@ -289,6 +289,21 @@ updateQueuedFinalizationIndex fi = do
     when (fi > oldFi) $ do
         finQueue . fqFirstIndex .= fi
         finQueue . fqProofs %= Seq.drop (fromIntegral (fi - oldFi))
+
+-- |Update the finalization queue by considering the finalization for the given
+-- block hash settled. Implicitly, any previous finalizations are also considered
+-- settled.
+settleQueuedFinalization :: (MonadState s m, FinalizationQueueLenses s) => BlockHash -> m ()
+settleQueuedFinalization bh = do
+    oldProofs <- use (finQueue . fqProofs)
+    let
+        filt !n (fp Seq.:<| fps)
+            | bh == fpBlock fp = (n+1, fps)
+            | otherwise = filt (n+1) fps
+        filt _ Seq.Empty = (0, oldProofs)
+        (offset, newProofs) = filt 0 oldProofs
+    finQueue . fqFirstIndex += offset
+    finQueue . fqProofs .= newProofs
 
 -- |Get all finalization records in the queue with finalization index greater than
 -- the specified value. The records are returned in ascending order of finalization
