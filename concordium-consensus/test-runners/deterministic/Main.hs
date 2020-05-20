@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns, TemplateHaskell, RankNTypes #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -11,6 +11,8 @@ import Data.Time.Clock
 import Control.Monad.Trans.State (StateT(..),execStateT)
 import Control.Monad.State.Class
 import qualified Data.PQueue.Min as MinPQ
+import qualified Data.Sequence as Seq
+import System.Random
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
@@ -39,7 +41,7 @@ import Concordium.Types.DummyData (mateuszAccount)
 
 data DummyTimer = DummyTimer Integer
 
-type BakerConfig = SkovConfig DiskTreeDiskBlockConfig (ActiveFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig DiskTreeDiskBlockConfig (BufferedFinalization DummyTimer) NoHandler
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
@@ -91,25 +93,57 @@ instance Ord PEvent where
 data BakerState = BakerState {
     _bsIdentity :: BakerIdentity,
     _bsInfo :: BakerInfo,
---    _bsKeyPair :: SigScheme.KeyPair,
     _bsContext :: SkovContext BakerConfig,
     _bsState :: SkovState BakerConfig
 }
 
+class Events e where
+    addEvent :: PEvent -> e -> e
+    filterEvents :: (PEvent -> Bool) -> e -> e
+    makeEvents :: [PEvent] -> e
+    nextEvent :: e -> Maybe (PEvent, e)
+
+instance Events (MinPQ.MinQueue PEvent) where
+    addEvent = MinPQ.insert
+    filterEvents = MinPQ.filter
+    makeEvents = MinPQ.fromList
+    nextEvent = MinPQ.minView
+
+data RandomisedEvents = RandomisedEvents {
+    _reEvents :: Seq.Seq PEvent,
+    _reGen :: StdGen
+}
+
 data SimState = SimState {
     _ssBakers :: Vec.Vector BakerState,
-    _ssEvents :: MinPQ.MinQueue PEvent,
+    _ssEvents :: RandomisedEvents, -- MinPQ.MinQueue PEvent,
     _ssNextTransactionNonce :: Nonce,
     _ssNextTimer :: Integer
 }
 
+makeLenses ''RandomisedEvents
 makeLenses ''BakerState
 makeLenses ''SimState
 
 
+-- |Pick an element from a sequence, returning the element
+-- and the sequence with that element removed.
+selectFromSeq :: (RandomGen g) => g -> Seq.Seq a -> (a, Seq.Seq a, g)
+selectFromSeq g s =
+    let (n , g') = randomR (0, length s - 1) g in
+    (Seq.index s n, Seq.deleteAt n s, g')
+
+instance Events RandomisedEvents where
+    addEvent e = reEvents %~ (Seq.|> e)
+    filterEvents f = reEvents %~ Seq.filter f
+    makeEvents l = RandomisedEvents (Seq.fromList l) (mkStdGen 0)
+    nextEvent RandomisedEvents{..} = case _reEvents of
+        Seq.Empty -> Nothing
+        _ -> let (v, s', g') = selectFromSeq _reGen _reEvents in
+                    Just (v, RandomisedEvents s' g')
 
 maxBakerId :: (Integral a) => a
-maxBakerId = 19
+maxBakerId = 9
 
 allBakers :: (Integral a) => [a]
 allBakers = [0..maxBakerId]
@@ -127,12 +161,12 @@ initialState = do
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
             let
-                finconfig = ActiveFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
+                finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov config) (logFor (fromIntegral bakerId))
             return BakerState{..}
-        _ssEvents = MinPQ.fromList [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
+        _ssEvents = makeEvents [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTransactionNonce = 1
         _ssNextTimer = 0
 
@@ -162,22 +196,22 @@ runBaker curTime bid a = do
                 DelayFor delay -> return $ curTime + round delay
                 DelayUntil z -> do
                     now <- liftIO getCurrentTime
-                    return $ curTime + round (diffUTCTime z now)
-            ssEvents %= MinPQ.insert (PEvent t (BakerEvent bid (ETimer tmr (action >> return ()))))
+                    return $ curTime + max 1 (round (diffUTCTime z now))
+            ssEvents %= addEvent (PEvent t (BakerEvent bid (ETimer tmr (action >> return ()))))
             return $ DummyTimer tmr
-        shCancelTimer (DummyTimer tmr) = ssEvents %= MinPQ.filter f
+        shCancelTimer (DummyTimer tmr) = ssEvents %= filterEvents f
             where
                 f (PEvent _ (BakerEvent _ (ETimer tmr' _))) = tmr' /= tmr
                 f _ = True
         shPendingLive = return ()
 
-broadcastEvent :: MonadState SimState m =>
+broadcastEvent :: (MonadState SimState m) =>
                     Integer -> Event -> m ()
-broadcastEvent curTime ev = ssEvents %= \e -> foldr MinPQ.insert e [PEvent curTime (BakerEvent i ev) | i <- allBakers]
+broadcastEvent curTime ev = ssEvents %= \e -> foldr addEvent e [PEvent curTime (BakerEvent i ev) | i <- allBakers]
 
 stepConsensus :: StateT SimState IO ()
 stepConsensus =
-    (MinPQ.minView <$> use ssEvents) >>= \case
+    (nextEvent <$> use ssEvents) >>= \case
         Nothing -> return ()
         Just (nextEv, evs') -> do
             ssEvents .= evs'
@@ -185,7 +219,7 @@ stepConsensus =
                 (PEvent t (TransactionEvent mktr)) -> do
                     nonce <- ssNextTransactionNonce <<%= (1+)
                     let (bi, nxt) = mktr nonce
-                    ssEvents %= \e -> MinPQ.insert (PEvent (t+1) nxt) (foldr MinPQ.insert e [PEvent t (BakerEvent bid (ETransaction bi)) | bid <- allBakers])
+                    ssEvents %= \e -> addEvent (PEvent (t+1) nxt) (foldr addEvent e [PEvent t (BakerEvent bid (ETransaction bi)) | bid <- allBakers])
                 (PEvent t (BakerEvent i ev)) -> (liftIO $ putStrLn $ show i ++ "> " ++ show ev ) >> case ev of
                     EBake sl -> do
                         bakerIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
@@ -195,7 +229,7 @@ stepConsensus =
                         forM_ (BS._bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()
                             NormalBlock b -> broadcastEvent t (EBlock b)
-                        ssEvents %= MinPQ.insert (PEvent (t+1) (BakerEvent i (EBake (sl+1))))
+                        ssEvents %= addEvent (PEvent (t+1) (BakerEvent i (EBake (sl+1))))
                     EBlock bb -> do
                         let pb = makePendingBlock bb (posixSecondsToUTCTime (fromIntegral t))
                         _ <- runBaker t i (storeBlock pb)
@@ -212,8 +246,7 @@ stepConsensus =
                     ETimer _ a -> runBaker t i a
 
 main :: IO ()
-main = do
-        b 10000
+main = b (100000 :: Int)
     where
         loop 0 _ = return ()
         loop n s = do
