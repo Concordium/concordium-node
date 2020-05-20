@@ -12,14 +12,14 @@ use structopt::StructOpt;
 
 /// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
-    name:   "ConcordiumP2P",
-    author: "Concordium",
+    name:   "concordium",
+    author: "concordium",
 };
 
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.4", "0.2.3"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.5", "0.2.4"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
@@ -52,6 +52,31 @@ pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
 pub const MAX_PEER_NETWORKS: usize = 20;
+
+#[cfg(feature = "database_emitter")]
+#[derive(StructOpt, Debug)]
+/// Parameters related to the database emitter.
+pub struct DatabaseEmitterConfig {
+    #[structopt(long = "import-file", help = "File to import from")]
+    pub import_file: String,
+
+    #[structopt(
+        long = "batches-delay",
+        help = "Delay between batches in miliseconds",
+        default_value = "2000"
+    )]
+    pub delay_between_batches: u64,
+
+    #[structopt(long = "batche-size", help = "Size of each batch to emit", default_value = "40")]
+    pub batch_sizes: u64,
+
+    #[structopt(
+        long = "skip-first",
+        help = "Amount of the initial blocks to skip",
+        default_value = "0"
+    )]
+    pub skip_first: u64,
+}
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
@@ -168,6 +193,16 @@ pub struct BakerConfig {
         help = "Enable outcome of finalized baked blocks from the scheduler"
     )]
     pub scheduler_outcome_logging: bool,
+    #[structopt(
+        long = "import-blocks-from",
+        help = "Path to a file exported by the database exporter"
+    )]
+    pub import_path: Option<String>,
+    #[structopt(
+        long = "baker-credentials-file",
+        help = "Absolute path of the baker credentials file"
+    )]
+    pub baker_credentials_file: Option<String>,
 }
 
 #[derive(StructOpt, Debug)]
@@ -270,10 +305,10 @@ pub struct ConnectionConfig {
     pub hard_connection_limit: u16,
     #[structopt(
         long = "catch-up-batch-limit",
-        help = "The maximum batch size for a catch-up round (0 = no limit)",
+        help = "The maximum batch size for a catch-up round.",
         default_value = "50"
     )]
-    pub catch_up_batch_limit: u64,
+    pub catch_up_batch_limit: i64,
     #[structopt(
         long = "thread-pool-size",
         help = "The size of the threadpool processing connection events in parallel",
@@ -304,6 +339,14 @@ pub struct ConnectionConfig {
         default_value = "131072"
     )]
     pub socket_read_size: usize,
+    #[structopt(
+        long = "linger-time",
+        help = "Max seconds a socket may linger",
+        default_value = "30"
+    )]
+    pub socket_so_linger: usize,
+    #[structopt(long = "no-tcp-nodelay", help = "Disable TCP nodelay")]
+    pub no_tcp_nodelay: bool,
 }
 
 #[derive(StructOpt, Debug)]
@@ -381,16 +424,6 @@ pub struct CliConfig {
     pub baker: BakerConfig,
     #[structopt(flatten)]
     pub rpc: RpcCliConfig,
-    #[cfg(feature = "elastic_logging")]
-    #[structopt(long = "elastic-logging", help = "Enable logging to Elastic Search")]
-    pub elastic_logging_enabled: bool,
-    #[cfg(feature = "elastic_logging")]
-    #[structopt(
-        long = "elastic-logging-url",
-        help = "URL to use for logging to Elastic Search",
-        default_value = "http://127.0.0.1:9200"
-    )]
-    pub elastic_logging_url: String,
     #[cfg(feature = "staging_net")]
     #[structopt(long = "staging-net-token", help = "Staging network client token")]
     pub staging_net_token: String,
@@ -512,6 +545,9 @@ pub struct Config {
     pub cli: CliConfig,
     #[structopt(flatten)]
     pub bootstrapper: BootstrapperConfig,
+    #[cfg(feature = "database_emitter")]
+    #[structopt(flatten)]
+    pub database_emitter: DatabaseEmitterConfig,
 }
 
 impl Config {

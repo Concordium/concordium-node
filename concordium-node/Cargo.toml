@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.2.4"
+version = "0.2.5"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -22,9 +22,9 @@ instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "
 network_dump = []
 static = [ "consensus-rust/static" ]
 profiling = [ "consensus-rust/profiling" ]
-elastic_logging = [ "elastic", "elastic_derive", "serde_json", "serde/derive", "uuid/v4" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
+database_emitter = []
 
 [profile.release]
 codegen-units = 1
@@ -65,7 +65,7 @@ crossbeam-channel = "^0.4"
 semver = { version = "0.9", features = ["serde"] }
 
 # gRPC dependencies
-tonic = "0.1"
+tonic = "0.2"
 prost = "0.6"
 tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
@@ -73,7 +73,7 @@ tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 gotham = { git = "https://github.com/gotham-rs/gotham", rev = "aa64e50442defb4c92bc45ceee6a0ed33e8aef4c", optional = true }
 gotham_derive = { version = "0.4", optional = true }
 http = { version = "0.2", optional = true }
-hyper = { version = "0.13", optional = true }
+hyper = { version = "0.13.5", optional = true }
 reqwest = { version = "0.10", default-features = false, optional = true, features = ["default-tls", "stream", "json"] }
 mime = { version = "0.3", optional = true }
 flatbuffers = { version = "^0.6", optional = true }
@@ -84,8 +84,6 @@ serde_derive = { version = "1.0", optional = true }
 capnp = { version = "0.12", optional = true }
 serde_cbor = { version = "0.11", optional = true }
 rmp-serde = { version = "0.14.0", optional = true }
-elastic = { version = "0.21.0-pre.5", features = [ "default-tls" ], optional = true }
-elastic_derive = { version = "0.21.0-pre.5", optional = true }
 serde_json = { version = "1", optional = true }
 num_cpus = { version = "1.10.0", optional = true }
 jsonwebtoken = { version = "7", optional = true }
@@ -100,7 +98,7 @@ uuid = { version = "0.8", default-features = false, optional = true }
 libc = "0.2"
 
 [build-dependencies]
-tonic-build = { version = "0.1", default-features = false, features = ["transport"] }
+tonic-build = { version = "0.2", default-features = false, features = ["transport", "prost"] }
 capnpc = { version = "0.12", optional = true }
 flatc-rust = "^0.1"
 
@@ -143,6 +141,15 @@ required-features = [ "collector" ]
 [[bin]]
 name = "network_stress_test"
 path = "src/bin/network_stress_test.rs"
+
+[[bin]]
+name = "bootstrap_checker"
+path = "src/bin/bootstrap_checker.rs"
+
+[[bin]]
+name = "database_emitter"
+path = "src/bin/database_emitter.rs"
+required-features = [ "database_emitter" ]
 
 [[bench]]
 name = "p2p_lib_benchmark"

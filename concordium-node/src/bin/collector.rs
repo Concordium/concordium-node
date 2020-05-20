@@ -230,7 +230,11 @@ async fn collect_data<'a>(
     let version = node_version_reply.get_ref().value.to_owned();
     let packets_sent = node_total_sent_reply.get_ref().value as f64;
     let packets_received = node_total_received_reply.get_ref().value as f64;
-
+    let baker_id = if let Some(baker_id) = node_info_reply.consensus_baker_id {
+        Some(baker_id as f64)
+    } else {
+        None
+    };
     let node_peer_stats_reply = node_peer_stats_reply.get_ref();
     let peer_stats = &node_peer_stats_reply.peerstats;
     let peers_summed_latency = peer_stats.iter().map(|element| element.latency).sum::<u64>() as f64;
@@ -334,6 +338,7 @@ async fn collect_data<'a>(
         json_block_info_value["transactionEnergyCost"].as_f64();
     let best_block_execution_cost = json_block_info_value["executionCost"].as_f64();
     let best_block_central_bank_amount = json_block_info_value["centralBankAmount"].as_f64();
+    let best_block_baker_id = json_block_info_value["blockBaker"].as_f64();
 
     Ok(NodeInfo {
         nodeName: node_name.to_string(),
@@ -346,6 +351,7 @@ async fn collect_data<'a>(
         peersList: peers_list,
         bestBlock: best_block,
         bestBlockHeight: best_block_height,
+        bestBlockBakerId: best_block_baker_id,
         bestArrivedTime: best_arrived_time,
         blockArrivePeriodEMA: block_arrive_period_ema,
         blockArrivePeriodEMSD: block_arrive_period_emsd,
@@ -364,6 +370,7 @@ async fn collect_data<'a>(
         packetsReceived: packets_received,
         consensusRunning: consensus_running,
         bakingCommitteeMember: baker_committee,
+        consensusBakerId: baker_id,
         finalizationCommitteeMember: finalization_committee,
         ancestorsSinceBestBlock: ancestors_since_best_block,
         stagingNetUsername: staging_net_username,

@@ -40,8 +40,5 @@ stdenv.mkDerivation {
     flatbuffers
     postgresql
   ];
-  shellHook = ''
-    scripts/download-static-libs.sh
-  '';
   PROTOC = "${pkgs.protobuf}/bin/protoc";
 }

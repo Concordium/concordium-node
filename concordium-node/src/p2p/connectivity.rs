@@ -339,7 +339,7 @@ pub fn connect(
 
     if peer_type == PeerType::Node {
         let current_peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
-        if current_peer_count > node.config.max_allowed_nodes {
+        if current_peer_count >= node.config.max_allowed_nodes {
             bail!(
                 "Maximum number of peers reached {}/{}",
                 current_peer_count,
@@ -476,7 +476,8 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     }
 
     // reconnect to bootstrappers after a specified amount of time
-    if peer_type == PeerType::Node
+    if !node.config.no_bootstrap_dns
+        && peer_type == PeerType::Node
         && curr_stamp >= node.get_last_bootstrap() + node.config.bootstrapping_interval * 1000
     {
         attempt_bootstrap(node);

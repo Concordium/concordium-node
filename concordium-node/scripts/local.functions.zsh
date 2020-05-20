@@ -25,14 +25,14 @@
 # The default setting for where the application data
 # directory is (can be overriden by setting 
 # CONCORDIUM_P2P_DATA_DIR):
-# $HOME/.local/share/ConcordiumP2P
+# $HOME/.local/share/concordium
 #
 #####
 
 if [[ -n "$CONCORDIUM_P2P_DATA_DIR" ]]; then
   CONCORDIUM_P2P_APPDATA_DIR="$CONCORDIUM_P2P_DATA_DIR"
 else
-  CONCORDIUM_P2P_APPDATA_DIR="$HOME/.local/share/ConcordiumP2P"
+  CONCORDIUM_P2P_APPDATA_DIR="$HOME/.local/share/concordium"
 fi
 
 if [[ "$OSTYPE" == "darwin"* ]]; then

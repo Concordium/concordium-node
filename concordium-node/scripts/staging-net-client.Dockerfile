@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12 as build
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
 ARG consensus_profiling=false
@@ -24,14 +24,13 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
     sha256sum genesis.dat && \
     cp genesis.dat /build-project/
 # P2P client is now built
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.11 as haskell-build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12 as haskell-build
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and concordium-client
-RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
-    mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
+RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout 9cb83d4213c5dd16ba415d0b4d9be29d87695b34 && \
+    git checkout 63fb6c798817c1904f532b27d97857303e7c2559 && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
@@ -51,14 +50,13 @@ RUN --mount=type=ssh pacman -Syy --noconfirm openssh && \
     cp scripts/testnet/config-add-account.sh /config-add-account.sh
 # Middleware and concordium-client is now built
 
-# Build oak compiler
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.10 as oak-build
+# Build midlang compiler
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.11 as midlang-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/oak/oak-compiler.git
 WORKDIR /oak-compiler
-RUN git checkout 7daba809397756b91f171568c46c26e9503e3956
+RUN git checkout 28867ee0214878f2e2ce79ac130757fa6d26425f
 RUN --mount=type=ssh git submodule update --init --recursive
 RUN --mount=type=ssh ci/dynamic-deps.sh
 ENV LD_LIBRARY_PATH=/oak-compiler/external_rust_crypto_libs
@@ -75,7 +73,7 @@ RUN npm i
 RUN npm run build
 # Node dashbaord built
 
-FROM ubuntu:19.10
+FROM ubuntu:20.04
 EXPOSE 8888
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
@@ -98,9 +96,9 @@ COPY --from=haskell-build /libs/* /usr/lib/
 COPY --from=haskell-build /middleware /middleware
 COPY --from=haskell-build /concordium-client-bin /usr/local/bin/concordium-client
 COPY --from=haskell-build /genesis-binaries /genesis-binaries
-COPY --from=haskell-build  /config-add-account.sh /usr/local/bin/config-add-account.sh
+COPY --from=haskell-build /config-add-account.sh /usr/local/bin/config-add-account.sh
 COPY --from=node-build /node-dashboard/dist/public /var/www/html/
-COPY --from=oak-build /oak-compiler/out/oak /usr/local/bin/oak
+COPY --from=midlang-build /oak-compiler/out/mid /usr/local/bin/mid
 RUN mkdir /var/www/html/public
 RUN mv /var/www/html/*.js /var/www/html/public/
 RUN sed -i 's/try_files.*$/try_files \$uri \/index.html =404;/g' /etc/nginx/sites-available/default
