@@ -365,13 +365,11 @@ impl P2PNode {
 
     /// Get the hash to be used for deduplication queues for a message
     pub fn hash_message_for_deduplication(&self, input: &[u8]) -> u64 {
-        use digest::Digest;
+        use std::hash::Hasher;
         use twox_hash::XxHash64;
-        let mut hash = [0u8; 8];
         let mut hasher = XxHash64::with_seed(self.deduplication_seed);
-        hasher.input(&input);
-        hash.copy_from_slice(&hasher.result()[..]);
-        u64::from_le_bytes(hash)
+        hasher.write(&input);
+        hasher.finish()
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
