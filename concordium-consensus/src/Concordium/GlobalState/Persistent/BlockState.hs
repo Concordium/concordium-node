@@ -52,9 +52,9 @@ data BlockStatePointers = BlockStatePointers {
     bspInstances ::  !Instances.Instances,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
-    bspIdentityProviders :: BufferedRef IPS.IdentityProviders,
+    bspIdentityProviders :: !(BufferedRef IPS.IdentityProviders),
     bspBirkParameters :: !PersistentBirkParameters,
-    bspCryptographicParameters :: BufferedRef CryptographicParameters,
+    bspCryptographicParameters :: !(BufferedRef CryptographicParameters),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
@@ -370,9 +370,10 @@ loadPBS :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Bl
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 
 storePBS :: (MonadIO m) => PersistentBlockState -> BlockStatePointers -> m PersistentBlockState
-storePBS pbs bsp = do
+storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
-    liftIO $ writeIORef pbs pbsp >> return pbs
+    writeIORef pbs pbsp
+    return pbs
 
 doGetModule :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Core.ModuleRef -> m (Maybe Module)
 doGetModule s modRef = do
@@ -654,9 +655,9 @@ doGetOutcomes pbs = (^. to bspTransactionOutcomes . to Transactions.outcomeValue
 
 
 doAddSpecialTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.SpecialTransactionOutcome -> m PersistentBlockState
-doAddSpecialTransactionOutcome pbs o = do
+doAddSpecialTransactionOutcome pbs !o = do
         bsp <- loadPBS pbs
-        storePBS pbs bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
+        storePBS pbs $! bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
 
 doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentBirkParameters -> m PersistentBlockState
 doUpdateBirkParameters pbs newBirk = do
