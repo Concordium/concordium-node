@@ -99,7 +99,6 @@ impl Connection {
             handshake.remote_port,
             &handshake.networks,
         );
-        self.handler.register_conn_change(ConnChange::Promotion(self.token));
 
         if self.handler.peer_type() == PeerType::Bootstrapper {
             debug!("Running in bootstrapper mode; attempting to send a PeerList upon handshake");
@@ -154,15 +153,7 @@ impl Connection {
             _ => false,
         };
 
-        let dont_relay_to = if let PacketDestination::Broadcast(ref peers) = pac.destination {
-            let mut list = Vec::with_capacity(peers.len() + 1);
-            list.extend_from_slice(peers);
-            list.push(peer_id);
-            list
-        } else {
-            vec![]
-        };
-
-        handle_pkt_out(&self.handler, dont_relay_to, peer_id, pac.message, is_broadcast)
+        // Ignore the deserialized p2p node ids to be excluded from the wire.
+        handle_pkt_out(&self.handler, vec![peer_id], peer_id, pac.message, is_broadcast)
     }
 }

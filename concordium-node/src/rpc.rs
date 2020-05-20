@@ -11,7 +11,7 @@ use crate::{
 };
 
 use byteorder::WriteBytesExt;
-use concordium_common::{ConsensusFfiResponse, ConsensusIsInCommitteeResponse, PacketType};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsIBakingCommitteeResponse, PacketType};
 use consensus_rust::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
     messaging::{ConsensusMessage, MessageType},
@@ -19,7 +19,6 @@ use consensus_rust::{
 use tonic::{transport::Server, Code, Request, Response, Status};
 
 use std::{
-    fs,
     io::Write,
     net::{IpAddr, SocketAddr},
     str::FromStr,
@@ -33,10 +32,9 @@ use p2p_server::*;
 /// The object used to initiate a gRPC server.
 #[derive(Clone)]
 pub struct RpcServerImpl {
-    node: Arc<P2PNode>,
-    listen_addr: SocketAddr,
+    node:         Arc<P2PNode>,
+    listen_addr:  SocketAddr,
     access_token: String,
-    baker_private_data_json_file: Option<String>,
     // this field is optional only for test purposes
     consensus: Option<ConsensusContainer>,
 }
@@ -47,7 +45,6 @@ impl RpcServerImpl {
         node: Arc<P2PNode>,
         consensus: Option<ConsensusContainer>,
         conf: &configuration::RpcCliConfig,
-        baker_private_data_json_file: Option<String>,
     ) -> Fallible<Self> {
         let listen_addr =
             SocketAddr::from((IpAddr::from_str(&conf.rpc_server_addr)?, conf.rpc_server_port));
@@ -56,7 +53,6 @@ impl RpcServerImpl {
             node: Arc::clone(&node),
             listen_addr,
             access_token: conf.rpc_server_token.clone(),
-            baker_private_data_json_file,
             consensus,
         })
     }
@@ -136,7 +132,7 @@ impl P2p for RpcServerImpl {
             return Err(Status::new(Code::InvalidArgument, "Missing port"));
         };
         let addr = SocketAddr::new(ip, port);
-        self.node.register_conn_change(ConnChange::NewConn(addr));
+        self.node.register_conn_change(ConnChange::NewConn(addr, PeerType::Node));
         Ok(Response::new(BoolResponse {
             value: true,
         }))
@@ -346,18 +342,29 @@ impl P2p for RpcServerImpl {
             }
         };
         Ok(Response::new(match self.consensus {
-            Some(ref consensus) => NodeInfoResponse {
-                node_id,
-                current_localtime,
-                peer_type,
-                consensus_baker_running: consensus.is_baking(),
-                consensus_running: true,
-                consensus_type: consensus.consensus_type.to_string(),
-                consensus_baker_committee: consensus.in_baking_committee()
-                    == ConsensusIsInCommitteeResponse::ActiveInCommittee,
-                consensus_finalizer_committee: consensus.in_finalization_committee(),
-                staging_net_username,
-            },
+            Some(ref consensus) => {
+                let consensus_baking_committee_status = consensus.in_baking_committee();
+                NodeInfoResponse {
+                    node_id,
+                    current_localtime,
+                    peer_type,
+                    consensus_baker_running: consensus.is_baking(),
+                    consensus_running: true,
+                    consensus_type: consensus.consensus_type.to_string(),
+                    consensus_baker_committee: match consensus_baking_committee_status {
+                        ConsensusIsIBakingCommitteeResponse::ActiveInCommittee(_) => true,
+                        _ => false,
+                    },
+                    consensus_finalizer_committee: consensus.in_finalization_committee(),
+                    staging_net_username,
+                    consensus_baker_id: match consensus_baking_committee_status {
+                        ConsensusIsIBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
+                            Some(baker_id)
+                        }
+                        _ => None,
+                    },
+                }
+            }
             None => NodeInfoResponse {
                 node_id,
                 current_localtime,
@@ -368,6 +375,7 @@ impl P2p for RpcServerImpl {
                 consensus_baker_committee: false,
                 consensus_finalizer_committee: false,
                 staging_net_username,
+                consensus_baker_id: None,
             },
         }))
     }
@@ -532,30 +540,6 @@ impl P2p for RpcServerImpl {
         call_consensus!(self, "GetRewardStatus", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_reward_status(&req.get_ref().block_hash)
         })
-    }
-
-    async fn get_baker_private_data(
-        &self,
-        req: Request<Empty>,
-    ) -> Result<Response<JsonResponse>, Status> {
-        authenticate!(req, self.access_token);
-        if let Some(file) = &self.baker_private_data_json_file {
-            if let Ok(data) = fs::read_to_string(file) {
-                Ok(Response::new(JsonResponse {
-                    value: data,
-                }))
-            } else {
-                Err(Status::new(
-                    Code::FailedPrecondition,
-                    "Can't fulfill the request: could not read the baker private data file",
-                ))
-            }
-        } else {
-            Err(Status::new(
-                Code::FailedPrecondition,
-                "Can't fulfill the request: running in passive consensus mode",
-            ))
-        }
     }
 
     async fn get_birk_parameters(
@@ -773,7 +757,7 @@ mod tests {
         config.cli.rpc.rpc_server_port = rpc_port;
         config.cli.rpc.rpc_server_addr = "127.0.0.1".to_owned();
         config.cli.rpc.rpc_server_token = TOKEN.to_owned();
-        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc, None)?;
+        let mut rpc_server = RpcServerImpl::new(node.clone(), None, &config.cli.rpc)?;
         tokio::spawn(async move { rpc_server.start_server().await });
         tokio::task::yield_now().await;
 

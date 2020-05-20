@@ -23,9 +23,21 @@ useradd -g $GROUP_ID -l -m -s /bin/false -u $USER_ID docker
 mkdir -p /var/lib/concordium
 chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
-if [ -f /var/lib/concordium/data/baker-0-account.json ] && [ -f /var/lib/concordium/data/baker-0-credentials.json ];
+if ! [ -f /var/lib/concordium/data/baker-0-credentials.json ];
 then
-  export BAKER_ID=node-0
+    # The ip+port can be fake as they are not used in this specific command
+    /usr/local/bin/concordium-client --grpc-ip localhost --grpc-port 1234 baker generate-keys /var/lib/concordium/data/baker-0-credentials.json
+fi
+export BAKER_ID=node-0
+
+if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
+then
+  export IMPORT_BLOCKS_FROM="/var/lib/concordium/data/blocks_to_import.dat"
+fi
+
+if [ -f /var/lib/concordium/data/node-dashboard-config.json ];
+then
+  cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/config.json
 fi
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf

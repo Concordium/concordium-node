@@ -334,6 +334,11 @@ then
     ARGS="$ARGS --bootstrap-server $BOOTSTRAP_SERVER"
 fi
 
+if [ -n "$IMPORT_BLOCKS_FROM" ];
+then
+    ARGS="$ARGS --import-blocks-from $IMPORT_BLOCKS_FROM"
+fi
+
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
     /p2p_client-cli \
@@ -453,6 +458,12 @@ elif [ "$MODE" == "local_wallet_proxy" ]; then
     if [ -n "$WALLET_PROXY_DATABASE" ];
     then
         ARGS="$ARGS --db $WALLET_PROXY_DATABASE"
+    fi
+    if [ -n "$WALLET_PROXY_ACCOUNT_FILE" ];
+    then
+        ARGS="$ARGS --drop-account $WALLET_PROXY_ACCOUNT_FILE"
+    else
+        ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account.json"
     fi
     if [ -n "$DB_SLEEP" ];
     then

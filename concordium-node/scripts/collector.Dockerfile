@@ -1,7 +1,7 @@
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/universal:VERSION_TAG AS wrapper
 RUN ls /build-project
 
-FROM ubuntu:19.10
+FROM ubuntu:20.04
 
 EXPOSE 8950
 EXPOSE 8888

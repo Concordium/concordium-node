@@ -15,7 +15,7 @@ This repository relies on git submodules for internal component dependencies, so
 * PostGreSQL >= 10
 
 ### Optional dependencies
-* Stack (and GHC-8.6.5, if not building using static libraries)
+* Stack (and GHC-8.8.3, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features
@@ -27,9 +27,9 @@ This repository relies on git submodules for internal component dependencies, so
 * network_dump - makes the network dumping capabilites available.
 * static - build against static haskell libraries in GIT LFS (Linux only)
 * profiling - build against haskell libraries in GIT LFS with profiling support enabled (Linux only)
-* elastic_logging - enable ability to log transaction events to elastic search
 * collector - enables the build of the node-collector and backend
 * staging_net - enables special staging network only features like client username/password validation
+* database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).
@@ -37,7 +37,7 @@ Install the needed dependencies from the list above, and run the script (require
 Alternatively use `--features=static` to build statically against the haskell dependencies (only available on Linux, and requries that you download them using [scripts/download-static-libs.sh](/scripts/download-static-libs.sh) before first compilation, and whenever the pointer to any internal dependencies are updated).
 
 ## Installing genesis data
-Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/ConcordiumP2P`). This determines how many bakers you need to run for the network to be able to work properly.
+Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/concordium`). This determines how many bakers you need to run for the network to be able to work properly.
 
 ## Running the library as a binary (usable via gRPC)
 ```bash
@@ -67,9 +67,11 @@ $> nix-env -f . -i
 
 ## Docker-Compose
 ### Building docker images
-To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [devops:base-images/build-base.sh](https://gitlab.com/Concordium/devops/blob/master/base-images/build-base-docker.sh) for the syntax and current version).
+To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, if not changed in the line shown below, so it matches the image hosted on docker-hub - and as the layers will have a newer version, it won't download from docker-hub unless the locally built image is removed via e.g. `docker image rmi ..`). It passes the local `ssh-agent` into the docker build environment for the needed stages to download internal crates with git directly. This image builds on `192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base` so make sure to have either built this locally (check [devops:base-images/build-base.sh](https://gitlab.com/Concordium/devops/blob/master/base-images/build-base-docker.sh) for the syntax and current version), or have access to AWS ECR to pull it.
 ```bash
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
+$> scripts/download-genesis-data.sh
+$> scripts/download-genesis-complementary-bundle.sh
 $> echo $(cd deps/internal/consensus && git rev-parse HEAD) > CONSENSUS_VERSION
 $> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache
 ```
@@ -91,6 +93,23 @@ For the most simple and common setup, simply run the below command in the root o
 ```bash
 $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.yml up --scale baker=5 --force-recreate
 ```
+
+### Latest debug from custom branch
+For a local docker compose setup, a docker-compose.debug.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built manually from a specific branch. These builds must be considered extremely volatile!
+
+For the most simple and common setup, simply run the below command in the root of the checked out repository
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.debug.yml up --scale baker=5 --force-recreate
+```
+
+### Latest debug from custom branch (with smart contract support)
+For a local docker compose setup, a docker-compose.debug-sc.yml file has been provided in the root of this repository. It uses a image hosted in Docker hub built manually from a specific branch. These builds must be considered extremely volatile!
+
+For the most simple and common setup, simply run the below command in the root of the checked out repository
+```bash
+$> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.debug-sc.yml up --scale baker=5 --force-recreate
+```
+
 
 
 For more complicated setups the EXTRA_ARGS environment variable can be set.
@@ -152,4 +171,3 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.wallet-
 
 ### Delay baker startup if PostGreSQL starts too slowly
 If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP` (the wallet-proxy and wallet-server has a default value of 30 set to delay start until PostGreSQL is up).
-
