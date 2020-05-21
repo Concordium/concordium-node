@@ -76,7 +76,7 @@ instance Show FinalizationRecord where
 
 data BlockFinalizationData
     = NoFinalizationData
-    | BlockFinalizationData FinalizationRecord
+    | BlockFinalizationData !FinalizationRecord
     deriving (Eq)
 
 instance Show BlockFinalizationData where
