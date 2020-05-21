@@ -40,12 +40,12 @@ import qualified Data.HashMap.Strict as HM
 -- |Values used by the LMDBStoreMonad to manage the database.
 -- Sometimes we only want read access 
 data DatabaseHandlers = DatabaseHandlers {
-    _limits :: Limits,
-    _storeEnv :: Environment ReadWrite,
-    _blockStore :: Database BlockHash ByteString,
-    _finalizationRecordStore :: Database FinalizationIndex FinalizationRecord,
-    _transactionStatusStore :: Database TransactionHash T.TransactionStatus,
-    _finalizedByHeightStore :: Database BlockHeight BlockHash
+    _limits :: !Limits,
+    _storeEnv :: !(Environment ReadWrite),
+    _blockStore :: !(Database BlockHash ByteString),
+    _finalizationRecordStore :: !(Database FinalizationIndex FinalizationRecord),
+    _transactionStatusStore :: !(Database TransactionHash T.TransactionStatus),
+    _finalizedByHeightStore :: !(Database BlockHeight BlockHash)
 }
 makeLenses ''DatabaseHandlers
 
@@ -110,13 +110,13 @@ resizeDatabaseHandlers dbh size = do
 -- * Blocks are written together with adding an index to the by-height store. This is written in a single database transaction.
 -- * Transaction statuses can be written either individually, each in its own database transaction, or in one transaction.
 --   The latter is preferrable for performance reasons.
-data LMDBStoreType = Block BlockHash BlockHeight ByteString
+data LMDBStoreType = Block !BlockHash !BlockHeight !ByteString
                    -- ^The Blockhash, block height and the serialized form of the block
-                   | Finalization FinalizationIndex FinalizationRecord
+                   | Finalization !FinalizationIndex !FinalizationRecord
                    -- ^The finalization index and the associated finalization record
-                   | TxStatus TransactionHash T.TransactionStatus
+                   | TxStatus !TransactionHash !T.TransactionStatus
                    -- ^Write a single transaction record.
-                   | TxStatuses [(TransactionHash, T.TransactionStatus)]
+                   | TxStatuses ![(TransactionHash, T.TransactionStatus)]
                    -- ^Write all transaction records in a single database transaction.
                    deriving (Show)
 

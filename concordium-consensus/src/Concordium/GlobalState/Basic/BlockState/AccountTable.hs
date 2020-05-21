@@ -19,8 +19,8 @@ instance HashableTo H.Hash AccountTable where
     getHash (Tree t) = getHash t
 
 data AT
-    = Branch !Word8 !Bool H.Hash !AT !AT
-    | Leaf H.Hash Account
+    = Branch !Word8 !Bool !H.Hash !AT !AT
+    | Leaf !H.Hash Account
 
 instance HashableTo H.Hash AT where
     getHash (Branch _ _ h _ _) = h

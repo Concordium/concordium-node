@@ -468,22 +468,22 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     bs <- BS.putBlockState (_bpState bp)
     let blockBS = runPut (S.put (finalizationIndex fr) <> S.put (_bpInfo bp) <> putBlock bp <> bs)
     dbh' <- putOrResize dbh (Block (getHash bp) (bpHeight bp) blockBS)
-    db .= dbh'
+    db .=! dbh'
 
   writeFinalizationRecord fr = do
     dbh <- use db
     dbh' <- putOrResize dbh (Finalization (finalizationIndex fr) fr)
-    db .= dbh'
+    db .=! dbh'
 
   writeTransactionStatus th t = do
     dbh <- use db
     dbh' <- putOrResize dbh (TxStatus th t)
-    db .= dbh'
+    db .=! dbh'
 
   writeTransactionStatuses tss = do
     dbh <- use db
     dbh' <- putOrResize dbh (TxStatuses tss)
-    db .= dbh'
+    db .=! dbh'
 
 
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
@@ -597,7 +597,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
-        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+        return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = do
       st <- use (blockTable . at' bh)
       case st of
@@ -625,26 +625,26 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   _ -> error $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st ati arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
-            blockTable . at' (getHash block) ?= BlockAlive blockP
+            blockTable . at' (getHash block) ?=! BlockAlive blockP
             return blockP
     markDead bh = blockTable . at' bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               writeBlock bp fr
-              blockTable . at' bh ?= BlockFinalized (finalizationIndex fr)
+              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
             _ -> return ()
-    markPending pb = blockTable . at' (getHash pb) ?= BlockPending pb
+    markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = do
       lf <- use lastFinalized
       lfr <- use lastFinalizationRecord
-      return $! (lf, lfr)
-    getNextFinalizationIndex = (+1) . finalizationIndex <$> use lastFinalizationRecord
+      return (lf, lfr)
+    getNextFinalizationIndex = (+1) . finalizationIndex <$!> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
       writeFinalizationRecord finRec
-      lastFinalized .= newFinBlock
-      lastFinalizationRecord .= finRec
+      lastFinalized .=! newFinBlock
+      lastFinalizationRecord .=! finRec
     getFinalizedAtIndex finIndex = do
       lfr <- use lastFinalizationRecord
       if finIndex == finalizationIndex lfr then do
@@ -839,7 +839,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
          Nothing -> readTransactionStatus th
 
     getConsensusStatistics = use statistics
-    putConsensusStatistics stats = statistics .= stats
+    putConsensusStatistics stats = statistics .=! stats
 
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
