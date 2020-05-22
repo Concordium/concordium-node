@@ -363,7 +363,7 @@ getFinalizationInstance = asks finalizationInstance
 
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad r s m = (BlockPointerMonad m, TreeStateMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
@@ -785,7 +785,7 @@ notifyBlockArrivalForPending :: (SkovMonad m, MonadState s m, FinalizationQueueL
 notifyBlockArrivalForPending b = do
     nfi <- nextFinalizationIndex
     getQueuedFinalizationTrivial nfi >>= \case
-        Just finRec
+        Just (_, _, finRec)
             | finalizationBlockPointer finRec == bpHash b ->
                 trustedFinalize finRec >>= \case
                     Right newFinBlock ->
@@ -876,9 +876,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         unless (finalizationIndex == oldFinIndex) $
             error $ "Non-sequential finalization, finalizationIndex = " ++ show finalizationIndex ++ ", oldIndex = " ++ show oldFinIndex
         -- Update the finalization queue index as necessary
-        getBlockStatus (bpLastFinalizedHash bp) >>= \case
-            Just (BlockFinalized _ FinalizationRecord{finalizationIndex = fi}) -> updateQueuedFinalizationIndex (fi + 1)
-            _ -> error "Invariant violation: notifyBlockFinalized called on block with last finalized block that is not finalized."
+        settleQueuedFinalizationByHash (bpLastFinalizedHash bp)
         -- Add all witnesses we have to the finalization queue
         sessId <- use finSessionId
         fc <- use finCommittee
@@ -964,12 +962,26 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
             Just pks -> Bls.verifyAggregate toSign pks sig
         sigWeight ps = sum (getPartyWeight com <$> ps)
 
+-- |Determine the finalization session ID and finalization committee used for finalizing
+-- at the given index i. Note that the finalization committee is determined based on the block state
+-- at index i-1.
+getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext FinalizationRecord{..} = do
+        genHash <- bpHash <$> genesisBlock
+        let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
+        blockAtFinIndex (finalizationIndex - 1) >>= \case
+          Just bp -> Just . (finSessId,) <$> getFinalizationCommittee bp
+          Nothing -> return Nothing
+
 -- |Check a finalization proof, returning the session id and finalization committee if
 -- successful.
-checkFinalizationProof :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
-checkFinalizationProof finRec = getFinalizationContext finRec <&> \case
-        Nothing -> Nothing
-        Just (finSessId, finCom) -> if verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
+checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+checkFinalizationProof finRec =
+    getQueuedFinalizationTrivial (finalizationIndex finRec) >>= \case
+        Just (finSessId, finCom, altFinRec) -> return $ if finRec == altFinRec || verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
+        Nothing -> getFinalizationContext finRec <&> \case
+            Just (finSessId, finCom) -> if verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
+            Nothing -> Nothing
 
 -- |Produce a 'FinalizationSummary' based on the finalization state.
 finalizationSummary :: (FinalizationStateLenses s m) => SimpleGetter s FinalizationSummary
@@ -1061,5 +1073,5 @@ instance (FinalizationBaseMonad r s m) => FinalizationMonad (ActiveFinalizationM
     finalizationBlockFinal fr b = notifyBlockFinalized fr b
     finalizationReceiveMessage = receiveFinalizationPseudoMessage
     finalizationReceiveRecord b fr = receiveFinalizationRecord b fr
-    finalizationUnsettledRecordAt = getQueuedFinalization
+    finalizationUnsettledRecordAt i = fmap (^. _3) <$> getQueuedFinalization i
     finalizationUnsettledRecords = getQueuedFinalizationsBeyond

@@ -112,6 +112,30 @@ executables:
     dependencies:
       - Concordium
 
+  deterministic-runner:
+    main:                Main.hs
+    source-dirs:         deterministic-runner
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+      - Concordium
+      - criterion >= 1.5
 
   Concordium-catchup:
     main:                Main.hs
