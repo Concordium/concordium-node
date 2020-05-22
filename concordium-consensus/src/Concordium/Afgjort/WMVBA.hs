@@ -228,9 +228,15 @@ data WMVBAInstance = WMVBAInstance {
     partyWeight :: Party -> VoterPower,
     maxParty :: Party,
     publicKeys :: Party -> VRF.PublicKey,
+    -- |NB: This field must be non-strict right now since it is
+    -- sometimes used with undefined.
     me :: Party,
+    -- |NB: This field must be non-strict right now since it is
+    -- sometimes used with undefined.
     privateKey :: VRF.KeyPair,
     publicBlsKeys :: Party -> Bls.PublicKey,
+    -- |NB: This field must be non-strict right now since it is
+    -- sometimes used with undefined.
     privateBlsKey :: Bls.SecretKey
 }
 

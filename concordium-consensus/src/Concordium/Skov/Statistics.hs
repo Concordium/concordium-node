@@ -5,6 +5,8 @@ import Data.Maybe
 import Data.Time
 import Data.Time.Clock.POSIX
 
+import Concordium.Utils
+
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer (bpArriveTime, bpTransactionCount)
 import Concordium.GlobalState.Statistics
@@ -43,7 +45,7 @@ updateArriveStatistics bp = do
                   & (blockArriveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
         updatePeriod s =
             case s ^. blockLastArrive of
-                Nothing -> s & blockLastArrive ?~ curTime
+                Nothing -> s & blockLastArrive ?~! curTime
                 Just lastBTime ->
                     let
                         blockTime = realToFrac (diffUTCTime curTime lastBTime)
@@ -51,9 +53,9 @@ updateArriveStatistics bp = do
                         delta = blockTime - oldEMA
                         oldEMVar = fromMaybe 0 (s ^. blockArrivePeriodEMVar)
                     in
-                        s & (blockLastArrive ?~ curTime)
-                            & (blockArrivePeriodEMA ?~ oldEMA + emaWeight * delta)
-                            & (blockArrivePeriodEMVar ?~ (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
+                        s & (blockLastArrive ?~! curTime)
+                            & (blockArrivePeriodEMA ?~! oldEMA + emaWeight * delta)
+                            & (blockArrivePeriodEMVar ?~! (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
         updateTransactionsPerBlock s =
             let
                 oldEMA = s ^. transactionsPerBlockEMA
@@ -88,7 +90,7 @@ updateReceiveStatistics pb = do
                   & (blockReceiveLatencyEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
         updatePeriod s =
             case s ^. blockLastReceived of
-                Nothing -> s & blockLastReceived ?~ blockReceiveTime pb
+                Nothing -> s & blockLastReceived ?~! blockReceiveTime pb
                 Just lastBTime ->
                     let
                         blockTime = realToFrac (diffUTCTime (blockReceiveTime pb) lastBTime)
@@ -96,9 +98,9 @@ updateReceiveStatistics pb = do
                         delta = blockTime - oldEMA
                         oldEMVar = fromMaybe 0 (s ^. blockReceivePeriodEMVar)
                     in
-                        s & (blockLastReceived ?~ blockReceiveTime pb)
-                          & (blockReceivePeriodEMA ?~ oldEMA + emaWeight * delta)
-                          & (blockReceivePeriodEMVar ?~ (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
+                        s & (blockLastReceived ?~! blockReceiveTime pb)
+                          & (blockReceivePeriodEMA ?~! oldEMA + emaWeight * delta)
+                          & (blockReceivePeriodEMVar ?~! (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block has been finalized to update the statistics.
 updateFinalizationStatistics :: (TreeStateMonad m, LoggerMonad m, TimeMonad m) => m ()
@@ -107,7 +109,7 @@ updateFinalizationStatistics = do
         let s1 = s0 & finalizationCount +~ 1
         curTime <- currentTime
         let s = case s1 ^. lastFinalizedTime of
-                Nothing -> s1 & lastFinalizedTime ?~ curTime
+                Nothing -> s1 & lastFinalizedTime ?~! curTime
                 Just lastFinTime ->
                     let
                         finTime = realToFrac (diffUTCTime curTime lastFinTime)
@@ -115,9 +117,9 @@ updateFinalizationStatistics = do
                         delta = finTime - oldEMA
                         oldEMVar = fromMaybe 0 (s1 ^. finalizationPeriodEMVar)
                     in
-                        s1 & (lastFinalizedTime ?~ curTime)
-                           & (finalizationPeriodEMA ?~ oldEMA + emaWeight * delta)
-                           & (finalizationPeriodEMVar ?~ (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
+                        s1 & (lastFinalizedTime ?~! curTime)
+                           & (finalizationPeriodEMA ?~! oldEMA + emaWeight * delta)
+                           & (finalizationPeriodEMVar ?~! (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
         putConsensusStatistics s
         logEvent Skov LLInfo $ "Finalization statistics:" ++
             " finalizationCount=" ++ show (s ^. finalizationCount) ++

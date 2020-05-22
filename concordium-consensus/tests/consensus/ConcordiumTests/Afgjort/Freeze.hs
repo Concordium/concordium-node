@@ -1,7 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables, ParallelListComp, OverloadedStrings, RecordWildCards #-}
 module ConcordiumTests.Afgjort.Freeze where
 
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Control.Monad.RWS
 import Data.Either
