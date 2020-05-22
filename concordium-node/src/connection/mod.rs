@@ -9,11 +9,9 @@ use low_level::ConnectionLowLevel;
 
 use bytesize::ByteSize;
 use circular_queue::CircularQueue;
-use digest::Digest;
 use failure::Fallible;
 use mio::{net::TcpStream, Token};
 use priority_queue::PriorityQueue;
-use twox_hash::XxHash64;
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
@@ -215,27 +213,40 @@ impl Connection {
 
     #[inline]
     fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> Fallible<bool> {
+        use super::network::PacketDestination;
         ensure!(!packet.message.is_empty());
         let packet_type = PacketType::try_from(
             u8::deserial(&mut Cursor::new(&packet.message[..1]))
                 .expect("Writing to buffer is safe."),
         );
 
+        if let PacketDestination::Direct(_) = packet.destination {
+            return Ok(false);
+        }
+
         let deduplication_queues = &self.handler.connection_handler.deduplication_queues;
 
         let is_duplicate = match packet_type {
-            Ok(PacketType::FinalizationMessage) => {
-                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.finalizations))?
-            }
-            Ok(PacketType::Transaction) => {
-                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.transactions))?
-            }
-            Ok(PacketType::Block) => {
-                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.blocks))?
-            }
-            Ok(PacketType::FinalizationRecord) => {
-                dedup_with(&packet.message, &mut write_or_die!(deduplication_queues.fin_records))?
-            }
+            Ok(PacketType::FinalizationMessage) => dedup_with(
+                &self.handler,
+                &packet.message,
+                &mut write_or_die!(deduplication_queues.finalizations),
+            )?,
+            Ok(PacketType::Transaction) => dedup_with(
+                &self.handler,
+                &packet.message,
+                &mut write_or_die!(deduplication_queues.transactions),
+            )?,
+            Ok(PacketType::Block) => dedup_with(
+                &self.handler,
+                &packet.message,
+                &mut write_or_die!(deduplication_queues.blocks),
+            )?,
+            Ok(PacketType::FinalizationRecord) => dedup_with(
+                &self.handler,
+                &packet.message,
+                &mut write_or_die!(deduplication_queues.fin_records),
+            )?,
             _ => false,
         };
 
@@ -489,11 +500,12 @@ impl Drop for Connection {
 
 /// Returns a bool indicating whether the message is a duplicate.
 #[inline]
-fn dedup_with(message: &[u8], queue: &mut CircularQueue<u64>) -> Fallible<bool> {
-    let mut hash = [0u8; 8];
-    hash.copy_from_slice(&XxHash64::digest(message));
-    let num = u64::from_le_bytes(hash);
-
+fn dedup_with(
+    handler: &Arc<P2PNode>,
+    message: &[u8],
+    queue: &mut CircularQueue<u64>,
+) -> Fallible<bool> {
+    let num = handler.hash_message_for_deduplication(&message);
     if !queue.iter().any(|n| n == &num) {
         trace!("Message {:x} is unique, adding to dedup queue", num);
         queue.push(num);

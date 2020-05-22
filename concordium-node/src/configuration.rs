@@ -19,7 +19,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.5", "0.2.4"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.6", "0.2.5"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB

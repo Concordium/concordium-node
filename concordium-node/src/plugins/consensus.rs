@@ -1,9 +1,6 @@
 //! Consensus layer handling.
-
 use crossbeam_channel::TrySendError;
-use digest::Digest;
 use failure::Fallible;
-use twox_hash::XxHash64;
 
 use crate::{
     common::{get_current_stamp, P2PNodeId},
@@ -253,10 +250,7 @@ pub fn handle_consensus_inbound_msg(
         if consensus_result == ConsensusFfiResponse::BlockTooEarly {
             let dedup_queues = &node.connection_handler.deduplication_queues;
 
-            let mut hash = [0u8; 8];
-            hash.copy_from_slice(&XxHash64::digest(&request.payload));
-            let num = u64::from_le_bytes(hash);
-
+            let num = node.hash_message_for_deduplication(&request.payload);
             if let Some(old_val) =
                 write_or_die!(dedup_queues.blocks).iter_mut().find(|val| **val == num)
             {
