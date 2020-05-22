@@ -34,7 +34,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Data.PQueue.Prio.Max as Queue
 
-import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
+import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Kontrol (getFinalizationCommittee)
 
@@ -408,5 +408,5 @@ checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, Finalization
 checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    fs <- use finState
    case fs ^. finCurrentRound of
-     Left _ -> return False
-     Right _ -> return True
+     PassiveCurrentRound _ -> return False
+     ActiveCurrentRound _ -> return True

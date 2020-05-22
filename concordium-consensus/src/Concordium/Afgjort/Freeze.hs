@@ -1,6 +1,7 @@
 {-# LANGUAGE
     TemplateHaskell, 
     RankNTypes,
+    BangPatterns,
     ScopedTypeVariables,
     GeneralizedNewtypeDeriving,
     ViewPatterns #-}
@@ -55,23 +56,23 @@ data FreezeState sig = FreezeState {
     -- a @Bool@ indicating whether the proposed candidate is justified; and
     -- the parties that have made the proposal with their signatures.
     -- Note that each party can have more than one justified proposal.
-    _proposals :: Map Val (Bool, PartyMap sig),
+    _proposals :: !(Map Val (Bool, PartyMap sig)),
     -- |The set of parties that have submitted justified proposals.
-    _justifiedProposers :: PartySet,
+    _justifiedProposers :: !PartySet,
     -- |The number of distinct justified proposals.  This is used to determine
     -- when a vote for no value is justified.
-    _distinctJustifiedProposals :: Int,
+    _distinctJustifiedProposals :: !Int,
     -- |The votes.  Each vote is associated with a pair consisting of:
     -- a @Bool@ indicating whether the vote is justified; and
     -- the parties that have voted for the value with their signatures.
     -- Like proposals, we only consider the first vote for a given party.
-    _votes :: Map (Maybe Val) (Bool, PartyMap sig),
+    _votes :: !(Map (Maybe Val) (Bool, PartyMap sig)),
     -- |The set of parties from which justified votes have been received.
-    _justifiedVoters :: PartySet,
+    _justifiedVoters :: !PartySet,
     -- |The set of decisions that have become justified.
-    _justifiedDecisions :: Set (Maybe Val),
+    _justifiedDecisions :: !(Set (Maybe Val)),
     -- |Whether we have output a justifed decision already.
-    _completed :: Bool
+    _completed :: !Bool
 } deriving (Eq, Ord, Show)
 makeLenses ''FreezeState
 
@@ -90,10 +91,10 @@ freezeCompleted = to _completed
 -- * The weight of each party
 -- * My party
 data FreezeInstance = FreezeInstance {
-    totalWeight :: VoterPower,
-    corruptWeight :: VoterPower,
+    totalWeight :: !VoterPower,
+    corruptWeight :: !VoterPower,
     partyWeight :: Party -> VoterPower,
-    me :: Party
+    me :: !Party
 }
 
 -- | 'FreezeMonad' is implemented by a client that wishes to use the Freeze protocol
@@ -108,31 +109,21 @@ class (MonadReader FreezeInstance m, MonadState (FreezeState sig) m) => FreezeMo
 
 
 data FreezeOutputEvent
-    = SendFreezeMessage FreezeMessage
-    | Frozen (Maybe Val)
-    | DecisionJustified (Maybe Val)
+    = SendFreezeMessage !FreezeMessage
+    | Frozen !(Maybe Val)
+    | DecisionJustified !(Maybe Val)
 
 newtype Freeze sig a = Freeze {
     runFreeze' :: RWS FreezeInstance (Endo [FreezeOutputEvent]) (FreezeState sig) a
-} deriving (Functor, Applicative, Monad)
+} deriving (Functor, Applicative, Monad, MonadReader FreezeInstance, MonadState (FreezeState sig))
 
 runFreeze :: Freeze sig a -> FreezeInstance -> FreezeState sig -> (a, FreezeState sig, [FreezeOutputEvent])
 runFreeze z i s = runRWS (runFreeze' z) i s & _3 %~ (\(Endo f) -> f [])
 
-instance MonadReader FreezeInstance (Freeze sig) where
-    ask = Freeze ask
-    reader = Freeze . reader
-    local f = Freeze . local f . runFreeze'
-
-instance MonadState (FreezeState sig) (Freeze sig) where
-    get = Freeze get
-    put = Freeze . put
-    state = Freeze . state
-
 instance FreezeMonad sig (Freeze sig) where
-    sendFreezeMessage = Freeze . tell . Endo . (:) . SendFreezeMessage
-    frozen = Freeze . tell . Endo . (:) . Frozen
-    decisionJustified = Freeze . tell . Endo . (:) . DecisionJustified
+    sendFreezeMessage !msg = Freeze . tell . Endo . (:) . SendFreezeMessage $ msg
+    frozen !mv = Freeze . tell . Endo . (:) . Frozen $ mv
+    decisionJustified !dec = Freeze . tell . Endo . (:) . DecisionJustified $ dec
 
 addProposal :: (FreezeMonad sig m) => Party -> Val -> sig -> m ()
 addProposal party value sig = do

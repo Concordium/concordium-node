@@ -1,4 +1,5 @@
 {-# LANGUAGE
+    BangPatterns,
     RecordWildCards,
     ScopedTypeVariables,
     TemplateHaskell,
@@ -26,6 +27,7 @@ module Concordium.Afgjort.Finalize (
     FinalizationMessage(..),
     FinalizationPseudoMessage(..),
     FinalizationMessageHeader,
+    FinalizationCurrentRound(..),
     recoverFinalizationState,
     initialFinalizationState,
     initialPassiveFinalizationState,
@@ -35,6 +37,8 @@ module Concordium.Afgjort.Finalize (
     ActiveFinalizationM(..),
     -- * For testing
     FinalizationRound(..),
+    onActiveCurrentRound,
+    RoundInput(..),
     nextFinalizationDelay
 ) where
 
@@ -84,8 +88,19 @@ import Concordium.Afgjort.Monad
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 
+-- |Input to the round, either a block hash or nothing.
+-- NB: It is important that the block hash field here is strict.
+data RoundInput = RoundInput !BlockHash | NoInput
+  deriving(Eq, Show)
+
+{-# INLINE checkNoInput #-}
+-- |Check whether the current round has no input.
+checkNoInput :: RoundInput -> Bool
+checkNoInput NoInput = True
+checkNoInput _ = False
+
 data FinalizationRound = FinalizationRound {
-    roundInput :: !(Maybe BlockHash),
+    roundInput :: !RoundInput,
     roundDelta :: !BlockHeight,
     roundMe :: !Party,
     roundWMVBA :: !(WMVBAState Sig.Signature)
@@ -94,8 +109,8 @@ data FinalizationRound = FinalizationRound {
 instance Show FinalizationRound where
     show FinalizationRound{..} = "roundInput: " ++ take 11 (show roundInput) ++ " roundDelta: " ++ show roundDelta
 
-data PassiveFinalizationRound = PassiveFinalizationRound {
-    passiveWitnesses :: Map BlockHeight WMVBAPassiveState
+newtype PassiveFinalizationRound = PassiveFinalizationRound {
+    passiveWitnesses :: (Map BlockHeight WMVBAPassiveState)
 } deriving (Eq, Show)
 
 initialPassiveFinalizationRound :: PassiveFinalizationRound
@@ -118,6 +133,19 @@ data PendingMessage = PendingMessage !Party !WMVBAMessage !Sig.Signature
 
 type PendingMessageMap = Map FinalizationIndex (Map BlockHeight (Set PendingMessage))
 
+-- |Information about the current round, whether we are actively participating
+-- or not.
+-- NB: It is very important that this has strict fields.
+data FinalizationCurrentRound =
+  PassiveCurrentRound !PassiveFinalizationRound
+  | ActiveCurrentRound !FinalizationRound
+  deriving(Eq, Show)
+
+-- |Only perform an action on an active round.
+onActiveCurrentRound :: Applicative f => FinalizationCurrentRound -> (FinalizationRound -> f ()) -> f ()
+onActiveCurrentRound (ActiveCurrentRound cr) f = () <$ f cr
+onActiveCurrentRound _ _ = pure ()
+
 -- |State of the finalization. In the documentation of the fields "current" refers
 -- to the round currently being executed, or if we are waiting for the tree to grow,
 -- the upcoming finalization round.
@@ -139,8 +167,8 @@ data FinalizationState timer = FinalizationState {
     -- before finalization should start again.
     _finsGap :: !BlockHeight,
     _finsPendingMessages :: !PendingMessageMap,
-    _finsCurrentRound :: !(Either PassiveFinalizationRound FinalizationRound),
-    _finsFailedRounds :: [Map Party Sig.Signature],
+    _finsCurrentRound :: !FinalizationCurrentRound,
+    _finsFailedRounds :: ![Map Party Sig.Signature],
     _finsCatchUpTimer :: !(Maybe timer),
     _finsCatchUpAttempts :: !Int,
     _finsCatchUpDeDup :: !(PSQ.OrdPSQ Sig.Signature UTCTime ()),
@@ -238,15 +266,15 @@ recoverFinalizationState mfinInstance = do
         case mfinInstance of
           Just finInstance
               | Just me <- findInstanceInCommittee finInstance _finsCommittee ->
-                  Right (FinalizationRound {
-                            roundInput = Nothing,
-                            roundDelta = _finsIndexInitialDelta,
-                            roundMe = me,
-                            roundWMVBA = initialWMVBAState
-                            }
-                        )
+                  ActiveCurrentRound (FinalizationRound {
+                                         roundInput = NoInput,
+                                         roundDelta = _finsIndexInitialDelta,
+                                         roundMe = me,
+                                         roundWMVBA = initialWMVBAState
+                                         }
+                                     )
           -- NB: The below should be correct since we don't have any pending messages stored.
-          _ -> Left initialPassiveFinalizationRound
+          _ -> PassiveCurrentRound initialPassiveFinalizationRound
   return FinalizationState{..}
 
 instance Show (FinalizationState timer) where
@@ -276,7 +304,7 @@ class FinalizationQueueLenses s => FinalizationStateLenses s timer | s -> timer 
     -- (Previously, this was just future messages, but now we store all of them for catch-up purposes.)
     finPendingMessages :: Lens' s PendingMessageMap
     finPendingMessages = finState . finsPendingMessages
-    finCurrentRound :: Lens' s (Either PassiveFinalizationRound FinalizationRound)
+    finCurrentRound :: Lens' s FinalizationCurrentRound
     finCurrentRound = finState . finsCurrentRound
     -- |For each failed round (from most recent to oldest), signatures
     -- on @WeAreDone False@ proving failure.
@@ -305,7 +333,7 @@ initialPassiveFinalizationState genHash finParams genBakers totalGTU = Finalizat
     _finsMinSkip = finalizationMinimumSkip finParams,
     _finsGap = initialGap,
     _finsPendingMessages = Map.empty,
-    _finsCurrentRound = Left initialPassiveFinalizationRound,
+    _finsCurrentRound = PassiveCurrentRound initialPassiveFinalizationRound,
     _finsFailedRounds = [],
     _finsCatchUpTimer = Nothing,
     _finsCatchUpAttempts = 0,
@@ -319,9 +347,9 @@ initialPassiveFinalizationState genHash finParams genBakers totalGTU = Finalizat
 initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
 initialFinalizationState FinalizationInstance{..} genHash finParams genBakers totalGTU = (initialPassiveFinalizationState genHash finParams genBakers totalGTU) {
     _finsCurrentRound = case Vec.find (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (parties com) of
-        Nothing -> Left initialPassiveFinalizationRound
-        Just p -> Right FinalizationRound {
-            roundInput = Nothing,
+        Nothing -> PassiveCurrentRound initialPassiveFinalizationRound
+        Just p -> ActiveCurrentRound FinalizationRound {
+            roundInput = NoInput,
             roundDelta = 1,
             roundMe = partyIndex p,
             roundWMVBA = initialWMVBAState
@@ -353,7 +381,7 @@ doResetTimer = do
         oldTimer <- finCatchUpTimer <<.= Nothing
         forM_ oldTimer cancelTimer
         curRound <- use finCurrentRound
-        forM_ curRound $ \FinalizationRound{..} ->
+        onActiveCurrentRound curRound $ \FinalizationRound{..} ->
             let spawnTimer = do
                     attempts <- use finCatchUpAttempts
                     logEvent Afgjort LLTrace $ "Setting replay timer (attempts: " ++ show attempts ++ ")"
@@ -370,14 +398,14 @@ doResetTimer = do
 tryNominateBlock :: (FinalizationBaseMonad r s m, FinalizationMonad m) => m ()
 tryNominateBlock = do
     curRound <- use finCurrentRound
-    forM_ curRound $ \r@FinalizationRound{..} ->
-        when (isNothing roundInput) $ do
+    onActiveCurrentRound curRound $ \r@FinalizationRound{..} ->
+        when (checkNoInput roundInput) $ do
             h <- use finHeight
             bBlock <- bestBlock
             when (bpHeight bBlock >= h + roundDelta) $ do
                 ancestor <- ancestorAtHeight h bBlock
                 let nomBlock = bpHash ancestor
-                finCurrentRound .= Right (r {roundInput = Just nomBlock})
+                finCurrentRound .= ActiveCurrentRound (r {roundInput = RoundInput nomBlock})
                 simpleWMVBA $ startWMVBA nomBlock
 
 nextRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationIndex -> BlockHeight -> m ()
@@ -385,9 +413,9 @@ nextRound oldFinIndex oldDelta = do
     curFinIndex <- use finIndex
     when (curFinIndex == oldFinIndex) $ do
         oldRound <- use finCurrentRound
-        forM_ oldRound $ \r ->
+        onActiveCurrentRound oldRound $ \r ->
             when (roundDelta r == oldDelta) $ do
-                finFailedRounds %= (wmvbaWADBot (roundWMVBA r) :)
+                finFailedRounds %= cons' (wmvbaWADBot (roundWMVBA r))
                 FinalizationParameters{..} <- getFinalizationParameters
                 let newDelta = max (1 + oldDelta) (ceiling $ finalizationDelayGrowFactor * fromIntegral oldDelta)
                 newRound newDelta (roundMe r)
@@ -404,8 +432,8 @@ pendingToFinMsg sessId finIx delta (PendingMessage src msg sig) =
 
 newRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
-        finCurrentRound .= Right FinalizationRound {
-            roundInput = Nothing,
+        finCurrentRound .= ActiveCurrentRound FinalizationRound {
+            roundInput = NoInput,
             roundDelta = newDelta,
             roundMe = me,
             roundWMVBA = initialWMVBAState
@@ -463,13 +491,13 @@ newPassiveRound newDelta = do
                                             in (proofM <|> prevProofM, newState))
                                         (Nothing, initialWMVBAPassiveState)
                                         $ Map.toList blockToMsgs
-    finCurrentRound .= Left (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & at' newDelta ?~ passiveStates)
+    finCurrentRound .= let passiveRound = (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & at' newDelta ?~ passiveStates) in (PassiveCurrentRound passiveRound)
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
 
 handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
         FinalizationState{..} <- use finState
-        forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+        onActiveCurrentRound _finsCurrentRound $ \FinalizationRound{..} -> do
             let msgHdr = FinalizationMessageHeader{
                 msgSessionId = _finsSessionId,
                 msgFinalizationIndex = _finsIndex,
@@ -540,7 +568,7 @@ triggerWMVBA sessId finIx delta act = do
     FinalizationState{..} <- use finState
     when (_finsSessionId == sessId && _finsIndex == finIx) $
         use (finState . finCurrentRound) >>= \case
-            Right finRound
+            ActiveCurrentRound finRound
                 | roundDelta finRound == delta -> simpleWMVBA (triggerWMVBAAction act)
             _ -> return ()
 
@@ -548,8 +576,8 @@ liftWMVBA :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationI
 liftWMVBA fininst@FinalizationInstance{..} a = do
     FinalizationState{..} <- use finState
     case _finsCurrentRound of
-        Left _ -> error "No current finalization round"
-        Right fr@FinalizationRound{..} -> do
+        PassiveCurrentRound _ -> error "No current finalization round"
+        ActiveCurrentRound fr@FinalizationRound{..} -> do
             let
                 baid = roundBaid _finsSessionId _finsIndex roundDelta
                 pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
@@ -558,7 +586,7 @@ liftWMVBA fininst@FinalizationInstance{..} a = do
                 maxParty = fromIntegral $ Vec.length (parties _finsCommittee) - 1
                 inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight maxParty pVRFKey roundMe finMyVRFKey pBlsKey finMyBlsKey
             (r, newState, evs) <- liftIO $ runWMVBA a inst roundWMVBA
-            finCurrentRound .= Right fr {roundWMVBA = newState}
+            finCurrentRound .= ActiveCurrentRound fr {roundWMVBA = newState}
             -- logEvent Afgjort LLTrace $ "New WMVBA state: " ++ show newState
             handleWMVBAOutputEvents fininst evs
             return r
@@ -579,7 +607,7 @@ messageRequiresCatchUp msg = case messageValues msg of
                 minst <- getFinalizationInstance
                 case (_finsCurrentRound, minst) of
                     -- Check that the block is considered justified.
-                    (Right _, Just finInst) -> liftWMVBA finInst $ not <$> isJustifiedWMVBAInput b
+                    (ActiveCurrentRound _, Just finInst) -> liftWMVBA finInst $ not <$> isJustifiedWMVBAInput b
                     -- TODO: possibly we should also check if it is justified even when we are not active in finalization
                     _ -> return False
 
@@ -630,12 +658,12 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                         else do
                             -- Check if we're participating in finalization for this index
                             case _finsCurrentRound of
-                                Right (FinalizationRound{..}) ->
+                                ActiveCurrentRound (FinalizationRound{..}) ->
                                     -- And it's the current round
                                     when (msgDelta == roundDelta) $ do
                                         logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
                                         simpleWMVBA (receiveWMVBAMessage msgSenderIndex msgSignature msgBody)
-                                Left (PassiveFinalizationRound pw) -> do
+                                PassiveCurrentRound (PassiveFinalizationRound pw) -> do
                                     let
                                         baid = roundBaid _finsSessionId _finsIndex msgDelta
                                         pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
@@ -644,7 +672,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                                         maxParty = fromIntegral $ Vec.length (parties _finsCommittee) - 1
                                         inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
                                         (mProof, ps') = runState (passiveReceiveWMVBAMessage inst msgSenderIndex msgBody) (pw ^. at' msgDelta . non initialWMVBAPassiveState)
-                                    finCurrentRound .= Left (PassiveFinalizationRound (pw & at' msgDelta ?~ ps'))
+                                    finCurrentRound .= PassiveCurrentRound (PassiveFinalizationRound (pw & at' msgDelta ?~ ps'))
                                     forM_ mProof (handleFinalizationProof _finsSessionId _finsIndex msgDelta _finsCommittee)
                             newFinIndex <- use finIndex
                             if newFinIndex == _finsIndex then do
@@ -770,7 +798,7 @@ notifyBlockArrival :: (FinalizationBaseMonad r s m, FinalizationMonad m) => Bloc
 notifyBlockArrival b = do
     notifyBlockArrivalForPending b
     FinalizationState{..} <- use finState
-    forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+    onActiveCurrentRound _finsCurrentRound $ \FinalizationRound{..} -> do
         when (bpHeight b == _finsHeight + roundDelta) $ do
             ancestor <- ancestorAtHeight _finsHeight b
             logEvent Afgjort LLTrace $ "Justified input at " ++ show _finsIndex ++ ": " ++ show (bpHash ancestor)
@@ -844,7 +872,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset the deduplication buffer
         finCatchUpDeDup .= PSQ.empty
         -- Move to next index
-        oldFinIndex <- finIndex <<.= finalizationIndex + 1
+        oldFinIndex <- finIndex <<.=! finalizationIndex + 1
         unless (finalizationIndex == oldFinIndex) $
             error $ "Non-sequential finalization, finalizationIndex = " ++ show finalizationIndex ++ ", oldIndex = " ++ show oldFinIndex
         -- Update the finalization queue index as necessary
@@ -857,11 +885,11 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         witnesses <- use finCurrentRound >>= \case
             -- If we aren't participating in this finalization round, we get the witnesses
             -- from the passive state.
-            Left (PassiveFinalizationRound{..}) ->
+            PassiveCurrentRound PassiveFinalizationRound{..} ->
                 return $ passiveGetOutputWitnesses
                             finalizationBlockPointer
                             (passiveWitnesses ^. at' finalizationDelay . non initialWMVBAPassiveState)
-            Right curRound
+            ActiveCurrentRound curRound
                 | roundDelta curRound == finalizationDelay ->
                     -- If the WMVBA is on the same round as the finalization proof, get
                     -- the additional witnesses from there.
@@ -951,13 +979,15 @@ finalizationSummary = to fs
             where
                 summaryFailedRounds = reverse $ s ^. finFailedRounds
                 summaryCurrentRound = case s ^. finCurrentRound of
-                    Left _ -> WMVBASummary Nothing Nothing Nothing
-                    Right FinalizationRound{..} -> roundWMVBA ^. wmvbaSummary
+                    PassiveCurrentRound _ -> WMVBASummary Nothing Nothing Nothing
+                    ActiveCurrentRound FinalizationRound{..} -> roundWMVBA ^. wmvbaSummary
 
 -- |Produce a 'FinalizationPseudoMessage' containing a catch up message based on the current finalization state.
 finalizationCatchUpMessage :: (FinalizationStateLenses s m) => FinalizationInstance -> s -> Maybe FinalizationPseudoMessage
-finalizationCatchUpMessage FinalizationInstance{..} s = either (const Nothing) Just _finsCurrentRound <&> \FinalizationRound{..} ->
-        FPMCatchUp $! signCatchUpMessage finMySignKey _finsSessionId _finsIndex roundMe (committeeMaxParty _finsCommittee) summary
+finalizationCatchUpMessage FinalizationInstance{..} s =
+  case _finsCurrentRound of
+    ActiveCurrentRound FinalizationRound{..} -> Just . FPMCatchUp $! signCatchUpMessage finMySignKey _finsSessionId _finsIndex roundMe (committeeMaxParty _finsCommittee) summary
+    PassiveCurrentRound _ -> Nothing
     where
         FinalizationState{..} = s ^. finState
         summary = s ^. finalizationSummary
@@ -967,8 +997,8 @@ finalizationCatchUpMessage FinalizationInstance{..} s = either (const Nothing) J
 processFinalizationSummary :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationSummary -> m CatchUpResult
 processFinalizationSummary FinalizationSummary{..} =
         use finCurrentRound >>= \case
-            Left _ -> return mempty -- TODO: actually do something with these
-            Right _ -> getFinalizationInstance >>= \case
+            PassiveCurrentRound _ -> return mempty -- TODO: actually do something with these
+            ActiveCurrentRound _ -> getFinalizationInstance >>= \case
                 Nothing -> return mempty -- This should not happen, since it means that we seem to be participating in finalization
                                             -- but do not have keys to do so
                 Just finInst@(FinalizationInstance{..}) -> do
@@ -984,8 +1014,8 @@ processFinalizationSummary FinalizationSummary{..} =
                     roundsBehind <- forM (zip [0..] summaryFailedRounds) $
                         \(roundIndex, m) -> let delta = BlockHeight (shiftL (theBlockHeight initDelta) roundIndex) in use finCurrentRound >>= \case
                         -- Note, we need to get the current round each time, because processing might advance the round
-                        Left _ -> return False
-                        Right curRound -> case compare delta (roundDelta curRound) of
+                        PassiveCurrentRound _ -> return False
+                        ActiveCurrentRound curRound -> case compare delta (roundDelta curRound) of
                                 LT -> do
                                     -- The round should already be failed for us
                                     -- Just check the signatures to see if it is behind.
@@ -1001,8 +1031,8 @@ processFinalizationSummary FinalizationSummary{..} =
                                     return False
                     let delta = BlockHeight (shiftL (theBlockHeight initDelta) (length summaryFailedRounds))
                     use finCurrentRound >>= \case
-                        Left _ -> return mempty
-                        Right curRound -> case compare delta (roundDelta curRound) of
+                        PassiveCurrentRound _ -> return mempty
+                        ActiveCurrentRound curRound -> case compare delta (roundDelta curRound) of
                             LT -> return (CatchUpResult {curBehind = True, curSkovCatchUp = False})
                             EQ -> do
                                 cur <- liftWMVBA finInst $ processWMVBASummary summaryCurrentRound (checkSigDelta delta)

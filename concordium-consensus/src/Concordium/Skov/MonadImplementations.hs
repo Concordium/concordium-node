@@ -371,15 +371,15 @@ instance (
         HandlerConfig (SkovConfig gsconf finconf hconf))
         => SkovConfiguration (SkovConfig gsconf finconf hconf) where
     data SkovContext (SkovConfig gsconf finconf hconf) = SkovContext {
-            scGSContext :: GSContext gsconf,
-            scFinContext :: FCContext (SkovConfig gsconf finconf hconf),
-            scHandlerContext :: HCContext (SkovConfig gsconf finconf hconf)
+            scGSContext :: !(GSContext gsconf),
+            scFinContext :: !(FCContext (SkovConfig gsconf finconf hconf)),
+            scHandlerContext :: !(HCContext (SkovConfig gsconf finconf hconf))
         }
     data SkovState (SkovConfig gsconf finconf hconf) = SkovState {
-            ssGSState :: GSState gsconf,
-            ssFinState :: FCState (SkovConfig gsconf finconf hconf),
-            ssHandlerState :: HCState (SkovConfig gsconf finconf hconf),
-            scLogContext :: GSLogContext gsconf
+            ssGSState :: !(GSState gsconf),
+            ssFinState :: !(FCState (SkovConfig gsconf finconf hconf)),
+            ssHandlerState :: !(HCState (SkovConfig gsconf finconf hconf)),
+            scLogContext :: !(GSLogContext gsconf)
         }
     type SkovGSState (SkovConfig gsconf finconf hconf) = GSState gsconf
     type SkovGSContext (SkovConfig gsconf finconf hconf) = GSContext gsconf
@@ -398,6 +398,7 @@ instance (
 instance (FinalizationQueueLenses (FCState (SkovConfig gsconf finconf hconf)))
         => FinalizationQueueLenses (SkovState (SkovConfig gsconf finconf hconf)) where
     finQueue = lens ssFinState (\s fs -> s {ssFinState = fs}) . finQueue
+    {-# INLINE finQueue #-}
 
 instance (FinalizationStateLenses (FCState (SkovConfig gsconf finconf hconf)) t)
         => FinalizationStateLenses (SkovState (SkovConfig gsconf finconf hconf)) t where
@@ -412,14 +413,18 @@ instance (FinalizationBufferLenses (FCState (SkovConfig gsconf finconf hconf)))
 instance (HasFinalizationInstance (FCContext (SkovConfig gsconf finconf hconf)))
         => HasFinalizationInstance (SkovContext (SkovConfig gsconf finconf hconf)) where
     finalizationInstance = finalizationInstance . scFinContext
+    {-# INLINE finalizationInstance #-}
 
 instance GSLogContext gsconf ~ a => HasLogContext a (SkovState (SkovConfig gsconf finconf hconf)) where
   logContext = lens scLogContext (\sc v -> sc{scLogContext = v })
+  {-# INLINE logContext #-}
 
 instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig gsconf finconf hconf)) where
     globalStateContext = lens (scGSContext) (\sc v -> sc{scGSContext = v})
+    {-# INLINE globalStateContext #-}
 instance (g ~ GSState gsconf) => HasGlobalState g (SkovState (SkovConfig gsconf finconf hconf)) where
     globalState = lens (ssGSState) (\ss v -> ss {ssGSState = v})
+    {-# INLINE globalState #-}
 
 instance (MonadIO m,
           HandlerConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
@@ -431,6 +436,7 @@ instance (MonadIO m,
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
     {-# INLINE onBlock #-}
     {-# INLINE onFinalize #-}
+    {-# INLINE onPendingLive #-}
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (NoFinalization t) hc)) (SkovState (SkovConfig gc (NoFinalization t) hc)) (SkovT h (SkovConfig gc (NoFinalization t) hc) m))
     instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),

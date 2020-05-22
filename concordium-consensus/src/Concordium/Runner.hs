@@ -39,19 +39,19 @@ import Concordium.Getters
 type SkovBlockPointer c = BlockPointerType (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
 
 data SimpleOutMessage c
-    = SOMsgNewBlock (SkovBlockPointer c)
-    | SOMsgFinalization FinalizationPseudoMessage
-    | SOMsgFinalizationRecord FinalizationRecord
+    = SOMsgNewBlock !(SkovBlockPointer c)
+    | SOMsgFinalization !FinalizationPseudoMessage
+    | SOMsgFinalizationRecord !FinalizationRecord
 
 data SyncRunner c = SyncRunner {
-    syncBakerIdentity :: BakerIdentity,
-    syncState :: MVar (SkovState c),
-    syncBakerThread :: MVar ThreadId,
+    syncBakerIdentity :: !BakerIdentity,
+    syncState :: !(MVar (SkovState c)),
+    syncBakerThread :: !(MVar ThreadId),
     syncLogMethod :: LogMethod IO,
     syncCallback :: SimpleOutMessage c -> IO (),
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
-    syncHandlePendingLive :: IO ()
+    syncHandlePendingLive :: !(IO ())
 }
 
 instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncRunner c) (SkovT () c LogIO) where
@@ -66,7 +66,9 @@ bufferedHandlePendingLive hpl bufferMVar = do
             Nothing -> do
                 putMVar bufferMVar $ Just (addUTCTime 5 now, addUTCTime 30 now)
                 void $ forkIO $ waitLoop (addUTCTime 5 now)
-            Just (_, upper) -> putMVar bufferMVar $ Just (min (addUTCTime 5 now) upper, upper)
+            Just (_, upper) -> do
+              let !m = min (addUTCTime 5 now) upper
+              putMVar bufferMVar $ Just (m, upper)
     where
         waitLoop till = do
             now <- currentTime
@@ -107,7 +109,7 @@ runWithStateLog :: MVar s -> LogMethod IO -> (s -> LogIO (a, s)) -> IO a
 runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar mvState) $ \state0 -> do
         tid <- myThreadId
         logm Runner LLTrace $ "Acquired consensus lock on thread " ++ show tid
-        (ret, state') <- runLoggerT (a state0) logm
+        (ret, !state') <- runLoggerT (a state0) logm
         putMVar mvState state'
         logm Runner LLTrace $ "Released consensus lock on thread " ++ show tid
         return ret
@@ -153,9 +155,11 @@ startSyncRunner sr@SyncRunner{..} = do
                         return ((mblock, sfs', curSlot), sfs'))
                 forM_ mblock $ syncCallback . SOMsgNewBlock
                 delay <- runLoggerT (evalSkovT (do
-                    ttns <- timeUntilNextSlot
                     curSlot' <- getCurrentSlot
-                    return $! if curSlot == curSlot' then truncate (ttns * 1e6) else 0) () syncContext sfs') syncLogMethod
+                    if curSlot == curSlot' then do
+                      ttns <- timeUntilNextSlot
+                      return $! truncate (ttns * 1e6)
+                    else return 0) () syncContext sfs') syncLogMethod
                 when (delay > 0) $ threadDelay delay
                 bakeLoop curSlot
         _ <- forkIO $ do
@@ -225,7 +229,7 @@ syncHookTransaction syncRunner th = runSkovTransaction syncRunner (hookQueryTran
 -}
 
 data SyncPassiveRunner c = SyncPassiveRunner {
-    syncPState :: MVar (SkovState c),
+    syncPState :: !(MVar (SkovState c)),
     syncPLogMethod :: LogMethod IO,
     syncPContext :: !(SkovContext c),
     syncPHandlers :: !(SkovPassiveHandlers c LogIO)
@@ -286,23 +290,22 @@ syncPassiveReceiveCatchUp :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c L
     -> IO (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 syncPassiveReceiveCatchUp spr c limit = runSkovPassive spr (handleCatchUpStatus c limit)
 
-
 data InMessage src =
     MsgShutdown
-    | MsgBlockReceived src !BS.ByteString
+    | MsgBlockReceived !src !BS.ByteString
     | MsgTransactionReceived !BS.ByteString
-    | MsgFinalizationReceived src !BS.ByteString
-    | MsgFinalizationRecordReceived src !BS.ByteString
-    | MsgCatchUpStatusReceived src !BS.ByteString
+    | MsgFinalizationReceived !src !BS.ByteString
+    | MsgFinalizationRecordReceived !src !BS.ByteString
+    | MsgCatchUpStatusReceived !src !BS.ByteString
 
 data OutMessage peer =
     MsgNewBlock !BS.ByteString
     | MsgFinalization !BS.ByteString
     | MsgFinalizationRecord !BS.ByteString
-    | MsgCatchUpRequired peer
-    | MsgDirectedBlock peer !BS.ByteString
-    | MsgDirectedFinalizationRecord peer !BS.ByteString
-    | MsgDirectedCatchUpStatus peer !BS.ByteString
+    | MsgCatchUpRequired !peer
+    | MsgDirectedBlock !peer !BS.ByteString
+    | MsgDirectedFinalizationRecord !peer !BS.ByteString
+    | MsgDirectedCatchUpStatus !peer !BS.ByteString
 
 -- |This is provided as a compatibility wrapper for the test runners.
 -- FIXME: Currently ignores pending blocks/fin-recs becoming live, which
@@ -331,7 +334,7 @@ makeAsyncRunner logm bkr config = do
                     now <- currentTime
                     case deserializePendingBlock blockBS now of
                         Left err -> logm Runner LLWarning err
-                        Right block -> syncReceiveBlock sr block >>= handleResult src
+                        Right !block -> syncReceiveBlock sr block >>= handleResult src
                     msgLoop
                 MsgTransactionReceived transBS -> do
                     now <- getTransactionTime

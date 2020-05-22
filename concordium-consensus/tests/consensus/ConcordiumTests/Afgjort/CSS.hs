@@ -4,7 +4,7 @@ module ConcordiumTests.Afgjort.CSS where
 import Data.Monoid
 import Data.Maybe
 import Control.Monad
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
