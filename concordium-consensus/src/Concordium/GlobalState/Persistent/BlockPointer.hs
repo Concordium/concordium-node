@@ -22,7 +22,6 @@ import Control.Monad.IO.Class
 import qualified Data.List as List
 import Data.Time.Clock
 import System.Mem.Weak
-import System.IO
 import Data.Serialize
 
 type PersistentBlockPointer ati = BlockPointer ati Weak
@@ -75,12 +74,12 @@ makeGenesisPersistentBlockPointer :: (MonadIO m) =>
                                   -> bs
                                   -> ati
                                   -> m (PersistentBlockPointer ati bs)
-makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO . fixIO $ \gp -> do
+makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
   let _bpReceiveTime = timestampToUTCTime (genesisTime genData)
       b = GenesisBlock genData
-      _bpHash = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
-  _bpParent <- mkWeakPtr gp Nothing
-  _bpLastFinalized <- mkWeakPtr gp Nothing
+      _bpHash = Hash.hashLazy . runPutLazy $ put genesisSlot <> put genData
+  _bpParent <- emptyWeak
+  _bpLastFinalized <- emptyWeak
   return $ BlockPointer {
       _bpInfo = BasicBlockPointerData{
           _bpHeight = 0,
