@@ -757,7 +757,7 @@ notifyBlockArrivalForPending :: (SkovMonad m, MonadState s m, FinalizationQueueL
 notifyBlockArrivalForPending b = do
     nfi <- nextFinalizationIndex
     getQueuedFinalizationTrivial nfi >>= \case
-        Just finRec
+        Just (_, _, finRec)
             | finalizationBlockPointer finRec == bpHash b ->
                 trustedFinalize finRec >>= \case
                     Right newFinBlock ->
@@ -848,7 +848,7 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         unless (finalizationIndex == oldFinIndex) $
             error $ "Non-sequential finalization, finalizationIndex = " ++ show finalizationIndex ++ ", oldIndex = " ++ show oldFinIndex
         -- Update the finalization queue index as necessary
-        settleQueuedFinalization (bpLastFinalizedHash bp)
+        settleQueuedFinalizationByHash (bpLastFinalizedHash bp)
         -- Add all witnesses we have to the finalization queue
         sessId <- use finSessionId
         fc <- use finCommittee
@@ -949,7 +949,7 @@ getFinalizationContext FinalizationRecord{..} = do
 -- successful.
 checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 checkFinalizationProof finRec =
-    getQueuedFinalization (finalizationIndex finRec) >>= \case
+    getQueuedFinalizationTrivial (finalizationIndex finRec) >>= \case
         Just (finSessId, finCom, altFinRec) -> return $ if finRec == altFinRec || verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
         Nothing -> getFinalizationContext finRec <&> \case
             Just (finSessId, finCom) -> if verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
