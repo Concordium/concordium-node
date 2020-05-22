@@ -6,7 +6,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 import System.Random
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import qualified Data.ByteString as BS
 import qualified Data.Vector as Vec

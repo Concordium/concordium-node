@@ -55,7 +55,7 @@ data PartyInfo = PartyInfo {
     partySignKey :: !Sig.VerifyKey,
     partyVRFKey :: !VRF.PublicKey,
     partyBlsKey :: !Bls.PublicKey,
-    partyBakerId :: BakerId
+    partyBakerId :: !BakerId
 } deriving (Eq, Ord)
 
 instance Show PartyInfo where
@@ -171,9 +171,9 @@ checkMessage com msg = all validParty (messageParties $ msgBody msg) && checkMes
 data FinalizationSummary = FinalizationSummary {
     -- |For each failed round (in order of increasing delta),
     -- a collection of signatures on 'WeAreDone False'.
-    summaryFailedRounds :: [Map Party Sig.Signature],
+    summaryFailedRounds :: ![Map Party Sig.Signature],
     -- |Summary for the current round.
-    summaryCurrentRound :: WMVBASummary Sig.Signature
+    summaryCurrentRound :: !(WMVBASummary Sig.Signature)
 }
 
 putFinalizationSummary :: Party -> FinalizationSummary -> Put
