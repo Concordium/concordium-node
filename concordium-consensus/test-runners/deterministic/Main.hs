@@ -3,7 +3,7 @@
 -- |This module simulates running multiple copies of consensus together in a
 -- deterministic fashion, without consideration for real time.  The goal is to
 -- have a faster and more reproducible way of testing/profiling/benchmarking
--- performance-related issues.
+-- performance-related issues.  
 --
 -- Note that it is expected that you will edit this file depending on what
 -- you wish to test.
@@ -22,7 +22,6 @@ import Control.Monad.Reader.Class
 import qualified Data.PQueue.Min as MinPQ
 import qualified Data.Sequence as Seq
 import System.Random
-import Control.Monad.Trans
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
@@ -102,17 +101,17 @@ type BakerM a = SkovT MyHandlers BakerConfig (StateT SimState LogBase) a
 
 -- |Events that trigger actions by bakers.
 data Event
-    = EBake Slot
+    = EBake !Slot
     -- ^Attempt to bake a block in the given slot; generates a new event for the next slot
-    | EBlock BakedBlock
+    | EBlock !BakedBlock
     -- ^Receive a block
-    | ETransaction BlockItem
+    | ETransaction !BlockItem
     -- ^Receive a transaction
-    | EFinalization FinalizationPseudoMessage
+    | EFinalization !FinalizationPseudoMessage
     -- ^Receive a finalization message
-    | EFinalizationRecord FinalizationRecord
+    | EFinalizationRecord !FinalizationRecord
     -- ^Receive a finalization record
-    | ETimer DummyTimer (BakerM ())
+    | ETimer !DummyTimer !(BakerM ())
     -- ^Trigger a timer event
 
 instance Show Event where
@@ -125,14 +124,14 @@ instance Show Event where
 
 -- |Both baker-specific and generic events.
 data GEvent
-    = BakerEvent Int Event
+    = BakerEvent !Int !Event
     -- ^An event for a particular baker
-    | TransactionEvent (Nonce -> (BlockItem, GEvent))
-    -- ^Spawn a transaction to send to bakers
+    | TransactionEvent [(Integer, BlockItem)]
+    -- ^Spawn the next transaction to send to bakers
 
 -- |An event with a time at which it should occur.
 -- The time is used for determining priority.
-data PEvent = PEvent Integer GEvent
+data PEvent = PEvent !Integer !GEvent
 instance Eq PEvent where
     (PEvent i1 _) == (PEvent i2 _) = i1 == i2
 instance Ord PEvent where
@@ -140,10 +139,10 @@ instance Ord PEvent where
 
 -- |The state of a particular baker.
 data BakerState = BakerState {
-    _bsIdentity :: BakerIdentity,
-    _bsInfo :: BakerInfo,
-    _bsContext :: SkovContext BakerConfig,
-    _bsState :: SkovState BakerConfig
+    _bsIdentity :: !BakerIdentity,
+    _bsInfo :: !BakerInfo,
+    _bsContext :: !(SkovContext BakerConfig),
+    _bsState :: !(SkovState BakerConfig)
 }
 
 -- |Typeclass of a datastructure that collects events.
@@ -170,18 +169,17 @@ instance Events (MinPQ.MinQueue PEvent) where
 -- by the 'StdGen', which is used to pick the next element
 -- from the sequence.
 data RandomisedEvents = RandomisedEvents {
-    _reEvents :: Seq.Seq PEvent,
-    _reGen :: StdGen
+    _reEvents :: !(Seq.Seq PEvent),
+    _reGen :: !StdGen
 }
 
 -- |State of the simulation. 
 data SimState = SimState {
-    _ssBakers :: Vec.Vector BakerState,
-    _ssEvents :: MinPQ.MinQueue PEvent,
+    _ssBakers :: !(Vec.Vector BakerState),
+    _ssEvents :: !(MinPQ.MinQueue PEvent),
 --  _ssEvents :: RandomisedEvents,
-    _ssNextTransactionNonce :: Nonce,
-    _ssNextTimer :: DummyTimer,
-    _ssCurrentTime :: UTCTime
+    _ssNextTimer :: !DummyTimer,
+    _ssCurrentTime :: !UTCTime
 }
 
 makeLenses ''RandomisedEvents
@@ -219,6 +217,14 @@ maxBakerId = 9
 allBakers :: (Integral a) => [a]
 allBakers = [0..maxBakerId]
 
+transactions :: StdGen -> [(Integer, BlockItem)]
+transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
+    where
+        --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
+        trs n@(Nonce z) (_ : _ : rs) = (fromIntegral (z `div` 100), Example.makeTransferTransaction (mateuszKP, mateuszAccount) mateuszAccount 123 n) : trs (n+1) rs
+        trs _ _ = error "Ran out of transaction data"
+
+
 -- |The initial state of the simulation.
 initialState :: IO SimState
 initialState = do
@@ -249,8 +255,7 @@ initialState = do
                 config = SkovConfig gsconfig finconfig hconfig
             (_bsContext, _bsState) <- runLoggerT (initialiseSkov config) (logFor (fromIntegral bakerId))
             return BakerState{..}
-        _ssEvents = makeEvents [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
-        _ssNextTransactionNonce = 1
+        _ssEvents = makeEvents $ (PEvent 0 (TransactionEvent (transactions (mkStdGen 1)))) : [PEvent 0 (BakerEvent i (EBake 0)) | i <- allBakers]
         _ssNextTimer = 0
         _ssCurrentTime = posixSecondsToUTCTime 0
 
@@ -307,12 +312,13 @@ stepConsensus =
         Just (nextEv, evs') -> do
             ssEvents .= evs'
             case nextEv of
-                (PEvent t (TransactionEvent mktr)) -> do
-                    -- For a transaction event, generate transaction event for each baker and
-                    -- a new transaction event.
-                    nonce <- ssNextTransactionNonce <<%= (1+)
-                    let (bi, nxt) = mktr nonce
-                    ssEvents %= \e -> addEvent (PEvent (t+1) nxt) (foldr addEvent e [PEvent t (BakerEvent bid (ETransaction bi)) | bid <- allBakers])
+                (PEvent _ (TransactionEvent trs)) -> case trs of
+                    [] -> return ()
+                    ((te, ev) : r) -> do
+                        ssEvents %= \e -> foldr addEvent e [PEvent te (BakerEvent bid (ETransaction ev)) | bid <- allBakers]
+                        case r of
+                            [] -> return ()
+                            ((t', _) : _) -> ssEvents %= addEvent (PEvent t' (TransactionEvent r))
                 (PEvent t (BakerEvent i ev)) -> displayBakerEvent i ev >> case ev of
                     EBake sl -> do
                         bakerIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
@@ -340,7 +346,7 @@ stepConsensus =
 
 -- |Main runner. Simply runs consensus for a certain number of steps.
 main :: IO ()
-main = b (100000 :: Int)
+main = b (1000000 :: Int)
     where
         loop 0 _ = return ()
         loop n s = do
