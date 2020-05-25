@@ -120,13 +120,6 @@ async fn main() -> Fallible<()> {
         &consensus_database_url,
     )?;
 
-    if let Some(ref import_path) = conf.cli.baker.import_path {
-        consensus.import_blocks(import_path.as_bytes());
-    }
-
-    // Consensus queue threads
-    let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
-
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
@@ -136,6 +129,13 @@ async fn main() -> Fallible<()> {
         });
         info!("RPC server started");
     };
+
+    if let Some(ref import_path) = conf.cli.baker.import_path {
+        consensus.import_blocks(import_path.as_bytes());
+    }
+
+    // Consensus queue threads
+    let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
 
     // The P2P node event loop thread
     spawn(&node, poll, Some(consensus.clone()));
