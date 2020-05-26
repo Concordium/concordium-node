@@ -267,7 +267,7 @@ instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Buffer
         if isNull r
         then do
             (r' :: BlobRef a, v') <- storeUpdateRef v
-            liftIO $ writeIORef ref r'
+            liftIO . writeIORef ref $! r'
             (,BRMemory ref v') <$> store p r'
         else (,brm) <$> store p brm
     storeUpdate p x = (,x) <$> store p x
@@ -279,7 +279,7 @@ getBRRef (BRMemory ref v) = do
     if isNull r
     then do
         (r' :: BlobRef a) <- storeRef v
-        liftIO $ writeIORef ref r'
+        liftIO . writeIORef ref $! r'
         return r'
     else
         return r
@@ -329,7 +329,7 @@ flushBufferedRef brm@(BRMemory ref v) = do
     if isNull r
     then do
         (r' :: BlobRef a, v') <- storeUpdateRef v
-        liftIO $ writeIORef ref r'
+        liftIO . writeIORef ref $! r'
         return (BRMemory ref v', r')
     else
         return (brm, r)
@@ -447,7 +447,7 @@ getBBRef p v@(LBMemory ref _) = do
             rm <- liftIO $ readIORef ref'
             if (isNull rm)
             then do
-                r <- storeRef (cachedBlob <$> t')
+                !r <- storeRef (cachedBlob <$> t')
                 liftIO $ writeIORef ref' (Blobbed r)
                 return (put r, CBCached (Blobbed r) t')
             else storeUpdate p (CBCached rm t')

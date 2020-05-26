@@ -119,6 +119,9 @@ data BakedBlock = BakedBlock {
     -- |Block transactions
     bbTransactions :: ![BlockItem],
     -- |Block signature
+    -- With the way the abstractions are currently set up it is
+    -- necessary that this is a lazy field. Specifically signing
+    -- the block relies on this.
     bbSignature :: BlockSignature
 } deriving (Show)
 
@@ -283,7 +286,7 @@ signBlock key slot parent baker proof bnonce finData transactions
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         let sig = Sig.sign key . runPut $ blockBody (preBlock undefined)
-        preBlock sig
+        preBlock $! sig
     where
         preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
 
@@ -292,4 +295,4 @@ deserializePendingBlock blockBS rectime =
     case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
-        Right (NormalBlock block0) -> Right $ makePendingBlock block0 rectime
+        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
