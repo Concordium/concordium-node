@@ -114,15 +114,18 @@ runBlobStoreTemp dir a = bracket openf closef usef
             return res
 
 readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBS BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \bh@BlobHandle{..} -> do
-        hSeek bhHandle AbsoluteSeek (fromIntegral offset)
-        esize <- decode <$> BS.hGet bhHandle 8
-        case esize :: Either String Word64 of
-            Left e -> error e
-            Right size -> do
-                bs <- BS.hGet bhHandle (fromIntegral size)
-                putMVar blobStoreFile bh{bhAtEnd=False}
-                return bs
+readBlobBS BlobStore{..} (BlobRef offset) = mask $ \restore -> do
+        bh@BlobHandle{..} <- takeMVar blobStoreFile
+        eres <- try $ restore $ do
+            hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+            esize <- decode <$> BS.hGet bhHandle 8
+            case esize :: Either String Word64 of
+                Left e -> error e
+                Right size -> BS.hGet bhHandle (fromIntegral size)
+        putMVar blobStoreFile bh{bhAtEnd=False}
+        case eres :: Either SomeException BS.ByteString of
+            Left e -> throwIO e
+            Right bs -> return bs
 
 readBlob :: (Serialize a) => BlobStore -> BlobRef a -> IO a
 readBlob bstore ref = do
@@ -132,13 +135,21 @@ readBlob bstore ref = do
             Right v -> return v
 
 writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
-writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $
-    \bh@BlobHandle{bhHandle=writeHandle,bhAtEnd=atEnd} -> do
-        unless atEnd (hSeek writeHandle SeekFromEnd 0)
-        BS.hPut writeHandle size
-        BS.hPut writeHandle bs
-        putMVar blobStoreFile bh{bhSize = bhSize bh + 8 + BS.length bs, bhAtEnd=True}
-        return (BlobRef (fromIntegral (bhSize bh)))
+writeBlobBS BlobStore{..} bs = mask $ \restore -> do
+        bh@BlobHandle{bhHandle=writeHandle,bhAtEnd=atEnd} <- takeMVar blobStoreFile
+        eres <- try $ restore $ do
+            unless atEnd (hSeek writeHandle SeekFromEnd 0)
+            BS.hPut writeHandle size
+            BS.hPut writeHandle bs
+        case eres :: Either SomeException () of
+            Left e -> do
+                -- In case of an exception, query for the size and assume we are not at the end.
+                fSize <- hFileSize writeHandle
+                putMVar blobStoreFile bh{bhSize = fromInteger fSize, bhAtEnd=False}
+                throwIO e
+            Right _ -> do
+                putMVar blobStoreFile bh{bhSize = bhSize bh + 8 + BS.length bs, bhAtEnd=True}
+                return (BlobRef (fromIntegral (bhSize bh)))
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
