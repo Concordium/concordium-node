@@ -141,6 +141,13 @@ fn start_haskell_init(
         args.push("+RTS".to_owned())
     }
 
+    if rts_flags
+        .iter()
+        .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+    {
+        args.push("--install-signal-handlers=no".to_owned());
+    }
+
     for flag in rts_flags {
         if !flag.trim().is_empty() {
             args.push(flag.to_owned());
@@ -176,11 +183,21 @@ fn start_haskell_init(rts_flags: &[String]) {
     let mut args = vec![program_name];
     if !rts_flags.is_empty() {
         args.push("+RTS".to_owned());
+        if rts_flags
+            .iter()
+            .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+        {
+            args.push("--install-signal-handlers=no".to_owned());
+        }
         for flag in rts_flags {
             if !flag.trim().is_empty() {
                 args.push(flag.to_owned());
             }
         }
+        args.push("-RTS".to_owned());
+    } else {
+        args.push("+RTS".to_owned());
+        args.push("--install-signal-handlers=no".to_owned());
         args.push("-RTS".to_owned());
     }
     let args = args
