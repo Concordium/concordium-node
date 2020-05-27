@@ -31,6 +31,10 @@ pub type Delta = u64;
 ///
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
+///
+/// If `rts_flags` doesn't contain `--install-signal-handlers` we explicitly
+/// set this to `no` to avoid the runtime consuming the signals before the outer
+/// rust part embedding the runtime.
 #[cfg(all(not(windows), feature = "profiling"))]
 pub fn start_haskell(
     heap: &str,
