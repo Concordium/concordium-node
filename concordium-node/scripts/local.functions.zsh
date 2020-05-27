@@ -100,12 +100,23 @@ function testnet_bootstrap() {
       binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_bootstrapper-cli --"
   fi
   bootstrap_id=$1; shift
+  
   shift
   (
     cmd="${profiling}\
        $binary \
       --listen-port $((10900+$bootstrap_id)) \
       --id $(printf '%016d\n' $(($bootstrap_id+1000000)))"
+    
+    # Allocate a temporary directory for data storage for the instance
+    RUNNER_BASE_PATH=$(mktemp -d /tmp/p2p-client.XXXXXXXXXXXXXXXX)
+    RUNNER_DATA_PATH="$RUNNER_BASE_PATH/data"
+    RUNNER_CONFIG_PATH="$RUNNER_BASE_PATH/config"
+    mkdir -p $RUNNER_DATA_PATH
+    mkdir -p $RUNNER_CONFIG_PATH
+
+    cmd="${cmd} --override-data-dir $RUNNER_DATA_PATH --override-config-dir $RUNNER_CONFIG_PATH"
+
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
     fi
@@ -160,10 +171,15 @@ function testnet_node() {
     done
 
     # Allocate a temporary directory for data storage for the instance
-    RUNNER_DATA_PATH=$(mktemp -d /tmp/p2p-client.XXXXXXXXXXXXXXXX)
+    RUNNER_BASE_PATH=$(mktemp -d /tmp/p2p-client.XXXXXXXXXXXXXXXX)
+    RUNNER_DATA_PATH="$RUNNER_BASE_PATH/data"
+    RUNNER_CONFIG_PATH="$RUNNER_BASE_PATH/config"
+    mkdir -p $RUNNER_DATA_PATH
+    mkdir -p $RUNNER_CONFIG_PATH
+
     cp -R $CONCORDIUM_P2P_APPDATA_DIR/* $RUNNER_DATA_PATH/
 
-    cmd="${cmd} --override-data-dir $RUNNER_DATA_PATH"
+    cmd="${cmd} --override-data-dir $RUNNER_DATA_PATH --override-config-dir $RUNNER_CONFIG_PATH"
     
     if [ $# > 0 ] ; then
         cmd="$cmd $@"
