@@ -30,7 +30,7 @@ COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout c3930087806d4837040a9ef44fc59204a848d2f8 && \
+    git checkout 2de59e327234d19c84d219055b28b01d874b84ee && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
@@ -46,7 +46,7 @@ RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
     cp .stack-work/dist/*/*/build/concordium-client/concordium-client /concordium-client-bin && \
     strip /middleware && \
-    strip /concordium-client-bin && \
+    strip /concordium-client-bin
 # Middleware and concordium-client is now built
 
 # Build midlang compiler
