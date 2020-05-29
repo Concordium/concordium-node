@@ -46,7 +46,7 @@ RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh
     cp .stack-work/dist/*/*/build/middleware/middleware /middleware && \
     cp .stack-work/dist/*/*/build/concordium-client/concordium-client /concordium-client-bin && \
     strip /middleware && \
-    strip /concordium-client-bin && \
+    strip /concordium-client-bin
 # Middleware and concordium-client is now built
 
 # Build midlang compiler
