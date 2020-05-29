@@ -430,9 +430,9 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
 elif [ "$MODE" == "local_wallet_server" ]; then
     if [ -n "$WALLET_SERVER_ID_FILE" ];
     then
-        ARGS="$ARGS --ip-data $WALLET_SERVER_ID_FILE"
+        ARGS="$ARGS --ip-infos $WALLET_SERVER_INFOS_FILE"
     else
-        ARGS="$ARGS --ip-data /genesis-complementary-bundle/ip_private_keys/identity_provider-0.json"
+        ARGS="$ARGS --ip-infos /genesis-complementary-bundle/identity-providers-with-metadata.json"
     fi
     if [ -n "$WALLET_SERVER_GLOBAL_FILE" ];
     then
