@@ -75,7 +75,8 @@ async fn main() -> Fallible<()> {
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    let is_baker = conf.cli.baker.baker_id.is_some();
+    let is_baker =
+        conf.cli.baker.baker_id.is_some() || conf.cli.baker.baker_credentials_file.is_some();
 
     let data_dir_path = app_prefs.get_user_app_dir();
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
@@ -120,13 +121,6 @@ async fn main() -> Fallible<()> {
         &consensus_database_url,
     )?;
 
-    if let Some(ref import_path) = conf.cli.baker.import_path {
-        consensus.import_blocks(import_path.as_bytes());
-    }
-
-    // Consensus queue threads
-    let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
-
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
@@ -136,6 +130,13 @@ async fn main() -> Fallible<()> {
         });
         info!("RPC server started");
     };
+
+    if let Some(ref import_path) = conf.cli.baker.import_path {
+        consensus.import_blocks(import_path.as_bytes());
+    }
+
+    // Consensus queue threads
+    let consensus_queue_threads = start_consensus_message_threads(&node, consensus.clone());
 
     // The P2P node event loop thread
     spawn(&node, poll, Some(consensus.clone()));
