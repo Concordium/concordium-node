@@ -336,12 +336,8 @@ tickEnergyValueStorage ::
   TransactionMonad m
   => Value
   -> m ()
-tickEnergyValueStorage val = do
-  remainingEnergy <- getEnergy
-  let maxSize = Cost.maxStorage remainingEnergy
-  case storableSizeWithLimit val maxSize of
-    Just size -> tickEnergy $ Cost.storeBytes size
-    Nothing -> rejectTransaction OutOfEnergy
+tickEnergyValueStorage val =
+  withExternalPure_ $ fmap Cost.storeBytes . storableSizeWithLimit val . Cost.maxStorage
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
 -- FIXME: Currently we do not know the size of the instance before looking it up.
@@ -354,14 +350,8 @@ getCurrentContractInstanceTicking ::
 getCurrentContractInstanceTicking cref = do
   tickEnergy $ Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
-  remainingEnergy <- getEnergy
-
-  case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
-    Just size -> do
-      tickEnergy (Cost.lookupBytes size)
-      return inst
-    Nothing -> rejectTransaction OutOfEnergy
-
+  withExternalPure_ $ fmap Cost.lookupBytes . storableSizeWithLimit (Ins.instanceModel inst) . Cost.maxLookup
+  return inst
 
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
@@ -646,12 +636,13 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
 runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
-runInterpreter f = do
-  remainingEnergy <- getEnergy
+runInterpreter f = withExternal $ \remainingEnergy -> do
   let iEnergy = Cost.toInterpreterEnergy remainingEnergy
-  (result, remainingInterpreterEnergy) <- f iEnergy `rejectingWith` OutOfEnergy
-  putEnergy (Cost.fromInterpreterEnergy remainingInterpreterEnergy)
-  return result
+  f iEnergy >>= \case
+    Nothing -> return Nothing
+    Just (result, remainingInterpreterEnergy) -> do
+      let usedEnergy = remainingEnergy - Cost.fromInterpreterEnergy remainingInterpreterEnergy
+      return (Just (result, usedEnergy))
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
 -- precise logic for when a baker can be added and removed should be analyzed
