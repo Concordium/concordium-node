@@ -136,7 +136,7 @@ macro_rules! send_xx_msg {
         // write the message into the buffer
         $self.noise_session.send_message(&mut msg[PAYLOAD_SIZE..])?;
         // queue and send the message
-        trace!("Sending message {}", $idx);
+        trace!("Sending message {} with size {}", $idx, msg.len());
         $self.output_queue.extend(msg);
         $self.flush_socket()?;
     };
@@ -165,17 +165,19 @@ impl ConnectionLowLevel {
                 }
             }
 
-            // set socket's SO_LINGER to 0
-            setsockopt(socket.as_raw_fd(), c::SOL_SOCKET, c::SO_LINGER, c::linger {
-                l_onoff:  1,
-                l_linger: handler.config.socket_so_linger as i32,
-            });
+            // set socket's SO_LINGER if requested, if we're the initiator of the connection
+            if is_initiator {
+                if let Some(linger) = handler.config.socket_so_linger {
+                    setsockopt(socket.as_raw_fd(), c::SOL_SOCKET, c::SO_LINGER, c::linger {
+                        l_onoff:  1,
+                        l_linger: linger as i32,
+                    });
+                }
+            }
         }
 
-        if handler.config.tcp_nodelay {
-            if let Err(e) = socket.set_nodelay(true) {
-                error!("Could not enable TCP no delay due to {:?}", e);
-            }
+        if let Err(e) = socket.set_nodelay(true) {
+            error!("Could not set TCP_NODELAY due to {}", e);
         }
 
         trace!(
@@ -205,7 +207,6 @@ impl ConnectionLowLevel {
     pub fn send_handshake_message_a(&mut self) -> Fallible<()> {
         let pad = 16;
         send_xx_msg!(self, DHLEN, PSK, pad, "A");
-
         Ok(())
     }
 
@@ -226,7 +227,7 @@ impl ConnectionLowLevel {
             .try_into()?;
         let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
-
+        self.socket.set_nodelay(false)?;
         Ok(payload_in)
     }
 
@@ -235,7 +236,7 @@ impl ConnectionLowLevel {
         let payload = self.socket_buffer.slice(len)[DHLEN + MAC_LENGTH..]
             [..len - DHLEN - MAC_LENGTH * 2]
             .try_into()?;
-
+        self.socket.set_nodelay(false)?;
         Ok(payload)
     }
 
@@ -447,7 +448,14 @@ impl ConnectionLowLevel {
     /// Writes a single batch of enqueued bytes to the socket.
     #[inline]
     fn flush_socket_once(&mut self) -> Fallible<usize> {
-        let write_size = cmp::min(self.write_size(), self.output_queue.len());
+        // Always ignore max write buffer when we're handshaking, as we need to ensure
+        // we won't chunk the handshake messages, which can cause issues for the
+        // noise protocol
+        let write_size = if !self.is_post_handshake() {
+            cmp::min(4_096, self.output_queue.len())
+        } else {
+            cmp::min(self.write_size(), self.output_queue.len())
+        };
 
         let (front, back) = self.output_queue.as_slices();
 

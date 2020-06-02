@@ -87,8 +87,8 @@ pub struct NodeConfig {
     pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
-    pub socket_so_linger: usize,
-    pub tcp_nodelay: bool,
+    pub socket_so_linger: Option<usize>,
+    pub events_queue_size: usize,
 }
 
 /// The collection of connections to peer nodes.
@@ -328,7 +328,7 @@ impl P2PNode {
             bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
             default_network: NetworkId::from(conf.common.network_ids[0]), // always present
             socket_so_linger: conf.connection.socket_so_linger,
-            tcp_nodelay: !conf.connection.no_tcp_nodelay,
+            events_queue_size: conf.connection.events_queue_size,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
@@ -535,7 +535,7 @@ impl P2PNode {
 pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<ConsensusContainer>) {
     let node = Arc::clone(node_ref);
     let poll_thread = spawn_or_die!("poll loop", move || {
-        let mut events = Events::with_capacity(10);
+        let mut events = Events::with_capacity(node.config.events_queue_size);
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
         let mut last_peer_list_update = 0;
@@ -631,10 +631,11 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
                 let mut conns = write_or_die!(node.connections());
-                if !conns.values().any(|c| c.remote_id() == conn.remote_id()) {
-                    conns.insert(conn.token, conn);
-                    node.bump_last_peer_update();
-                }
+                // Remove previous connection from same `PeerId`, as this is then to be seen
+                // as a reconnect.
+                conns.retain(|_, c| c.remote_id() != conn.remote_id());
+                conns.insert(conn.token, conn);
+                node.bump_last_peer_update();
             }
         }
         ConnChange::NewPeers(peers) => {
