@@ -375,9 +375,8 @@ impl Connection {
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
         let mut serialized = Vec::with_capacity(56);
         ping.serialize(&mut serialized)?;
-        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
-
         self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         Ok(())
     }
