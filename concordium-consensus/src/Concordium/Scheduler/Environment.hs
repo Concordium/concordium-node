@@ -30,6 +30,10 @@ import qualified Concordium.ID.Types as ID
 
 type SpecialBetaAccounts = Set.HashSet AccountAddress
 
+-- |Whether the current energy limit is block energy or current transaction energy.
+data EnergyLimitReason = BlockEnergy | TransactionEnergy
+    deriving(Eq, Show)
+
 emptySpecialBetaAccounts :: SpecialBetaAccounts
 emptySpecialBetaAccounts = Set.empty
 
@@ -256,15 +260,14 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: Instance -> m Amount
 
-  -- |Get the amount of gas remaining for the transaction.
-  getEnergy :: m Energy
+  -- |Get the amount of energy remaining for the transaction.
+  getEnergy :: m (Energy, EnergyLimitReason)
 
   -- |Decrease the remaining energy by the given amount. If not enough is left
-  -- reject the transaction and set remaining amount to 0
+  -- reject the transaction and set remaining amount to 0.
+  -- If block energy limit would be reached instead, then reject the transaction
+  -- with 'outOfBlockEnergy' instead.
   tickEnergy :: Energy -> m ()
-
-  -- |Set the remaining energy to be the given value.
-  putEnergy :: Energy -> m ()
 
   -- |Reject a transaction with a given reason, terminating processing of this transaction.
   -- If the reason is OutOfEnergy this function __must__ ensure that the remaining energy
@@ -665,28 +668,53 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Just cv -> return cv
 
   {-# INLINE getEnergy #-}
-  getEnergy = use energyLeft
+  getEnergy = do
+    beLeft <- use blockEnergyLeft
+    txLeft <- use energyLeft
+    if beLeft < txLeft
+    then return (beLeft, BlockEnergy)
+    else return (txLeft, TransactionEnergy)
 
   {-# INLINE tickEnergy #-}
   tickEnergy !tick = do
-    energy <- getEnergy
-    beLeft <- use blockEnergyLeft
-    if tick > energy then rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
-    else if tick > beLeft then outOfBlockEnergy
-         else do
-           energyLeft -= tick
-           blockEnergyLeft -= tick
-
-  {-# INLINE putEnergy #-}
-  putEnergy en = energyLeft .= en
+    (energy, reason) <- getEnergy
+    if tick > energy then
+      case reason of
+        BlockEnergy -> outOfBlockEnergy
+        TransactionEnergy -> rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
+    else do
+      energyLeft -= tick
+      blockEnergyLeft -= tick
 
   {-# INLINE rejectTransaction #-}
-  rejectTransaction OutOfEnergy = putEnergy 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
+  rejectTransaction OutOfEnergy = energyLeft .= 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
   rejectTransaction reason = LocalT (ContT (\_ -> return (Left (Just reason))))
 
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
+-- |Call an external method that can fail with out of energy.
+-- Depending on what is the current limit, either remaining transaction energy,
+-- or remaining block energy, this function will report the appropriate failure.
+-- 
+-- This function takes an action that should return __how much energy was used__.
+-- the action should always satisfy that the returned energy is <= given energy.
+withExternal :: TransactionMonad m => (Energy ->  m (Maybe (a, Energy))) -> m a
+withExternal f = do
+  (availableEnergy, reason) <- getEnergy
+  f availableEnergy >>= \case
+    Nothing | BlockEnergy <- reason -> outOfBlockEnergy
+    Nothing | TransactionEnergy <- reason -> rejectTransaction OutOfEnergy -- this sets remaining to 0
+    Just (result, usedEnergy) -> do
+      -- tickEnergy is safe even if usedEnergy > available energy, even though this case
+      -- should not happen for well-behaved actions.
+      tickEnergy usedEnergy
+      return result
+
+-- |Like 'withExternal' but takes a pure action that only transforms energy and does
+-- not return a value. This is a convenience wrapper only.
+withExternalPure_ :: TransactionMonad m => (Energy -> Maybe Energy) -> m ()
+withExternalPure_ f = () <$ withExternal (return . fmap ((),) . f)
 
 instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where
   getCurrentContractState caddr = do
