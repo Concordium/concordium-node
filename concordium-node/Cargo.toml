@@ -63,6 +63,7 @@ noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 semver = { version = "0.9", features = ["serde"] }
+ctrlc = "3.1"
 
 # gRPC dependencies
 tonic = "0.2"

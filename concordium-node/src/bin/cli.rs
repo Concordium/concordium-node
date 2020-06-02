@@ -21,6 +21,7 @@ use consensus_rust::{
     ffi,
     messaging::ConsensusMessage,
 };
+use ctrlc;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
     configuration as config,
@@ -34,7 +35,6 @@ use p2p_client::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
-
 use std::{sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "instrumentation")]
@@ -120,6 +120,27 @@ async fn main() -> Fallible<()> {
         &data_dir_path,
         &consensus_database_url,
     )?;
+
+    let signal_handler_node = node.clone();
+    let signal_handler_consensus = consensus.clone();
+    ctrlc::set_handler(move || {
+        info!("SIGINT hit - attempting to shutdown node cleanly");
+        if signal_handler_node.close() {
+            signal_handler_consensus.stop();
+            match signal_handler_node.join() {
+                Err(_) => {
+                    error!("The node thread panicked during shutdown!");
+                    std::process::exit(1);
+                }
+                _ => {
+                    info!("Clean shutdown completed");
+                    std::process::exit(0);
+                }
+            }
+        } else {
+            error!("Can't shutdown node properly!");
+        }
+    })?;
 
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {

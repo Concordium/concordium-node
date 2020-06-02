@@ -75,6 +75,9 @@ pub fn start_consensus_layer(
     )
 }
 
+/// Stop consensus container
+pub fn stop_consensus_layer(container: ConsensusContainer) { container.stop(); }
+
 /// Obtains the genesis data and baker's private data.
 pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
