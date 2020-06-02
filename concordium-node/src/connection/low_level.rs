@@ -448,9 +448,11 @@ impl ConnectionLowLevel {
     /// Writes a single batch of enqueued bytes to the socket.
     #[inline]
     fn flush_socket_once(&mut self) -> Fallible<usize> {
-        // Always ignore max write buffer when we're handshaking
+        // Always ignore max write buffer when we're handshaking, as we need to ensure
+        // we won't chunk the handshake messages, which can cause issues for the
+        // noise protocol
         let write_size = if !self.is_post_handshake() {
-            cmp::min(16_384, self.output_queue.len())
+            cmp::min(4_096, self.output_queue.len())
         } else {
             cmp::min(self.write_size(), self.output_queue.len())
         };
