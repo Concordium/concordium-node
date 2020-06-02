@@ -19,7 +19,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.7", "0.2.6"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.8", "0.2.7"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
@@ -339,14 +339,14 @@ pub struct ConnectionConfig {
         default_value = "131072"
     )]
     pub socket_read_size: usize,
+    #[structopt(long = "linger-time", help = "Max seconds a socket may linger")]
+    pub socket_so_linger: Option<usize>,
     #[structopt(
-        long = "linger-time",
-        help = "Max seconds a socket may linger",
-        default_value = "30"
+        long = "events-queue-size",
+        help = "Events queue size per poll iteration",
+        default_value = "10"
     )]
-    pub socket_so_linger: usize,
-    #[structopt(long = "no-tcp-nodelay", help = "Disable TCP nodelay")]
-    pub no_tcp_nodelay: bool,
+    pub events_queue_size: usize,
 }
 
 #[derive(StructOpt, Debug)]
