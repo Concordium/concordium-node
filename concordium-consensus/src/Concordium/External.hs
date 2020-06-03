@@ -69,7 +69,7 @@ withBlockReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
 -- |Use a 'TransactionHash' as a 'Ptr Word8'. The pointer may not be valid after
 -- the function has returned.
 withTxReference :: TransactionHash -> (Ptr Word8 -> IO a) -> IO a
-withTxReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
+withTxReference (TransactionHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.

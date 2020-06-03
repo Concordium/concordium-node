@@ -160,7 +160,7 @@ checkResult (valid, invalid, unproc, [t1, t2, t3, t4, t5, t6, t7, t8, t9, t10, t
     where
         validCheck = do
           let (validTs, validResults) = unzip valid
-          assertEqual "1st, 3rd, 5th, 6th, 9th, 11th transactions are valid:" (map (Types.NormalTransaction <$>) [t1, t3, t5, t6, t9, t11]) validTs
+          assertEqual "1st, 3rd, 5th, 6th, 9th, 11th transactions are valid:" (map Types.normalTransaction [t1, t3, t5, t6, t9, t11]) validTs
           assertEqual "1st, 3rd, 5th, 6th, 9th, 11th transactions are valid with TxSuccess result:"
             True $ all (\case Types.TxSuccess{} -> True
                               _ -> False) validResults

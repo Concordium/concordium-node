@@ -1097,7 +1097,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
                     (Just (TxValid summary), fp) -> do
                       markEnergyUsed (tsEnergyCost summary)
                       tlNotifyAccountEffect fp summary
-                      let newFts = fts { ftAdded = (fmap CredentialDeployment c, summary) : ftAdded fts}
+                      let newFts = fts { ftAdded = (credentialDeployment c, summary) : ftAdded fts}
                       runNext maxEnergy csize newFts remainingCreds remainingTransactions
                     (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
               else if Cost.deployCredential > maxEnergy then
@@ -1165,7 +1165,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
               let newFts =
                     currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
                                             ++ ftFailed currentFts
-                               , ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts
+                               , ftAdded = (normalTransaction t, summary) : ftAdded currentFts
                                }
               return (newFts, rest)
 
