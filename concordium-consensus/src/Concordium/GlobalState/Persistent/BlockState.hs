@@ -25,7 +25,7 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.Types
 import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
-import Acorn.Types (linkWithMaxSize)
+import Acorn.Types (linkExprWithMaxSize)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
@@ -317,7 +317,7 @@ doLinkContract pbs mref m cname = do
             _ <- doPutLinkedContract pbs mref cname linked
             return linked
     where
-        myLink ule = (_1 %~ leExpr) . fromJust <$> linkWithMaxSize mref ule maxBound
+        myLink ule = fromJust <$> linkExprWithMaxSize mref ule maxBound
 
 fromPersistentInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
     PersistentBlockState -> Instances.PersistentInstance -> m Instance
