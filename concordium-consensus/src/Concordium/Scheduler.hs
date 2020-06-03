@@ -445,16 +445,12 @@ handleSimpleTransfer wtc toaddr amount =
                 AddressContract cref -> do
                   i <- getCurrentContractInstanceTicking cref
                   -- Send a Nothing message to the contract with the amount to be transferred.
-                  let rf = Ins.ireceiveFun i
-                      model = Ins.instanceModel i
-                      qmsgExpLinked = I.mkNothingE
+                  let qmsgExpLinked = I.mkNothingE
                   handleMessage senderAccount
                                 i
-                                rf
                                 (Right senderAccount)
                                 amount
                                 (ExprMessage qmsgExpLinked)
-                                model
                 AddressAccount toAccAddr ->
                   handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
 
@@ -472,10 +468,8 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
   where senderAccount = wtc ^. wtcSenderAccount
         c = do
           i <- getCurrentContractInstanceTicking cref
-          let rf = Ins.ireceiveFun i
-              msgType = Ins.imsgTy i
+          let msgType = Ins.imsgTy i
               (iface, _) = Ins.iModuleIface i
-              model = Ins.instanceModel i
           -- TODO Here we currently do not account for possible dependent modules looked up
           -- when typechecking the term. We might want to tick energy on demand while typechecking.
           tickEnergy (Cost.updateMessageTypecheck msgSize)
@@ -488,11 +482,9 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
           -- Now invoke the general handler for contract messages.
           handleMessage senderAccount
                         i
-                        rf
                         (Right senderAccount)
                         amount
                         (ExprMessage (I.mkJustE qmsgExpLinked))
-                        model
 
 -- | Process a message to a contract.
 -- This includes the transfer of an amount from the sending account or instance.
@@ -501,8 +493,7 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
 handleMessage ::
   (TransactionMonad m, InterpreterMonad NoAnnot m)
   => Account -- ^The account that sent the top-level transaction.
-  -> Instance -- ^The target contract of the transaction, which must exist.
-  -> LinkedReceiveMethod NoAnnot -- ^The receive function of the contract.
+  -> Instance -- ^The current state of the target contract of the transaction, which must exist.
   -> Either Instance Account -- ^The sender of the message (contract instance or account).
                              -- On the first invocation of this function this will be the sender of the
                              -- top-level transaction, and in recursive calls the respective contract
@@ -510,9 +501,10 @@ handleMessage ::
   -> Amount -- ^The amount to be transferred from the sender of the message to the receiver.
   -> MessageFormat -- ^Message sent to the contract. On the first invocation of this function this will
                    -- be an Acorn expression, and in nested calls an Acorn value.
-  -> Value -- ^The current local state of the target contract.
   -> m [Event] -- The events resulting from processing the message and all recursively processed messages.
-handleMessage origin istance receivefun sender transferamount maybeMsg model = do
+handleMessage origin istance sender transferamount maybeMsg = do
+  let receivefun = ireceiveFun istance
+      model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
   -- TODO: For now there is no exception handling in smart contracts and contracts cannot check
@@ -536,7 +528,9 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
 
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   let originAddr = origin ^. accountAddress
-  let receiveCtx = ReceiveContext { invoker = originAddr, selfAddress = cref }
+  let receiveCtx = ReceiveContext { invoker = originAddr,
+                                    selfAddress = cref,
+                                    selfBalance = instanceAmount istance }
   result <- case maybeMsg of
               ValueMessage m -> runInterpreter (I.applyReceiveFunVal cm receiveCtx receivefun model senderAddr transferamount m)
               ExprMessage m ->  runInterpreter (I.applyReceiveFun cm receiveCtx receivefun model senderAddr transferamount m)
@@ -565,30 +559,22 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                             -- instances. If the instance does however not exist, this rejects the
                             -- transaction.
                             cinstance <- getCurrentContractInstanceTicking cref'
-                            let receivefun' = Ins.ireceiveFun cinstance
-                            let model' = Ins.instanceModel cinstance
                             handleMessage origin
                                           cinstance
-                                          receivefun'
                                           (Left istance)
                                           transferamount'
                                           (ValueMessage (I.aJust message'))
-                                          model'
                           -- A transfer to a contract is defined to be an Acorn @Nothing@ message
                           -- with the to be transferred amount.
                           TSimpleTransfer (AddressContract cref') transferamount' -> do
                             -- We can make a simple transfer without checking existence of a contract.
                             -- The following rejects the transaction in case the instance does not exist.
                             cinstance <- getCurrentContractInstanceTicking cref'
-                            let receivefun' = Ins.ireceiveFun cinstance
-                            let model' = Ins.instanceModel cinstance
                             handleMessage origin
                                           cinstance
-                                          receivefun'
                                           (Left istance)
                                           transferamount'
                                           (ValueMessage I.aNothing)
-                                          model'
                           TSimpleTransfer (AddressAccount acc) transferamount' ->
                             -- FIXME: This is temporary until accounts have their own functions
                             handleTransferAccount origin acc (Left istance) transferamount'
