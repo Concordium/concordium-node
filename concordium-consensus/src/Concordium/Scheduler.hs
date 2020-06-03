@@ -410,7 +410,7 @@ handleInitContract wtc amount modref cname param paramSize =
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
+            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' amount)
 
             -- Charge for storing the contract state.
             tickEnergyValueStorage model
