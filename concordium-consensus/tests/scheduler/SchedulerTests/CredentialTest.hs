@@ -90,12 +90,12 @@ checkCredentialCheckResult (suc, fails, transactions) =
     rejectCheck =
       case last suc of
         (tx, Types.TxReject (Types.ReceiverAccountNoCredential _)) ->
-          assertEqual "The second transaction should be rejected." tx (Types.NormalTransaction <$> (transactions !! 1))
+          assertEqual "The second transaction should be rejected." tx (Types.normalTransaction (transactions !! 1))
         other -> assertFailure $ "Last recorded transaction should fail with no account credential: " ++ show other
     nonrejectCheck =
       case head suc of
         (tx, Types.TxSuccess{}) ->
-          assertEqual "The first transaction should be successful." tx (Types.NormalTransaction <$> (transactions !! 0))
+          assertEqual "The first transaction should be successful." tx (Types.normalTransaction (transactions !! 0))
         other -> assertFailure $ "First recorded transaction should be successful: " ++ show other
 
 
