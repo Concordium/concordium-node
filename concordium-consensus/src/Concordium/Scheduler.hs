@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall #-}
@@ -43,7 +44,7 @@ module Concordium.Scheduler
 import qualified Acorn.TypeCheck as TC
 import qualified Acorn.Interpreter as I
 import qualified Acorn.Core as Core
-import Acorn.Types(compile)
+import Acorn.Types(compile, InterpreterEnergy)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
@@ -337,12 +338,13 @@ tickEnergyValueStorage ::
   => Value
   -> m ()
 tickEnergyValueStorage val =
-  withExternalPure_ $ fmap Cost.storeBytes . storableSizeWithLimit val . Cost.maxStorage
+  -- NB: This uses ResourceMeasure instance from ByteSize, which
+  -- measures cost to store.
+  withExternalPure_ $ storableSizeWithLimit @ ByteSize val
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
 -- FIXME: Currently we do not know the size of the instance before looking it up.
 -- Therefore we charge a "pre-lookup cost" before the lookup and the actual cost after.
--- after lookup.
 getCurrentContractInstanceTicking ::
   TransactionMonad m
   => ContractAddress
@@ -350,7 +352,7 @@ getCurrentContractInstanceTicking ::
 getCurrentContractInstanceTicking cref = do
   tickEnergy $ Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
-  withExternalPure_ $ fmap Cost.lookupBytes . storableSizeWithLimit (Ins.instanceModel inst) . Cost.maxLookup
+  withExternalPure_ $ storableSizeWithLimit @ Cost.LookupByteSize (Ins.instanceModel inst)
   return inst
 
 -- | Handle the initialization of a contract instance.
@@ -399,7 +401,7 @@ handleInitContract wtc amount modref cname param paramSize =
 
             -- First compile the parameter expression, then link it, which ticks energy for the size of
             -- the linked expression, failing when running out of energy in the process.
-            (params', _) <- linkExpr (uniqueName iface) (compile qparamExp)
+            params' <- linkExpr (uniqueName iface) (compile qparamExp)
 
             cm <- getChainMetadata
             -- Finally run the initialization function of the contract, resulting in an initial state
@@ -482,7 +484,7 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
           qmsgExp <- typeHidingErrors (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith` MessageTypeError
           -- First compile the message expression, then link it, which ticks energy for the size of the
           -- linked expression, failing when running out of energy in the process.
-          (qmsgExpLinked, _) <- linkExpr (uniqueName iface) (compile qmsgExp)
+          qmsgExpLinked <- linkExpr (uniqueName iface) (compile qmsgExp)
           -- Now invoke the general handler for contract messages.
           handleMessage senderAccount
                         i
@@ -635,13 +637,17 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
-runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
-runInterpreter f = withExternal $ \remainingEnergy -> do
-  let iEnergy = Cost.toInterpreterEnergy remainingEnergy
-  f iEnergy >>= \case
+runInterpreter :: TransactionMonad m => (InterpreterEnergy -> m (Maybe (a, InterpreterEnergy))) -> m a
+runInterpreter f = withExternal $ \availableEnergy -> do
+  f availableEnergy >>= \case
     Nothing -> return Nothing
-    Just (result, remainingInterpreterEnergy) -> do
-      let usedEnergy = remainingEnergy - Cost.fromInterpreterEnergy remainingInterpreterEnergy
+    Just (result, remainingEnergy) -> do
+      -- the following relies on the interpreter ensuring
+      -- remainingEnergy <= availableEnergy. Since both of these
+      -- values are unsigned the computation will otherwise overflow.
+      -- Even if this happens it is likely to simply cause an 'OutOfEnergy'
+      -- or outOfBlockEnergy termination.
+      let usedEnergy = availableEnergy - remainingEnergy
       return (Just (result, usedEnergy))
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
