@@ -56,14 +56,24 @@ then
     ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
 fi
 
-if [ -n "$BAKER_ID" ];
+# If BAKER_CREDENTIALS_FILENAME is provided, get that one.
+# Otherwise, use the old behavior (using BAKER-ID)
+if [ -n "$BAKER_CREDENTIALS_FILENAME" ];
+then
+    BAKER_CREDENTIALS_FILE="${DATA_DIR}/${BAKER_CREDENTIALS_FILENAME}"
+    if [ -f $BAKER_CREDENTIALS_FILE ];
+    then
+        ARGS="$ARGS --baker-credentials-file $BAKER_CREDENTIALS_FILE"
+    fi
+elif [ -n "$BAKER_ID" ];
 then
     REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
     BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
-    if [ -f $BAKER_CREDENTIALS_FILE ]; 
+    if [ -f $BAKER_CREDENTIALS_FILE ];
     then
         ARGS="$ARGS --baker-id $REAL_BAKER_ID"
     fi
+
     if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
         if [ $(($REAL_BAKER_ID % 2 )) == 0 ]; then
             ARGS="$ARGS --trace"
