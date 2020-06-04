@@ -56,51 +56,64 @@ then
     ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
 fi
 
-if [ -n "$BAKER_ID" ];
+# If BAKER_CREDENTIALS_FILENAME is provided, get that one.
+# Otherwise, use the old behavior (using BAKER-ID)
+if [ -n "$BAKER_CREDENTIALS_FILENAME" ];
 then
-    REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
-    BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
-    if [ -f $BAKER_CREDENTIALS_FILE ]; 
+    REAL_BAKER_ID=0 #dummy baker id as required afterwards
+    BAKER_CREDENTIALS_FILE="${DATA_DIR}/${BAKER_CREDENTIALS_FILENAME}"
+    if [ -f $BAKER_CREDENTIALS_FILE ];
     then
-        ARGS="$ARGS --baker-id $REAL_BAKER_ID"
+        ARGS="$ARGS --baker-credentials-file $BAKER_CREDENTIALS_FILE"
     fi
-    if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
-        if [ $(($REAL_BAKER_ID % 2 )) == 0 ]; then
-            ARGS="$ARGS --trace"
-        else
-            ARGS="$ARGS --info"
-        fi
-    fi
-    if [ -n "$ARGS_SPLIT_HALF_AND_HALF" ]; then
-        if [[ $(($REAL_BAKER_ID % 2 )) == 0 && -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_ONE" ]]; then
-            ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_ONE"
-        elif [ -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_TWO" ]; then
-            ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_TWO"
-        fi
-    fi
-    if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
+else
+    if [ -n "$BAKER_ID" ];
     then
-        ARGS="$ARGS --transaction-outcome-logging"
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_NAME" ]
+        REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
+        BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
+        if [ -f $BAKER_CREDENTIALS_FILE ];
         then
-            ARGS="$ARGS --transaction-outcome-logging-database-name $TRANSACTION_OUTCOME_LOGGING_NAME"
+            ARGS="$ARGS --baker-id $REAL_BAKER_ID"
         fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_HOST" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-host $TRANSACTION_OUTCOME_LOGGING_HOST"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PORT" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-port $TRANSACTION_OUTCOME_LOGGING_PORT"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_USERNAME" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-username $TRANSACTION_OUTCOME_LOGGING_USERNAME"
-        fi
-        if [ -n "$TRANSACTION_OUTCOME_LOGGING_PASSWORD" ]
-        then
-            ARGS="$ARGS --transaction-outcome-logging-database-password $TRANSACTION_OUTCOME_LOGGING_PASSWORD"
-        fi
+    fi
+fi
+
+if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
+    if [ $(($REAL_BAKER_ID % 2 )) == 0 ]; then
+        ARGS="$ARGS --trace"
+    else
+        ARGS="$ARGS --info"
+    fi
+fi
+if [ -n "$ARGS_SPLIT_HALF_AND_HALF" ]; then
+    if [[ $(($REAL_BAKER_ID % 2 )) == 0 && -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_ONE" ]]; then
+        ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_ONE"
+    elif [ -n "$ARGS_SPLIT_HALF_AND_HALF_ARG_TWO" ]; then
+        ARGS="$ARGS $ARGS_SPLIT_HALF_AND_HALF_ARG_TWO"
+    fi
+fi
+if [[ -n "$TRANSACTION_OUTCOME_LOGGING" && "$REAL_BAKER_ID" == "0" ]];
+then
+    ARGS="$ARGS --transaction-outcome-logging"
+    if [ -n "$TRANSACTION_OUTCOME_LOGGING_NAME" ]
+    then
+        ARGS="$ARGS --transaction-outcome-logging-database-name $TRANSACTION_OUTCOME_LOGGING_NAME"
+    fi
+    if [ -n "$TRANSACTION_OUTCOME_LOGGING_HOST" ]
+    then
+        ARGS="$ARGS --transaction-outcome-logging-database-host $TRANSACTION_OUTCOME_LOGGING_HOST"
+    fi
+    if [ -n "$TRANSACTION_OUTCOME_LOGGING_PORT" ]
+    then
+        ARGS="$ARGS --transaction-outcome-logging-database-port $TRANSACTION_OUTCOME_LOGGING_PORT"
+    fi
+    if [ -n "$TRANSACTION_OUTCOME_LOGGING_USERNAME" ]
+    then
+        ARGS="$ARGS --transaction-outcome-logging-database-username $TRANSACTION_OUTCOME_LOGGING_USERNAME"
+    fi
+    if [ -n "$TRANSACTION_OUTCOME_LOGGING_PASSWORD" ]
+    then
+        ARGS="$ARGS --transaction-outcome-logging-database-password $TRANSACTION_OUTCOME_LOGGING_PASSWORD"
     fi
 fi
 
