@@ -22,6 +22,8 @@ import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
+import qualified Concordium.GlobalState.Parameters as Parameters
+import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.Bakers
@@ -32,7 +34,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 import qualified Data.PQueue.Prio.Max as Queue
 
-import Concordium.Afgjort.Finalize(FinalizationStateLenses(..))
+import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Kontrol (getFinalizationCommittee)
 
@@ -272,9 +274,21 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         lfb <- lastFinalizedBlock
         genesis <- genesisBlock
         stats <- TS.getConsensusStatistics
+        genData <- TS.getGenesisData
+        let -- for now we'll use the genesis epoch length even though that is a bit less
+            -- than optimal with respect to future changes.
+            -- When all of these parameters are dynamic we need to revisit.
+            slotDuration = Parameters.genesisSlotDuration genData
+            epochDuration = fromIntegral (SeedState.epochLength (Parameters.genesisSeedState genData)) * slotDuration
         return $ object [
                 "bestBlock" .= hsh bb,
                 "genesisBlock" .= hsh genesis,
+                -- time of the genesis block as UTC time (accurate to 1s)
+                "genesisTime" .= timestampToUTCTime (Parameters.genesisTime genData),
+                -- duration of a slot in milliseconds
+                "slotDuration" .= durationMillis slotDuration,
+                -- duration of an epoch in milliseconds
+                "epochDuration" .= durationMillis epochDuration,
                 "lastFinalizedBlock" .= hsh lfb,
                 "bestBlockHeight" .= theBlockHeight (bpHeight bb),
                 "lastFinalizedBlockHeight" .= theBlockHeight (bpHeight lfb),
@@ -394,5 +408,5 @@ checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, Finalization
 checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    fs <- use finState
    case fs ^. finCurrentRound of
-     Left _ -> return False
-     Right _ -> return True
+     PassiveCurrentRound _ -> return False
+     ActiveCurrentRound _ -> return True

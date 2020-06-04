@@ -20,8 +20,8 @@ import Concordium.Afgjort.Types (VoterPower)
 newtype TicketProof = TicketProof {theProof :: VRF.Proof} deriving (Ser.Serialize,Eq,Ord,Show)
 
 data Ticket = Ticket {
-    ticketValue :: Double,
-    ticketProof :: TicketProof
+    ticketValue :: !Double,
+    ticketProof :: !TicketProof
 } deriving (Eq, Ord, Show)
 
 calculateTicketValue :: VRF.Proof -> VoterPower -> VoterPower -> Double
@@ -58,4 +58,4 @@ checkTicketProof :: BS.ByteString    -- ^Lottery identifier
         -> Maybe Ticket
 checkTicketProof lotteryid key tp@TicketProof{..} weight totalWeight = do
         guard (VRF.verify key ("AL" <> lotteryid) theProof)
-        return (proofToTicket tp weight totalWeight)
+        return $! (proofToTicket tp weight totalWeight)

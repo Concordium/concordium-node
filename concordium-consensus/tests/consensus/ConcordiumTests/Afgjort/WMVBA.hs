@@ -6,7 +6,7 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 import System.Random
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import qualified Data.ByteString as BS
 import qualified Data.Vector as Vec
@@ -212,7 +212,7 @@ createAggSigTest = do
       Nothing -> return $ property False
 
 tests :: Word -> Spec
-tests lvl = describe "Concordium.Afgjort.WMVBA" $ do
+tests lvl = parallel $ describe "Concordium.Afgjort.WMVBA" $ do
     it "Finds no culprits when everyone signs correctly" $ withMaxSuccess (10 * (10^lvl)) findCulpritsNoMaliciousTest
     it "Finds the misbehaving signers" $ withMaxSuccess (10 * (10^lvl)) findCulpritsTest
     it "Test createAggregateSig" $ withMaxSuccess (10 * (10^lvl)) createAggSigTest

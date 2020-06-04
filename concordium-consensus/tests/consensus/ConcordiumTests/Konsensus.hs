@@ -6,7 +6,7 @@ import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.Vector as Vec
 import qualified Data.HashMap.Strict as HM
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Control.Monad
 import Control.Monad.IO.Class
@@ -17,7 +17,6 @@ import qualified Data.PQueue.Prio.Min as MPQ
 import System.Random
 import Control.Monad.Trans.State
 import Data.Functor.Identity
-import Data.Either (isRight)
 import Data.Ratio
 
 import qualified Data.ByteString.Lazy as BSL
@@ -71,6 +70,10 @@ import Concordium.Types.DummyData (mateuszAccount)
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
+
+isActiveCurrentRound :: FinalizationCurrentRound -> Bool
+isActiveCurrentRound (ActiveCurrentRound _) = True
+isActiveCurrentRound _ = False
 
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
@@ -256,8 +259,8 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
             bakerEqParty PartyInfo{..} = baker ^. bakerSignatureVerifyKey == partySignKey
-        checkBinary (==) bakerInFinCommittee (isRight _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
-        forM_ _finsCurrentRound $ \FinalizationRound{..} -> do
+        checkBinary (==) bakerInFinCommittee (isActiveCurrentRound _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
+        onActiveCurrentRound _finsCurrentRound $ \FinalizationRound{..} -> do
             -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
             checkBinary (>=) roundDelta (nextFinalizationDelay finParams lfr) ">=" "round delta" "starting delta for this finalization"
             -- Determine which blocks are valid candidates for finalization
@@ -272,8 +275,8 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
             let justifiedProposals = Map.keysSet $ Map.filter fst $ _proposals $ _freezeState $ roundWMVBA
             checkBinary (==) justifiedProposals eligibleBlocks "==" "nominally justified finalization blocks" "actually justified finalization blocks"
             case roundInput of
-                Nothing -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
-                Just nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
+                NoInput -> unless (null eligibleBlocks) $ Left "There are eligible finalization blocks, but none has been nominated"
+                RoundInput nom -> checkBinary Set.member nom eligibleBlocks "is an element of" "the nominated final block" "the set of eligible blocks"
         -- The finalization queue should include all finalizations back from the last one
         -- that are not contained in finalized blocks.
         let finQLF Seq.Empty l = l

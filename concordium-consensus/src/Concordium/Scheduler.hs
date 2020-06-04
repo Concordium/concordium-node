@@ -1233,9 +1233,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
 --
 -- Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded, that is, the deposited energy
---   of a transaction plus the energy used by the previous transactions exceeds this limit. This
---   should not happen for valid blocks.
+-- * @Left Nothing@ if maximum block energy limit was exceeded.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
 -- * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions :: forall m . (SchedulerMonad m)
@@ -1261,7 +1259,7 @@ runTransactions = go []
 --
 -- Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded
+-- * @Left Nothing@ if maximum block energy limit was exceeded.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
 -- * @Right ()@ if all transactions are successful.
 --
