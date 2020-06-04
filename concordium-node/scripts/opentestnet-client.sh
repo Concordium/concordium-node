@@ -41,4 +41,7 @@ then
   cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/assets/config.json
 fi
 
+# Re-export the proper environment variable for the middleware, as it uses its own naming it seems
+export CFG_DIR=$CONFIG_DIR
+
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
