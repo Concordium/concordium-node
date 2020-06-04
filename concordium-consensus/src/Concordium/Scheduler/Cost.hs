@@ -10,7 +10,7 @@ import Data.Word
 
 import Acorn.Types
 
--- |A newtype wrapper around ByteSize to be able charge for lookup differently
+-- |A newtype wrapper around ByteSize to be able to charge for lookup differently
 newtype LookupByteSize = LookupByteSize ByteSize
     deriving(Eq, Show, Ord, Num, Real, Enum, Integral) via ByteSize
 
