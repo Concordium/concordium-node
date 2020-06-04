@@ -37,8 +37,7 @@ contract Transfer where
       Maybe.Just (msg' :: ListBase.List Blockchain.Caller) ->
         let len' :: ListBase.List Blockchain.Caller -> Word64 = List.length [Blockchain.Caller] in
         let len :: Word64 = len' msg' in
-        let len' :: Amount = Prim.word64_word128 len in
-        let sendAmount :: Amount = Prim.divWord128 amount len' in
+        let sendAmount :: Amount = Prim.divWord64 amount len in
         let f :: Prim.Transaction -> Blockchain.Caller -> Prim.Transaction =
           fun (tx :: Prim.Transaction) (caller :: Blockchain.Caller) =
             let send :: Prim.Transaction = Prim.TxSendAmount caller sendAmount in
