@@ -20,18 +20,18 @@ import Test.Hspec
 
 main :: IO ()
 main = hspec $ do
-         -- SchedulerTests.ContractCommSpec.tests
-         -- SchedulerTests.SimpleTransfersTest.tests
-         -- SchedulerTests.ChainMetatest.tests
-         -- SchedulerTests.FibonacciTest.tests
-         -- SchedulerTests.AccountTransactionSpecs.tests
+         SchedulerTests.ContractCommSpec.tests
+         SchedulerTests.SimpleTransfersTest.tests
+         SchedulerTests.ChainMetatest.tests
+         SchedulerTests.FibonacciTest.tests
+         SchedulerTests.AccountTransactionSpecs.tests
          SchedulerTests.BakerTransactions.tests
-         -- SchedulerTests.Delegation.tests
-         -- SchedulerTests.ContractSimpleTransfersSpec.tests
-         -- SchedulerTests.CredentialTest.tests
-         -- SchedulerTests.TransactionExpirySpec.tests
-         -- SchedulerTests.BlockEnergyLimitSpec.tests
-         -- SchedulerTests.TransactionGroupingSpec.tests
-         -- SchedulerTests.TransactionGroupingSpec2.tests
-         -- SchedulerTests.UpdateElectionDifficultySpec.tests
-         -- SchedulerTests.SimpleTransferSpec.tests
+         SchedulerTests.Delegation.tests
+         SchedulerTests.ContractSimpleTransfersSpec.tests
+         SchedulerTests.CredentialTest.tests
+         SchedulerTests.TransactionExpirySpec.tests
+         SchedulerTests.BlockEnergyLimitSpec.tests
+         SchedulerTests.TransactionGroupingSpec.tests
+         SchedulerTests.TransactionGroupingSpec2.tests
+         SchedulerTests.UpdateElectionDifficultySpec.tests
+         SchedulerTests.SimpleTransferSpec.tests
