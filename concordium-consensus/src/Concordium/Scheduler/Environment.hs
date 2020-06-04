@@ -177,6 +177,11 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- Precondition: The baker exists.
   updateBakerAggregationKey :: BakerId -> BakerAggregationVerifyKey -> m Bool
 
+  -- |Replace the given baker's election verification key with the given key
+  -- Return true if the key was succesfully updated and false otherwise.
+  -- Precondition: the baker exists.
+  updateBakerElectionKey :: BakerId -> BakerElectionVerifyKey -> m ()
+
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
   -- Returns 'True' if the delegation was successful, and 'False' if the baker is
   -- not valid.

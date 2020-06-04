@@ -275,6 +275,9 @@ dispatch msg = do
 
                    UpdateBakerAggregationVerifyKey{..} ->
                      handleUpdateBakerAggregationVerifyKey (mkWTC TTUpdateBakerAggregationVerifyKey) ubavkId ubavkKey ubavkProof
+
+                   UpdateBakerElectionKey{..} ->
+                     handleUpdateBakerElectionKey (mkWTC TTUpdateBakerElectionKey) ubekId ubekKey ubekProof
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -1024,6 +1027,39 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
                    else return $ (TxReject InvalidProof, energyCost, usedEnergy)
               else
                 return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+
+handleUpdateBakerElectionKey ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> BakerId
+    -> BakerElectionVerifyKey
+    -> Proofs.Dlog25519Proof
+    -> m (Maybe TransactionSummary)
+handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy Cost.updateBakerElectionKey
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      getBakerInfo ubekId >>= \case
+        Nothing ->
+          return $! (TxReject (UpdatingNonExistentBaker ubekId), energyCost, usedEnergy)
+        Just binfo ->
+          -- The transaction to update the election key of the baker must come
+          -- from the account of the baker
+          if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+            -- check that the baker supplied a valid proof of knowledge of the election key
+            let challenge = S.runPut (S.put ubekId <> S.put ubekKey)
+                keyProof = checkElectionKeyProof challenge ubekKey ubekProof
+            in if keyProof then return $! (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
+            else return $! (TxReject InvalidProof, energyCost, usedEnergy)
+          else
+            return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+
 
 -- * Exposed methods.
 
