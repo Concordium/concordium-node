@@ -1055,7 +1055,9 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
             -- check that the baker supplied a valid proof of knowledge of the election key
             let challenge = S.runPut (S.put ubekId <> S.put ubekKey)
                 keyProof = checkElectionKeyProof challenge ubekKey ubekProof
-            in if keyProof then return $! (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
+            in if keyProof then do
+              updateBakerElectionKey ubekId ubekKey
+              return $! (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
             else return $! (TxReject InvalidProof, energyCost, usedEnergy)
           else
             return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
