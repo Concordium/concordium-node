@@ -265,7 +265,11 @@ addBlock block = do
                 -- inherits the last finalized pointer from the parent.
                 NoFinalizationData -> tryAddParentLastFin parentP =<< bpLastFinalized parentP
                 -- If the block contains a finalization record...
-                BlockFinalizationData finRec@FinalizationRecord{..} -> do
+                BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
+                    -- Get whichever block was finalized at the previous index.
+                    -- We do this before calling finalization because there is a (slightly) greater
+                    -- chance that this is the last finalized block, which saves a DB lookup.
+                    previousFinalized <- fmap finalizationBlockPointer <$> recordAtFinIndex (finalizationIndex - 1)
                     -- send it for finalization processing
                     finOK <- finalizationReceiveRecord True finRec >>= \case
                         ResultSuccess ->
@@ -286,17 +290,15 @@ addBlock block = do
                                 _ -> return False
                         ResultDuplicate -> return True
                         _ -> return False
-                    check finOK $ do
-                        -- check that the finalized block at the previous index
-                        -- is the last finalized block of the parent
-                        previousFinalized <- blockAtFinIndex (finalizationIndex - 1)
-                        check ((bpHash <$> previousFinalized) == Just (bpLastFinalizedHash parentP)) $
-                            -- Check that the finalized block at the given index
-                            -- is actually the one named in the finalization record.
-                            blockAtFinIndex finalizationIndex >>= \case
-                                Just fbp -> check (bpHash fbp == finalizationBlockPointer) $
-                                              tryAddParentLastFin parentP fbp
-                                Nothing -> invalidBlock
+                    -- check that the finalized block at the previous index
+                    -- is the last finalized block of the parent
+                    check (finOK && previousFinalized == Just (bpLastFinalizedHash  parentP)) $
+                        -- Check that the finalized block at the given index
+                        -- is actually the one named in the finalization record.
+                        blockAtFinIndex finalizationIndex >>= \case
+                            Just fbp -> check (bpHash fbp == finBP) $
+                                            tryAddParentLastFin parentP fbp
+                            Nothing -> invalidBlock
         tryAddParentLastFin :: BlockPointerType m -> BlockPointerType m -> m UpdateResult
         tryAddParentLastFin parentP lfBlockP =
             -- Check that the blockSlot is beyond the parent slot

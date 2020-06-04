@@ -46,6 +46,7 @@ module Concordium.Afgjort.CSS(
 ) where
 
 import Data.Map.Strict (Map)
+import Data.List(foldl')
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Control.Monad.State.Class
@@ -86,7 +87,7 @@ data CSSInstance = CSSInstance {
 
 type CoreSet = NominationSet
 
-data DoneReportingDetails sig = DoneReportingDetails !NominationSet sig
+data DoneReportingDetails sig = DoneReportingDetails !NominationSet !sig
     deriving (Show, Eq)
 
 -- | Invariant:
@@ -192,31 +193,21 @@ class (MonadState (CSSState sig) m, MonadReader CSSInstance m) => CSSMonad sig m
     waitThenFinishReporting :: m ()
 
 data CSSOutputEvent
-    = SendCSSMessage CSSMessage
-    | SelectCoreSet CoreSet
+    = SendCSSMessage !CSSMessage
+    | SelectCoreSet !CoreSet
     | WaitThenFinishReporting
 
 newtype CSS sig a = CSS {
     runCSS' :: RWS CSSInstance (Endo [CSSOutputEvent]) (CSSState sig) a
-} deriving (Functor, Applicative, Monad)
+} deriving (Functor, Applicative, Monad, MonadReader CSSInstance, MonadState (CSSState sig))
 
 {-# INLINE runCSS #-}
 runCSS :: CSS sig a -> CSSInstance -> CSSState sig -> (a, CSSState sig, [CSSOutputEvent])
 runCSS z i s = runRWS (runCSS' z) i s & _3 %~ (\(Endo f) -> f [])
 
-instance MonadState (CSSState sig) (CSS sig) where
-    get = CSS get
-    put = CSS . put
-    state = CSS . state
-
-instance MonadReader CSSInstance (CSS sig) where
-    ask = CSS ask
-    reader = CSS . reader
-    local f = CSS . local f . runCSS'
-
 instance CSSMonad sig (CSS sig) where
-    sendCSSMessage msg = CSS $ tell $ Endo (SendCSSMessage msg :)
-    selectCoreSet cs = CSS $ tell $ Endo (SelectCoreSet cs :)
+    sendCSSMessage !msg = CSS $ tell $ Endo (SendCSSMessage msg :)
+    selectCoreSet !cs = CSS $ tell $ Endo (SelectCoreSet cs :)
     waitThenFinishReporting = CSS $ tell $ Endo (WaitThenFinishReporting :)
 
 whenM :: (Monad m) => m Bool -> m () -> m ()
@@ -344,10 +335,10 @@ handleDoneReporting party ((s, c) : remainder, drd) = do
             Just l -> Just (Map.insert party (remainder, drd) l)
 
 data CSSSummary sig = CSSSummary {
-    summaryInputsTop :: Map Party sig,
-    summaryInputsBot :: Map Party sig,
-    summarySeen :: Map Party [(NominationSet, sig)],
-    summaryDoneReporting :: Map Party (DoneReportingDetails sig)
+    summaryInputsTop :: !(Map Party sig),
+    summaryInputsBot :: !(Map Party sig),
+    summarySeen :: !(Map Party [(NominationSet, sig)]),
+    summaryDoneReporting :: !(Map Party (DoneReportingDetails sig))
 }
 
 cssSummary :: SimpleGetter (CSSState sig) (CSSSummary sig)
@@ -399,7 +390,7 @@ cssSummaryCheckComplete CSSSummary{..} CSSInstance{..} checkSig = doneRepWeight 
                     (preCheckBot1, botChecked) = checkInps (nomBot ns) preCheckBot summaryInputsBot False
                 in if topChecked then
                     if botChecked then
-                        let partySeen = foldr unionNominationSet emptyNominationSet $
+                        let partySeen = foldl' unionNominationSet emptyNominationSet $
                                 fst <$> filter (\(sns, ssig) -> checkSig party (Seen sns) ssig) (summarySeen ^. at party . non [])
                         in if ns `subsumedBy` partySeen then
                             checkDoneReps preCheckTop1 preCheckBot1 (partyWeight party + drWeight) rest
@@ -427,7 +418,7 @@ cssSummaryIsBehind st CSSSummary{..} = inTopBehind || inBotBehind || seenBehind 
     where
         inTopBehind = any (`Map.notMember` summaryInputsTop) (Map.keys $ st ^. input True)
         inBotBehind = any (`Map.notMember` summaryInputsBot) (Map.keys $ st ^. input False)
-        totalSaw l = foldr unionNominationSet emptyNominationSet (fst <$> l)
+        totalSaw l = foldl' unionNominationSet emptyNominationSet (fst <$> l)
         notCovered (party, l) = not (totalSaw l `subsumedBy` totalSaw (Map.findWithDefault [] party summarySeen))
         seenBehind = any notCovered (Map.toList $ st ^. sawMessages)
         drMissing (party, drd) = Map.lookup party summaryDoneReporting /= Just drd

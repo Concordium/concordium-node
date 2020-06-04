@@ -31,6 +31,10 @@ pub type Delta = u64;
 ///
 /// The runtime will automatically be shutdown at program exit, or you can stop
 /// it earlier with `stop`.
+///
+/// If `rts_flags` doesn't contain `--install-signal-handlers` we explicitly
+/// set this to `no` to avoid the runtime consuming the signals before the outer
+/// rust part embedding the runtime.
 #[cfg(all(not(windows), feature = "profiling"))]
 pub fn start_haskell(
     heap: &str,
@@ -141,6 +145,13 @@ fn start_haskell_init(
         args.push("+RTS".to_owned())
     }
 
+    if rts_flags
+        .iter()
+        .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+    {
+        args.push("--install-signal-handlers=no".to_owned());
+    }
+
     for flag in rts_flags {
         if !flag.trim().is_empty() {
             args.push(flag.to_owned());
@@ -176,11 +187,21 @@ fn start_haskell_init(rts_flags: &[String]) {
     let mut args = vec![program_name];
     if !rts_flags.is_empty() {
         args.push("+RTS".to_owned());
+        if rts_flags
+            .iter()
+            .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+        {
+            args.push("--install-signal-handlers=no".to_owned());
+        }
         for flag in rts_flags {
             if !flag.trim().is_empty() {
                 args.push(flag.to_owned());
             }
         }
+        args.push("-RTS".to_owned());
+    } else {
+        args.push("+RTS".to_owned());
+        args.push("--install-signal-handlers=no".to_owned());
         args.push("-RTS".to_owned());
     }
     let args = args

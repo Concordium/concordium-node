@@ -207,7 +207,7 @@ runTest firstBlocks
                 ) dummyHandlers fi2 fs2
         where receiveFM block ind res (fmId, _, SkovState TS.SkovData{..} FinalizationState{..} _ _) =
                 case _finsCurrentRound of
-                    Right FinalizationRound{..} ->
+                    ActiveCurrentRound FinalizationRound{..} ->
                         receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res
                     _ ->
                         fail "Finalizer should have active finalization round."
