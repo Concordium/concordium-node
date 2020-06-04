@@ -38,7 +38,7 @@ fi
 
 if [ -f /var/lib/concordium/data/node-dashboard-config.json ];
 then
-  cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/config.json
+  cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/assets/config.json
 fi
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
