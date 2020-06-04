@@ -29,6 +29,7 @@ if ! [ -f /var/lib/concordium/data/baker-credentials.json ];
 then
     su -s /bin/bash -c "/usr/local/bin/concordium-client baker generate-keys /var/lib/concordium/data/baker-credentials.json" -g docker docker
 fi
+export BAKER_CREDENTIALS_FILE_NAME="baker-credentials.json"
 
 if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
 then
