@@ -55,7 +55,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
-        (writeChan chan (MsgTransactionReceived $ runPut $ toPut t))
+        (writeChan chan (MsgTransactionReceived $ encode $ wmdData t))
         -- r <- randomRIO (5000, 15000)
         threadDelay 200000
         sendTransactions bakerId chan ts
