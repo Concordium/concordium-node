@@ -85,6 +85,11 @@ transactionHelper t =
       let challenge = runPut (put bid <> put publicKey)
           proof = Bls.proveKnowledgeOfSK challenge secretKey
       in return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAggregationVerifyKey bid publicKey proof))
+    (TJSON meta (UpdateBakerElectionKey bid sk pk) keys) ->
+      let challenge = runPut (put bid <> put pk)
+      in do
+        Just ubekProof <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair sk pk)
+        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerElectionKey bid pk ubekProof))
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -157,6 +162,11 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      ubavkId :: !BakerId,
                      ubavkKey :: !BakerAggregationVerifyKey,
                      ubavkPrivateKey :: !BakerAggregationPrivateKey
+                     }
+                 | UpdateBakerElectionKey {
+                     ubekId :: !BakerId,
+                     ubekSecretKey :: !VRF.SecretKey,
+                     ubekPublicKey :: !VRF.PublicKey
                      }
                  deriving(Show, Generic)
 

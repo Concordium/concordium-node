@@ -32,6 +32,8 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
+import Debug.Trace
+
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
@@ -157,9 +159,25 @@ transactionsInput =
            , metadata = makeDummyHeader alesAccount 11 10000
            , keypair = alesKP
            },
-     -- Update baker1 (id 3) aggregation key to be the same as the one baker0 just changed to
+     -- Update baker1 (id 3) aggregation key to be the same as the one baker0 just changed to, SHOULD FAIL
      TJSON { payload = UpdateBakerAggregationVerifyKey 3 (Bls.derivePublicKey $ bakerAggregationKey 42) (bakerAggregationKey 42)
            , metadata = makeDummyHeader alesAccount 12 10000
+           , keypair = alesKP
+           },
+     -- Update election key of baker1 at bakerId 3 to be that of baker3
+     TJSON { payload = UpdateBakerElectionKey 3 (baker3 ^. _2) (VRF.pubKey $ baker3 ^. _2)
+           , metadata = makeDummyHeader alesAccount 13 10000
+           , keypair = alesKP
+           },
+     -- Update election key of baker1 at bakerId 3 using the wrong account, SHOULD FAIL
+     TJSON { payload = UpdateBakerElectionKey 3 (baker3 ^. _2) (VRF.pubKey $ baker3 ^. _2)
+           , metadata = makeDummyHeader thomasAccount 2 10000
+           , keypair = thomasKP
+           },
+     -- Update election key of baker1 at bakerId 3 using the wrong secret key to create
+     -- the proof of knowledge. SHOULD FAIL
+     TJSON { payload = UpdateBakerElectionKey 3 (baker3 ^. _2) (VRF.pubKey $ baker2 ^. _2)
+           , metadata = makeDummyHeader alesAccount 14 10000
            , keypair = alesKP
            }
     ]
@@ -280,4 +298,30 @@ tests = do
                 b0_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3
             in b0_bps11 ^. bakerSignatureVerifyKey == b0_bps12 ^. bakerSignatureVerifyKey
               && duplicated == (Bls.derivePublicKey $ bakerAggregationKey 42)
+        _ -> False
+
+    specify "Update first baker's election key" $
+      case (results !! 12, results !! 13) of
+        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], bps13)) ->
+            let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3
+                b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3
+            in
+               b3_bps12 ^. bakerElectionVerifyKey /= b3_bps13 ^. bakerElectionVerifyKey &&
+               k == (VRF.pubKey $ baker3 ^. _2)
+        _ -> False
+
+    specify "Fail to update first baker's election key using wrong account" $
+      case (results !! 13, results !! 14) of
+        ((_,_, bps13), ([(_, Types.TxReject (Types.NotFromBakerAccount thomasAccount alesAccount))], [], bps14)) ->
+            let b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3
+                b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3
+            in b3_bps13 ^. bakerElectionVerifyKey == b3_bps14 ^. bakerElectionVerifyKey
+        _ -> False
+
+    specify "Fail to update first baker's election key using wrong private key for proof" $
+      case (results !! 14, results !! 15) of
+        ((_,_, bps14), ([(_,Types.TxReject Types.InvalidProof)], [], bps15)) ->
+            let b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3
+                b3_bps15 = (bps15 ^. birkCurrentBakers . bakerMap) Map.! 3
+            in b3_bps14 ^. bakerElectionVerifyKey == b3_bps15 ^. bakerElectionVerifyKey
         _ -> False
