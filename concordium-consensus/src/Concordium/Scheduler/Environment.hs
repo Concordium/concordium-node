@@ -37,10 +37,10 @@ data EnergyLimitReason = BlockEnergy | TransactionEnergy
 emptySpecialBetaAccounts :: SpecialBetaAccounts
 emptySpecialBetaAccounts = Set.empty
 
--- |A class to convert to and from Energy used by the scheduler.
--- The functions should satisfy
+-- |A class to convert to and from 'Energy' used by the scheduler.
+-- The function should satisfy
 --
---   * toEnergy (fromEnergy x) <= x
+--   * @toEnergy (fromEnergy x) <= x@
 class ResourceMeasure a where
   toEnergy :: a -> Energy
   fromEnergy :: Energy -> a
@@ -284,8 +284,8 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- This charges for the size of the linked expression. The linker is run with the current remaining
   -- energy, and if that is not sufficient to pay for the size of the resulting expression, it will
   -- abort when this limit is reached, and this function will reject the transaction with 'OutOfEnergy'
-  -- outOfBlockEnergy.
-  -- The expression is part of the given module
+  -- or outOfBlockEnergy.
+  -- The expression is part of the given module.
   linkExpr :: Core.ModuleRef -> (UnlinkedExpr NoAnnot, UnlinkedTermSize) -> m (LinkedExpr NoAnnot)
 
   -- |Link a contract's init, receive methods and implemented constraints.
@@ -732,15 +732,19 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
--- |Call an external method that can fail with out of energy.
+-- |Call an external method that can fail with running out of energy.
 -- Depending on what is the current limit, either remaining transaction energy,
 -- or remaining block energy, this function will report the appropriate failure.
--- 
--- This function takes an action that should return __how much energy was used__.
--- The action should always satisfy that the returned energy is <= given energy,
--- however this is not necessary for the correctness of this function. In the case
--- where the returned energy exceeds remaining energy this function will
--- return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
+--
+-- This function takes an action that:
+--
+-- * Takes a 'ResourceMeasure' to which the remaining energy should be converted.
+-- * Should return __how much of the 'ResourceMeasure' was used__ (which is then converted
+--   back to 'Energy'), or 'Nothing' to signal failure because of running out of the 'ResourceMeasure'.
+-- * Should satisfy that the returned energy is <= given energy, even though
+--   this is not necessary for the correctness of this function. In the case
+--   where the returned energy exceeds remaining energy this function will
+--   return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
 withExternal :: (ResourceMeasure r, TransactionMonad m) => (r ->  m (Maybe (a, r))) -> m a
 withExternal f = do
   (availableEnergy, reason) <- getEnergy
