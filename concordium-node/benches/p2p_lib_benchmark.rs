@@ -54,6 +54,12 @@ macro_rules! dedup_bench {
                     queue.push(msg_hash);
                 }
 
+                if MSG_SIZE > 4_000_000 {
+                    group.measurement_time(  Duration::from_secs( 240) );
+                } else if MSG_SIZE > 1_000_000 {
+                    group.measurement_time(  Duration::from_secs( 60) );
+                }
+
                 group.throughput(Throughput::Elements(size as u64));
                 group.bench_function(BenchmarkId::from_parameter(size), |b| {
                     b.iter(|| {
@@ -79,6 +85,7 @@ mod dedup {
     use digest::Digest;
     use sha2::Sha256;
     use twox_hash::XxHash64;
+    use std::time::Duration;
 
     dedup_bench!(small_bench_dedup_xxhash64, XxHash64, "XxHash64", 8, 250);
     dedup_bench!(small_bench_dedup_sha256, Sha256, "SHA256", 32, 250);
