@@ -37,8 +37,17 @@ newtype BlobRef a = BlobRef Word64
 instance Show (BlobRef a) where
     show (BlobRef v) = '@' : show v
 
+data BlobHandle = BlobHandle{
+  -- |File handle that should be opened in read/write mode.
+  bhHandle :: !Handle,
+  -- |Whether we are already at the end of the file, to avoid the need to seek on writes.
+  bhAtEnd :: !Bool,
+  -- |Current size of the file.
+  bhSize :: !Int
+  }
+
 data BlobStore = BlobStore {
-    blobStoreFile :: !(MVar Handle),
+    blobStoreFile :: !(MVar BlobHandle),
     blobStoreFilePath :: !FilePath
 }
 
@@ -54,37 +63,37 @@ createBlobStore :: FilePath -> IO BlobStore
 createBlobStore blobStoreFilePath = do
     pathEx <- doesPathExist blobStoreFilePath
     when pathEx $ throwIO (userError $ "Blob store path already exists: " ++ blobStoreFilePath)
-    h <- openBinaryFile blobStoreFilePath ReadWriteMode
-    blobStoreFile <- newMVar h
+    bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
+    blobStoreFile <- newMVar BlobHandle{bhSize=0, bhAtEnd=True,..}
     return BlobStore{..}
 
 -- |Load an existing blob store from a file.
 -- The file must be readable and writable, but this is not checked here.
 loadBlobStore :: FilePath -> IO BlobStore
 loadBlobStore blobStoreFilePath = do
-  h <- openBinaryFile blobStoreFilePath ReadWriteMode
-  blobStoreFile <- newMVar h
+  bhHandle <- openBinaryFile blobStoreFilePath ReadWriteMode
+  bhSize <- fromIntegral <$> hFileSize bhHandle
+  blobStoreFile <- newMVar BlobHandle{bhAtEnd=bhSize==0,..}
   return BlobStore{..}
 
 -- |Flush all buffers associated with the blob store,
 -- ensuring all the contents is written out.
 flushBlobStore :: BlobStore -> IO ()
 flushBlobStore BlobStore{..} =
-    withMVar blobStoreFile hFlush
+    withMVar blobStoreFile (hFlush . bhHandle)
 
 -- |Close all references to the blob store, flushing it
 -- in the process.
 closeBlobStore :: BlobStore -> IO ()
 closeBlobStore BlobStore{..} = do
-    h <- takeMVar blobStoreFile
-    hClose h
+    BlobHandle{..} <- takeMVar blobStoreFile
+    hClose bhHandle
 
 -- |Close all references to the blob store and delete the backing file.
 
 destroyBlobStore :: BlobStore -> IO ()
-destroyBlobStore BlobStore{..} = do
-    h <- takeMVar blobStoreFile
-    hClose h
+destroyBlobStore bs@BlobStore{..} = do
+    closeBlobStore bs
     removeFile blobStoreFilePath
 
 -- |Run a computation with temporary access to the blob store.
@@ -99,21 +108,24 @@ runBlobStoreTemp dir a = bracket openf closef usef
             hClose h
             removeFile tempFP
         usef (fp, h) = do
-            mv <- newMVar h
+            mv <- newMVar (BlobHandle h True 0)
             res <- runReaderT a (BlobStore mv fp)
             _ <- takeMVar mv
             return res
 
 readBlobBS :: BlobStore -> BlobRef a -> IO BS.ByteString
-readBlobBS BlobStore{..} (BlobRef offset) = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
-        hSeek h AbsoluteSeek (fromIntegral offset)
-        esize <- decode <$> BS.hGet h 8
-        case esize :: Either String Word64 of
-            Left e -> error e
-            Right size -> do
-                bs <- BS.hGet h (fromIntegral size)
-                putMVar blobStoreFile h
-                return bs
+readBlobBS BlobStore{..} (BlobRef offset) = mask $ \restore -> do
+        bh@BlobHandle{..} <- takeMVar blobStoreFile
+        eres <- try $ restore $ do
+            hSeek bhHandle AbsoluteSeek (fromIntegral offset)
+            esize <- decode <$> BS.hGet bhHandle 8
+            case esize :: Either String Word64 of
+                Left e -> error e
+                Right size -> BS.hGet bhHandle (fromIntegral size)
+        putMVar blobStoreFile bh{bhAtEnd=False}
+        case eres :: Either SomeException BS.ByteString of
+            Left e -> throwIO e
+            Right bs -> return bs
 
 readBlob :: (Serialize a) => BlobStore -> BlobRef a -> IO a
 readBlob bstore ref = do
@@ -123,13 +135,21 @@ readBlob bstore ref = do
             Right v -> return v
 
 writeBlobBS :: BlobStore -> BS.ByteString -> IO (BlobRef a)
-writeBlobBS BlobStore{..} bs = bracketOnError (takeMVar blobStoreFile) (tryPutMVar blobStoreFile) $ \h -> do
-        hSeek h SeekFromEnd 0
-        offset <- fromIntegral <$> hTell h
-        BS.hPut h size
-        BS.hPut h bs
-        putMVar blobStoreFile h
-        return (BlobRef offset)
+writeBlobBS BlobStore{..} bs = mask $ \restore -> do
+        bh@BlobHandle{bhHandle=writeHandle,bhAtEnd=atEnd} <- takeMVar blobStoreFile
+        eres <- try $ restore $ do
+            unless atEnd (hSeek writeHandle SeekFromEnd 0)
+            BS.hPut writeHandle size
+            BS.hPut writeHandle bs
+        case eres :: Either SomeException () of
+            Left e -> do
+                -- In case of an exception, query for the size and assume we are not at the end.
+                fSize <- hFileSize writeHandle
+                putMVar blobStoreFile bh{bhSize = fromInteger fSize, bhAtEnd=False}
+                throwIO e
+            Right _ -> do
+                putMVar blobStoreFile bh{bhSize = bhSize bh + 8 + BS.length bs, bhAtEnd=True}
+                return (BlobRef (fromIntegral (bhSize bh)))
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
@@ -258,7 +278,7 @@ instance (BlobStorable m BlobRef a, MonadIO m) => BlobStorable m BlobRef (Buffer
         if isNull r
         then do
             (r' :: BlobRef a, v') <- storeUpdateRef v
-            liftIO $ writeIORef ref r'
+            liftIO . writeIORef ref $! r'
             (,BRMemory ref v') <$> store p r'
         else (,brm) <$> store p brm
     storeUpdate p x = (,x) <$> store p x
@@ -270,7 +290,7 @@ getBRRef (BRMemory ref v) = do
     if isNull r
     then do
         (r' :: BlobRef a) <- storeRef v
-        liftIO $ writeIORef ref r'
+        liftIO . writeIORef ref $! r'
         return r'
     else
         return r
@@ -320,7 +340,7 @@ flushBufferedRef brm@(BRMemory ref v) = do
     if isNull r
     then do
         (r' :: BlobRef a, v') <- storeUpdateRef v
-        liftIO $ writeIORef ref r'
+        liftIO . writeIORef ref $! r'
         return (BRMemory ref v', r')
     else
         return (brm, r)
@@ -438,7 +458,7 @@ getBBRef p v@(LBMemory ref _) = do
             rm <- liftIO $ readIORef ref'
             if (isNull rm)
             then do
-                r <- storeRef (cachedBlob <$> t')
+                !r <- storeRef (cachedBlob <$> t')
                 liftIO $ writeIORef ref' (Blobbed r)
                 return (put r, CBCached (Blobbed r) t')
             else storeUpdate p (CBCached rm t')

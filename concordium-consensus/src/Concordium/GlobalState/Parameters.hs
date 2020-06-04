@@ -80,19 +80,19 @@ instance FromJSON FinalizationParameters where
         return FinalizationParameters{..}
 
 data GenesisData = GenesisData {
-    genesisTime :: Timestamp,
-    genesisSlotDuration :: Duration,
-    genesisBakers :: Bakers,
-    genesisSeedState :: SeedState.SeedState,
-    genesisElectionDifficulty :: ElectionDifficulty,
-    genesisAccounts :: [Account],
+    genesisTime :: !Timestamp,
+    genesisSlotDuration :: !Duration,
+    genesisBakers :: !Bakers,
+    genesisSeedState :: !SeedState.SeedState,
+    genesisElectionDifficulty :: !ElectionDifficulty,
+    genesisAccounts :: ![Account],
     -- |Special accounts that will have additional rights initially.
-    genesisControlAccounts :: [Account],
-    genesisFinalizationParameters :: FinalizationParameters,
-    genesisCryptographicParameters :: CryptographicParameters,
-    genesisIdentityProviders :: [IpInfo],
-    genesisMintPerSlot :: Amount,
-    genesisMaxBlockEnergy :: Energy
+    genesisControlAccounts :: ![Account],
+    genesisFinalizationParameters :: !FinalizationParameters,
+    genesisCryptographicParameters :: !CryptographicParameters,
+    genesisIdentityProviders :: ![IpInfo],
+    genesisMintPerSlot :: !Amount,
+    genesisMaxBlockEnergy :: !Energy
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where

@@ -11,41 +11,41 @@ emaWeight = 0.1
 -- |Statistics for the consensus layer
 data ConsensusStatistics = ConsensusStatistics {
     -- |Total number of blocks received
-    _blocksReceivedCount :: Int,
+    _blocksReceivedCount :: !Int,
     -- |Total number of blocks received and verified
-    _blocksVerifiedCount :: Int,
+    _blocksVerifiedCount :: !Int,
     -- |The last time a block was received
-    _blockLastReceived :: Maybe UTCTime,
+    _blockLastReceived :: !(Maybe UTCTime),
     -- |Moving average latency between a block's slot time and received time
-    _blockReceiveLatencyEMA :: Double,
+    _blockReceiveLatencyEMA :: !Double,
     -- |Variance of '_blockReceiveLatencyEMA'
-    _blockReceiveLatencyEMVar :: Double,
+    _blockReceiveLatencyEMVar :: !Double,
     -- |Moving average time between receiving blocks
-    _blockReceivePeriodEMA :: Maybe Double,
+    _blockReceivePeriodEMA :: !(Maybe Double),
     -- |Variance of '_blockReceivePeriodEMA'
-    _blockReceivePeriodEMVar :: Maybe Double,
+    _blockReceivePeriodEMVar :: !(Maybe Double),
     -- |The last time a block was verified (added to the tree)
-    _blockLastArrive :: Maybe UTCTime,
+    _blockLastArrive :: !(Maybe UTCTime),
     -- |Moving average latency between a block's slot time and its arrival
-    _blockArriveLatencyEMA :: Double,
+    _blockArriveLatencyEMA :: !Double,
     -- |Variance of '_blockArriveLatencyEMA'
-    _blockArriveLatencyEMVar :: Double,
+    _blockArriveLatencyEMVar :: !Double,
     -- |Moving average time between block arrivals
-    _blockArrivePeriodEMA :: Maybe Double,
+    _blockArrivePeriodEMA :: !(Maybe Double),
     -- |Variance of '_blockArrivePeriodEMA'
-    _blockArrivePeriodEMVar :: Maybe Double,
+    _blockArrivePeriodEMVar :: !(Maybe Double),
     -- |Moving average transactions per block
-    _transactionsPerBlockEMA :: Double,
+    _transactionsPerBlockEMA :: !Double,
     -- |Variance of '_transactionsPerBlockEMA'
-    _transactionsPerBlockEMVar :: Double,
+    _transactionsPerBlockEMVar :: !Double,
     -- |Number of finalizations
-    _finalizationCount :: Int,
+    _finalizationCount :: !Int,
     -- |Time of last verified finalization
-    _lastFinalizedTime :: Maybe UTCTime,
+    _lastFinalizedTime :: !(Maybe UTCTime),
     -- |Moving average time between finalizations
-    _finalizationPeriodEMA :: Maybe Double,
+    _finalizationPeriodEMA :: !(Maybe Double),
     -- |Variance of _finalizationPeriodEMA
-    _finalizationPeriodEMVar :: Maybe Double
+    _finalizationPeriodEMVar :: !(Maybe Double)
 }
 makeLenses ''ConsensusStatistics
 
