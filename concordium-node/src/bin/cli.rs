@@ -126,6 +126,7 @@ async fn main() -> Fallible<()> {
         String::new()
     };
 
+    info!("Starting consensus layer");
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         gen_data,
@@ -142,6 +143,7 @@ async fn main() -> Fallible<()> {
         &data_dir_path,
         &consensus_database_url,
     )?;
+    info!("Consensus layer started");
 
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
@@ -154,7 +156,9 @@ async fn main() -> Fallible<()> {
     };
 
     if let Some(ref import_path) = conf.cli.baker.import_path {
+        info!("Starting out of band catch-up");
         consensus.import_blocks(import_path.as_bytes());
+        info!("Completed out of band catch-up");
     }
 
     // Consensus queue threads
