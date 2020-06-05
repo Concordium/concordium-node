@@ -1,0 +1,25 @@
+module ReceiveContextTest where
+
+import Prod
+import Maybe
+import Prim
+import Blockchain
+import Unit
+
+data Model = Model [{address}, <address>, Amount]
+
+contract Simple where
+
+  -- construct a dummy initial model.
+  init (ia :: <address>) (c :: Blockchain.InitContext) (amount :: Amount) =
+    let origin :: {address} = Blockchain.initOrigin c in
+    Model origin ia amount
+
+  -- return a new model which contains the receive context we were called in
+  receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
+    let pair :: Model -> Prim.Transaction -> Prod.Pair Model Prim.Transaction = Prod.Pair [Model,Prim.Transaction] in
+    let origin :: {address} = Blockchain.receiveOrigin c in
+    let selfAddress :: <address> = Blockchain.receiveSelfAddress c in
+    let selfBalance :: Amount = Blockchain.receiveSelfBalance c in
+    let newModel :: Model = Model origin selfAddress selfBalance in
+    pair newModel Prim.TxNone
