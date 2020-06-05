@@ -25,11 +25,11 @@ chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
 su -s /bin/bash -c "/usr/local/bin/concordium-client --config /var/lib/concordium/config config init" -g docker docker
 
-if ! [ -f /var/lib/concordium/data/baker-credentials.json ];
+export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
+if ! [ -f "/var/lib/concordium/data/$BAKER_CREDENTIALS_FILENAME" ];
 then
     su -s /bin/bash -c "/usr/local/bin/concordium-client baker generate-keys /var/lib/concordium/data/baker-credentials.json" -g docker docker
 fi
-export BAKER_CREDENTIALS_FILE_NAME="baker-credentials.json"
 
 if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
 then
@@ -40,5 +40,8 @@ if [ -f /var/lib/concordium/data/node-dashboard-config.json ];
 then
   cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/assets/config.json
 fi
+
+# Re-export the proper environment variable for the middleware, as it uses its own naming it seems
+export CFG_DIR=$CONFIG_DIR
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
