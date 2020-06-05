@@ -98,7 +98,7 @@ def pairAddrInt = Prod.Pair [{address}, Int64]
 
 contract Counter where
 
-  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (amount :: Amount) =
     let fst :: Prod.Pair Int64 <address> -> Int64 = Prod.fst [Int64, <address>] in
     let snd :: Prod.Pair Int64 <address> -> <address> = Prod.snd [Int64, <address>] in
     let initAmount :: Int64 = fst ia in
@@ -139,7 +139,7 @@ contract Counter where
 
 contract Recorder where
 
-  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (amount :: Amount) =
       let empty :: Map.Map {address} Int64 = AccountAddressMap.empty [Int64] in
       ModelRec empty
 
