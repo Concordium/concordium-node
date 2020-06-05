@@ -76,7 +76,10 @@ pub fn start_consensus_layer(
 }
 
 /// Stop consensus container
-pub fn stop_consensus_layer(container: ConsensusContainer) { container.stop(); }
+pub fn stop_consensus_layer(container: ConsensusContainer) {
+    container.stop();
+    consensus_rust::ffi::stop_haskell();
+}
 
 /// Obtains the genesis data and baker's private data.
 pub fn get_baker_data(
