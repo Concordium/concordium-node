@@ -154,7 +154,9 @@ async fn main() -> Fallible<()> {
     };
 
     if let Some(ref import_path) = conf.cli.baker.import_path {
+        info!("Starting out of band catch-up");
         consensus.import_blocks(import_path.as_bytes());
+        info!("Completed out of band catch-up");
     }
 
     // Consensus queue threads
