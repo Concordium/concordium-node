@@ -5,6 +5,7 @@ import Maybe
 import Prim
 import Blockchain
 import Unit
+import Helpers
 
 data Model = Model [Word64, Word64, Word64]
 
@@ -18,5 +19,6 @@ contract Simple where
     Model sn bh fh
 
   receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
-    let pair :: Model -> Prim.Transaction -> Prod.Pair Model Prim.Transaction = Prod.Pair [Model,Prim.Transaction]
-    in pair model Prim.TxNone
+    let accept' :: Model -> Maybe.Maybe (Prod.Pair Model Prim.Transaction) = Helpers.accept [Model] in
+    accept' model
+
