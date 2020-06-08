@@ -25,7 +25,7 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.Types
 import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
-import Acorn.Types (linkWithMaxSize)
+import Acorn.Types (linkExprWithMaxSize)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
@@ -317,7 +317,7 @@ doLinkContract pbs mref m cname = do
             _ <- doPutLinkedContract pbs mref cname linked
             return linked
     where
-        myLink ule = (_1 %~ leExpr) . fromJust <$> linkWithMaxSize mref ule maxBound
+        myLink ule = fromJust <$> linkExprWithMaxSize mref ule maxBound
 
 fromPersistentInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
     PersistentBlockState -> Instances.PersistentInstance -> m Instance
@@ -434,12 +434,12 @@ doPutLinkedContract pbs modRef n !lc = do
 doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m PersistentBirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
-doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Either BakerId BakerError, PersistentBlockState)
+doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Either BakerError BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
         case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
-            Right err -> return $! (Right err, pbs)
-            Left (bid, newBakers) -> (Left bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
+            Left err -> return (Left err, pbs)
+            Right (bid, newBakers) -> (Right bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
