@@ -261,8 +261,9 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
 
 testGroups :: [[TransactionJSON]] -> PR.Context UA IO TestResult
 testGroups groups = do
-    source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
-    (_, _) <- PR.processModule source
+    let file = "test/contracts/FibContract.acorn"
+    source <- liftIO $ TIO.readFile file
+    (_, _) <- PR.processModule file source
     -- NOTE Checks should also succeed if arrival time is not 0 for all;
     -- It is only required that the order of 'ts' corresponds to the order in 'groups'.
     ts <- processGroupedTransactions groups

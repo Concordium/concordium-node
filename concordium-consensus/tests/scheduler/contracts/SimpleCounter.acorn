@@ -18,7 +18,7 @@ contract Counter where
   init (ia :: Int64) (c :: Prim.InitContext) (amount :: Amount) =
     ia
 
-  receive (c :: Prim.ReceiveContext) (model :: Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
+  receive (c :: Prim.ReceiveContext) (model :: Int64) (msg :: Maybe.Maybe MsgCnt) =
     case msg of
       Maybe.Nothing -> mkReturn model
       Maybe.Just (msg' :: MsgCnt) ->
