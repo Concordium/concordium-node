@@ -297,7 +297,7 @@ tests =
                     where mkExpected [] ev ei eu = (reverse ev, reverse ei, reverse eu)
                           mkExpected ((t, expectedRes):rest) ev ei eu =
                             case expectedRes of
-                              Added -> mkExpected rest ((Types.NormalTransaction <$> t):ev) ei eu
+                              Added -> mkExpected rest ((Types.normalTransaction t):ev) ei eu
                               Failed fk -> mkExpected rest ev ((t, fk):ei) eu
                               Unprocessed -> mkExpected rest ev ei (t:eu)
 
@@ -319,7 +319,7 @@ tests =
                               case expectedRes of
                                 -- NOTE: With a custom expectation could print list of
                                 -- invalid/unproc in case of failure.
-                                Added -> (Types.NormalTransaction <$> t) `elem` validTs
+                                Added -> (Types.normalTransaction t) `elem` validTs
                                 Failed fk -> (t, fk) `elem` invalid
                                 Unprocessed -> t `elem` unproc
                           ) $
