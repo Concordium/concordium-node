@@ -244,8 +244,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoAddBaker bs binfo = return $!
         case createBaker binfo (bs ^. blockBirkParameters . birkCurrentBakers) of
-          Left (bid, newBakers) -> (Left bid, bs & blockBirkParameters . birkCurrentBakers .~ newBakers)
-          Right err -> (Right err, bs)
+          Right (bid, newBakers) -> (Right bid, bs & blockBirkParameters . birkCurrentBakers .~ newBakers)
+          Left err -> (Left err, bs)
 
     -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
     bsoUpdateBaker bs bupdate = return $!
