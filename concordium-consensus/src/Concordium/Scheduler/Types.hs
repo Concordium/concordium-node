@@ -11,7 +11,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    IdentityProviderIdentity,
                                    ReceiveContext(..),
                                    InitContext(..),
-                                   linkWithMaxSize,
+                                   linkExprWithMaxSize,
                                    Core.NoAnnot) where
 
 import Prelude hiding(fail)
@@ -28,7 +28,7 @@ import Concordium.GlobalState.IdentityProviders
 
 import Concordium.ID.Types(IdentityProviderIdentity)
 
-import Acorn.Types(ReceiveContext(..), InitContext(..), linkWithMaxSize)
+import Acorn.Types(ReceiveContext(..), InitContext(..), linkExprWithMaxSize)
 import qualified Acorn.Core as Core
 
 type Value = Interfaces.Value Core.NoAnnot

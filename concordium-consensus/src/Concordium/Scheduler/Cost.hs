@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingVia #-}
 {-|
 Definition of cost functions for the different transactions.
 
@@ -7,22 +8,25 @@ module Concordium.Scheduler.Cost where
 
 import Data.Word
 
-import Concordium.Scheduler.Types
+import Acorn.Types
 
+-- |A newtype wrapper around ByteSize to be able to charge for lookup differently
+newtype LookupByteSize = LookupByteSize ByteSize
+    deriving(Eq, Show, Ord, Num, Real, Enum, Integral) via ByteSize
 
 -- * Cost factors
 
 -- | The amount of interpreter energy corresponding to one unit of energy.
-interpreterEnergy :: Energy
-interpreterEnergy = 1000
+interpreterEnergyFactor :: InterpreterEnergy
+interpreterEnergyFactor = 1000
 
 -- | Convert an energy amount to interpreter energy.
-toInterpreterEnergy :: Energy -> Energy
-toInterpreterEnergy = (* interpreterEnergy)
+toInterpreterEnergy :: Energy -> InterpreterEnergy
+toInterpreterEnergy = (* interpreterEnergyFactor) . fromIntegral
 
 -- | Convert interpreter energy to general energy (rounding down).
-fromInterpreterEnergy :: Energy -> Energy
-fromInterpreterEnergy = (`div` interpreterEnergy)
+fromInterpreterEnergy :: InterpreterEnergy -> Energy
+fromInterpreterEnergy = fromIntegral . (`div` interpreterEnergyFactor)
 
 
 -- * General cost
@@ -48,11 +52,11 @@ storeBytesPer100Byte :: Energy
 storeBytesPer100Byte = 50 -- NB: This number must be positive.
 
 -- | Cost for storing the given number of bytes. It is charged for every started 100 bytes.
-storeBytes :: Word64 -> Energy
+storeBytes :: ByteSize -> Energy
 storeBytes n = storeBytesBase + ((fromIntegral n + 99) `div` 100) * storeBytesPer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
-maxStorage :: Energy -> Word64
+maxStorage :: Energy -> ByteSize
 maxStorage e = if e < storeBytesBase then 0
                else fromIntegral $ ((e-storeBytesBase) * 100) `div` storeBytesPer100Byte
 
@@ -72,11 +76,11 @@ lookupBytesPer100Byte :: Energy
 lookupBytesPer100Byte = 3 -- NB: This number must be positive.
 
 -- | Cost for looking up the given number of bytes. It is charged for every started 100 bytes.
-lookupBytes :: Word64 -> Energy
+lookupBytes :: LookupByteSize -> Energy
 lookupBytes n = lookupBytesBase + ((fromIntegral n + 99) `div` 100) * lookupBytesPer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
-maxLookup :: Energy -> Word64
+maxLookup :: Energy -> LookupByteSize
 maxLookup e = if e < lookupBytesBase then 0
               else fromIntegral $ ((e-lookupBytesBase) * 100) `div` lookupBytesPer100Byte
 
@@ -113,19 +117,19 @@ typeCheck size = (fromIntegral size) * 3 -- TODO find factor
 -- NOTE: It might make sense to charge non-linearly, but this might incentivize
 -- deep dependencies which we might not want.
 lookupModule :: Word64 -> Energy
-lookupModule size = lookupBytes size
+lookupModule size = lookupBytes (fromIntegral size)
 
 -- | Cost for linking a term of resulting size 100 (as determined by 'linkWithMaxSize').
 linkPer100Size :: Energy
 linkPer100Size = 1
 
 -- | Cost for linking a term of the given resulting size (as determined by 'linkWithMaxSize').
-link :: Word64 -> Energy
+link :: LinkedTermSize -> Energy
 link size = ((fromIntegral size + 99) `div` 100) * linkPer100Size
 
 -- | For a given amount of energy, determine the maximum resulting size of a tearm that can be
 -- linked using that energy.
-maxLink :: Energy -> Word64
+maxLink :: Energy -> LinkedTermSize
 maxLink e = fromIntegral $ (e * 100) `div` linkPer100Size
 
 -- * Cost for individual transactions / actions
@@ -137,7 +141,7 @@ deployModule :: Word64 -> Energy
 deployModule size =
     typeCheck size
   -- As we store considerably more than the source of the module (also interfaces), we add a factor.
-  + storeBytes (2*size)
+  + storeBytes (2 * fromIntegral size)
 
 -- |Cost of type-checking and linking the parameters of the init method.
 -- Dependent on the serialized size of the parameters.
