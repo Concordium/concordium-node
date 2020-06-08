@@ -5,6 +5,7 @@ import Maybe
 import Prim
 import Blockchain
 import Unit
+import Helpers
 
 data Model = Model [{address}, <address>, Amount]
 
@@ -17,9 +18,10 @@ contract Simple where
 
   -- return a new model which contains the receive context we were called in
   receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
-    let pair :: Model -> Prim.Transaction -> Prod.Pair Model Prim.Transaction = Prod.Pair [Model,Prim.Transaction] in
     let origin :: {address} = Blockchain.receiveOrigin c in
     let selfAddress :: <address> = Blockchain.receiveSelfAddress c in
     let selfBalance :: Amount = Blockchain.receiveSelfBalance c in
     let newModel :: Model = Model origin selfAddress selfBalance in
-    pair newModel Prim.TxNone
+    let accept' :: Model -> Maybe.Maybe (Prod.Pair Model Prim.Transaction) = Helpers.accept [Model] in
+    accept' newModel
+
