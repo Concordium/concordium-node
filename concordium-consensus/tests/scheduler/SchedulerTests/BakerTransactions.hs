@@ -2,6 +2,7 @@
 module SchedulerTests.BakerTransactions where
 
 import Test.Hspec
+import Test.HUnit
 
 import qualified Data.Map as Map
 import qualified Data.HashSet as Set
@@ -238,46 +239,51 @@ tests = do
 
     specify "Readding removed baker shouldn't fail due to duplicated keys" $
       case results !! 7 of
-        ([(_,Types.TxSuccess [Types.BakerAdded 3])], [], bps7) ->
-            Map.keys (bps7 ^. birkCurrentBakers . bakerMap) == [0,2,3]
-        _ -> False
+        ([(_,Types.TxSuccess [Types.BakerAdded 3])], [], bps7) -> do
+            assertEqual "Baker ids" (Map.keys (bps7 ^. birkCurrentBakers . bakerMap)) [0,2,3]
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to update baker's signature key to a duplicate" $
       case (results !! 7, results !! 8) of
         ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) ->
             let b0_bps7 = (bps7 ^. birkCurrentBakers . bakerMap) Map.! 3
                 b0_bps8 = (bps8 ^. birkCurrentBakers . bakerMap) Map.! 3
-            in b0_bps7 ^. bakerSignatureVerifyKey == b0_bps8 ^. bakerSignatureVerifyKey
-              && duplicated == (baker2 ^. _1 . bakerSignatureVerifyKey)
-        _ -> False
+            in do
+              assertEqual "Unchanged signature key" (b0_bps7 ^. bakerSignatureVerifyKey) (b0_bps8 ^. bakerSignatureVerifyKey)
+              assertEqual "Duplicated signature key" duplicated (baker2 ^. _1 . bakerSignatureVerifyKey)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to add baker with duplicated signature key" $
       case (results !! 8, results !! 9) of
-        ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) ->
-            Map.keys (bps7 ^. birkCurrentBakers . bakerMap) == Map.keys (bps8 ^. birkCurrentBakers . bakerMap)
-              && duplicated == (baker2 ^. _1 . bakerSignatureVerifyKey)
-        _ -> False
+        ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) -> do
+            assertEqual "Unchanged bakers" (Map.keys (bps7 ^. birkCurrentBakers . bakerMap)) (Map.keys (bps8 ^. birkCurrentBakers . bakerMap))
+            assertEqual "Duplicated signature key" duplicated (baker2 ^. _1 . bakerSignatureVerifyKey)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Update first baker's aggregation key." $
       case (results !! 9, results !! 10) of
-        ((_, _, bps9), ([(_,Types.TxSuccess [Types.BakerAggregationKeyUpdated 0 k])], [], bps10)) ->
-          ((bps10 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerAggregationVerifyKey == (Bls.derivePublicKey $ bakerAggregationKey 42) &&
-          ((bps9 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerAggregationVerifyKey == baker0 ^. _1 ^. bakerAggregationVerifyKey &&
-          k == (Bls.derivePublicKey $ bakerAggregationKey 42)
-        _ -> False
+        ((_, _, bps9), ([(_,Types.TxSuccess [Types.BakerAggregationKeyUpdated 0 newKey])], [], bps10)) ->
+          let b0_bps9 = (bps9 ^. birkCurrentBakers . bakerMap) Map.! 0
+              b0_bps10 = (bps10 ^. birkCurrentBakers . bakerMap) Map.! 0
+          in do
+            assertEqual "Baker aggregation key after transaction" (b0_bps10 ^. bakerAggregationVerifyKey) (Bls.derivePublicKey $ bakerAggregationKey 42)
+            assertEqual "Baker aggregation key before transaction" (b0_bps9 ^. bakerAggregationVerifyKey) (baker0 ^. _1 ^. bakerAggregationVerifyKey)
+            assertEqual "Updated baker aggregation key" newKey (Bls.derivePublicKey $ bakerAggregationKey 42)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to add baker with duplicated aggregation key" $
       case (results !! 10, results !! 11) of
-        ((_,_, bps10), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps11)) ->
-            Map.keys (bps10 ^. birkCurrentBakers . bakerMap) == Map.keys (bps11 ^. birkCurrentBakers . bakerMap)
-              && duplicated == (baker2 ^. _1 . bakerAggregationVerifyKey)
-        _ -> False
+        ((_,_, bps10), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps11)) -> do
+            assertEqual "Baker ids unchanged" (Map.keys (bps10 ^. birkCurrentBakers . bakerMap)) (Map.keys (bps11 ^. birkCurrentBakers . bakerMap))
+            assertEqual "Duplicated aggregation key" duplicated (baker2 ^. _1 . bakerAggregationVerifyKey)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to update baker's aggregation key to a duplicate" $
       case (results !! 11, results !! 12) of
         ((_,_, bps11), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps12)) ->
             let b0_bps11 = (bps11 ^. birkCurrentBakers . bakerMap) Map.! 3
                 b0_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3
-            in b0_bps11 ^. bakerSignatureVerifyKey == b0_bps12 ^. bakerSignatureVerifyKey
-              && duplicated == (Bls.derivePublicKey $ bakerAggregationKey 42)
-        _ -> False
+            in do
+              assertEqual "Unchanged signature key" (b0_bps11 ^. bakerSignatureVerifyKey) (b0_bps12 ^. bakerSignatureVerifyKey)
+              assertEqual "Duplicated aggregation key" duplicated (Bls.derivePublicKey $ bakerAggregationKey 42)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
