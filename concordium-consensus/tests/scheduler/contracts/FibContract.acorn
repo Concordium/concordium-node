@@ -38,10 +38,11 @@ contract Fibonacci where
   init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
     baseValues
 
-  receive (c :: Prim.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgFib) =
+  receive (c :: Prim.ReceiveContext) (model :: Map.Map Int64 Int64) (msg :: Maybe.Maybe MsgFib) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
       Maybe.Just (msg' :: MsgFib) ->
+          let amount :: Amount = Prim.receiveAmount c in
           case msg' of
               Fib (n :: Int64) ->
                 let addr :: <address> = Prim.receiveSelfAddress c in

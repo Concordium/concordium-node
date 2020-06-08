@@ -18,7 +18,7 @@ contract Simple where
     let fh :: Word64 = Prim.finalizedHeight cc in
     Model sn bh fh
 
-  receive (c :: Prim.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
+  receive (c :: Prim.ReceiveContext) (model :: Model) (msg :: Maybe.Maybe Unit.Unit) =
     let accept' :: Model -> Maybe.Maybe (Prod.Pair Model Prim.Transaction) = Helpers.accept [Model] in
     accept' model
 

@@ -34,10 +34,11 @@ contract Transfer where
   init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
     Unit.Unit
 
-  receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe (ListBase.List Blockchain.Caller)) = 
+  receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (msg :: Maybe.Maybe (ListBase.List Blockchain.Caller)) = 
     case msg of
       Maybe.Nothing -> accept Prim.TxNone
       Maybe.Just (msg' :: ListBase.List Blockchain.Caller) ->
+        let amount :: Amount = Prim.receiveAmount c in
         let len' :: ListBase.List Blockchain.Caller -> Word64 = List.length [Blockchain.Caller] in
         let len :: Word64 = len' msg' in
         let sendAmount :: Amount = Prim.divWord64 amount len in

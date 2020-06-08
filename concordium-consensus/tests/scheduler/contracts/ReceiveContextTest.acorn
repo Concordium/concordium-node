@@ -17,7 +17,7 @@ contract Simple where
     Model origin ia amount
 
   -- return a new model which contains the receive context we were called in
-  receive (c :: Prim.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
+  receive (c :: Prim.ReceiveContext) (model :: Model) (msg :: Maybe.Maybe Unit.Unit) =
     let origin :: {address} = Prim.receiveOrigin c in
     let selfAddress :: <address> = Prim.receiveSelfAddress c in
     let selfBalance :: Amount = Prim.receiveSelfBalance c in
