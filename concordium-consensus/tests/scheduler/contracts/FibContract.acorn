@@ -31,7 +31,7 @@ def lookup = IntMap.lookup [Int64]
 
 contract Fibonacci where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (amount :: Amount) =
     baseValues
 
   receive (c :: Blockchain.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgFib) =

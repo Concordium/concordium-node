@@ -116,7 +116,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             Just acc -> return $ acc ^. accountNonce
     -- construct a new pending transaction table adding back some failed transactions.
     let purgeFailed cpt tx = do
-          b <- purgeTransaction (NormalTransaction <$> tx)
+          b <- purgeTransaction (normalTransaction tx)
           if b then return cpt  -- if the transaction was purged don't put it back into the pending table
           else do
             -- but otherwise do
@@ -131,7 +131,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- However modulo crypto breaking, this can only happen if the user has tried to deploy duplicate
     -- credentials (with high probability), so it is likely fine to remove it.
     let purgeCredential cpt cred = do
-          b <- purgeTransaction (CredentialDeployment <$> cred)
+          b <- purgeTransaction (credentialDeployment cred)
           if b then return cpt
           else return $! extendPendingTransactionTable' (wmdHash cred) cpt
 
@@ -148,7 +148,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             -- live block then we must not purge it to maintain the invariant
             -- that all transactions in live blocks exist in the transaction
             -- table.
-            b <- purgeTransaction (NormalTransaction <$> tx)
+            b <- purgeTransaction (normalTransaction tx)
             if b then return cpt
             else do
               nonce <- nextNonceFor (transactionSender tx)
