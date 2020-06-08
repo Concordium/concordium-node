@@ -12,10 +12,10 @@ def pair = Prod.Pair [Unit.Unit, Prim.Transaction]
 
 contract Account where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
     ia
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
+  receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
     case msg of
       Maybe.Nothing ->
         let ret :: Unit.Unit -> Maybe.Maybe (Prod.Pair Unit.Unit Prim.Transaction) = Helpers.accept [Unit.Unit] in

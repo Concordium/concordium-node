@@ -105,14 +105,14 @@ def pairAddrInt = Prod.Pair [{address}, Int64]
 
 contract Counter where
 
-  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (amount :: Amount) =
+  init (ia :: Prod.Pair Int64 <address>) (c :: Prim.InitContext) (amount :: Amount) =
     let fst :: Prod.Pair Int64 <address> -> Int64 = Prod.fst [Int64, <address>] in
     let snd :: Prod.Pair Int64 <address> -> <address> = Prod.snd [Int64, <address>] in
     let initAmount :: Int64 = fst ia in
     let recorder :: <address> = snd ia in
     ModelCnt initAmount recorder
 
-  receive (c :: Blockchain.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
+  receive (c :: Prim.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
     case msg of
       Maybe.Nothing -> mkReturnCounter model Prim.TxNone
       Maybe.Just (msg' :: MsgCnt) ->
@@ -146,11 +146,11 @@ contract Counter where
 
 contract Recorder where
 
-  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (amount :: Amount) =
+  init (params :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
       let empty :: Map.Map {address} Int64 = AccountAddressMap.empty [Int64] in
       ModelRec empty
 
-  receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgRec) =
+  receive (c :: Prim.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgRec) =
       case msg of
         Maybe.Nothing -> rejectRecorder
         Maybe.Just (msg :: MsgRec) ->
