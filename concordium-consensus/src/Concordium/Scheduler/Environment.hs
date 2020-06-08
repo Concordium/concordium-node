@@ -201,7 +201,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- If succesful, return the baker's ID
   -- If the baker's signature key or aggregation key is already in used it returns
   -- a baker error (either DuplicateSignKey or DuplicateAggregationKey)
-  addBaker :: BakerCreationInfo -> m (Either BakerId BakerError)
+  addBaker :: BakerCreationInfo -> m (Either BakerError BakerId)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
@@ -217,7 +217,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- also exists in the global state.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
 
-  -- |Replace the given baker's aggregation verificatino key with the given
+  -- |Replace the given baker's aggregation verification key with the given
   -- value. Return true if the key was succesfully updated and false in case
   -- it leads to a duplicate aggregation key.
   -- Precondition: The baker exists.

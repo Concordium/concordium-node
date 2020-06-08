@@ -198,14 +198,10 @@ updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50
 updateElectionDifficulty :: Energy
 updateElectionDifficulty = 0
 
--- TODO: add meaningful cost. This requires checking a proof of knowledge, which
--- the cost should reflect
 -- |Cost to update baker aggregation key
 updateBakerAggregationVerifyKey :: Energy
-updateBakerAggregationVerifyKey = 0
+updateBakerAggregationVerifyKey = 2700
 
--- TODO: add meaningful cost. This requires checking a proof of knowledge, which
--- the cost should reflect
 -- |Cost to update baker election key
 updateBakerElectionKey :: Energy
-updateBakerElectionKey = 0
+updateBakerElectionKey = 90
