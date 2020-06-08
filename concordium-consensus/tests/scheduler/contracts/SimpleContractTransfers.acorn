@@ -11,9 +11,12 @@ import Blockchain
 import Map
 import AccountAddressMap
 import Ord
+import Helpers
 
-def mkReturn :: Unit.Unit -> Prim.Transaction -> Prod.Pair Unit.Unit Prim.Transaction
-def mkReturn = Prod.Pair [Unit.Unit, Prim.Transaction]
+def accept :: Prim.Transaction -> Maybe.Maybe (Prod.Pair Unit.Unit Prim.Transaction)
+def accept (msgs :: Prim.Transaction) =
+   let accept' :: Unit.Unit -> Prim.Transaction -> Maybe.Maybe (Prod.Pair Unit.Unit Prim.Transaction) = Helpers.acceptMsgs [Unit.Unit]
+   in accept' Unit.Unit msgs
 
 def consC :: <address> -> ListBase.List Blockchain.Caller -> ListBase.List Blockchain.Caller
 def consC (a :: <address>) =
@@ -33,7 +36,7 @@ contract Transfer where
 
   receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe (ListBase.List Blockchain.Caller)) = 
     case msg of
-      Maybe.Nothing -> mkReturn model Prim.TxNone
+      Maybe.Nothing -> accept Prim.TxNone
       Maybe.Just (msg' :: ListBase.List Blockchain.Caller) ->
         let len' :: ListBase.List Blockchain.Caller -> Word64 = List.length [Blockchain.Caller] in
         let len :: Word64 = len' msg' in
@@ -46,4 +49,4 @@ contract Transfer where
                          -> Prim.Transaction -> ListBase.List Blockchain.Caller -> Prim.Transaction
                = ListBase.foldl [Blockchain.Caller, Prim.Transaction]
            in let output :: Prim.Transaction = folder f Prim.TxNone msg'
-              in mkReturn model output
+              in accept output

@@ -10,11 +10,15 @@ import Bool
 import Ord
 import Map
 import IntMap
+import Helpers
 
 data MsgFib = Fib [Int64]
 
-def mkReturn :: Map.Map Int64 Int64 -> Prim.Transaction -> Prod.Pair (Map.Map Int64 Int64) Prim.Transaction
-def mkReturn = Prod.Pair [Map.Map Int64 Int64, Prim.Transaction]
+def mkReturn :: Map.Map Int64 Int64 -> Prim.Transaction -> Maybe.Maybe (Prod.Pair (Map.Map Int64 Int64) Prim.Transaction)
+def mkReturn = Helpers.acceptMsgs [Map.Map Int64 Int64]
+
+def reject :: Maybe.Maybe (Prod.Pair (Map.Map Int64 Int64) Prim.Transaction)
+def reject = Helpers.reject [Map.Map Int64 Int64]
 
 def insert :: Int64 -> Int64 -> Map.Map Int64 Int64 -> Map.Map Int64 Int64
 def insert = IntMap.insert [Int64]
@@ -43,7 +47,7 @@ contract Fibonacci where
                 let addr :: <address> = Blockchain.receiveSelfAddress c in
                 let casted :: Maybe.Maybe Fibonacci = castFibonacci addr in
                 case casted of
-                  Maybe.Nothing -> mkReturn model Prim.TxReject
+                  Maybe.Nothing -> reject
                   Maybe.Just (i :: Fibonacci) ->
                     let amodel :: Map.Map Int64 Int64 = getFibonacci i in
                     let lkp :: Maybe.Maybe Int64 = lookup n amodel in
