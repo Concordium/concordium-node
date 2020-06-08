@@ -311,23 +311,23 @@ tests = do
         ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], bps13)) ->
             let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3
                 b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3
-            in
-               b3_bps12 ^. bakerElectionVerifyKey /= b3_bps13 ^. bakerElectionVerifyKey &&
-               k == (VRF.pubKey $ baker3 ^. _2)
-        _ -> False
+            in do
+              assertEqual "Election key before update" (b3_bps12 ^. bakerElectionVerifyKey) (VRF.pubKey $ baker1 ^. _2)
+              assertEqual "Updated election key" k (VRF.pubKey $ baker3 ^. _2)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to update first baker's election key using wrong account" $
       case (results !! 13, results !! 14) of
         ((_,_, bps13), ([(_, Types.TxReject (Types.NotFromBakerAccount thomasAccount alesAccount))], [], bps14)) ->
             let b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3
                 b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3
-            in b3_bps13 ^. bakerElectionVerifyKey == b3_bps14 ^. bakerElectionVerifyKey
-        _ -> False
+            in assertEqual "Unchanged election key" (b3_bps13 ^. bakerElectionVerifyKey) (b3_bps14 ^. bakerElectionVerifyKey)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to update first baker's election key using wrong private key for proof" $
       case (results !! 14, results !! 15) of
         ((_,_, bps14), ([(_,Types.TxReject Types.InvalidProof)], [], bps15)) ->
             let b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3
                 b3_bps15 = (bps15 ^. birkCurrentBakers . bakerMap) Map.! 3
-            in b3_bps14 ^. bakerElectionVerifyKey == b3_bps15 ^. bakerElectionVerifyKey
-        _ -> False
+            in assertEqual "Unchanged election key" (b3_bps14 ^. bakerElectionVerifyKey) (b3_bps15 ^. bakerElectionVerifyKey)
+        r -> assertFailure $ "Incorrect result shape: " ++ show r

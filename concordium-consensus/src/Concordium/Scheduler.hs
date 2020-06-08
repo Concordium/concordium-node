@@ -1040,10 +1040,10 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
                 keyProof = checkElectionKeyProof challenge ubekKey ubekProof
             in if keyProof then do
               updateBakerElectionKey ubekId ubekKey
-              return $! (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
-            else return $! (TxReject InvalidProof, energyCost, usedEnergy)
+              return $ (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
+            else return $ (TxReject InvalidProof, energyCost, usedEnergy)
           else
-            return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+            return $ (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 
 -- * Exposed methods.
