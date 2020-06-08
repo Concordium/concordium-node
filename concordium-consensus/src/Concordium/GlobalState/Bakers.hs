@@ -104,14 +104,14 @@ bakerData bid bkrs = (bkrs ^. bakerMap . at' bid) <&>
 -- If a baker with the given signing key already exists then return Right DuplicateSignKey,
 -- If a baker with the given aggregation key already exists, return Left DuplicateAggregationKey,
 -- otherwise assign it a fresh id and add it to the set of known bakers.a
-createBaker :: BakerCreationInfo -> Bakers -> Either (BakerId, Bakers) BakerError
+createBaker :: BakerCreationInfo -> Bakers -> Either BakerError (BakerId, Bakers)
 createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
   case bkrs ^. bakersByKey . at' _bakerSignatureVerifyKey of
     Nothing -> -- key does not yet exist
         if Set.member _bakerAggregationVerifyKey (bkrs ^. aggregationKeys) then
-          Right DuplicateAggregationKey
+          Left DuplicateAggregationKey
         else -- aggregation keys is not already in use, so we insert baker
-          Left (bid, bkrs
+          Right (bid, bkrs
                      & bakerMap . at' bid ?~ BakerInfo{..}
                      & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                      & nextBakerId .~ bid + 1
@@ -119,7 +119,7 @@ createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey 
             where
               _bakerStake = 0
               bid = _nextBakerId bkrs
-    Just _ -> Right DuplicateSignKey
+    Just _ -> Left DuplicateSignKey
 
 data BakerUpdate = BakerUpdate {
   -- |Identity of the baker to update.
