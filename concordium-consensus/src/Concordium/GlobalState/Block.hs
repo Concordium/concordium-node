@@ -148,7 +148,7 @@ blockBody b = do
         put (blockNonce b)
         put (blockFinalizationData b)
         putWord64be (fromIntegral (length (blockTransactions b)))
-        mapM_ toPut $ blockTransactions b
+        mapM_ putBlockItem $ blockTransactions b
 
 instance BlockData BakedBlock where
     blockSlot = bbSlot
