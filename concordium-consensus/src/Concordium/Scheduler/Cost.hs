@@ -201,4 +201,4 @@ updateElectionDifficulty = 0
 -- TODO: add meaningful cost
 -- |Cost to update baker aggregation key
 updateBakerAggregationVerifyKey :: Energy
-updateBakerAggregationVerifyKey = 0
+updateBakerAggregationVerifyKey = 2700
