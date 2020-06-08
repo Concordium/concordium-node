@@ -719,9 +719,9 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                         -- Thus we can create the baker, starting it off with 0 lottery power.
                         mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
                         case mbid of
-                          Right Bakers.DuplicateSignKey -> return $! (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
-                          Right Bakers.DuplicateAggregationKey -> return $! (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
-                          Left bid -> return $! (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
+                          Left Bakers.DuplicateSignKey -> return $ (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
+                          Left Bakers.DuplicateAggregationKey -> return $ (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
+                          Right bid -> return $ (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
                       else return $ (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- |Remove a baker from the baker pool.
