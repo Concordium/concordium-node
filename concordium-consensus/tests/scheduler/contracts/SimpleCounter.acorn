@@ -14,7 +14,7 @@ def mkReturn = Prod.Pair [Int64, Prim.Transaction]
 
 contract Counter where
 
-  init (ia :: Int64) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (ia :: Int64) (c :: Blockchain.InitContext) (amount :: Amount) =
     ia
 
   receive (c :: Blockchain.ReceiveContext) (model :: Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =

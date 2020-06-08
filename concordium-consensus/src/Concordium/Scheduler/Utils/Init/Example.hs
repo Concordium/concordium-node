@@ -97,7 +97,7 @@ initSimpleCounter n = Runner.signTx
 {-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
 -- All transactions have the same arrival time (0)
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BlockItem
-makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
+makeTransaction inc ca n = Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -113,7 +113,7 @@ makeTransaction inc ca n = fmap Types.NormalTransaction . Types.fromBareTransact
 {-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
 makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BlockItem
 makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
-  fmap Types.NormalTransaction . Types.fromBareTransaction 0 $ Runner.signTx fromKP header payload
+  Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTx fromKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -165,7 +165,7 @@ initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
-        finState = Types.execSI (execTransactions (map (fmap Types.NormalTransaction . Types.fromBareTransaction 0) (initialTrans n)))
+        finState = Types.execSI (execTransactions (map (Types.normalTransaction . Types.fromBareTransaction 0) (initialTrans n)))
                                 Types.emptySpecialBetaAccounts
                                 Types.dummyChainMeta
                                 maxBound

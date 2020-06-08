@@ -14,10 +14,10 @@ import qualified Data.HashSet as Set
 import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
 
-import Data.Word
 import Lens.Micro.Platform
 
 import qualified Acorn.Core as Core
+import Acorn.Types(InterpreterEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
@@ -31,8 +31,54 @@ import qualified Concordium.ID.Types as ID
 
 type SpecialBetaAccounts = Set.HashSet AccountAddress
 
+-- |Whether the current energy limit is block energy or current transaction energy.
+data EnergyLimitReason = BlockEnergy | TransactionEnergy
+    deriving(Eq, Show)
+
 emptySpecialBetaAccounts :: SpecialBetaAccounts
 emptySpecialBetaAccounts = Set.empty
+
+-- |A class to convert to and from 'Energy' used by the scheduler.
+-- The function should satisfy
+--
+--   * @toEnergy (fromEnergy x) <= x@
+class ResourceMeasure a where
+  toEnergy :: a -> Energy
+  fromEnergy :: Energy -> a
+
+instance ResourceMeasure Energy where
+  {-# INLINE toEnergy #-}
+  toEnergy = id
+  {-# INLINE fromEnergy #-}
+  fromEnergy = id
+
+-- |Measures the cost of linking.
+instance ResourceMeasure LinkedTermSize where
+  {-# INLINE toEnergy #-}
+  toEnergy = Cost.link
+  {-# INLINE fromEnergy #-}
+  fromEnergy = Cost.maxLink
+
+-- |Meaures the cost of running the interpreter.
+instance ResourceMeasure InterpreterEnergy where
+  {-# INLINE toEnergy #-}
+  toEnergy = Cost.fromInterpreterEnergy
+  {-# INLINE fromEnergy #-}
+  fromEnergy = Cost.toInterpreterEnergy
+
+-- |Measures the cost of __storing__ the given amount of bytes.
+instance ResourceMeasure ByteSize where
+  {-# INLINE toEnergy #-}
+  toEnergy = Cost.storeBytes
+  {-# INLINE fromEnergy #-}
+  fromEnergy = Cost.maxStorage
+
+-- |Measures the cost of __looking up__ the given amount of bytes.
+instance ResourceMeasure Cost.LookupByteSize where
+  {-# INLINE toEnergy #-}
+  toEnergy = Cost.lookupBytes
+  {-# INLINE fromEnergy #-}
+  fromEnergy = Cost.maxLookup
 
 -- * Scheduler monad
 
@@ -245,9 +291,10 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Link an expression into an expression ready to run.
   -- This charges for the size of the linked expression. The linker is run with the current remaining
   -- energy, and if that is not sufficient to pay for the size of the resulting expression, it will
-  -- abort when this limit is reached, and this function will reject the transaction with 'OutOfEnergy'.
-  -- The expression is part of the given module
-  linkExpr :: Core.ModuleRef -> (UnlinkedExpr NoAnnot, Word64) -> m (LinkedExpr NoAnnot, Word64)
+  -- abort when this limit is reached, and this function will reject the transaction with 'OutOfEnergy'
+  -- or outOfBlockEnergy.
+  -- The expression is part of the given module.
+  linkExpr :: Core.ModuleRef -> (UnlinkedExpr NoAnnot, UnlinkedTermSize) -> m (LinkedExpr NoAnnot)
 
   -- |Link a contract's init, receive methods and implemented constraints.
   linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue NoAnnot -> m (LinkedContractValue NoAnnot)
@@ -264,15 +311,14 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: Instance -> m Amount
 
-  -- |Get the amount of gas remaining for the transaction.
-  getEnergy :: m Energy
+  -- |Get the amount of energy remaining for the transaction.
+  getEnergy :: m (Energy, EnergyLimitReason)
 
   -- |Decrease the remaining energy by the given amount. If not enough is left
-  -- reject the transaction and set remaining amount to 0
+  -- reject the transaction and set remaining amount to 0.
+  -- If block energy limit would be reached instead, then reject the transaction
+  -- with 'outOfBlockEnergy' instead.
   tickEnergy :: Energy -> m ()
-
-  -- |Set the remaining energy to be the given value.
-  putEnergy :: Energy -> m ()
 
   -- |Reject a transaction with a given reason, terminating processing of this transaction.
   -- If the reason is OutOfEnergy this function __must__ ensure that the remaining energy
@@ -644,14 +690,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Just (delta, _) -> return $! applyAmountDelta delta amnt
       Nothing -> return amnt
 
-  linkExpr mref unlinked = do
-    energy <- use energyLeft
-    linkWithMaxSize mref unlinked (Cost.maxLink energy) >>= \case
-      Just (le, termSize) -> do
-        tickEnergy (Cost.link termSize)
-        return (leExpr le, termSize)
-      Nothing -> rejectTransaction OutOfEnergy
-
+  linkExpr mref unlinked = withExternal (linkExprWithMaxSize mref unlinked)
 
   linkContract mref cname unlinked = do
     lCache <- use (changeSet . linkedContracts)
@@ -659,11 +698,11 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Nothing ->
         liftLocal (smTryGetLinkedContract mref cname) >>= \case
           Nothing -> do
-            cvInitMethod <- linkExpr mref (Interfaces.cvInitMethod unlinked)
-            cvReceiveMethod <- linkExpr mref (Interfaces.cvReceiveMethod unlinked)
+            cvInitMethod <- linkExprWithSize mref (Interfaces.cvInitMethod unlinked)
+            cvReceiveMethod <- linkExprWithSize mref (Interfaces.cvReceiveMethod unlinked)
             cvImplements <- mapM (\iv -> do
-                                     ivSenders <- mapM (linkExpr mref) (Interfaces.ivSenders iv)
-                                     ivGetters <- mapM (linkExpr mref) (Interfaces.ivGetters iv)
+                                     ivSenders <- mapM (linkExprWithSize mref) (Interfaces.ivSenders iv)
+                                     ivGetters <- mapM (linkExprWithSize mref) (Interfaces.ivGetters iv)
                                      return Interfaces.ImplementsValue{..}
                                  ) (Interfaces.cvImplements unlinked)
             let linked = Interfaces.ContractValue{..}
@@ -671,30 +710,65 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
             return linked
           Just cv -> return cv
       Just cv -> return cv
+      where
+        -- like linkExpr above, but retains the size
+        linkExprWithSize mref' unlinked' = withExternal (fmap (fmap (\(a,b) -> ((a,b), b))) . linkExprWithMaxSize mref' unlinked')
 
   {-# INLINE getEnergy #-}
-  getEnergy = use energyLeft
+  getEnergy = do
+    beLeft <- use blockEnergyLeft
+    txLeft <- use energyLeft
+    if beLeft < txLeft
+    then return (beLeft, BlockEnergy)
+    else return (txLeft, TransactionEnergy)
 
   {-# INLINE tickEnergy #-}
   tickEnergy !tick = do
-    energy <- getEnergy
-    beLeft <- use blockEnergyLeft
-    if tick > energy then rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
-    else if tick > beLeft then outOfBlockEnergy
-         else do
-           energyLeft -= tick
-           blockEnergyLeft -= tick
-
-  {-# INLINE putEnergy #-}
-  putEnergy en = energyLeft .= en
+    (energy, reason) <- getEnergy
+    if tick > energy then
+      case reason of
+        BlockEnergy -> outOfBlockEnergy
+        TransactionEnergy -> rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
+    else do
+      energyLeft -= tick
+      blockEnergyLeft -= tick
 
   {-# INLINE rejectTransaction #-}
-  rejectTransaction OutOfEnergy = putEnergy 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
+  rejectTransaction OutOfEnergy = energyLeft .= 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
   rejectTransaction reason = LocalT (ContT (\_ -> return (Left (Just reason))))
 
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
 
+-- |Call an external method that can fail with running out of energy.
+-- Depending on what is the current limit, either remaining transaction energy,
+-- or remaining block energy, this function will report the appropriate failure.
+--
+-- This function takes an action that:
+--
+-- * Takes a 'ResourceMeasure' to which the remaining energy should be converted.
+-- * Should return __how much of the 'ResourceMeasure' was used__ (which is then converted
+--   back to 'Energy'), or 'Nothing' to signal failure because of running out of the 'ResourceMeasure'.
+-- * Should satisfy that the returned energy is <= given energy, even though
+--   this is not necessary for the correctness of this function. In the case
+--   where the returned energy exceeds remaining energy this function will
+--   return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
+withExternal :: (ResourceMeasure r, TransactionMonad m) => (r ->  m (Maybe (a, r))) -> m a
+withExternal f = do
+  (availableEnergy, reason) <- getEnergy
+  f (fromEnergy availableEnergy) >>= \case
+    Nothing | BlockEnergy <- reason -> outOfBlockEnergy
+    Nothing | TransactionEnergy <- reason -> rejectTransaction OutOfEnergy -- this sets remaining to 0
+    Just (result, usedEnergy) -> do
+      -- tickEnergy is safe even if usedEnergy > available energy, even though this case
+      -- should not happen for well-behaved actions.
+      tickEnergy (toEnergy usedEnergy)
+      return result
+
+-- |Like 'withExternal' but takes a pure action that only transforms energy and does
+-- not return a value. This is a convenience wrapper only.
+withExternalPure_ :: (ResourceMeasure r, TransactionMonad m) => (r -> Maybe r) -> m ()
+withExternalPure_ f = withExternal (return . fmap ((),) . f)
 
 instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where
   getCurrentContractState caddr = do

@@ -93,7 +93,7 @@ checkResult (valid, invalid, invalidCred, unproc, [t1, t3, t4]) =
     where
         validCheck = case valid of
             [(t, Types.TxSuccess{})] ->
-                 assertEqual "The first transaction should be valid:" (Types.NormalTransaction <$> t1) t
+                 assertEqual "The first transaction should be valid:" (Types.normalTransaction t1) t
             _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
         invalidCheck = do
             let (invalidTs, failures) = unzip invalid
