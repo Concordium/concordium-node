@@ -438,7 +438,7 @@ doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> B
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
         case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
-            Left err -> return $! (Left err, pbs)
+            Left err -> return (Left err, pbs)
             Right (bid, newBakers) -> (Right bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
