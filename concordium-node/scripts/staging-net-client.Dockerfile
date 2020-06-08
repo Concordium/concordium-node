@@ -66,7 +66,7 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
-RUN git checkout 3c7bbc2cf1c70021c498a3beb19f1b6f4cfcb069
+RUN git checkout 4b7f5b07a87ede1efb75f072ab0b1332acc4d80c
 ENV NODE_ENV=development
 # Building node dashboard
 RUN npm i
