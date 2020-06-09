@@ -35,16 +35,17 @@ def lookup = IntMap.lookup [Int64]
 
 contract Fibonacci where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     baseValues
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Map.Map Int64 Int64) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgFib) =
+  receive (c :: Prim.ReceiveContext) (model :: Map.Map Int64 Int64) (msg :: Maybe.Maybe MsgFib) =
     case msg of
       Maybe.Nothing -> mkReturn model Prim.TxNone
       Maybe.Just (msg' :: MsgFib) ->
+          let amount :: Amount = Prim.receiveAmount c in
           case msg' of
               Fib (n :: Int64) ->
-                let addr :: <address> = Blockchain.receiveSelfAddress c in
+                let addr :: <address> = Prim.receiveSelfAddress c in
                 let casted :: Maybe.Maybe Fibonacci = castFibonacci addr in
                 case casted of
                   Maybe.Nothing -> reject
