@@ -12,15 +12,16 @@ data Model = Model [{address}, <address>, Amount]
 contract Simple where
 
   -- construct a dummy initial model.
-  init (ia :: <address>) (c :: Blockchain.InitContext) (amount :: Amount) =
-    let origin :: {address} = Blockchain.initOrigin c in
+  init (ia :: <address>) (c :: Prim.InitContext) =
+    let origin :: {address} = Prim.initOrigin c in
+    let amount :: Amount = Prim.initAmount c in
     Model origin ia amount
 
   -- return a new model which contains the receive context we were called in
-  receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
-    let origin :: {address} = Blockchain.receiveOrigin c in
-    let selfAddress :: <address> = Blockchain.receiveSelfAddress c in
-    let selfBalance :: Amount = Blockchain.receiveSelfBalance c in
+  receive (c :: Prim.ReceiveContext) (model :: Model) (msg :: Maybe.Maybe Unit.Unit) =
+    let origin :: {address} = Prim.receiveOrigin c in
+    let selfAddress :: <address> = Prim.receiveSelfAddress c in
+    let selfBalance :: Amount = Prim.receiveSelfBalance c in
     let newModel :: Model = Model origin selfAddress selfBalance in
     let accept' :: Model -> Maybe.Maybe (Prod.Pair Model Prim.Transaction) = Helpers.accept [Model] in
     accept' newModel

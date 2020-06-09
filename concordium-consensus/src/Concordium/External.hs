@@ -1039,10 +1039,10 @@ importBlocks cptr cstr len = do
   filepath <- BS.unpack <$> BS.packCStringLen (cstr, fromIntegral len)
   logm External LLDebug $ "Importing blocks from file: " ++ filepath
   ret <- toReceiveResult <$> case c of
-          BakerRunner{..} -> syncImportBlocks bakerSyncRunner logm filepath
-          PassiveRunner{..} -> syncPassiveImportBlocks passiveSyncRunner logm filepath
-          BakerRunnerWithLog{..} -> syncImportBlocks bakerSyncRunnerWithLog logm filepath
-          PassiveRunnerWithLog{..} -> syncPassiveImportBlocks passiveSyncRunnerWithLog logm filepath
+          BakerRunner{..} -> syncImportBlocks bakerSyncRunner filepath
+          PassiveRunner{..} -> syncPassiveImportBlocks passiveSyncRunner filepath
+          BakerRunnerWithLog{..} -> syncImportBlocks bakerSyncRunnerWithLog filepath
+          PassiveRunnerWithLog{..} -> syncPassiveImportBlocks passiveSyncRunnerWithLog filepath
   logm External LLDebug "Done importing file."
   return ret
 
