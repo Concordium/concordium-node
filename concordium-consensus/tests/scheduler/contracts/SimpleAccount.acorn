@@ -12,7 +12,7 @@ def pair = Prod.Pair [Unit.Unit, Prim.Transaction]
 
 contract Account where
 
-  init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     ia
 
   receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (msg :: Maybe.Maybe Unit.Unit) =

@@ -31,7 +31,7 @@ def singletonC (a :: <address>) =
 
 contract Transfer where
 
-  init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     Unit.Unit
 
   receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (msg :: Maybe.Maybe (ListBase.List Blockchain.Caller)) = 

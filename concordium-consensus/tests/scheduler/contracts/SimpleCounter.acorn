@@ -15,7 +15,7 @@ def mkReturn = Helpers.accept [Int64]
 
 contract Counter where
 
-  init (ia :: Int64) (c :: Prim.InitContext) (amount :: Amount) =
+  init (ia :: Int64) (c :: Prim.InitContext) =
     ia
 
   receive (c :: Prim.ReceiveContext) (model :: Int64) (msg :: Maybe.Maybe MsgCnt) =
