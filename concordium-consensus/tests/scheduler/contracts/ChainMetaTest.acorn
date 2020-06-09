@@ -11,7 +11,7 @@ data Model = Model [Word64, Word64, Word64]
 
 contract Simple where
 
-  init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     let cc :: Prim.ChainContext = (Prim.initChain c) in
     let sn :: Word64 = Prim.slotNumber cc in
     let bh :: Word64 = Prim.blockHeight cc in

@@ -35,7 +35,7 @@ def lookup = IntMap.lookup [Int64]
 
 contract Fibonacci where
 
-  init (ia :: Unit.Unit) (c :: Prim.InitContext) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     baseValues
 
   receive (c :: Prim.ReceiveContext) (model :: Map.Map Int64 Int64) (msg :: Maybe.Maybe MsgFib) =
