@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.2.9"
+version = "0.2.10"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -64,6 +64,7 @@ bytesize = "1.0.0"
 crossbeam-channel = "^0.4"
 semver = { version = "0.9", features = ["serde"] }
 ctrlc = "3.1"
+signal-hook = "0.1"
 
 # gRPC dependencies
 tonic = "0.2"
