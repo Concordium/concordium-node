@@ -275,11 +275,11 @@ class (Eq (BlockPointerType m),
     getRuntimeParameters :: m RuntimeParameters
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = lift $ makePendingBlock key slot parent bid pf n lastFin trs time
+    makePendingBlock key slot parent bid pf n lastFin trs = lift . makePendingBlock key slot parent bid pf n lastFin trs
     getBlockStatus = lift . getBlockStatus
-    makeLiveBlock b parent lastFin st ati time energy = lift $ makeLiveBlock b parent lastFin st ati time energy
+    makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
     markDead = lift . markDead
-    markFinalized bh fr = lift $ markFinalized bh fr
+    markFinalized bh = lift . markFinalized bh
     markPending = lift . markPending
     getGenesisBlockPointer = lift getGenesisBlockPointer
     getGenesisData = lift getGenesisData
@@ -287,7 +287,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getLastFinalizedSlot = lift getLastFinalizedSlot
     getLastFinalizedHeight = lift getLastFinalizedHeight
     getNextFinalizationIndex = lift getNextFinalizationIndex
-    addFinalization bp fr = lift $ addFinalization bp fr
+    addFinalization bp = lift . addFinalization bp
     getFinalizedAtIndex = lift . getFinalizedAtIndex
     getRecordAtIndex = lift . getRecordAtIndex
     getFinalizedAtHeight = lift . getFinalizedAtHeight
