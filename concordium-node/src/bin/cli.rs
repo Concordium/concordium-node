@@ -58,6 +58,28 @@ async fn main() -> Fallible<()> {
     // The P2PNode thread
     let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
+    // Signal handling closure. so we shut down cleanly
+    let signal_closure = |signal_handler_node: &Arc<P2PNode>| {
+        info!("Signal received attempting to shutdown node cleanly");
+        if !signal_handler_node.close() {
+            error!("Can't shutdown node properly!");
+            std::process::exit(1);
+        }
+    };
+
+    // Register a safe handler for SIGINT / ^C
+    let ctrlc_node = node.clone();
+    ctrlc::set_handler(move || signal_closure(&ctrlc_node))?;
+
+    // Register a SIGTERM handler for a POSIX.1-2001 system
+    #[cfg(not(windows))]
+    {
+        let signal_hook_node = node.clone();
+        unsafe {
+            signal_hook::register(signal_hook::SIGTERM, move || signal_closure(&signal_hook_node))
+        }?;
+    }
+
     #[cfg(feature = "instrumentation")]
     {
         let stats = node.stats.clone();
@@ -104,6 +126,7 @@ async fn main() -> Fallible<()> {
         String::new()
     };
 
+    info!("Starting consensus layer");
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
         gen_data,
@@ -120,27 +143,7 @@ async fn main() -> Fallible<()> {
         &data_dir_path,
         &consensus_database_url,
     )?;
-
-    let signal_handler_node = node.clone();
-    let signal_handler_consensus = consensus.clone();
-    ctrlc::set_handler(move || {
-        info!("SIGINT hit - attempting to shutdown node cleanly");
-        if signal_handler_node.close() {
-            signal_handler_consensus.stop();
-            match signal_handler_node.join() {
-                Err(_) => {
-                    error!("The node thread panicked during shutdown!");
-                    std::process::exit(1);
-                }
-                _ => {
-                    info!("Clean shutdown completed");
-                    std::process::exit(0);
-                }
-            }
-        } else {
-            error!("Can't shutdown node properly!");
-        }
-    })?;
+    info!("Consensus layer started");
 
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
@@ -153,7 +156,9 @@ async fn main() -> Fallible<()> {
     };
 
     if let Some(ref import_path) = conf.cli.baker.import_path {
+        info!("Starting out of band catch-up");
         consensus.import_blocks(import_path.as_bytes());
+        info!("Completed out of band catch-up");
     }
 
     // Consensus queue threads
