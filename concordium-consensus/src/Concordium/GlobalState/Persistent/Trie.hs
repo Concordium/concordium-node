@@ -34,11 +34,13 @@ import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
 
-import Concordium.GlobalState.Persistent.MonadicRecursive
-import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.Types (AccountAddress)
+import Concordium.Utils
 import qualified Concordium.Types.Acorn.Core as Core (Name(..), ModuleRef(..))
 import qualified Concordium.Crypto.SHA256 as SHA256
-import Concordium.Types (AccountAddress)
+
+import Concordium.GlobalState.Persistent.MonadicRecursive
+import Concordium.GlobalState.Persistent.BlobStore
 
 class FixedTrieKey a where
     -- |Unpack a key to a list of bytes.
@@ -68,7 +70,7 @@ instance FixedTrieKey AccountAddress
 data TrieF k v r
     = Branch !(V.Vector (Nullable r))
     -- ^Branch on the next byte of the key (256, possibly null children)
-    | Stem [Word8] !r
+    | Stem ![Word8] !r
     -- ^The next bytes of the key are given
     | Tip !v
     -- ^A value
@@ -119,10 +121,10 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
 instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m ref v) => BlobStorable m ref (TrieF k v r) where
     storeUpdate p (Branch vec) = do
         pvec <- mapM (storeUpdate p) vec
-        return (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
+        return $!! (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
     storeUpdate p (Tip v) = do
         (pv, v') <- storeUpdate p v
-        return (putWord8 2 >> pv, Tip v')
+        return $!! (putWord8 2 >> pv, Tip v')
     storeUpdate p (Stem l r) = do
         (pr, r') <- storeUpdate p r
         let putter = do
@@ -134,13 +136,13 @@ instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m 
                     putWord64be (fromIntegral len)
                 forM_ l putWord8
                 pr
-        return (putter, Stem l r')
+        return $!! (putter, Stem l r')
     store p t = fst <$> storeUpdate p t
     load p = getWord8 >>= \case
         0 -> fail "Empty trie"
         1 -> do
             branchms <- replicateM 256 (load p)
-            return $ Branch . V.fromList <$> sequence branchms
+            return $! Branch . V.fromList <$> sequence branchms
         2 -> fmap Tip <$> load p
         v -> do
             len <- if v == 255 then
@@ -149,7 +151,7 @@ instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m 
                     return (fromIntegral (v - 3))
             l <- replicateM len getWord8
             r <- load p
-            return (Stem l <$> r)
+            return $! (Stem l <$> r)
 
 
 -- |@Trie k v@ is defined as a simple fixed-point of @TrieF k v@.
@@ -217,7 +219,7 @@ data Alteration v
     -- ^Leave the value as it was
     | Remove
     -- ^Remove the entry
-    | Insert v
+    | Insert !v
     -- ^Insert or replace the old value with the given one
 
 -- |A generalised update function for updating the value of the map at a given key.
@@ -315,18 +317,20 @@ instance (MonadBlobStore m ref, BlobStorable m ref (fix (TrieF k v)), BlobStorab
     store _ EmptyTrieN = return (put (0 :: Int))
     store p (TrieN size t) = do
         pt <- store p t
-        return (put size >> pt)
+        return $! (put size >> pt)
     storeUpdate _ v@EmptyTrieN = return (put (0 :: Int), v)
     storeUpdate p (TrieN size t) = do
         (pt, t') <- storeUpdate p t
-        return (put size >> pt, TrieN size t')
+        let bs = put size >> pt
+            nt = TrieN size t'
+        return $!! (bs, nt)
     load p = do
         size <- get
         if size == 0 then
             return (return EmptyTrieN)
         else do
             mt <- load p
-            return (TrieN size <$> mt)
+            return $! (TrieN size <$> mt)
 
 -- |The empty trie.
 empty :: TrieN fix k v

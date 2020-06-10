@@ -25,7 +25,7 @@ import Concordium.Types.Acorn.Interfaces
 import Concordium.Types
 import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
-import Acorn.Types (linkWithMaxSize)
+import Acorn.Types (linkExprWithMaxSize)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
@@ -52,9 +52,9 @@ data BlockStatePointers = BlockStatePointers {
     bspInstances ::  !Instances.Instances,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
-    bspIdentityProviders :: BufferedRef IPS.IdentityProviders,
+    bspIdentityProviders :: !(BufferedRef IPS.IdentityProviders),
     bspBirkParameters :: !PersistentBirkParameters,
-    bspCryptographicParameters :: BufferedRef CryptographicParameters,
+    bspCryptographicParameters :: !(BufferedRef CryptographicParameters),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
@@ -317,7 +317,7 @@ doLinkContract pbs mref m cname = do
             _ <- doPutLinkedContract pbs mref cname linked
             return linked
     where
-        myLink ule = (_1 %~ leExpr) . fromJust <$> linkWithMaxSize mref ule maxBound
+        myLink ule = fromJust <$> linkExprWithMaxSize mref ule maxBound
 
 fromPersistentInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) =>
     PersistentBlockState -> Instances.PersistentInstance -> m Instance
@@ -370,9 +370,10 @@ loadPBS :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Bl
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 
 storePBS :: (MonadIO m) => PersistentBlockState -> BlockStatePointers -> m PersistentBlockState
-storePBS pbs bsp = do
+storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
-    liftIO $ writeIORef pbs pbsp >> return pbs
+    writeIORef pbs pbsp
+    return pbs
 
 doGetModule :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Core.ModuleRef -> m (Maybe Module)
 doGetModule s modRef = do
@@ -654,9 +655,9 @@ doGetOutcomes pbs = (^. to bspTransactionOutcomes . to Transactions.outcomeValue
 
 
 doAddSpecialTransactionOutcome :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Transactions.SpecialTransactionOutcome -> m PersistentBlockState
-doAddSpecialTransactionOutcome pbs o = do
+doAddSpecialTransactionOutcome pbs !o = do
         bsp <- loadPBS pbs
-        storePBS pbs bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
+        storePBS pbs $! bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
 
 doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentBirkParameters -> m PersistentBlockState
 doUpdateBirkParameters pbs newBirk = do

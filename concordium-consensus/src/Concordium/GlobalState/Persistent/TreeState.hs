@@ -468,22 +468,22 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     bs <- BS.putBlockState (_bpState bp)
     let blockBS = runPut (S.put (finalizationIndex fr) <> S.put (_bpInfo bp) <> putBlock bp <> bs)
     dbh' <- putOrResize dbh (Block (getHash bp) (bpHeight bp) blockBS)
-    db .= dbh'
+    db .=! dbh'
 
   writeFinalizationRecord fr = do
     dbh <- use db
     dbh' <- putOrResize dbh (Finalization (finalizationIndex fr) fr)
-    db .= dbh'
+    db .=! dbh'
 
   writeTransactionStatus th t = do
     dbh <- use db
     dbh' <- putOrResize dbh (TxStatus th t)
-    db .= dbh'
+    db .=! dbh'
 
   writeTransactionStatuses tss = do
     dbh <- use db
     dbh' <- putOrResize dbh (TxStatuses tss)
-    db .= dbh'
+    db .=! dbh'
 
 
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
@@ -526,8 +526,9 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
 -- `pttWithSender`.
 purgeTransactionTable :: (MonadIO (PersistentTreeStateMonad ati bs m),
                           MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
-                      => PersistentTreeStateMonad ati bs m ()
-purgeTransactionTable = do
+                      => Slot -- ^Slot number of the last finalized block.
+                      -> PersistentTreeStateMonad ati bs m ()
+purgeTransactionTable lastFinalizedSlot = do
   purgeCount <- use transactionTablePurgeCounter
   RuntimeParameters{..} <- use runtimeParameters
   when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
@@ -549,7 +550,10 @@ purgeTransactionTable = do
            -- Otherwise we would break many invariants.
            let toRemove t =
                  case _ttHashMap ^? ix (biHash t) . _2 of
-                   Just Received{} -> True
+                   -- we cannot remove a transaction that was received in a block that has not yet been purged
+                   -- if its received slot is >= last finalized then the transaction will be in a live block
+                   -- that might be processed at some point.
+                   Just Received{..} -> _tsSlot <= lastFinalizedSlot
                    _ -> False
                (toDrop, nn) =
                  Set.partition (\t -> biArrivalTime t + kat < tm && toRemove t) txs in -- split in old and still valid transactions
@@ -575,8 +579,8 @@ purgeTransactionTable = do
          !newTMap = Fold.foldl' (Fold.foldl' (Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)))) _ttHashMap allDeletes
          -- and finally remove all the credential deployments that are too old.
          !finalTT = HM.filter (\case
-                                  (WithMetadata{wmdData=CredentialDeployment{},..}, Received{}) ->
-                                      not (wmdArrivalTime + kat < tm)
+                                  (WithMetadata{wmdData=CredentialDeployment{},..}, Received{..}) ->
+                                      wmdArrivalTime + kat >= tm && _tsSlot > lastFinalizedSlot
                                   _ -> True
                               ) newTMap
      transactionTable .= TransactionTable{_ttHashMap = finalTT, _ttNonFinalizedTransactions = newNFT}
@@ -597,7 +601,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs time = do
-        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+        return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
     getBlockStatus bh = do
       st <- use (blockTable . at' bh)
       case st of
@@ -625,26 +629,26 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   _ -> error $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st ati arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
-            blockTable . at' (getHash block) ?= BlockAlive blockP
+            blockTable . at' (getHash block) ?=! BlockAlive blockP
             return blockP
     markDead bh = blockTable . at' bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
               writeBlock bp fr
-              blockTable . at' bh ?= BlockFinalized (finalizationIndex fr)
+              blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
             _ -> return ()
-    markPending pb = blockTable . at' (getHash pb) ?= BlockPending pb
+    markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = do
       lf <- use lastFinalized
       lfr <- use lastFinalizationRecord
-      return $! (lf, lfr)
-    getNextFinalizationIndex = (+1) . finalizationIndex <$> use lastFinalizationRecord
+      return (lf, lfr)
+    getNextFinalizationIndex = (+1) . finalizationIndex <$!> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
       writeFinalizationRecord finRec
-      lastFinalized .= newFinBlock
-      lastFinalizationRecord .= finRec
+      lastFinalized .=! newFinBlock
+      lastFinalizationRecord .=! finRec
     getFinalizedAtIndex finIndex = do
       lfr <- use lastFinalizationRecord
       if finIndex == finalizationIndex lfr then do
@@ -725,6 +729,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
         _ -> return Nothing
 
     addCommitTransaction bi@WithMetadata{..} slot = do
+      lastFinalizedSlot <- blockSlot <$> use lastFinalized
       let trHash = wmdHash
       tt <- use transactionTable
       -- check if the transaction is in the transaction table cache
@@ -740,7 +745,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   transactionTablePurgeCounter %= (+ 1)
-                  purgeTransactionTable
+                  purgeTransactionTable lastFinalizedSlot
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
               CredentialDeployment{..} -> do
@@ -839,7 +844,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
          Nothing -> readTransactionStatus th
 
     getConsensusStatistics = use statistics
-    putConsensusStatistics stats = statistics .= stats
+    putConsensusStatistics stats = statistics .=! stats
 
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
