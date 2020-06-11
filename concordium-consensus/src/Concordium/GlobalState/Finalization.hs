@@ -11,6 +11,7 @@ import Data.Aeson(FromJSON, ToJSON)
 
 import qualified Concordium.Crypto.BlsSignature as Bls
 
+import Concordium.Common.Version
 import Concordium.Types
 
 newtype FinalizationIndex = FinalizationIndex {theFinalizationIndex :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, ToJSON, FromJSON)
@@ -66,7 +67,7 @@ instance Serialize FinalizationRecord where
         put finalizationProof
         put finalizationDelay
     get = do
-        version <- Version <$> S.get
+        version <- Version <$> get
         if version /= __versionFinalizationRecord then fail "Invalid finalization record version"
         else do
             finalizationIndex <- get
