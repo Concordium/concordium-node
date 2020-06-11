@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wall #-}
@@ -43,7 +44,7 @@ module Concordium.Scheduler
 import qualified Acorn.TypeCheck as TC
 import qualified Acorn.Interpreter as I
 import qualified Acorn.Core as Core
-import Acorn.Types(compile)
+import Acorn.Types(compile, InterpreterEnergy)
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
@@ -336,17 +337,14 @@ tickEnergyValueStorage ::
   TransactionMonad m
   => Value
   -> m ()
-tickEnergyValueStorage val = do
-  remainingEnergy <- getEnergy
-  let maxSize = Cost.maxStorage remainingEnergy
-  case storableSizeWithLimit val maxSize of
-    Just size -> tickEnergy $ Cost.storeBytes size
-    Nothing -> rejectTransaction OutOfEnergy
+tickEnergyValueStorage val =
+  -- NB: This uses ResourceMeasure instance from ByteSize, which
+  -- measures cost to store.
+  withExternalPure_ $ storableSizeWithLimit @ ByteSize val
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
 -- FIXME: Currently we do not know the size of the instance before looking it up.
 -- Therefore we charge a "pre-lookup cost" before the lookup and the actual cost after.
--- after lookup.
 getCurrentContractInstanceTicking ::
   TransactionMonad m
   => ContractAddress
@@ -354,14 +352,8 @@ getCurrentContractInstanceTicking ::
 getCurrentContractInstanceTicking cref = do
   tickEnergy $ Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
-  remainingEnergy <- getEnergy
-
-  case storableSizeWithLimit (Ins.instanceModel inst) (Cost.maxLookup remainingEnergy) of
-    Just size -> do
-      tickEnergy (Cost.lookupBytes size)
-      return inst
-    Nothing -> rejectTransaction OutOfEnergy
-
+  withExternalPure_ $ storableSizeWithLimit @ Cost.LookupByteSize (Ins.instanceModel inst)
+  return inst
 
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
@@ -409,7 +401,7 @@ handleInitContract wtc amount modref cname param paramSize =
 
             -- First compile the parameter expression, then link it, which ticks energy for the size of
             -- the linked expression, failing when running out of energy in the process.
-            (params', _) <- linkExpr (uniqueName iface) (compile qparamExp)
+            params' <- linkExpr (uniqueName iface) (compile qparamExp)
 
             cm <- getChainMetadata
             -- Finally run the initialization function of the contract, resulting in an initial state
@@ -418,7 +410,7 @@ handleInitContract wtc amount modref cname param paramSize =
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' (thSender meta) amount)
+            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' amount)
 
             -- Charge for storing the contract state.
             tickEnergyValueStorage model
@@ -453,16 +445,12 @@ handleSimpleTransfer wtc toaddr amount =
                 AddressContract cref -> do
                   i <- getCurrentContractInstanceTicking cref
                   -- Send a Nothing message to the contract with the amount to be transferred.
-                  let rf = Ins.ireceiveFun i
-                      model = Ins.instanceModel i
-                      qmsgExpLinked = I.mkNothingE
+                  let qmsgExpLinked = I.mkNothingE
                   handleMessage senderAccount
                                 i
-                                rf
                                 (Right senderAccount)
                                 amount
                                 (ExprMessage qmsgExpLinked)
-                                model
                 AddressAccount toAccAddr ->
                   handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
 
@@ -480,10 +468,8 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
   where senderAccount = wtc ^. wtcSenderAccount
         c = do
           i <- getCurrentContractInstanceTicking cref
-          let rf = Ins.ireceiveFun i
-              msgType = Ins.imsgTy i
+          let msgType = Ins.imsgTy i
               (iface, _) = Ins.iModuleIface i
-              model = Ins.instanceModel i
           -- TODO Here we currently do not account for possible dependent modules looked up
           -- when typechecking the term. We might want to tick energy on demand while typechecking.
           tickEnergy (Cost.updateMessageTypecheck msgSize)
@@ -492,15 +478,13 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
           qmsgExp <- typeHidingErrors (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith` MessageTypeError
           -- First compile the message expression, then link it, which ticks energy for the size of the
           -- linked expression, failing when running out of energy in the process.
-          (qmsgExpLinked, _) <- linkExpr (uniqueName iface) (compile qmsgExp)
+          qmsgExpLinked <- linkExpr (uniqueName iface) (compile qmsgExp)
           -- Now invoke the general handler for contract messages.
           handleMessage senderAccount
                         i
-                        rf
                         (Right senderAccount)
                         amount
                         (ExprMessage (I.mkJustE qmsgExpLinked))
-                        model
 
 -- | Process a message to a contract.
 -- This includes the transfer of an amount from the sending account or instance.
@@ -509,8 +493,7 @@ handleUpdateContract wtc cref amount maybeMsg msgSize =
 handleMessage ::
   (TransactionMonad m, InterpreterMonad NoAnnot m)
   => Account -- ^The account that sent the top-level transaction.
-  -> Instance -- ^The target contract of the transaction, which must exist.
-  -> LinkedReceiveMethod NoAnnot -- ^The receive function of the contract.
+  -> Instance -- ^The current state of the target contract of the transaction, which must exist.
   -> Either Instance Account -- ^The sender of the message (contract instance or account).
                              -- On the first invocation of this function this will be the sender of the
                              -- top-level transaction, and in recursive calls the respective contract
@@ -518,9 +501,10 @@ handleMessage ::
   -> Amount -- ^The amount to be transferred from the sender of the message to the receiver.
   -> MessageFormat -- ^Message sent to the contract. On the first invocation of this function this will
                    -- be an Acorn expression, and in nested calls an Acorn value.
-  -> Value -- ^The current local state of the target contract.
   -> m [Event] -- The events resulting from processing the message and all recursively processed messages.
-handleMessage origin istance receivefun sender transferamount maybeMsg model = do
+handleMessage origin istance sender transferamount maybeMsg = do
+  let receivefun = ireceiveFun istance
+      model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
   -- TODO: For now there is no exception handling in smart contracts and contracts cannot check
@@ -544,7 +528,9 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
 
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   let originAddr = origin ^. accountAddress
-  let receiveCtx = ReceiveContext { invoker = originAddr, selfAddress = cref }
+  let receiveCtx = ReceiveContext { invoker = originAddr,
+                                    selfAddress = cref,
+                                    selfBalance = instanceAmount istance }
   result <- case maybeMsg of
               ValueMessage m -> runInterpreter (I.applyReceiveFunVal cm receiveCtx receivefun model senderAddr transferamount m)
               ExprMessage m ->  runInterpreter (I.applyReceiveFun cm receiveCtx receivefun model senderAddr transferamount m)
@@ -573,30 +559,22 @@ handleMessage origin istance receivefun sender transferamount maybeMsg model = d
                             -- instances. If the instance does however not exist, this rejects the
                             -- transaction.
                             cinstance <- getCurrentContractInstanceTicking cref'
-                            let receivefun' = Ins.ireceiveFun cinstance
-                            let model' = Ins.instanceModel cinstance
                             handleMessage origin
                                           cinstance
-                                          receivefun'
                                           (Left istance)
                                           transferamount'
                                           (ValueMessage (I.aJust message'))
-                                          model'
                           -- A transfer to a contract is defined to be an Acorn @Nothing@ message
                           -- with the to be transferred amount.
                           TSimpleTransfer (AddressContract cref') transferamount' -> do
                             -- We can make a simple transfer without checking existence of a contract.
                             -- The following rejects the transaction in case the instance does not exist.
                             cinstance <- getCurrentContractInstanceTicking cref'
-                            let receivefun' = Ins.ireceiveFun cinstance
-                            let model' = Ins.instanceModel cinstance
                             handleMessage origin
                                           cinstance
-                                          receivefun'
                                           (Left istance)
                                           transferamount'
                                           (ValueMessage I.aNothing)
-                                          model'
                           TSimpleTransfer (AddressAccount acc) transferamount' ->
                             -- FIXME: This is temporary until accounts have their own functions
                             handleTransferAccount origin acc (Left istance) transferamount'
@@ -645,13 +623,18 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
-runInterpreter :: TransactionMonad m => (Energy -> m (Maybe (a, Energy))) -> m a
-runInterpreter f = do
-  remainingEnergy <- getEnergy
-  let iEnergy = Cost.toInterpreterEnergy remainingEnergy
-  (result, remainingInterpreterEnergy) <- f iEnergy `rejectingWith` OutOfEnergy
-  putEnergy (Cost.fromInterpreterEnergy remainingInterpreterEnergy)
-  return result
+runInterpreter :: TransactionMonad m => (InterpreterEnergy -> m (Maybe (a, InterpreterEnergy))) -> m a
+runInterpreter f = withExternal $ \availableEnergy -> do
+  f availableEnergy >>= \case
+    Nothing -> return Nothing
+    Just (result, remainingEnergy) -> do
+      -- the following relies on the interpreter ensuring
+      -- remainingEnergy <= availableEnergy. Since both of these
+      -- values are unsigned the computation will otherwise overflow.
+      -- Even if this happens it is likely to simply cause an 'OutOfEnergy'
+      -- or outOfBlockEnergy termination.
+      let usedEnergy = availableEnergy - remainingEnergy
+      return (Just (result, usedEnergy))
 
 -- FIXME: The baker handling is purely proof-of-concept. In particular the
 -- precise logic for when a baker can be added and removed should be analyzed
@@ -1097,7 +1080,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
                     (Just (TxValid summary), fp) -> do
                       markEnergyUsed (tsEnergyCost summary)
                       tlNotifyAccountEffect fp summary
-                      let newFts = fts { ftAdded = (fmap CredentialDeployment c, summary) : ftAdded fts}
+                      let newFts = fts { ftAdded = (credentialDeployment c, summary) : ftAdded fts}
                       runNext maxEnergy csize newFts remainingCreds remainingTransactions
                     (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
               else if Cost.deployCredential > maxEnergy then
@@ -1165,7 +1148,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
               let newFts =
                     currentFts { ftFailed = map (, NonSequentialNonce nextNonce) invalid
                                             ++ ftFailed currentFts
-                               , ftAdded = (fmap NormalTransaction t, summary) : ftAdded currentFts
+                               , ftAdded = (normalTransaction t, summary) : ftAdded currentFts
                                }
               return (newFts, rest)
 
@@ -1190,9 +1173,7 @@ filterTransactions maxSize GroupedTransactions{..} = do
 --
 -- Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded, that is, the deposited energy
---   of a transaction plus the energy used by the previous transactions exceeds this limit. This
---   should not happen for valid blocks.
+-- * @Left Nothing@ if maximum block energy limit was exceeded.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
 -- * @Right outcomes@ if all transactions are successful, with the given outcomes.
 runTransactions :: forall m . (SchedulerMonad m)
@@ -1218,7 +1199,7 @@ runTransactions = go []
 --
 -- Returns
 --
--- * @Left Nothing@ if maximum block energy limit was exceeded
+-- * @Left Nothing@ if maximum block energy limit was exceeded.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction
 -- * @Right ()@ if all transactions are successful.
 --

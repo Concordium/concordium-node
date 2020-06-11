@@ -69,7 +69,7 @@ withBlockReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
 -- |Use a 'TransactionHash' as a 'Ptr Word8'. The pointer may not be valid after
 -- the function has returned.
 withTxReference :: TransactionHash -> (Ptr Word8 -> IO a) -> IO a
-withTxReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
+withTxReference (TransactionHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.
@@ -1039,10 +1039,10 @@ importBlocks cptr cstr len = do
   filepath <- BS.unpack <$> BS.packCStringLen (cstr, fromIntegral len)
   logm External LLDebug $ "Importing blocks from file: " ++ filepath
   ret <- toReceiveResult <$> case c of
-          BakerRunner{..} -> syncImportBlocks bakerSyncRunner logm filepath
-          PassiveRunner{..} -> syncPassiveImportBlocks passiveSyncRunner logm filepath
-          BakerRunnerWithLog{..} -> syncImportBlocks bakerSyncRunnerWithLog logm filepath
-          PassiveRunnerWithLog{..} -> syncPassiveImportBlocks passiveSyncRunnerWithLog logm filepath
+          BakerRunner{..} -> syncImportBlocks bakerSyncRunner filepath
+          PassiveRunner{..} -> syncPassiveImportBlocks passiveSyncRunner filepath
+          BakerRunnerWithLog{..} -> syncImportBlocks bakerSyncRunnerWithLog filepath
+          PassiveRunnerWithLog{..} -> syncPassiveImportBlocks passiveSyncRunnerWithLog filepath
   logm External LLDebug "Done importing file."
   return ret
 

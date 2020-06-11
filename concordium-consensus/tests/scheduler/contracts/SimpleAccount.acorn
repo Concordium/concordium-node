@@ -5,16 +5,19 @@ import Maybe
 import Prim
 import Unit
 import Blockchain
+import Helpers
 
 def pair :: Unit.Unit -> Prim.Transaction -> Prod.Pair Unit.Unit Prim.Transaction
 def pair = Prod.Pair [Unit.Unit, Prim.Transaction]
 
 contract Account where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     ia
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
+  receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (msg :: Maybe.Maybe Unit.Unit) =
     case msg of
-      Maybe.Nothing -> pair model Prim.TxNone
-      Maybe.Just (_ :: Unit.Unit) -> pair model Prim.TxReject
+      Maybe.Nothing ->
+        let ret :: Unit.Unit -> Maybe.Maybe (Prod.Pair Unit.Unit Prim.Transaction) = Helpers.accept [Unit.Unit] in
+        ret Unit.Unit
+      Maybe.Just (_ :: Unit.Unit) -> Helpers.reject [Unit.Unit]
