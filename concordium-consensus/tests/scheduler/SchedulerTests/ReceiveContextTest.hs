@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
-module SchedulerTests.ChainMetatest where
+module SchedulerTests.ReceiveContextTest where
+
+-- Tests that the receive context in acorn is properly instantiated.
 
 import Test.Hspec
 import Test.HUnit
@@ -35,7 +37,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 10000000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 10000000 (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
@@ -44,29 +46,41 @@ chainMeta = Types.ChainMetadata{..}
         finalizedHeight = 10
         slotTime = dummySlotTime
 
+initialAmount :: Types.Amount
+initialAmount = 123
+
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-    [TJSON { payload = DeployModule "ChainMetaTest"
+    [TJSON { payload = DeployModule "ReceiveContextTest"
            , metadata = makeDummyHeader alesAccount 1 1000000
            , keypair = alesKP
            }
-    ,TJSON { payload = InitContract {amount = 123
+    ,TJSON { payload = InitContract {amount = initialAmount
                                     ,contractName = "Simple"
-                                    ,moduleName = "ChainMetaTest"
-                                    ,parameter = "Unit.Unit"
+                                    ,moduleName = "ReceiveContextTest"
+                                    ,parameter = "<13,18>"
                                     }
            , metadata = makeDummyHeader alesAccount 2 1000000
            , keypair = alesKP
            }
+    ,TJSON { payload = Update {amount = 108
+                              ,address = Types.ContractAddress 0 0
+                              ,moduleName = "ReceiveContextTest"
+                              ,message = "Unit.Unit"
+                              }
+           , metadata = makeDummyHeader thomasAccount 1 10000
+           , keypair = thomasKP
+           }
     ]
+
 
 type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testChainMeta :: PR.Context Core.UA IO TestResult
-testChainMeta = do
-    let file = "test/contracts/ChainMetaTest.acorn"
+testReceiveContext :: PR.Context Core.UA IO TestResult
+testReceiveContext = do
+    let file = "test/contracts/ReceiveContextTest.acorn"
     source <- liftIO $ TIO.readFile file
     (_, _) <- PR.processModule file source -- execute only for effect on global state, i.e., load into cache
     transactions <- processUngroupedTransactions transactionsInput
@@ -82,12 +96,15 @@ testChainMeta = do
         _ -> return ()
     return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
-checkChainMetaResult :: TestResult -> Bool
-checkChainMetaResult (suc, fails, instances) =
-  null fails && -- should be no failed transactions
-  null reject && -- no rejected transactions either
-  length instances == 1 && -- only a single contract instance should be created
-  checkLocalState (snd (head instances)) -- and the local state should match the
+assertTrue :: HasCallStack => String -> Bool -> Assertion
+assertTrue msg = assertEqual msg True
+
+checkReceiveContextResult :: TestResult -> Assertion
+checkReceiveContextResult (suc, fails, instances) = do
+  assertTrue "No failed transactions" (null fails)
+  assertTrue "No rejected transactions." (null reject)
+  assertEqual "Only a single instance." 1 (length instances)
+  checkLocalState (snd (head instances)) -- and the local state should match the receive context
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True
@@ -95,13 +112,17 @@ checkChainMetaResult (suc, fails, instances) =
                         suc
     checkLocalState inst =
       case Types.instanceModel inst of
-        Types.VConstructor _ (Types.VLiteral (Core.Word64 8) Seq.:<|  -- NB: These should match those in chainMeta
-                              Types.VLiteral (Core.Word64 13) Seq.:<|
-                              Types.VLiteral (Core.Word64 10) Seq.:<| Seq.Empty) -> True
-        _ -> False
+        Types.VConstructor _ (Types.VLiteral (Core.AAddress originAddr) Seq.:<|
+                              Types.VLiteral (Core.CAddress selfAddress) Seq.:<|
+                              Types.VLiteral (Core.AmountLiteral amount) Seq.:<| Seq.Empty) -> do
+            assertEqual "Origin address is correct." thomasAccount originAddr
+            -- because it is the first and only smart contract in the given state
+            assertEqual "Self address is 0,0" (Types.ContractAddress 0 0) selfAddress 
+            assertEqual "Self balance is the initial amount." initialAmount amount
+        v -> assertFailure $ "Instance model not of the correct shape: " ++ show v
 
 tests :: SpecWith ()
 tests =
-  describe "Chain metadata in transactions." $
-    specify "Reading chain metadata." $
-      PR.evalContext Init.initialContextData testChainMeta `shouldReturnP` checkChainMetaResult
+  describe "Receive context in smart contract calls." $
+    specify "Reading receive context metadata." $
+      PR.evalContext Init.initialContextData testReceiveContext >>= checkReceiveContextResult

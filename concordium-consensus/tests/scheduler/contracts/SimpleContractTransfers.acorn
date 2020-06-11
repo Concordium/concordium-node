@@ -11,9 +11,12 @@ import Blockchain
 import Map
 import AccountAddressMap
 import Ord
+import Helpers
 
-def mkReturn :: Unit.Unit -> Prim.Transaction -> Prod.Pair Unit.Unit Prim.Transaction
-def mkReturn = Prod.Pair [Unit.Unit, Prim.Transaction]
+def accept :: Prim.Transaction -> Maybe.Maybe (Prod.Pair Unit.Unit Prim.Transaction)
+def accept (msgs :: Prim.Transaction) =
+   let accept' :: Unit.Unit -> Prim.Transaction -> Maybe.Maybe (Prod.Pair Unit.Unit Prim.Transaction) = Helpers.acceptMsgs [Unit.Unit]
+   in accept' Unit.Unit msgs
 
 def consC :: <address> -> ListBase.List Blockchain.Caller -> ListBase.List Blockchain.Caller
 def consC (a :: <address>) =
@@ -28,17 +31,17 @@ def singletonC (a :: <address>) =
 
 contract Transfer where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
     Unit.Unit
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Unit.Unit) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe (ListBase.List Blockchain.Caller)) = 
+  receive (c :: Prim.ReceiveContext) (model :: Unit.Unit) (msg :: Maybe.Maybe (ListBase.List Blockchain.Caller)) = 
     case msg of
-      Maybe.Nothing -> mkReturn model Prim.TxNone
+      Maybe.Nothing -> accept Prim.TxNone
       Maybe.Just (msg' :: ListBase.List Blockchain.Caller) ->
+        let amount :: Amount = Prim.receiveAmount c in
         let len' :: ListBase.List Blockchain.Caller -> Word64 = List.length [Blockchain.Caller] in
         let len :: Word64 = len' msg' in
-        let len' :: Amount = Prim.word64_word128 len in
-        let sendAmount :: Amount = Prim.divWord128 amount len' in
+        let sendAmount :: Amount = Prim.divWord64 amount len in
         let f :: Prim.Transaction -> Blockchain.Caller -> Prim.Transaction =
           fun (tx :: Prim.Transaction) (caller :: Blockchain.Caller) =
             let send :: Prim.Transaction = Prim.TxSendAmount caller sendAmount in
@@ -47,4 +50,4 @@ contract Transfer where
                          -> Prim.Transaction -> ListBase.List Blockchain.Caller -> Prim.Transaction
                = ListBase.foldl [Blockchain.Caller, Prim.Transaction]
            in let output :: Prim.Transaction = folder f Prim.TxNone msg'
-              in mkReturn model output
+              in accept output

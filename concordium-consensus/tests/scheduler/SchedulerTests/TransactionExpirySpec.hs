@@ -112,8 +112,9 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
 
 testExpiryTime :: Types.TransactionExpiryTime -> PR.Context UA IO TestResult
 testExpiryTime expiry = do
-    source <- liftIO $ TIO.readFile "test/contracts/FibContract.acorn"
-    (_, _) <- PR.processModule source
+    let file = "test/contracts/FibContract.acorn"
+    source <- liftIO $ TIO.readFile file
+    (_, _) <- PR.processModule file source
     ts <- processUngroupedTransactions $ transactions expiry
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)

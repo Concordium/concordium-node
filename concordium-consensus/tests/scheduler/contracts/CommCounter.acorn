@@ -9,6 +9,7 @@ import Blockchain
 import Map
 import AccountAddressMap
 import Ord
+import Helpers
 
 data MsgCnt = Inc [Int64] | Dec [Int64]
 
@@ -26,11 +27,17 @@ constraint RecorderC where
     sendInc :: Prod.Pair {address} Int64 ::
     sendDec :: Prod.Pair {address} Int64 ::
 
-def mkReturnCounter :: ModelCnt -> Prim.Transaction -> Prod.Pair ModelCnt Prim.Transaction
-def mkReturnCounter = Prod.Pair [ModelCnt, Prim.Transaction]
+def mkReturnCounter :: ModelCnt -> Prim.Transaction -> Maybe.Maybe (Prod.Pair ModelCnt Prim.Transaction)
+def mkReturnCounter = Helpers.acceptMsgs [ModelCnt]
 
-def mkReturnRecorder :: ModelRec -> Prim.Transaction -> Prod.Pair ModelRec Prim.Transaction
-def mkReturnRecorder = Prod.Pair [ModelRec, Prim.Transaction]
+def rejectCounter :: Maybe.Maybe (Prod.Pair ModelCnt Prim.Transaction)
+def rejectCounter = Helpers.reject [ModelCnt]
+
+def mkReturnRecorder :: ModelRec -> Prim.Transaction -> Maybe.Maybe (Prod.Pair ModelRec Prim.Transaction)
+def mkReturnRecorder = Helpers.acceptMsgs [ModelRec]
+
+def rejectRecorder :: Maybe.Maybe (Prod.Pair ModelRec Prim.Transaction)
+def rejectRecorder = Helpers.reject [ModelRec]
 
 def recorder :: ModelCnt -> <address>
 def recorder (m :: ModelCnt) =
@@ -98,23 +105,25 @@ def pairAddrInt = Prod.Pair [{address}, Int64]
 
 contract Counter where
 
-  init (ia :: Prod.Pair Int64 <address>) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (ia :: Prod.Pair Int64 <address>) (c :: Prim.InitContext) =
     let fst :: Prod.Pair Int64 <address> -> Int64 = Prod.fst [Int64, <address>] in
     let snd :: Prod.Pair Int64 <address> -> <address> = Prod.snd [Int64, <address>] in
     let initAmount :: Int64 = fst ia in
     let recorder :: <address> = snd ia in
     ModelCnt initAmount recorder
 
-  receive (c :: Blockchain.ReceiveContext) (model :: ModelCnt) (callerOr :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgCnt) =
+  receive (c :: Prim.ReceiveContext) (model :: ModelCnt)  (msg :: Maybe.Maybe MsgCnt) =
     case msg of
       Maybe.Nothing -> mkReturnCounter model Prim.TxNone
       Maybe.Just (msg' :: MsgCnt) ->
+        let callerOr :: Blockchain.Caller = Prim.receiveCaller c in
+        let amount :: Amount = Prim.receiveAmount c in
         case callerOr of
           Blockchain.CallerAccount (caller :: {address}) ->
             let inst :: <address> = recorder model in
             let minstance :: Maybe.Maybe RecorderC = castRecorderC inst in
             case minstance of
-              Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+              Maybe.Nothing -> rejectCounter
               Maybe.Just (i :: RecorderC) ->
                 case msg' of
                   Inc (n :: Int64) ->
@@ -132,23 +141,24 @@ contract Counter where
                           let pair :: Prod.Pair {address} Int64 = pairAddrInt caller n in
                           let tx :: Prim.Transaction = sendDec i pair amount in
                           mkReturnCounter newAmount tx
-                        Maybe.Nothing -> mkReturnCounter model Prim.TxReject
+                        Maybe.Nothing -> rejectCounter
 
-          Blockchain.CallerContract (_ :: <address>) -> mkReturnCounter model Prim.TxReject
+          Blockchain.CallerContract (_ :: <address>) -> rejectCounter
 
 
 contract Recorder where
 
-  init (params :: Unit.Unit) (c :: Blockchain.InitContext) (addr :: {address}) (amount :: Amount) =
+  init (params :: Unit.Unit) (c :: Prim.InitContext) =
       let empty :: Map.Map {address} Int64 = AccountAddressMap.empty [Int64] in
       ModelRec empty
 
-  receive (c :: Blockchain.ReceiveContext) (model :: ModelRec) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe MsgRec) =
+  receive (c :: Prim.ReceiveContext) (model :: ModelRec) (msg :: Maybe.Maybe MsgRec) =
       case msg of
-        Maybe.Nothing -> mkReturnRecorder model Prim.TxReject
+        Maybe.Nothing -> rejectRecorder
         Maybe.Just (msg :: MsgRec) ->
+          let caller :: Blockchain.Caller = Prim.receiveCaller c in
           case caller of
-            Blockchain.CallerAccount (_ :: {address}) -> mkReturnRecorder model Prim.TxReject
+            Blockchain.CallerAccount (_ :: {address}) -> rejectRecorder
             Blockchain.CallerContract (_ :: <address>) ->
                let accs :: Map.Map {address} Int64 = accounts model in
                case msg of
