@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# SIGTERM handler
+_term() {
+  kill -TERM ${CHILD_PID} 2>/dev/null
+  wait ${CHILD_PID}
+}
+
 # Haskell binding needs proper library path to function
 export LD_LIBRARY_PATH=/usr/local/lib
 
@@ -369,7 +375,16 @@ elif [ "$MODE" == "tps_sender" ]; then
     --connect-to 10.96.0.15:8888 \
     $ARGS
 elif [ "$MODE" == "basic" ]; then
-    /p2p_client-cli $ARGS
+    if [ -n "$ENABLE_TERM_HANDLER" ];
+    then
+        trap _term SIGTERM
+        /p2p_client-cli $ARGS &
+        $CHILD_PID=$!
+        wait $CHILD_PID
+    else
+        /p2p_client-cli $ARGS
+    fi
+
     if [ -n "$DONT_CRASH" ];
     then
         while [ 1 ]
