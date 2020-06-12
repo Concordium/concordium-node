@@ -52,6 +52,8 @@ pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
 pub const MAX_PEER_NETWORKS: usize = 20;
+/// Database subdirectory name
+pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v2";
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]

@@ -67,6 +67,11 @@ struct ConfigCli {
     pub info: bool,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
+    #[structopt(
+        long = "banned-versions",
+        help = "Versions that are banned from publishing to the collector backend"
+    )]
+    pub banned_versions: Vec<String>,
 }
 
 pub struct HTMLStringResponse(pub String);
@@ -89,13 +94,18 @@ impl IntoResponse for JSONStringResponse {
 
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    pub nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+    pub nodes:           Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+    pub banned_versions: Vec<String>,
 }
 
 impl CollectorStateData {
-    fn new(nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>) -> Self {
+    fn new(
+        nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+        banned_versions: Vec<String>,
+    ) -> Self {
         Self {
             nodes,
+            banned_versions,
         }
     }
 }
@@ -146,7 +156,7 @@ pub fn main() -> Fallible<()> {
     let addr = format!("{}:{}", conf.host, conf.port);
     info!("Listening for requests at http://{}", addr);
 
-    gotham::start(addr, router(node_info_map));
+    gotham::start(addr, router(node_info_map, conf.banned_versions));
     Ok(())
 }
 
@@ -225,9 +235,11 @@ fn nodes_post_handler(mut state: State) -> Pin<Box<HandlerFuture>> {
                     Ok(mut nodes_info) => {
                         if !nodes_info.nodeName.is_empty() && !nodes_info.nodeId.is_empty() {
                             let state_data = CollectorStateData::borrow_from(&state);
-                            nodes_info.last_updated = get_current_stamp();
-                            write_or_die!(state_data.nodes)
-                                .insert(nodes_info.nodeId.clone(), nodes_info);
+                            if !state_data.banned_versions.contains(&nodes_info.client) {
+                                nodes_info.last_updated = get_current_stamp();
+                                write_or_die!(state_data.nodes)
+                                    .insert(nodes_info.nodeId.clone(), nodes_info);
+                            }
                         } else {
                             error!("Client submitted data without nodeName and nodeId");
                         }
@@ -247,8 +259,9 @@ fn nodes_post_handler(mut state: State) -> Pin<Box<HandlerFuture>> {
 
 pub fn router(
     node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+    banned_versions: Vec<String>,
 ) -> Router {
-    let state_data = CollectorStateData::new(node_info_map);
+    let state_data = CollectorStateData::new(node_info_map, banned_versions);
     let middleware = StateMiddleware::new(state_data);
     let pipeline = single_middleware(middleware);
     let (chain, pipelines) = single_pipeline(pipeline);
