@@ -239,6 +239,11 @@ fn nodes_post_handler(mut state: State) -> Pin<Box<HandlerFuture>> {
                                 nodes_info.last_updated = get_current_stamp();
                                 write_or_die!(state_data.nodes)
                                     .insert(nodes_info.nodeId.clone(), nodes_info);
+                            } else {
+                                warn!(
+                                    "Rejecting client due to banned version ({})",
+                                    nodes_info.client
+                                );
                             }
                         } else {
                             error!("Client submitted data without nodeName and nodeId");
