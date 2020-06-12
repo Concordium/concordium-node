@@ -282,6 +282,12 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return r
 
+  {-# INLINE updateBakerElectionKey #-}
+  updateBakerElectionKey bid bevkey = do
+    s <- use schedulerBlockState
+    (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buElectionKey ?~ bevkey))
+    schedulerBlockState .= s'
+
   {-# INLINE delegateStake #-}
   delegateStake acc bid = do
     s <- use schedulerBlockState
