@@ -112,8 +112,9 @@ runWithIntermediateStates
   -> PR.Context Core.UA IO [(ProcessResult, BlockState)]
 runWithIntermediateStates mods TestParameters{..} transactions = do
   forM_ mods $ \m -> do
-    source <- liftIO $ TIO.readFile $ "test/" </> m
-    _ <- PR.processModule source -- execute only for effect on global state
+    let file = "test/" </> m
+    source <- liftIO $ TIO.readFile $ file
+    _ <- PR.processModule file source -- execute only for effect on global state
     return ()
   -- Create actual 'Transaction's from the 'TransactionJSON'.
   txs <- processUngroupedTransactions transactions
