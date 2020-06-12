@@ -198,7 +198,8 @@ updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50
 updateElectionDifficulty :: Energy
 updateElectionDifficulty = 0
 
--- TODO: add meaningful cost
 -- |Cost to update baker aggregation key
+-- The main part here is checking a dlog proof, and that cost is essentially
+-- the same as the cost in adding a baker - 2 * updateBakerKey.
 updateBakerAggregationVerifyKey :: Energy
 updateBakerAggregationVerifyKey = 2700
