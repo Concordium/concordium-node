@@ -382,41 +382,42 @@ makeAsyncRunner logm bkr config = do
 
         catchUpLimit = 100
 
+-- |Handle an exception that happended during block import
+handleImportException :: LogMethod IO -> IOException -> IO UpdateResult
+handleImportException logm e =
+    if isDoesNotExistError e then do
+      logm External LLError $ "The provided file for importing blocks doesn't exist."
+      return ResultMissingImportFile
+    else do
+      logm External LLError $ "An IO exception occurred during import phase: " ++ show e
+      return ResultInvalid
+
 -- | Given a file path in the third argument, it will deserialize each block in the file
 -- and import it into the active global state.
 syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
                  => SyncRunner c
-                 -> LogMethod IO
                  -> FilePath
                  -> IO UpdateResult
-syncImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
-                                                           if isDoesNotExistError e then do
-                                                             logm External LLError $ "The provided file for importing blocks doesn't exist."
-                                                             return ResultMissingImportFile
-                                                           else do
-                                                             logm External LLError $ "An IO exception occurred during import phase: " ++ show e
-                                                             return ResultInvalid) $ do
-  h <- openBinaryFile filepath ReadMode
-  now <- currentTime
-  readBlocks h now logm syncReceiveBlock syncRunner
+syncImportBlocks syncRunner filepath =
+  handle (handleImportException logm) $ do
+    h <- openBinaryFile filepath ReadMode
+    now <- currentTime
+    readBlocks h now logm syncReceiveBlock syncRunner
+  where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
 -- and import it into the passive global state.
 syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
                         => SyncPassiveRunner c
-                        -> LogMethod IO
                         -> FilePath
                         -> IO UpdateResult
-syncPassiveImportBlocks syncRunner logm filepath = handle (\(e :: IOException) ->
-                                                           if isDoesNotExistError e then do
-                                                             logm External LLError $ "The provided file for importing blocks doesn't exist."
-                                                             return ResultMissingImportFile
-                                                           else do
-                                                             logm External LLError $ "An IO exception occurred during import phase: " ++ show e
-                                                             return ResultInvalid) $ do
-  h <- openBinaryFile filepath ReadMode
-  now <- currentTime
-  readBlocks h now logm syncPassiveReceiveBlock syncRunner
+syncPassiveImportBlocks syncRunner filepath =
+  handle (handleImportException logm) $ do
+    h <- openBinaryFile filepath ReadMode
+    now <- currentTime
+    readBlocks h now logm syncPassiveReceiveBlock syncRunner
+  where
+    logm = syncPLogMethod syncRunner
 
 readBlocks :: Handle
            -> UTCTime

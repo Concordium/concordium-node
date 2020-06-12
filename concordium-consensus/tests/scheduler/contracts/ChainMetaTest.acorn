@@ -5,18 +5,20 @@ import Maybe
 import Prim
 import Blockchain
 import Unit
+import Helpers
 
 data Model = Model [Word64, Word64, Word64]
 
 contract Simple where
 
-  init (ia :: Unit.Unit) (c :: Blockchain.InitContext) (amount :: Amount) =
-    let cc :: Blockchain.ChainContext = (Blockchain.initChain c) in
-    let sn :: Word64 = Blockchain.slotNumber cc in
-    let bh :: Word64 = Blockchain.blockHeight cc in
-    let fh :: Word64 = Blockchain.finalizedHeight cc in
+  init (ia :: Unit.Unit) (c :: Prim.InitContext) =
+    let cc :: Prim.ChainContext = (Prim.initChain c) in
+    let sn :: Word64 = Prim.slotNumber cc in
+    let bh :: Word64 = Prim.blockHeight cc in
+    let fh :: Word64 = Prim.finalizedHeight cc in
     Model sn bh fh
 
-  receive (c :: Blockchain.ReceiveContext) (model :: Model) (caller :: Blockchain.Caller) (amount :: Amount) (msg :: Maybe.Maybe Unit.Unit) =
-    let pair :: Model -> Prim.Transaction -> Prod.Pair Model Prim.Transaction = Prod.Pair [Model,Prim.Transaction]
-    in pair model Prim.TxNone
+  receive (c :: Prim.ReceiveContext) (model :: Model) (msg :: Maybe.Maybe Unit.Unit) =
+    let accept' :: Model -> Maybe.Maybe (Prod.Pair Model Prim.Transaction) = Helpers.accept [Model] in
+    accept' model
+
