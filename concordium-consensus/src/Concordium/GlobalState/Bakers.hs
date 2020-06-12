@@ -131,13 +131,15 @@ data BakerUpdate = BakerUpdate {
   -- |Optionally update the baker's public verification key.
   _buSignKey :: !(Maybe BakerSignVerifyKey),
   -- |Optionally update the baker's aggregation verification key
-  _buAggregationKey :: !(Maybe BakerAggregationVerifyKey)
+  _buAggregationKey :: !(Maybe BakerAggregationVerifyKey),
+  -- |Optionally update the baker's election verification key
+  _buElectionKey :: !(Maybe BakerElectionVerifyKey)
 }
 
 makeLenses ''BakerUpdate
 
 emptyBakerUpdate :: BakerId -> BakerUpdate
-emptyBakerUpdate bid = BakerUpdate bid Nothing Nothing Nothing
+emptyBakerUpdate bid = BakerUpdate bid Nothing Nothing Nothing Nothing
 
 -- |Update a given baker.
 -- If this would lead to duplicate baker signing keys return 'Nothing'.
@@ -149,9 +151,10 @@ updateBaker !BakerUpdate{..} !bakers =
   case bakers ^? bakerMap . ix _buId of
     Nothing -> Just bakers
     Just bakerinfo -> do
-        (bakers', binfo') <- handleUpdateAggregationKey bakerinfo _buAggregationKey bakers
-        (bakers'', binfo'') <- handleUpdateSignKey binfo' _buSignKey bakers'
-        handleUpdateBakerAccount binfo'' _buAccount bakers''
+        (bakers1, binfo1) <- handleUpdateAggregationKey bakerinfo _buAggregationKey bakers
+        (bakers2, binfo2) <- handleUpdateSignKey binfo1 _buSignKey bakers1
+        (bakers3, binfo3) <- handleUpdateElectionKey binfo2 _buElectionKey bakers2
+        handleUpdateBakerAccount binfo3 _buAccount bakers3
           where
             handleUpdateAggregationKey binfo aggKeyUpdate bs = case aggKeyUpdate of
               Nothing -> Just (bs, binfo)
@@ -186,6 +189,11 @@ updateBaker !BakerUpdate{..} !bakers =
                 Nothing -> Just bs
                 Just newBakerAccount ->
                   Just $ bs & bakerMap %~ Map.insert _buId (binfo & bakerAccount .~ newBakerAccount)
+            handleUpdateElectionKey binfo ekUpdate bs = case ekUpdate of
+                Nothing -> Just (bs, binfo)
+                Just newElectionKey ->
+                  let newBakerInfo = binfo & bakerElectionVerifyKey .~ newElectionKey
+                  in Just (bs & bakerMap %~ Map.insert _buId newBakerInfo, newBakerInfo)
 
 removeBaker :: BakerId -> Bakers -> (Bool, Bakers)
 removeBaker bid !bakers =
