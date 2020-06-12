@@ -288,7 +288,7 @@ class BlockStateQuery m => BlockStateOperations m where
   -- This method should also update the next available baker id in the system.
   -- If a baker with the given signing key already exists do nothing and
   -- return 'Nothing'
-  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (Maybe BakerId, UpdatableBlockState m)
+  bsoAddBaker :: UpdatableBlockState m -> BakerCreationInfo -> m (Either BakerError BakerId, UpdatableBlockState m)
 
   -- |Update an existing baker's information. The method may assume that the baker with
   -- the given Id exists.
