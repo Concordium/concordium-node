@@ -3,9 +3,10 @@
 module Concordium.GlobalState.Bakers where
 
 import GHC.Generics
-import Data.Set as Set
-import qualified Data.Map.Strict as Map
+import Data.Set(Set)
+import qualified Data.Set as Set
 import Data.Map.Strict(Map)
+import qualified Data.Map.Strict as Map
 import qualified Data.List as List
 import Data.Serialize
 import Data.Ratio
@@ -70,7 +71,7 @@ emptyBakers = Bakers Map.empty Map.empty 0 0 Set.empty
 
 -- |Make bakers from a list and assign them sequential identities.
 -- NB: Only the first baker with the given signing key is used.
--- NB: Likewise, only the first baker with the given aggregation key is used
+-- NB: Likewise, only the first baker with the given aggregation key is used.
 -- The bakers which were not added are returned.
 bakersFromList :: [BakerInfo] -> (Bakers, [BakerInfo])
 bakersFromList bkrs = (
@@ -84,14 +85,15 @@ bakersFromList bkrs = (
       (_bakersByKey, bakerList, duplicateBakers, _nextBakerId, _bakerTotalStake, _aggregationKeys) =
         List.foldl' (\(known, bkrList, duplicate, nextId, totalStake, aggKeys) baker ->
                         let key = baker ^. bakerSignatureVerifyKey
-                            aggKey = baker ^. bakerAggregationVerifyKey in
-                          case Map.lookup key known of
-                            Nothing -> -- new baker key
-                              if Set.member aggKey aggKeys then
-                                (known, bkrList, baker:duplicate, nextId, totalStake, aggKeys)
-                              else
-                                (Map.insert key nextId known, (nextId, baker):bkrList, duplicate, nextId+1, totalStake + baker ^. bakerStake, insert aggKey aggKeys)
-                            Just _ -> (known, bkrList, baker:duplicate, nextId, totalStake, aggKeys)
+                            aggKey = baker ^. bakerAggregationVerifyKey
+                        in case Map.lookup key known of
+                             Nothing -> -- new baker key
+                               -- if an aggregation key already exists skip the baker (mark it as duplicate)
+                               if Set.member aggKey aggKeys then
+                                 (known, bkrList, baker:duplicate, nextId, totalStake, aggKeys)
+                               else
+                                 (Map.insert key nextId known, (nextId, baker):bkrList, duplicate, nextId+1, totalStake + baker ^. bakerStake, Set.insert aggKey aggKeys)
+                             Just _ -> (known, bkrList, baker:duplicate, nextId, totalStake, aggKeys)
                     )
                     (Map.empty, [], [], 0, 0, Set.empty)
                     bkrs
@@ -115,7 +117,7 @@ createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey 
                      & bakerMap . at' bid ?~ BakerInfo{..}
                      & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                      & nextBakerId .~ bid + 1
-                     & aggregationKeys %~ insert _bakerAggregationVerifyKey)
+                     & aggregationKeys %~ Set.insert _bakerAggregationVerifyKey)
             where
               _bakerStake = 0
               bid = _nextBakerId bkrs
@@ -148,8 +150,8 @@ updateBaker :: BakerUpdate -> Bakers -> Maybe Bakers
 updateBaker !BakerUpdate{..} !bakers =
   case bakers ^? bakerMap . ix _buId of
     Nothing -> Just bakers
-    Just binfo -> do
-        (bakers1, binfo1) <- handleUpdateAggregationKey binfo _buAggregationKey bakers
+    Just bakerinfo -> do
+        (bakers1, binfo1) <- handleUpdateAggregationKey bakerinfo _buAggregationKey bakers
         (bakers2, binfo2) <- handleUpdateSignKey binfo1 _buSignKey bakers1
         (bakers3, binfo3) <- handleUpdateElectionKey binfo2 _buElectionKey bakers2
         handleUpdateBakerAccount binfo3 _buAccount bakers3
