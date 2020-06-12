@@ -199,6 +199,8 @@ updateElectionDifficulty :: Energy
 updateElectionDifficulty = 0
 
 -- |Cost to update baker aggregation key
+-- The main part here is checking a dlog proof, and that cost is essentially
+-- the same as the cost in adding a baker - 2 * updateBakerKey.
 updateBakerAggregationVerifyKey :: Energy
 updateBakerAggregationVerifyKey = 2700
 
