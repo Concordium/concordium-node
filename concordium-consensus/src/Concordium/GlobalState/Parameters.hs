@@ -97,6 +97,43 @@ data GenesisData = GenesisData {
 
 instance Serialize GenesisData where
 
+instance Serialize GenesisData where
+    put GenesisData{..} = do
+        put __versionGenesisData
+        put genesisTime
+        put genesisSlotDuration
+        put genesisBakers
+        put genesisSeedState
+        put genesisElectionDifficulty
+        put genesisAccounts
+        put genesisControlAccounts
+        put genesisFinalizationParameters
+        put genesisCryptographicParameters
+        put genesisIdentityProviders
+        put genesisMintPerSlot
+        put genesisMaxBlockEnergy
+
+    get = do
+      version <- Version <$> S.get
+      if version /= __versionGenesisData then fail "Invalid genesis data version"
+      else do
+        genesisTime <- S.get
+        genesisSlotDuration <- S.get
+        genesisBakers <- S.get
+        genesisSeedState <- S.get
+        genesisElectionDifficulty <- S.get
+        genesisAccounts <- S.get
+        genesisControlAccounts <- S.get
+        genesisFinalizationParameters <- S.get
+        genesisCryptographicParameters <- S.get
+        genesisIdentityProviders <- S.get
+        genesisMintPerSlot <- S.get
+        genesisMaxBlockEnergy <- S.get
+        return $! GenesisData{..}
+
+
+
+
 genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
   sum (_accountAmount <$> (genesisAccounts ++ genesisControlAccounts))
