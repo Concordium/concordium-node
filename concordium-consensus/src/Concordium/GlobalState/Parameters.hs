@@ -20,6 +20,7 @@ import Control.Monad hiding (fail)
 import Data.Ratio
 import Data.Word
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
@@ -96,8 +97,6 @@ data GenesisData = GenesisData {
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
-
-instance Serialize GenesisData where
     put GenesisData{..} = do
         put __versionGenesisData
         put genesisTime
@@ -114,21 +113,21 @@ instance Serialize GenesisData where
         put genesisMaxBlockEnergy
 
     get = do
-      version <- Version <$> S.get
+      version <- Version <$> get
       if version /= __versionGenesisData then fail "Invalid genesis data version"
       else do
-        genesisTime <- S.get
-        genesisSlotDuration <- S.get
-        genesisBakers <- S.get
-        genesisSeedState <- S.get
-        genesisElectionDifficulty <- S.get
-        genesisAccounts <- S.get
-        genesisControlAccounts <- S.get
-        genesisFinalizationParameters <- S.get
-        genesisCryptographicParameters <- S.get
-        genesisIdentityProviders <- S.get
-        genesisMintPerSlot <- S.get
-        genesisMaxBlockEnergy <- S.get
+        genesisTime <- get
+        genesisSlotDuration <- get
+        genesisBakers <- get
+        genesisSeedState <- get
+        genesisElectionDifficulty <- get
+        genesisAccounts <- get
+        genesisControlAccounts <- get
+        genesisFinalizationParameters <- get
+        genesisCryptographicParameters <- get
+        genesisIdentityProviders <- get
+        genesisMintPerSlot <- get
+        genesisMaxBlockEnergy <- get
         return $! GenesisData{..}
 
 
