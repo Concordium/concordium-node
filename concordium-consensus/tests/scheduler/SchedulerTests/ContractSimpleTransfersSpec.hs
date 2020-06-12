@@ -86,8 +86,9 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
 
 testSimpleTransfers ::  PR.Context Core.UA IO TestResult
 testSimpleTransfers = do
-    source <- liftIO $ TIO.readFile "test/contracts/SimpleContractTransfers.acorn"
-    (_, _) <- PR.processModule source -- execute only for effect on global state
+    let file = "test/contracts/SimpleContractTransfers.acorn"
+    source <- liftIO $ TIO.readFile file
+    (_, _) <- PR.processModule file source -- execute only for effect on global state
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
             Types.runSI (Sch.filterTransactions dummyBlockSize transactions)

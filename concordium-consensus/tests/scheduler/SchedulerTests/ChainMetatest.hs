@@ -66,8 +66,9 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
 
 testChainMeta :: PR.Context Core.UA IO TestResult
 testChainMeta = do
-    source <- liftIO $ TIO.readFile "test/contracts/ChainMetaTest.acorn"
-    (_, _) <- PR.processModule source -- execute only for effect on global state, i.e., load into cache
+    let file = "test/contracts/ChainMetaTest.acorn"
+    source <- liftIO $ TIO.readFile file
+    (_, _) <- PR.processModule file source -- execute only for effect on global state, i.e., load into cache
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)

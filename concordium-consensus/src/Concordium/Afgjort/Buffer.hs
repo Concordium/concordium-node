@@ -33,7 +33,7 @@ maxDelay = 20
 
 -- |The base time to delay a Seen message.
 -- Seen messages will be sent at most once per 'delayStep'.
--- Set at 5 seconds.
+-- Set at 50 milliseconds.
 delayStep :: NominalDiffTime
 delayStep = 0.05
 
