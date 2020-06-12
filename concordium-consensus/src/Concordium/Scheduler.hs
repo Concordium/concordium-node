@@ -56,7 +56,7 @@ import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Bakers(bakerAccount)
-import qualified Concordium.GlobalState.Bakers as Bakers (BakerError(DuplicateAggregationKey, DuplicateSignKey))
+import qualified Concordium.GlobalState.Bakers as Bakers
 import qualified Concordium.GlobalState.Instance as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
@@ -786,7 +786,7 @@ handleUpdateBakerAccount wtc ubaId ubaAddress ubaProof =
                   -- the transaction is coming from the current baker's account.
                   -- now check the account exists and the baker owns it
                   getAccount ubaAddress >>= \case
-                    Nothing -> return $! (TxReject (NonExistentRewardAccount ubaAddress), energyCost, usedEnergy)
+                    Nothing -> return (TxReject (NonExistentRewardAccount ubaAddress), energyCost, usedEnergy)
                     Just Account{..} ->
                       let challenge = S.runPut (S.put ubaId <> S.put ubaAddress)
                           accountP = checkAccountOwnership challenge _accountVerificationKeys ubaProof
@@ -820,7 +820,7 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
           chargeExecutionCost txHash senderAccount energyCost
           getBakerInfo ubsId >>= \case
             Nothing ->
-              return $! (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
+              return (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
@@ -830,11 +830,11 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
                 in if signP then do
                      success <- updateBakerSignKey ubsId ubsKey
                      if success then
-                       return $! (TxSuccess [BakerKeyUpdated ubsId ubsKey], energyCost, usedEnergy)
-                     else return $! (TxReject (DuplicateSignKey ubsKey), energyCost, usedEnergy)
-                   else return $ (TxReject InvalidProof, energyCost, usedEnergy)
+                       return (TxSuccess [BakerKeyUpdated ubsId ubsKey], energyCost, usedEnergy)
+                     else return (TxReject (DuplicateSignKey ubsKey), energyCost, usedEnergy)
+                   else return (TxReject InvalidProof, energyCost, usedEnergy)
               else
-                return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 -- |Update an account's stake delegate.
 handleDelegateStake ::
@@ -855,10 +855,10 @@ handleDelegateStake wtc targetBaker =
           if res then
             let addr = senderAccount ^. accountAddress
                 currentDelegate = senderAccount ^. accountStakeDelegate
-            in return $! (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
+            in return (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
           else
-            return $! (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
-        delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
+            return (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
+        delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
 
 -- |Update the election difficulty birk parameter.
 -- The given difficulty must be valid (see 'isValidElectionDifficulty').
@@ -883,8 +883,8 @@ handleUpdateElectionDifficulty wtc uedDifficulty =
           then do
             assert (isValidElectionDifficulty uedDifficulty) $ return ()
             updateElectionDifficulty uedDifficulty
-            return $! (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
-          else return $! (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
+            return (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
+          else return (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
 
 -- *Transactions without a sender
 handleDeployCredential ::
@@ -919,9 +919,9 @@ handleDeployCredential cdi cdiHash = do
       let regId = ID.cdvRegId cdv
       regIdEx <- accountRegIdExists regId
       if not (isTimestampBefore (slotTime cm) expiry) then
-        return $! Just (TxInvalid AccountCredentialInvalid)
+        return $ Just (TxInvalid AccountCredentialInvalid)
       else if regIdEx then
-        return $! (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
+        return $ (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
       else do
         -- We now look up the identity provider this credential is derived from.
         -- Of course if it does not exist we reject the transaction.
@@ -992,7 +992,7 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
           chargeExecutionCost txHash senderAccount energyCost
           getBakerInfo ubavkId >>= \case
             Nothing ->
-              return $! (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
+              return $ (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
@@ -1002,11 +1002,11 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
                 in if keyProof then do
                      success <- updateBakerAggregationKey ubavkId ubavkKey
                      if success then
-                       return $! (TxSuccess [BakerAggregationKeyUpdated ubavkId ubavkKey], energyCost, usedEnergy)
-                     else return $! (TxReject (DuplicateAggregationKey ubavkKey), energyCost, usedEnergy)
-                   else return $ (TxReject InvalidProof, energyCost, usedEnergy)
+                       return (TxSuccess [BakerAggregationKeyUpdated ubavkId ubavkKey], energyCost, usedEnergy)
+                     else return (TxReject (DuplicateAggregationKey ubavkKey), energyCost, usedEnergy)
+                   else return (TxReject InvalidProof, energyCost, usedEnergy)
               else
-                return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 -- * Exposed methods.
 
