@@ -977,6 +977,8 @@ handleDeployCredential cdi cdiHash = do
 --  * The transaction is coming from the baker's current reward account.
 --  * The transaction proves that they own the private key corresponding to the __NEW__
 --    aggregation verification key.
+-- TODO: It might be valuable to include the old key in the challenge for the proof,
+-- at the cost of complicating the uses of this transaction.
 handleUpdateBakerAggregationVerifyKey ::
   SchedulerMonad m
     => WithDepositContext
@@ -995,7 +997,7 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
           chargeExecutionCost txHash senderAccount energyCost
           getBakerInfo ubavkId >>= \case
             Nothing ->
-              return $ (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
+              return (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
@@ -1011,6 +1013,11 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
               else
                 return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
+-- |Update the baker's VRF key.
+-- The transaction is valid if it proves knowledge of the secret key,
+-- and if it is coming from the baker's reward account.
+-- TODO: It might be valuable to include the old VRF key in the challenge,
+-- at the cost of complicating the uses of this transaction.
 handleUpdateBakerElectionKey ::
   SchedulerMonad m
     => WithDepositContext
@@ -1030,7 +1037,7 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
       chargeExecutionCost txHash senderAccount energyCost
       getBakerInfo ubekId >>= \case
         Nothing ->
-          return $! (TxReject (UpdatingNonExistentBaker ubekId), energyCost, usedEnergy)
+          return (TxReject (UpdatingNonExistentBaker ubekId), energyCost, usedEnergy)
         Just binfo ->
           -- The transaction to update the election key of the baker must come
           -- from the account of the baker
@@ -1040,10 +1047,10 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
                 keyProof = checkElectionKeyProof challenge ubekKey ubekProof
             in if keyProof then do
               updateBakerElectionKey ubekId ubekKey
-              return $ (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
-            else return $ (TxReject InvalidProof, energyCost, usedEnergy)
+              return (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
+            else return (TxReject InvalidProof, energyCost, usedEnergy)
           else
-            return $ (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+            return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 
 -- * Exposed methods.

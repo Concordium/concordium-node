@@ -33,8 +33,6 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
-import Debug.Trace
-
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
