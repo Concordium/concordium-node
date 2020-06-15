@@ -74,6 +74,7 @@ newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad ::
 
 instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
+    type BlockStateRef (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
 
@@ -232,7 +233,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
 
     bsoNotifyIdentityIssuerCredential bs idk =
-      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank ^. Rewards.identityIssuersRewards) in
+      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank . Rewards.identityIssuersRewards) in
       return $! bs & blockBank . Rewards.identityIssuersRewards .~ updatedRewards
 
     {-# INLINE bsoGetExecutionCost #-}
@@ -323,11 +324,11 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE archiveBlockState #-}
     archiveBlockState _ = return ()
 
-    {-# INLINE putBlockState #-}
-    putBlockState _ = return (return ())
+    {-# INLINE saveBlockState #-}
+    saveBlockState = return
 
-    {-# INLINE getBlockState #-}
-    getBlockState = fail "Basic block state cannot be deserialized"
+    {-# INLINE loadBlockState #-}
+    loadBlockState = return
 
 
 -- |Initial block state.

@@ -66,6 +66,7 @@ instance (MonadReader r m, HasGlobalStateContext c r) => MonadReader c (FocusGlo
 -- implementation of block state.
 class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
+    type BlockStateRef m :: Type
     type UpdatableBlockState m :: Type
     type BirkParameters m :: Type
 
@@ -84,6 +85,7 @@ deriving instance (MonadWriter w (t m)) => MonadWriter w (MGSTrans t m)
 
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
+    type BlockStateRef (MGSTrans t m) = BlockStateRef m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
     type BirkParameters (MGSTrans t m) = BirkParameters m
 
