@@ -291,3 +291,5 @@ instance (bs ~ GS.BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, Mona
 
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
+
+    purgeTransactionTable = return ()

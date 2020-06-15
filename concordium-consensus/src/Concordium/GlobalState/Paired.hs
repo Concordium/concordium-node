@@ -630,6 +630,8 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     -- For runtime parameters, we will only use one side
     getRuntimeParameters = coerceGSML getRuntimeParameters
 
+    purgeTransactionTable = coerceGSML purgeTransactionTable
+
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
@@ -644,4 +646,3 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
     shutdownGlobalState _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
             shutdownGlobalState (Proxy :: Proxy c1) ctx1 s1 c1
             shutdownGlobalState (Proxy :: Proxy c2) ctx2 s2 c2
-
