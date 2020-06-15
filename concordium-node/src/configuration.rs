@@ -189,6 +189,12 @@ pub struct BakerConfig {
     )]
     pub transaction_keep_alive: u32,
     #[structopt(
+        long = "transactions_purging_delay",
+        help = "Time between automatic transaction table purging runs in seconds",
+        default_value = "300"
+    )]
+    pub transactions_purging_delay: u32,
+    #[structopt(
         long = "scheduler-outcome-logging",
         help = "Enable outcome of finalized baked blocks from the scheduler"
     )]
