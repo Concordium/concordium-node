@@ -133,7 +133,7 @@ instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
     getElectionDifficulty = return . _birkElectionDifficulty
 
     getCurrentBakers = return . _birkCurrentBakers
-    
+
     getLotteryBakers = return . _birkLotteryBakers
 
     updateSeedState f bps = return $ bps & birkSeedState %~ f
@@ -245,8 +245,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoAddBaker bs binfo = return $!
         case createBaker binfo (bs ^. blockBirkParameters . birkCurrentBakers) of
-          Just(bid, newBakers) -> (Just bid, bs & blockBirkParameters . birkCurrentBakers .~ newBakers)
-          Nothing -> (Nothing, bs)
+          Right (bid, newBakers) -> (Right bid, bs & blockBirkParameters . birkCurrentBakers .~ newBakers)
+          Left err -> (Left err, bs)
 
     -- NB: The caller must ensure the baker exists. Otherwise this method is incorrect and will raise a runtime error.
     bsoUpdateBaker bs bupdate = return $!
