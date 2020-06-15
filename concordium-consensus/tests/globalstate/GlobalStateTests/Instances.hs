@@ -49,7 +49,7 @@ invariantInstanceTable (Tree c0 t) = do
 invariantInstances :: Instances -> Either String ()
 invariantInstances = invariantInstanceTable . _instances
 
-dummyExpr :: (Expr linked annot, Word64)
+dummyExpr :: (Expr linked annot, TermSize linked)
 dummyExpr = (UnCast, 1)
 
 makeArbitraryInstance :: Gen (ContractAddress -> Instance)
