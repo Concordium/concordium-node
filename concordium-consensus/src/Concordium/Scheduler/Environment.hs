@@ -228,6 +228,24 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- Precondition: the baker exists.
   updateBakerElectionKey :: BakerId -> BakerElectionVerifyKey -> m ()
 
+  -- |Replaces the account verification keys at the indices with the paired key
+  -- for the account at the given account. Does NOT check that there is already
+  -- keys associated with the supplied indices - this should be checked BEFORE
+  -- Precondition: The accounts exists
+  updateAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] -> m ()
+
+  -- |Removes the account verification keys at the given indices from the
+  -- account's keys. does NOT check that these indices are already associated with
+  -- keys - this should be checked BEFORE.
+  -- Precondition: The  account exists
+  removeAccountKeys :: AccountAddress -> [ID.KeyIndex] -> ID.SignatureThreshold -> m ()
+
+  -- |Adds the account verification keys to the account at the specified indicies.
+  -- Does NOT check that these key indexes doesn't already have keys associated with
+  -- them - this should be checked BEFORE callin.
+  -- Preconditinon: The account exists
+  addAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> m ()
+
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
   -- Returns 'True' if the delegation was successful, and 'False' if the baker is
   -- not valid.

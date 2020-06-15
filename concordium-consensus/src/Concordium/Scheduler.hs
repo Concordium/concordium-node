@@ -279,6 +279,16 @@ dispatch msg = do
 
                    UpdateBakerElectionKey{..} ->
                      handleUpdateBakerElectionKey (mkWTC TTUpdateBakerElectionKey) ubekId ubekKey ubekProof
+
+                   UpdateAccountKeys{..} ->
+                     handleUpdateAccountKeys (mkWTC TTUpdateAccountKeys) uakKeys
+
+                   AddAccountKeys{..} ->
+                     handleAddAccountKeys (mkWTC TTAddAccountKeys) aakKeys aakThreshold
+
+                   RemoveAccountKeys{..} ->
+                     handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndeces rakThreshold
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -1051,6 +1061,91 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
             else return (TxReject InvalidProof, energyCost, usedEnergy)
           else
             return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+
+-- TODO: document
+handleUpdateAccountKeys ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> [(ID.KeyIndex, AccountVerificationKey)]
+    -> m (Maybe TransactionSummary)
+handleUpdateAccountKeys wtc keys =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.updateAccountKeys $ length keys
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      case checkKeysExist (senderAccount ^. accountVerificationKeys) (map fst keys) of
+        Nothing -> do
+          updateAccountKeys (senderAccount ^. accountAddress) keys
+          return (TxSuccess [AccountKeysUpdated keys], energyCost, usedEnergy)
+        Just idx -> return (TxReject (NonexistentAccountKey idx), energyCost, usedEnergy)
+
+-- TODO: Document
+handleRemoveAccountKeys ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> [ID.KeyIndex]
+    -> Maybe ID.SignatureThreshold
+    -> m (Maybe TransactionSummary)
+handleRemoveAccountKeys wtc indices threshold =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.removeAccountKeys $ length indices
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      case checkKeysExist (senderAccount ^. accountVerificationKeys) indices of
+        Nothing -> do
+          removeAccountKeys (senderAccount ^. accountAddress) indices (fromIntegral 0) -- TODO: handle threshold update
+          return (TxSuccess [AccountKeysRemoved indices], energyCost, usedEnergy)
+        Just idx -> return (TxReject (NonexistentAccountKey idx), energyCost, usedEnergy)
+
+
+-- TODO: document
+handleAddAccountKeys ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> [(ID.KeyIndex, AccountVerificationKey)]
+    -> Maybe ID.SignatureThreshold
+    -> m (Maybe TransactionSummary)
+handleAddAccountKeys wtc keys threshold =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.addAccountKeys $ length keys
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      addAccountKeys (senderAccount ^. accountAddress) keys (fromIntegral 0) -- TODO: handle threshold update 
+      return (TxReject InvalidProof, energyCost, usedEnergy) -- TODO: do stuff here
+
+-- Checks if a key in AccountKeys belongs to each index in the list of indices.
+-- Returns Nothing if a key belongs to each index. Otherwise returns the first index
+-- encountered for which there is no key
+checkKeysExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe ID.KeyIndex
+checkKeysExist accountKeys = f
+  where
+    f [] = Nothing
+    f (idx : idxs) = case ID.getAccountKey idx accountKeys of
+      Just _ -> f idxs
+      Nothing -> Just idx
+
+checkKeysDontExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe ID.KeyIndex
+checkKeysDontExist accountKeys = f
+  where
+    f [] = Nothing
+    f (idx : idxs) = case ID.getAccountKey idx accountKeys of
+      Just _ -> Just idx
+      Nothing -> f idxs
 
 
 -- * Exposed methods.

@@ -208,3 +208,13 @@ updateBakerAggregationVerifyKey = 2700
 -- The underlying computation is the same as for updating the baker or account key.
 updateBakerElectionKey :: Energy
 updateBakerElectionKey = 90
+
+-- |Cost to update existing account keys. Parametrised by amount of keys to update
+updateAccountKeys :: Int -> Energy
+updateAccountKeys n = 0
+
+addAccountKeys :: Int -> Energy
+addAccountKeys n = 0
+
+removeAccountKeys :: Int -> Energy
+removeAccountKeys n = 0
