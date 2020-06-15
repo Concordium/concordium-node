@@ -38,6 +38,13 @@ then
             cp * $DATA_DIR/
             cd $DATA_DIR
             cp "genesis-finbench-${FINBENCH_NUM}.dat" genesis.dat
+        elif [ -n "$TPS_NUM" ];
+        then
+            cd /genesis-data
+            tar -xzf tps-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
         else
             cd /genesis-data
             tar -xvf $NUM_BAKERS-bakers.tar.gz
