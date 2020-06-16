@@ -1,11 +1,4 @@
-{-# LANGUAGE
-        MultiParamTypeClasses,
-        TypeFamilies,
-        FlexibleInstances,
-        FlexibleContexts,
-        ScopedTypeVariables,
-        RecordWildCards
-        #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |An implementation of a BlockPointer that doesn't retain the parent or last finalized block so that they can be written into the disk and dropped from the memory.
 
 module Concordium.GlobalState.Persistent.BlockPointer where

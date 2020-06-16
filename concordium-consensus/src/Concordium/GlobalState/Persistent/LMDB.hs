@@ -1,4 +1,5 @@
-{-# LANGUAGE FlexibleContexts, NumericUnderscores, ScopedTypeVariables, TypeFamilies, FlexibleInstances, GeneralizedNewtypeDeriving, TemplateHaskell, UndecidableInstances, StandaloneDeriving, DerivingVia, RecordWildCards, LambdaCase, TypeApplications #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 -- |This module provides an abstraction over the operations done in the LMDB database that serves as a backend for storing blocks and finalization records.
 
 module Concordium.GlobalState.Persistent.LMDB (
@@ -38,7 +39,7 @@ import System.Directory
 import qualified Data.HashMap.Strict as HM
 
 -- |Values used by the LMDBStoreMonad to manage the database.
--- Sometimes we only want read access 
+-- Sometimes we only want read access
 data DatabaseHandlers = DatabaseHandlers {
     _limits :: !Limits,
     _storeEnv :: !(Environment ReadWrite),
@@ -149,7 +150,7 @@ putInProperDB (TxStatuses statuses) dbh = do
   let env = dbh ^. storeEnv
   let putter (key, value) = L.put (dbh ^. transactionStatusStore) key (Just value)
   transaction env $ mapM_ putter statuses
-  
+
 
 -- |Provided default function that tries to perform an insertion in a given database of a given value,
 -- altering the environment if needed when the database grows.
