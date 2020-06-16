@@ -33,6 +33,7 @@ import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.SQL.AccountTransactionIndex
+import Concordium.Logger (runSilentLogger, MonadLogger)
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -96,7 +97,7 @@ import Concordium.GlobalState.SQL.AccountTransactionIndex
 -- * If @c@ is 'PersistentBlockStateContext', the block state is a persistent, Haskell
 --   implementation using 'PersistentBlockStateMonad'.
 newtype BlockStateM c r g s m a = BlockStateM (m a)
-    deriving (Functor, Applicative, Monad, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
 -- * Specializations
 
@@ -120,20 +121,20 @@ deriving via PureBlockStateMonad m
     instance BlockStateTypes (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (Monad m)
+    instance (MonadLogger m)
              => BlockStateQuery (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (Monad m)
+    instance (MonadLogger m)
              => BirkParametersOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (Monad m,
+    instance (MonadLogger m,
               BlockStateQuery (MemoryBlockStateM r g s m))
              => BlockStateOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (Monad m,
+    instance (MonadLogger m,
               BlockStateOperations (MemoryBlockStateM r g s m))
              => BlockStateStorage (MemoryBlockStateM r g s m)
 
@@ -162,7 +163,7 @@ deriving via (PersistentBlockStateMonad
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
                (FocusGlobalStateM PersistentBlockStateContext g m))
-    instance (MonadIO m,
+    instance (MonadIO m, MonadLogger m,
               BlockStateOperations (PersistentBlockStateMonad
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -171,7 +172,7 @@ deriving via (PersistentBlockStateMonad
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
                (FocusGlobalStateM PersistentBlockStateContext g m))
-    instance (MonadIO m,
+    instance (MonadIO m, MonadLogger m,
               BlockStateStorage (PersistentBlockStateMonad
                                   PersistentBlockStateContext
                                   (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -189,7 +190,7 @@ deriving via (PersistentBlockStateMonad
 -- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO,
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, MonadLogger,
               BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 -- * Specializations
@@ -248,7 +249,7 @@ deriving via PersistentTreeStateMonad ati bs m
 -- is an additional context that manages auxiliary databases not needed by consensus.
 -- In particular this means the index of transactions that affect a given account.
 newtype GlobalStateM db c r g s m a = GlobalStateM {runGlobalStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadReader r, MonadState s, MonadIO, MonadLogger)
     deriving (BlockStateTypes) via (BlockStateM c r g s m)
 
 -- * Specializations
@@ -266,7 +267,7 @@ deriving via BlockStateM c r g s m
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (BlockStateQuery (GlobalStateM db c r g s m),
+    instance (MonadLogger m, BlockStateQuery (GlobalStateM db c r g s m),
               BlockStateOperations (BlockStateM c r g s m))
              => BlockStateOperations (GlobalStateM db c r g s m)
 
@@ -293,7 +294,7 @@ deriving via TreeStateBlockStateM g c r s m
              => BlockPointerMonad (GlobalStateM db c r g s m)
 
 deriving via TreeStateBlockStateM g c r s m
-    instance (Monad m,
+    instance (MonadLogger m,
               BlockStateStorage (BlockStateM c r g s m),
               TreeStateMonad (TreeStateBlockStateM g c r s m))
              => TreeStateMonad (GlobalStateM db c r g s m)
@@ -353,7 +354,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
-        _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        _ <- runPut <$> (runSilentLogger $ runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc)
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
         closeBlobStore pbscBlobStore
@@ -384,7 +385,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runSilentLogger (runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc)
         isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
                  `onException` (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
@@ -420,7 +421,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runSilentLogger (runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc)
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
                  `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
