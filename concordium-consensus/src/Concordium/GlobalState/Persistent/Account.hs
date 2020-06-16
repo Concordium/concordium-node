@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies #-} -- TODO: removing this extension shows a lot of simplifiable instances
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
