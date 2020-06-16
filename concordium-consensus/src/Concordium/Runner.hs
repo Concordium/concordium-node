@@ -26,6 +26,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable)
 
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -51,7 +52,8 @@ data SyncRunner c = SyncRunner {
     syncCallback :: SimpleOutMessage c -> IO (),
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
-    syncHandlePendingLive :: !(IO ())
+    syncHandlePendingLive :: !(IO ()),
+    syncTransactionPurgingThread :: !(MVar ThreadId)
 }
 
 instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncRunner c) (SkovT () c LogIO) where
@@ -84,7 +86,8 @@ bufferedHandlePendingLive hpl bufferMVar = do
                     else do
                         putMVar bufferMVar v
                         waitLoop lower
--- |Make a 'SyncRunner' without starting a baker thread.
+
+-- |Make a 'SyncRunner' without starting a baker thread. This will also create a timer for purging the transaction table periodically.
 makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => LogMethod IO ->
                   BakerIdentity ->
                   c ->
@@ -94,6 +97,7 @@ makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => Lo
 makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback = do
         (syncContext, st0) <- runLoggerT (initialiseSkov config) syncLogMethod
         syncState <- newMVar st0
+        syncTransactionPurgingThread <- newEmptyMVar
         syncBakerThread <- newEmptyMVar
         syncFinalizationCatchUpActive <- newMVar Nothing
         pendingLiveMVar <- newMVar Nothing
@@ -128,10 +132,11 @@ syncSkovHandlers sr@SyncRunner{..} = SkovHandlers{
         shPendingLive = liftIO syncHandlePendingLive
     }
 
--- |Start the baker thread for a 'SyncRunner'.
+-- |Start the baker thread for a 'SyncRunner'. This will also spawn a background thread for purging the transaction table periodically.
 startSyncRunner :: forall c. (
     (SkovQueryMonad (SkovT () c LogIO)),
-    (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+    (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)),
+    (TreeStateMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
     ) => SyncRunner c -> IO ()
 startSyncRunner sr@SyncRunner{..} = do
         let
@@ -170,13 +175,25 @@ startSyncRunner sr@SyncRunner{..} = do
                 runBaker
             else
                 syncLogMethod Runner LLInfo "Starting baker thread aborted: baker is already running"
+        rp <- runSkovTransaction sr getRuntimeParameters
+        let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
+            purgingLoop = do
+              runSkovTransaction sr purgeTransactionTable
+              threadDelay delay
+              purgingLoop
+        putMVar syncTransactionPurgingThread =<< forkIO purgingLoop
         return ()
 
 -- |Stop the baker thread for a 'SyncRunner'.
 stopSyncRunner :: SyncRunner c -> IO ()
-stopSyncRunner SyncRunner{..} = mask_ $ tryTakeMVar syncBakerThread >>= \case
+stopSyncRunner SyncRunner{..} = do
+  mask_ $ tryTakeMVar syncBakerThread >>= \case
         Nothing -> return ()
         Just thrd -> killThread thrd
+  mask_ $ tryTakeMVar syncTransactionPurgingThread >>= \case
+        Nothing -> return ()
+        Just thrd -> killThread thrd
+
 
 -- |Stop any baker thread and dispose resources used by the 'SyncRunner'.
 -- This should only be called once. Any subsequent call may diverge or throw an exception.
@@ -232,7 +249,8 @@ data SyncPassiveRunner c = SyncPassiveRunner {
     syncPState :: !(MVar (SkovState c)),
     syncPLogMethod :: LogMethod IO,
     syncPContext :: !(SkovContext c),
-    syncPHandlers :: !(SkovPassiveHandlers c LogIO)
+    syncPHandlers :: !(SkovPassiveHandlers c LogIO),
+    syncPTransactionPurgingThread :: !(MVar ThreadId)
 }
 
 instance (SkovQueryMonad (SkovT () c LogIO)) => SkovStateQueryable (SyncPassiveRunner c) (SkovT () c LogIO) where
@@ -246,8 +264,8 @@ runSkovPassive :: SyncPassiveRunner c -> SkovT (SkovPassiveHandlers c LogIO) c L
 runSkovPassive SyncPassiveRunner{..} a = runWithStateLog syncPState syncPLogMethod (runSkovT a syncPHandlers syncPContext)
 
 
--- |Make a 'SyncPassiveRunner', which does not support a baker thread.
-makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO)) => LogMethod IO ->
+-- |Make a 'SyncPassiveRunner', which does not support a baker thread. This will also spawn a background thread for purging the transaction table periodically.
+makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovT () c LogIO), TreeStateMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => LogMethod IO ->
                         c ->
                         (CatchUpStatus -> IO ()) ->
                         IO (SyncPassiveRunner c)
@@ -255,14 +273,26 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
         (syncPContext, st0) <- runLoggerT (initialiseSkov config) syncPLogMethod
         syncPState <- newMVar st0
         pendingLiveMVar <- newMVar Nothing
+        syncPTransactionPurgingThread <- newEmptyMVar
         let
             sphPendingLive = liftIO $ bufferedHandlePendingLive (runStateQuery spr (getCatchUpStatus False) >>= cusCallback) pendingLiveMVar
             syncPHandlers = SkovPassiveHandlers {..}
             spr = SyncPassiveRunner{..}
+        rp <- runSkovPassive spr getRuntimeParameters
+        let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
+        let loop = do
+              runSkovPassive spr purgeTransactionTable
+              threadDelay delay
+              loop
+        putMVar syncPTransactionPurgingThread =<< forkIO loop
         return spr
 
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
-shutdownSyncPassiveRunner SyncPassiveRunner{..} = takeMVar syncPState >>= flip runLoggerT syncPLogMethod . shutdownSkov syncPContext
+shutdownSyncPassiveRunner SyncPassiveRunner{..} = do
+  takeMVar syncPState >>= flip runLoggerT syncPLogMethod . shutdownSkov syncPContext
+  mask_ $ tryTakeMVar syncPTransactionPurgingThread >>= \case
+        Nothing -> return ()
+        Just thrd -> killThread thrd
 
 syncPassiveReceiveBlock :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c LogIO))
                         => SyncPassiveRunner c -> PendingBlock -> IO UpdateResult
@@ -313,6 +343,7 @@ data OutMessage peer =
 makeAsyncRunner :: forall c source.
     (SkovConfiguration c,
     (SkovQueryMonad (SkovT () c LogIO)),
+    (TreeStateMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)),
     (BakerMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
         )
     => LogMethod IO

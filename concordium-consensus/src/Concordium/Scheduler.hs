@@ -56,6 +56,7 @@ import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Bakers(bakerAccount)
+import qualified Concordium.GlobalState.Bakers as Bakers
 import qualified Concordium.GlobalState.Instance as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
@@ -272,6 +273,12 @@ dispatch msg = do
 
                    UpdateElectionDifficulty{..} ->
                      handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
+
+                   UpdateBakerAggregationVerifyKey{..} ->
+                     handleUpdateBakerAggregationVerifyKey (mkWTC TTUpdateBakerAggregationVerifyKey) ubavkId ubavkKey ubavkProof
+
+                   UpdateBakerElectionKey{..} ->
+                     handleUpdateBakerElectionKey (mkWTC TTUpdateBakerElectionKey) ubekId ubekKey ubekProof
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -715,8 +722,9 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                         -- Thus we can create the baker, starting it off with 0 lottery power.
                         mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
                         case mbid of
-                          Nothing -> return $! (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
-                          Just bid -> return $! (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
+                          Left Bakers.DuplicateSignKey -> return $ (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
+                          Left Bakers.DuplicateAggregationKey -> return $ (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
+                          Right bid -> return $ (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
                       else return $ (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- |Remove a baker from the baker pool.
@@ -781,7 +789,7 @@ handleUpdateBakerAccount wtc ubaId ubaAddress ubaProof =
                   -- the transaction is coming from the current baker's account.
                   -- now check the account exists and the baker owns it
                   getAccount ubaAddress >>= \case
-                    Nothing -> return $! (TxReject (NonExistentRewardAccount ubaAddress), energyCost, usedEnergy)
+                    Nothing -> return (TxReject (NonExistentRewardAccount ubaAddress), energyCost, usedEnergy)
                     Just Account{..} ->
                       let challenge = S.runPut (S.put ubaId <> S.put ubaAddress)
                           accountP = checkAccountOwnership challenge _accountVerificationKeys ubaProof
@@ -815,7 +823,7 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
           chargeExecutionCost txHash senderAccount energyCost
           getBakerInfo ubsId >>= \case
             Nothing ->
-              return $! (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
+              return (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
             Just binfo ->
               if binfo ^. bakerAccount == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
@@ -825,11 +833,11 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
                 in if signP then do
                      success <- updateBakerSignKey ubsId ubsKey
                      if success then
-                       return $! (TxSuccess [BakerKeyUpdated ubsId ubsKey], energyCost, usedEnergy)
-                     else return $! (TxReject (DuplicateSignKey ubsKey), energyCost, usedEnergy)
-                   else return $ (TxReject InvalidProof, energyCost, usedEnergy)
+                       return (TxSuccess [BakerKeyUpdated ubsId ubsKey], energyCost, usedEnergy)
+                     else return (TxReject (DuplicateSignKey ubsKey), energyCost, usedEnergy)
+                   else return (TxReject InvalidProof, energyCost, usedEnergy)
               else
-                return $! (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 -- |Update an account's stake delegate.
 handleDelegateStake ::
@@ -850,10 +858,10 @@ handleDelegateStake wtc targetBaker =
           if res then
             let addr = senderAccount ^. accountAddress
                 currentDelegate = senderAccount ^. accountStakeDelegate
-            in return $! (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
+            in return (TxSuccess [maybe (StakeUndelegated addr currentDelegate) (StakeDelegated addr) targetBaker], energyCost, usedEnergy)
           else
-            return $! (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
-        delegateCost = Cost.updateStakeDelegate (Set.size $! senderAccount ^. accountInstances)
+            return (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
+        delegateCost = Cost.updateStakeDelegate (Set.size $ senderAccount ^. accountInstances)
 
 -- |Update the election difficulty birk parameter.
 -- The given difficulty must be valid (see 'isValidElectionDifficulty').
@@ -878,8 +886,8 @@ handleUpdateElectionDifficulty wtc uedDifficulty =
           then do
             assert (isValidElectionDifficulty uedDifficulty) $ return ()
             updateElectionDifficulty uedDifficulty
-            return $! (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
-          else return $! (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
+            return (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
+          else return (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
 
 -- *Transactions without a sender
 handleDeployCredential ::
@@ -914,9 +922,9 @@ handleDeployCredential cdi cdiHash = do
       let regId = ID.cdvRegId cdv
       regIdEx <- accountRegIdExists regId
       if not (isTimestampBefore (slotTime cm) expiry) then
-        return $! Just (TxInvalid AccountCredentialInvalid)
+        return $ Just (TxInvalid AccountCredentialInvalid)
       else if regIdEx then
-        return $! (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
+        return $ (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
       else do
         -- We now look up the identity provider this credential is derived from.
         -- Of course if it does not exist we reject the transaction.
@@ -963,6 +971,86 @@ handleDeployCredential cdi cdiHash = do
                     addAccountCredential account cdv  -- and then add the credentials
                     mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                   else return $ Just (TxInvalid AccountCredentialInvalid)
+
+-- |Update the baker's public aggregation key. The transaction is considered valid if
+--
+--  * The transaction is coming from the baker's current reward account.
+--  * The transaction proves that they own the private key corresponding to the __NEW__
+--    aggregation verification key.
+-- TODO: It might be valuable to include the old key in the challenge for the proof,
+-- at the cost of complicating the uses of this transaction.
+handleUpdateBakerAggregationVerifyKey ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> BakerId
+    -> BakerAggregationVerifyKey
+    -> BakerAggregationProof
+    -> m (Maybe TransactionSummary)
+handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
+  withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+        c = tickEnergy Cost.updateBakerAggregationVerifyKey
+        k ls _ = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+          getBakerInfo ubavkId >>= \case
+            Nothing ->
+              return (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
+            Just binfo ->
+              if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+                -- only the baker itself can update its own keys
+                -- now also check that they own the private key for the new aggregation key
+                let challenge = S.runPut (S.put ubavkId <> S.put ubavkKey)
+                    keyProof = Bls.checkProofOfKnowledgeSK challenge ubavkProof ubavkKey
+                in if keyProof then do
+                     success <- updateBakerAggregationKey ubavkId ubavkKey
+                     if success then
+                       return (TxSuccess [BakerAggregationKeyUpdated ubavkId ubavkKey], energyCost, usedEnergy)
+                     else return (TxReject (DuplicateAggregationKey ubavkKey), energyCost, usedEnergy)
+                   else return (TxReject InvalidProof, energyCost, usedEnergy)
+              else
+                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+
+-- |Update the baker's VRF key.
+-- The transaction is valid if it proves knowledge of the secret key,
+-- and if it is coming from the baker's reward account.
+-- TODO: It might be valuable to include the old VRF key in the challenge,
+-- at the cost of complicating the uses of this transaction.
+handleUpdateBakerElectionKey ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> BakerId
+    -> BakerElectionVerifyKey
+    -> Proofs.Dlog25519Proof
+    -> m (Maybe TransactionSummary)
+handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy Cost.updateBakerElectionKey
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      getBakerInfo ubekId >>= \case
+        Nothing ->
+          return (TxReject (UpdatingNonExistentBaker ubekId), energyCost, usedEnergy)
+        Just binfo ->
+          -- The transaction to update the election key of the baker must come
+          -- from the account of the baker
+          if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+            -- check that the baker supplied a valid proof of knowledge of the election key
+            let challenge = S.runPut (S.put ubekId <> S.put ubekKey)
+                keyProof = checkElectionKeyProof challenge ubekKey ubekProof
+            in if keyProof then do
+              updateBakerElectionKey ubekId ubekKey
+              return (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
+            else return (TxReject InvalidProof, energyCost, usedEnergy)
+          else
+            return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
 
 -- * Exposed methods.
