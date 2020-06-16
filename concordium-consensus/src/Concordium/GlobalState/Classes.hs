@@ -13,7 +13,6 @@ import Control.Monad.State.Class
 import Control.Monad.Reader.Class
 import Control.Monad.Writer.Class
 import Data.Functor.Identity
-import Concordium.Logger
 
 -- |Defines a lens for accessing the global state component of a type.
 class HasGlobalState g s | s -> g where
@@ -61,4 +60,3 @@ newtype MGSTrans t (m :: Type -> Type) a = MGSTrans (t m a)
 deriving instance MonadReader r (t m) => MonadReader r (MGSTrans t m)
 deriving instance MonadState s (t m) => MonadState s (MGSTrans t m)
 deriving instance MonadWriter w (t m) => MonadWriter w (MGSTrans t m)
-deriving instance MonadLogger (t m) => MonadLogger (MGSTrans t m)
