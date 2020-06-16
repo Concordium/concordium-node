@@ -30,6 +30,7 @@ import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 
 import qualified Acorn.Utils.Init as Acorn
+import Concordium.Logger (MonadLogger)
 
 data BasicBirkParameters = BasicBirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
@@ -73,7 +74,7 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad)
+    deriving (Functor, Applicative, Monad, MonadLogger)
 
 instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
@@ -86,7 +87,7 @@ instance ATITypes (PureBlockStateMonad m) where
 instance Monad m => PerAccountDBOperations (PureBlockStateMonad m) where
   -- default implementation
 
-instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
+instance (MonadLogger m) => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getModule mref)
@@ -126,7 +127,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
 
-instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
+instance MonadLogger m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
     getSeedState bps = return $ _birkSeedState bps
 
@@ -148,7 +149,7 @@ basicUpdateBirkParametersForNewEpoch seedState bps = bps &
     -- save the stake distribution from the end of the epoch
     birkPrevEpochBakers .~ (bps ^. birkCurrentBakers)
 
-instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
+instance MonadLogger m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoGetModule #-}
     bsoGetModule bs mref = return $ bs ^. blockModules . to (Modules.getModule mref)
@@ -309,7 +310,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoSetElectionDifficulty bs d = return $!
       bs & blockBirkParameters . birkElectionDifficulty .~ d
 
-instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
+instance MonadLogger m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
                                       (blockBank . Rewards.identityIssuersRewards .~ HashMap.empty)

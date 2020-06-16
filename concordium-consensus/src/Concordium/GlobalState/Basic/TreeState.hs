@@ -33,6 +33,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.Logger (MonadLogger)
 
 data SkovData bs = SkovData {
     -- |Map of all received blocks by hash.
@@ -105,7 +106,7 @@ initialSkovData rp gd genState =
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
 newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
+  deriving (Functor, Applicative, Monad, MonadIO, MonadLogger, BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)

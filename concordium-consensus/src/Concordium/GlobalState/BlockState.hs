@@ -45,6 +45,7 @@ import Data.Word
 import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
 
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
@@ -184,7 +185,7 @@ updateAccount !upd !acc =
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
-class BlockStateQuery m => BlockStateOperations m where
+class (BlockStateQuery m , MonadLogger m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
   -- |Get an account by its address.
@@ -367,6 +368,20 @@ class BlockStateOperations m => BlockStateStorage m where
     -- |Deserialize a block state.
     getBlockState :: S.Get (m (BlockState m))
 
+instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
+    getSeedState = lift . getSeedState
+    updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
+    getElectionDifficulty = lift . getElectionDifficulty
+    getCurrentBakers = lift . getCurrentBakers
+    getLotteryBakers = lift . getLotteryBakers
+    updateSeedState f = lift . updateSeedState f
+    {-# INLINE getSeedState #-}
+    {-# INLINE updateBirkParametersForNewEpoch #-}
+    {-# INLINE getElectionDifficulty #-}
+    {-# INLINE getCurrentBakers #-}
+    {-# INLINE getLotteryBakers #-}
+    {-# INLINE updateSeedState #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
@@ -391,7 +406,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
 
-instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
+instance (MonadLogger (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
@@ -452,7 +467,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
 
-instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
+instance (MonadLogger (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
     dropUpdatableBlockState = lift . dropUpdatableBlockState
@@ -468,26 +483,17 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE putBlockState #-}
     {-# INLINE getBlockState #-}
 
-instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
-    getSeedState = lift . getSeedState
-    updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
-    getElectionDifficulty = lift . getElectionDifficulty
-    getCurrentBakers = lift . getCurrentBakers
-    getLotteryBakers = lift . getLotteryBakers
-    updateSeedState f = lift . updateSeedState f
-    {-# INLINE getSeedState #-}
-    {-# INLINE updateBirkParametersForNewEpoch #-}
-    {-# INLINE getElectionDifficulty #-}
-    {-# INLINE getCurrentBakers #-}
-    {-# INLINE getLotteryBakers #-}
-    {-# INLINE updateSeedState #-}
-
+deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 
+deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
+
+deriving via (MGSTrans LoggerT m) instance BirkParametersOperations m => BirkParametersOperations (LoggerT m)
+deriving via (MGSTrans LoggerT m) instance BlockStateQuery m => BlockStateQuery (LoggerT m)
+deriving via (MGSTrans LoggerT m) instance BlockStateOperations m => BlockStateOperations (LoggerT m)
+deriving via (MGSTrans LoggerT m) instance BlockStateStorage m => BlockStateStorage (LoggerT m)

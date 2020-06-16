@@ -29,6 +29,7 @@ import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.Logger (LoggerT, MonadLogger)
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -272,7 +273,7 @@ class (Eq (BlockPointerType m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
+instance (MonadLogger (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs = lift . makePendingBlock key slot parent bid pf n lastFin trs
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
@@ -354,3 +355,4 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+deriving via (MGSTrans LoggerT m) instance TreeStateMonad m => TreeStateMonad (LoggerT m)

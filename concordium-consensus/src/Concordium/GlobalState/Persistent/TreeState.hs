@@ -7,8 +7,6 @@
 {-# LANGUAGE MultiWayIf #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
---
--- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
 module Concordium.GlobalState.Persistent.TreeState where
 
 import Concordium.GlobalState.Types
@@ -52,6 +50,7 @@ import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Data.Time.Clock
 import Data.Foldable as Fold (foldl')
+import Concordium.Logger (runSilentLogger, runLoggerT, LogIO, MonadLogger)
 
 -- * SkovPersistentData definition
 
@@ -257,10 +256,10 @@ loadSkovPersistentData rp gd pbsc atiPair = do
           Just (bh, Nothing) -> throwIO (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
           Just (bh, Just bytes) -> return (Just (bh, bytes))
 
-      getBlockPointer :: ByteString -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState)
+      getBlockPointer :: ByteString -> LogIO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState)
       getBlockPointer bytes =
         case runGet getQuadruple bytes of
-          Left _ -> throwIO (DatabaseInvariantViolation "Cannot deserialize block.")
+          Left _ -> liftIO $ throwIO (DatabaseInvariantViolation "Cannot deserialize block.")
           Right (finIndex, blockInfo, newBlock, state') -> do
             st <- runReaderT (PBS.runPersistentBlockStateMonad state') pbsc
             let ati = defaultValue :: ATIValues ati
@@ -291,7 +290,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
                [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
       loadInSequence gbp gBytes = do
         (lastBytes, blocks) <- go 1 gBytes [(getHash gbp, BlockFinalized 0)]
-        (, blocks) <$> getBlockPointer lastBytes
+        (, blocks) <$> runLoggerT (getBlockPointer lastBytes) undefined
         where go :: BlockHeight
                  -> ByteString
                  -> [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)]
@@ -306,7 +305,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   (gbHash, gbBytes) <- lookupAtHeight 0 `failWith` GenesisBlockNotInDataBaseError
 
   -- Check that this is really a genesis pointer with the same genesis data
-  (gBlockPointer, _, _) <- getBlockPointer gbBytes
+  (gBlockPointer, _, _) <- runLoggerT (getBlockPointer gbBytes) undefined
 
   unless (gbHash == getHash gBlockPointer) $ throwIO (DatabaseInvariantViolation $ "Genesis given hash and computed hash differ.")
 
@@ -330,7 +329,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   -- For now we simply load all accounts, but after this table is also moved to
   -- some sort of a database we should not need to do that.
 
-  let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext IO) TransactionTable
+  let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
       getTransactionTable = do
         accs <- BS.getAccountList lastState
         foldM (\table addr ->
@@ -339,7 +338,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
                   Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
-  tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
+  tt <- runLoggerT (runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc) undefined
 
   return SkovPersistentData {
             _blockTable = HM.fromList blocks,
@@ -376,7 +375,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
 newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
+  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
