@@ -4,6 +4,7 @@ module Concordium.GlobalState.Block(
     module Concordium.GlobalState.Block
 ) where
 
+import Control.Monad
 import Data.Kind
 import Data.Time
 import Data.Serialize
@@ -252,15 +253,14 @@ instance BlockPendingData PendingBlock where
     blockReceiveTime = pbReceiveTime
 
 instance HashableTo BlockHash PendingBlock where
-  getHash = pbHash
+    getHash = pbHash
 
 -- |Deserialize a block.
 -- NB: This does not check transaction signatures.
 getBlock :: TransactionTime -> Get Block
 getBlock arrivalTime = do
-  version <- Version <$> get
-  if version /= __versionBlock then fail "Invalid block version"
-  else do
+    version <- get
+    when (version /= __versionBlock) (fail "Invalid block version")
     sl <- get
     if sl == 0 then GenesisBlock <$> get
     else do
