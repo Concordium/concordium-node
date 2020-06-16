@@ -1,5 +1,5 @@
--- |This module provides helpers for interfacing with an SQL database.
 {-# LANGUAGE DerivingVia #-}
+-- |This module provides helpers for interfacing with an SQL database.
 module Concordium.GlobalState.SQL where
 
 import Control.Monad
@@ -18,7 +18,7 @@ newtype ByteStringSerialized a = ByteStringSerialized { unBSS :: a }
 instance S.Serialize a => PersistField (ByteStringSerialized a) where
   toPersistValue = toPersistValue . S.encode
   fromPersistValue =
-    fromPersistValue >=> left (Text.pack) . S.decode 
+    fromPersistValue >=> left (Text.pack) . S.decode
 
 instance S.Serialize a => PersistFieldSql (ByteStringSerialized a) where
   sqlType _ = sqlType (Proxy :: Proxy ByteString)

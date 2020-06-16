@@ -1,7 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
-
 module Concordium.GlobalState.Information where
 
 import qualified Data.Serialize as S

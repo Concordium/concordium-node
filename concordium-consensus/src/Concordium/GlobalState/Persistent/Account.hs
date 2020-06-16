@@ -1,6 +1,6 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns, BangPatterns, RecordWildCards, MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, FlexibleInstances, QuantifiedConstraints, StandaloneDeriving #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
 module Concordium.GlobalState.Persistent.Account where
 
