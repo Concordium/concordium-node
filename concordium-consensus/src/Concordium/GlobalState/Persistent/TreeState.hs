@@ -1,8 +1,10 @@
-{-# LANGUAGE ConstraintKinds, BangPatterns, TypeFamilies, TemplateHaskell,
-             NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards,
-             MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving,
-             LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia,
-             StandaloneDeriving, UndecidableInstances, TypeApplications, MultiWayIf #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
 --
@@ -15,7 +17,6 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.Classes as GS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlockPointer as PB
@@ -375,7 +376,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
 newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
+  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
             BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
@@ -401,7 +402,7 @@ instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) wh
 
 getWeakPointer :: (MonadIO (PersistentTreeStateMonad ati bs m),
                    BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
-                   GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+                   BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
                    CanExtend (ATIValues ati),
                    MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
                => Weak (PersistentBlockPointer (ATIValues ati) bs)
@@ -519,7 +520,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
 
 
 instance (MonadIO (PersistentTreeStateMonad ati bs m),
-          GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
           BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
           PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)

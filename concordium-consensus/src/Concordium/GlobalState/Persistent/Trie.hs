@@ -1,20 +1,11 @@
-{-# LANGUAGE
-    DeriveFunctor,
-    TypeFamilies,
-    DerivingVia,
-    DerivingStrategies,
-    MultiParamTypeClasses,
-    ScopedTypeVariables,
-    LambdaCase,
-    TupleSections,
-    FlexibleContexts,
-    DefaultSignatures,
-    DeriveFoldable,
-    DeriveTraversable,
-    FlexibleInstances,
-    QuantifiedConstraints,
-    UndecidableInstances,
-    StandaloneDeriving #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |This module provides an implementation of indexes that may be persisted to
 -- disk.  Keys in the index are effectively fixed-length byte strings.  The
 -- index is implemented as a Trie, where each branching node has degree 256.

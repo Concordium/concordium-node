@@ -1,4 +1,9 @@
-{-# LANGUAGE DerivingVia, StandaloneDeriving, DefaultSignatures, TypeFamilies, UndecidableInstances, ScopedTypeVariables #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.AccountTransactionIndex where
 
 import Control.Monad.Except

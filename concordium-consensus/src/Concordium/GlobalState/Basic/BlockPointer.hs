@@ -1,9 +1,3 @@
-{-# LANGUAGE
-        RecordWildCards,
-        MultiParamTypeClasses,
-        TypeFamilies,
-        FlexibleInstances
-        #-}
 module Concordium.GlobalState.Basic.BlockPointer where
 
 import Data.Time

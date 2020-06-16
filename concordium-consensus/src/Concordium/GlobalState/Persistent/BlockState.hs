@@ -1,7 +1,8 @@
-{-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, DeriveGeneric, GeneralizedNewtypeDeriving,
-        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase, OverloadedStrings, TupleSections, StandaloneDeriving
- #-}
-
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Persistent.BlockState where
 
 import Data.Serialize
@@ -27,12 +28,12 @@ import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
 import Acorn.Types (linkExprWithMaxSize)
 
-import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account

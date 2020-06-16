@@ -1,9 +1,5 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(

@@ -1,4 +1,7 @@
-{-# LANGUAGE MultiParamTypeClasses, StandaloneDeriving, RecordWildCards, TypeFamilies, FlexibleContexts, TypeSynonymInstances, FunctionalDependencies, DerivingVia, ScopedTypeVariables, FlexibleInstances, UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Block(
     BlockFinalizationData,
     module Concordium.GlobalState.Block

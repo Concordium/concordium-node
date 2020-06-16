@@ -1,20 +1,7 @@
-{-# LANGUAGE
-    GeneralizedNewtypeDeriving,
-    StandaloneDeriving,
-    DerivingVia,
-    FlexibleContexts,
-    FlexibleInstances,
-    DerivingStrategies,
-    TypeFamilies,
-    RecordWildCards,
-    MultiParamTypeClasses,
-    QuantifiedConstraints,
-    UndecidableInstances,
-    RankNTypes,
-    ScopedTypeVariables,
-    ConstraintKinds,
-    PartialTypeSignatures
-    #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- |This module lifts the abstractions declared in the globalstate package to an
 -- abstracted new type `GlobalStateM` that inherits all the monad behaviors defined
 -- in this package.
