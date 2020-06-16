@@ -68,7 +68,7 @@ instance Serialize FinalizationRecord where
         put finalizationDelay
     get = do
         version <- get
-        when (version /= __versionFinalizationRecord) (fail (show version))
+        when (version /= __versionFinalizationRecord) (fail "Invalid finalization-record version")
         finalizationIndex <- get
         finalizationBlockPointer <- get
         finalizationProof <- get
