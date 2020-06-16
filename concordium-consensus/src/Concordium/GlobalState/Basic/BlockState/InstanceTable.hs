@@ -1,5 +1,6 @@
-{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
-{-# LANGUAGE OverloadedStrings, TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 module Concordium.GlobalState.Basic.BlockState.InstanceTable where
 
 import qualified Concordium.Crypto.SHA256 as H

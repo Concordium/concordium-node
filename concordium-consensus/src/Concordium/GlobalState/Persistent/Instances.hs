@@ -1,4 +1,7 @@
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, DeriveFoldable, DeriveTraversable, FlexibleInstances, QuantifiedConstraints, UndecidableInstances, StandaloneDeriving, RecordWildCards #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveTraversable #-}
+
 module Concordium.GlobalState.Persistent.Instances where
 
 import Data.Word
@@ -216,7 +219,7 @@ instance (BlobStorable m BlobRef r, MonadIO m) => BlobStorable m BlobRef (IT r) 
             fmap Leaf <$> load p
         else -- tag == 9
             return . VacantLeaf <$> get
-            
+
 mapReduceIT :: forall a m t. (Monoid a, MRecursive m t, Base t ~ IT) => (Either ContractAddress PersistentInstance -> m a) -> t -> m a
 mapReduceIT mfun = mr 0 <=< mproject
     where
@@ -267,7 +270,7 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
         -- Insert at a vacant leaf: create leaf with next subindex
         nci offset _ (VacantLeaf si) = leaf offset (succ si)
         leaf ind subind = do
-            (res, c) <- mk (ContractAddress ind subind)  
+            (res, c) <- mk (ContractAddress ind subind)
             return (res, Leaf c)
 
 
@@ -369,7 +372,7 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
             | otherwise = return Nothing
         upd _ _ VacantLeaf{} = return Nothing
         upd succCont i (Branch h f _ _ l r)
-            | i < 2^h = 
+            | i < 2^h =
                 let newCont res projl' = do
                         projr <- mproject r
                         l' <- membed projl'

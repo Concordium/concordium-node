@@ -1,15 +1,9 @@
-{-# LANGUAGE
-    TemplateHaskell,
-    FlexibleInstances,
-    FlexibleContexts,
-    MultiParamTypeClasses,
-    UndecidableInstances,
-    TypeFamilies,
-    DerivingVia,
-    StandaloneDeriving,
-    PartialTypeSignatures,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- |This module pairs together two global state implementations
 -- for testing purposes.
 module Concordium.GlobalState.Paired where
@@ -80,16 +74,16 @@ type BSML lc r ls s m = BlockStateM lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM
 type BSMR rc r rs s m = BlockStateM rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
-        => C.BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
+        => BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
     type BlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (C.BlockState (BSML lc r lg s m),
-                C.BlockState (BSMR rc r rg s m))
+            = (BlockState (BSML lc r lg s m),
+                BlockState (BSMR rc r rg s m))
     type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (C.UpdatableBlockState (BSML lc r lg s m),
-                C.UpdatableBlockState (BSMR rc r rg s m))
+            = (UpdatableBlockState (BSML lc r lg s m),
+                UpdatableBlockState (BSMR rc r rg s m))
     type BirkParameters (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (C.BirkParameters (BSML lc r lg s m),
-                C.BirkParameters (BSMR rc r rg s m))
+            = (BirkParameters (BSML lc r lg s m),
+                BirkParameters (BSMR rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft

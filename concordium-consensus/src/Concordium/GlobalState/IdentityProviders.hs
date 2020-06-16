@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
 module Concordium.GlobalState.IdentityProviders(
   module Concordium.GlobalState.IdentityProviders,
   IpInfo, ipIdentity
