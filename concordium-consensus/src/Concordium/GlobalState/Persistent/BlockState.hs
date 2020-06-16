@@ -1,7 +1,8 @@
-{-# LANGUAGE RecordWildCards, FlexibleInstances, MultiParamTypeClasses, FlexibleContexts, DeriveGeneric, GeneralizedNewtypeDeriving,
-        TypeFamilies, BangPatterns, TemplateHaskell, LambdaCase, OverloadedStrings, TupleSections, StandaloneDeriving
- #-}
-
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Persistent.BlockState where
 
 import Data.Serialize
