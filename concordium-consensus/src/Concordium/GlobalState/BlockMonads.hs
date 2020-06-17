@@ -10,7 +10,6 @@ import Control.Monad.Trans.Maybe
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.Logger (LoggerT)
 
 -- | This typeclass abstracts the access to the parent and last finalized blocks
 -- using the pointers inside the `BlockPointer t p s`.
@@ -42,4 +41,3 @@ instance (Monad (t m), MonadTrans t, BlockPointerMonad m) => BlockPointerMonad (
 
 deriving via MGSTrans MaybeT m instance BlockPointerMonad m => BlockPointerMonad (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockPointerMonad m => BlockPointerMonad (ExceptT e m)
-deriving via MGSTrans LoggerT m instance BlockPointerMonad m => BlockPointerMonad (LoggerT m)

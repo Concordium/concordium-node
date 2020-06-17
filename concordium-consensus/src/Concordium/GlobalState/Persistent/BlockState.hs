@@ -45,7 +45,7 @@ import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),make
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 import Concordium.GlobalState.SeedState
-import Concordium.Logger (LogSource(BlockState), LogLevel(LLError, LLTrace), logEvent, MonadLogger)
+import Concordium.Logger (MonadLogger)
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
@@ -436,32 +436,27 @@ doPutLinkedContract pbs modRef n !lc = do
 doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m PersistentBirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
-doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> BakerCreationInfo -> m (Either BakerError BakerId, PersistentBlockState)
+doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Either BakerError BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
         case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
             Left err -> do
-              logEvent BlockState LLError $ "Can't create baker: " ++ show err
               return (Left err, pbs)
             Right (bid, newBakers) -> do
-              logEvent BlockState LLTrace $ "Added baker with ID: " ++ show bid
               (Right bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
-doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
+doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
         case updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) of
             Nothing -> do
-              logEvent BlockState LLError $ "Aborted trying to update the baker with ID " ++ show (_buId bupdate) ++ " as it would lead to duplicated keys"
               return $! (False, pbs)
             Just newBakers -> do
-              logEvent BlockState LLTrace $ "Updated baker with ID " ++ show (_buId bupdate)
               (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
-doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
+doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
         bsp <- loadPBS pbs
-        logEvent BlockState LLTrace $ "Removing baker with ID: " ++ show bid
         let (rv, newBakers) = removeBaker bid (bspBirkParameters bsp ^. birkCurrentBakers)
         (rv,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
@@ -500,17 +495,15 @@ doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Account.regIdExists regid (bspAccounts bsp)
 
-doPutNewAccount :: (MonadLogger m, MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
+doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
 doPutNewAccount pbs acct = do
         bsp <- loadPBS pbs
-        logEvent BlockState LLTrace $ "Adding new account: " ++ (show $ _accountAddress acct)
         (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
         (res,) <$> storePBS pbs (bsp {bspAccounts = accts'})
 
-doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
+doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
-        logEvent BlockState LLTrace $ "Modifying account: " ++ (show $ _auAddress)
         -- Do the update to the account
         (mbalinfo, accts1) <- Account.updateAccount upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
@@ -604,7 +597,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
                 return (Just acct, rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
         rehash iph inst@(PersistentInstance {..}) = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
 
-doDelegateStake :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
+doDelegateStake :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
 doDelegateStake pbs aaddr target = do
         bsp <- loadPBS pbs
         let targetValid = case target of
@@ -615,25 +608,17 @@ doDelegateStake pbs aaddr target = do
                                 acct & accountStakeDelegate .~ target)
             Account.updateAccount updAcc aaddr (bspAccounts bsp) >>= \case
                 (Nothing, _) -> do
-                  logEvent BlockState LLError $ "Tried to delegate from non-existent account"
                   error "Invalid account address"
                 (Just (acctOldTarget, acctBal, acctInsts), accts) -> do
-                    instBals <- forM acctInsts $ \caddr -> maybe (do
-                                                                   logEvent BlockState LLError $ "Tried to delegate from non-existent account"
-                                                                   error "Invalid contract instance") (return . pinstanceAmount) =<< Instances.lookupContractInstance caddr (bspInstances bsp)
+                    instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") (pinstanceAmount) <$> Instances.lookupContractInstance caddr (bspInstances bsp)
                     let stake = acctBal + sum instBals
                     pbs' <- storePBS pbs bsp{
                             bspAccounts = accts,
                             bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~
                                 removeStake acctOldTarget stake . addStake target stake
                         }
-                    logEvent BlockState LLTrace $ maybe ("Undelegated stake of account " ++ show aaddr)
-                                                        (\bid -> "Delegated stake of account " ++ show aaddr ++ " to baker with ID " ++ show bid)
-                                                        target
                     return (True, pbs')
-        else do
-            logEvent BlockState LLError $ "Tried to delegate stake to non existent baker with ID " ++ (show $ fromJust target)
-            return (False, pbs)
+        else return (False, pbs)
 
 doGetIdentityProvider :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do
@@ -681,16 +666,14 @@ doAddSpecialTransactionOutcome pbs !o = do
         bsp <- loadPBS pbs
         storePBS pbs $! bsp{bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o:)}
 
-doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> PersistentBirkParameters -> m PersistentBlockState
+doUpdateBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentBirkParameters -> m PersistentBlockState
 doUpdateBirkParameters pbs newBirk = do
         bsp <- loadPBS pbs
-        logEvent BlockState LLTrace $ "Updated birk parameters"
         storePBS pbs bsp{bspBirkParameters = newBirk}
 
-doSetElectionDifficulty :: (MonadIO m, MonadBlobStore m BlobRef, MonadLogger m) => PersistentBlockState -> ElectionDifficulty -> m PersistentBlockState
+doSetElectionDifficulty :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ElectionDifficulty -> m PersistentBlockState
 doSetElectionDifficulty pbs d = do
         bsp <- loadPBS pbs
-        logEvent BlockState LLTrace $ "Set new election difficulty"
         storePBS pbs bsp{bspBirkParameters = bspBirkParameters bsp & birkElectionDifficulty .~ d}
 
 data PersistentBlockStateContext = PersistentBlockStateContext {
@@ -757,7 +740,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, MonadLogger m) => BlockStateOperations (PersistentBlockStateMonad r m) where
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule
     bsoGetAccount = doGetAccount
     bsoGetInstance = doGetInstance
@@ -819,7 +802,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, MonadLog
     {-# INLINE bsoUpdateBirkParameters #-}
     {-# INLINE bsoSetElectionDifficulty #-}
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r, MonadLogger m) => BlockStateStorage (PersistentBlockStateMonad r m) where
+instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}
     thawBlockState pbs = do
             bsp <- loadPBS pbs

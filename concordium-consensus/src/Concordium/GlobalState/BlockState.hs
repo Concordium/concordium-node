@@ -45,7 +45,7 @@ import Data.Word
 import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
 
-import Concordium.Logger
+--import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
@@ -185,7 +185,7 @@ updateAccount !upd !acc =
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
-class (BlockStateQuery m , MonadLogger m) => BlockStateOperations m where
+class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
   -- |Get an account by its address.
@@ -406,7 +406,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
 
-instance (MonadLogger (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
@@ -467,7 +467,7 @@ instance (MonadLogger (t m), MonadTrans t, BlockStateOperations m) => BlockState
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
 
-instance (MonadLogger (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState
     dropUpdatableBlockState = lift . dropUpdatableBlockState
@@ -492,8 +492,3 @@ deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => Bir
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
-
-deriving via (MGSTrans LoggerT m) instance BirkParametersOperations m => BirkParametersOperations (LoggerT m)
-deriving via (MGSTrans LoggerT m) instance BlockStateQuery m => BlockStateQuery (LoggerT m)
-deriving via (MGSTrans LoggerT m) instance BlockStateOperations m => BlockStateOperations (LoggerT m)
-deriving via (MGSTrans LoggerT m) instance BlockStateStorage m => BlockStateStorage (LoggerT m)
