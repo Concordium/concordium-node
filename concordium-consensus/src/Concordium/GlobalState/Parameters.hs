@@ -113,22 +113,21 @@ instance Serialize GenesisData where
         put genesisMaxBlockEnergy
 
     get = do
-      version <- Version <$> get
-      if version /= __versionGenesisData then fail "Invalid genesis data version"
-      else do
-        genesisTime <- get
-        genesisSlotDuration <- get
-        genesisBakers <- get
-        genesisSeedState <- get
-        genesisElectionDifficulty <- get
-        genesisAccounts <- get
-        genesisControlAccounts <- get
-        genesisFinalizationParameters <- get
-        genesisCryptographicParameters <- get
-        genesisIdentityProviders <- get
-        genesisMintPerSlot <- get
-        genesisMaxBlockEnergy <- get
-        return $! GenesisData{..}
+      version <- get
+      when (version /= __versionGenesisData) (fail "Invalid genesis data version")
+      genesisTime <- get
+      genesisSlotDuration <- get
+      genesisBakers <- get
+      genesisSeedState <- get
+      genesisElectionDifficulty <- get
+      genesisAccounts <- get
+      genesisControlAccounts <- get
+      genesisFinalizationParameters <- get
+      genesisCryptographicParameters <- get
+      genesisIdentityProviders <- get
+      genesisMintPerSlot <- get
+      genesisMaxBlockEnergy <- get
+      return $! GenesisData{..}
 
 
 
@@ -217,30 +216,28 @@ data GenesisParameters = GenesisParameters {
 
 instance FromJSON GenesisParameters where
   parseJSON = withObject "VersionedGenesisParameters" $ \w -> do
-    version <- w .: "v"
-    value <- w .: "value"
-    unless (version == __versionGenesisParams) $ fail "Invalid genesis parameters version"
-    unpackedValue <- withObject "GenesisParameters"
-                        (\v -> do
-                          gpGenesisTime <- v .: "genesisTime"
-                          gpSlotDuration <- v .: "slotDuration"
-                          gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
-                          gpEpochLength <- Slot <$> v .: "epochLength"
-                          when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
-                          gpElectionDifficulty <- v .: "electionDifficulty"
-                          gpFinalizationParameters <- v .: "finalizationParameters"
-                          gpBakers <- v .: "bakers"
-                          when (null gpBakers) $ fail "There should be at least one baker."
-                          gpCryptographicParameters <- v .: "cryptographicParameters"
-                          gpIdentityProviders <- v .:? "identityProviders" .!= []
-                          gpInitialAccounts <- v .:? "initialAccounts" .!= []
-                          gpControlAccounts <- v .:? "controlAccounts" .!= []
-                          gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
-                          gpMaxBlockEnergy <- v .: "maxBlockEnergy"
-                          return GenesisParameters{..}
-                        )
-                        value
-    return unpackedValue
+      version <- w .: "v"
+      value <- w .: "value"
+      when (version /= __versionGenesisParams) (fail "Invalid genesis parameters version")
+      withObject "GenesisParameters" parseGP value
+    where
+      parseGP v = do
+        gpGenesisTime <- v .: "genesisTime"
+        gpSlotDuration <- v .: "slotDuration"
+        gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
+        gpEpochLength <- Slot <$> v .: "epochLength"
+        when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
+        gpElectionDifficulty <- v .: "electionDifficulty"
+        gpFinalizationParameters <- v .: "finalizationParameters"
+        gpBakers <- v .: "bakers"
+        when (null gpBakers) $ fail "There should be at least one baker."
+        gpCryptographicParameters <- v .: "cryptographicParameters"
+        gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpInitialAccounts <- v .:? "initialAccounts" .!= []
+        gpControlAccounts <- v .:? "controlAccounts" .!= []
+        gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+        gpMaxBlockEnergy <- v .: "maxBlockEnergy"
+        return GenesisParameters{..}
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -261,9 +258,11 @@ data RuntimeParameters = RuntimeParameters {
   -- a purge to remove long living transactions that have not been executed for more
   -- than `rpTransactionsKeepAliveTime` seconds.
   rpInsertionsBeforeTransactionPurge :: !Int,
-  -- |Number of seconds after receiving a transction during which it is kept in the
+  -- |Number of seconds after receiving a transaction during which it is kept in the
   -- transaction table if a purge is executed.
-  rpTransactionsKeepAliveTime :: !TransactionTime
+  rpTransactionsKeepAliveTime :: !TransactionTime,
+  -- |Number of seconds between automatic transaction table purging  runs.
+  rpTransactionsPurgingDelay :: !Int
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -274,7 +273,8 @@ defaultRuntimeParameters = RuntimeParameters {
   rpBlockStateFile = "blockstate",
   rpEarlyBlockThreshold = 30, -- 30 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
-  rpTransactionsKeepAliveTime = 5 * 60 -- 5 min
+  rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
+  rpTransactionsPurgingDelay = 3 * 60 -- 3 min
   }
 
 instance FromJSON RuntimeParameters where
@@ -285,6 +285,7 @@ instance FromJSON RuntimeParameters where
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
+    rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $
