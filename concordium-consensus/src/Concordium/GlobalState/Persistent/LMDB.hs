@@ -166,9 +166,9 @@ putOrResize dbh tup = do
   (dh, b) <- liftIO $ handleJust selectDBFullError (const $ return (undefined, False)) tryResizeDB
   if b
   then
-    handleResize
-  else
     return dh
+  else
+    handleResize
     where tryResizeDB :: IO (DatabaseHandlers, Bool)
           tryResizeDB = (, True) <$> (dbh <$ putInProperDB tup dbh)
           -- only handle the db full error and propagate other exceptions.
