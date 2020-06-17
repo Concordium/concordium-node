@@ -183,8 +183,8 @@ updateBakerAccount :: Energy
 updateBakerAccount = 90
 
 -- |Cost to update the baker's signature verification key.
-updateBakerKey :: Energy
-updateBakerKey = 90
+updateBakerSignKey :: Energy
+updateBakerSignKey = 90
 
 -- |Cost to update an account's stake delegate.
 -- This is parametrised by the number of smart contract instances
@@ -199,7 +199,7 @@ updateElectionDifficulty = 0
 
 -- |Cost to update baker aggregation key
 -- The main part here is checking a dlog proof, and that cost is essentially
--- the same as the cost in adding a baker - 3 * updateBakerKey.
+-- the same as the cost in adding a baker - 3 * updateBakerSignKey.
 updateBakerAggregationVerifyKey :: Energy
 updateBakerAggregationVerifyKey = 2700
 
