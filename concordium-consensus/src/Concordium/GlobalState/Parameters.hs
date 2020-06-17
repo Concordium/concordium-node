@@ -219,7 +219,7 @@ instance FromJSON GenesisParameters where
   parseJSON = withObject "VersionedGenesisParameters" $ \w -> do
     version <- w .: "v"
     value <- w .: "value"
-    when (version /= __versionGenesisParams) (fail "Invalid genesis parameters version")
+    unless (version == __versionGenesisParams) $ fail "Invalid genesis parameters version"
     unpackedValue <- withObject "GenesisParameters"
                         (\v -> do
                           gpGenesisTime <- v .: "genesisTime"
