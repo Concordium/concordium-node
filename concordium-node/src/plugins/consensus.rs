@@ -66,6 +66,7 @@ pub fn start_consensus_layer(
         u64::from(conf.maximum_block_size),
         u64::from(conf.transaction_insertions_before_purge),
         u64::from(conf.transaction_keep_alive),
+        u64::from(conf.transactions_purging_delay),
         genesis_data,
         private_data,
         conf.baker_id,
