@@ -20,7 +20,6 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Classes
-import Concordium.Logger (LoggerT)
 
 -- |A typeclass that abstract the ability to record the footprint.
 -- If a = () we don't record anything, and if a = HashSet we record the set of addresses
@@ -98,11 +97,9 @@ instance (MonadTrans t, Monad (t m), PerAccountDBOperations m) => PerAccountDBOp
 
 deriving via (MGSTrans MaybeT m) instance ATITypes m => ATITypes (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance ATITypes m => ATITypes (ExceptT e m)
-deriving via (MGSTrans LoggerT m) instance ATITypes m => ATITypes (LoggerT m)
 
 deriving via (MGSTrans MaybeT m) instance PerAccountDBOperations m => PerAccountDBOperations (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance PerAccountDBOperations m => PerAccountDBOperations (ExceptT e m)
-deriving via (MGSTrans LoggerT m) instance PerAccountDBOperations m => PerAccountDBOperations (LoggerT m)
 
 -- -- Only have the default instance since RWST might be used with genuine ati otherwise.
 -- instance (Monoid w, Monad m) => PerAccountDBOperations (RWST c w s m) where

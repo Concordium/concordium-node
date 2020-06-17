@@ -1,5 +1,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |This module provides an abstraction over the operations done in the LMDB database that serves as a backend for storing blocks and finalization records.
 
 module Concordium.GlobalState.Persistent.LMDB (
@@ -37,6 +38,7 @@ import Database.LMDB.Simple as L
 import Lens.Micro.Platform
 import System.Directory
 import qualified Data.HashMap.Strict as HM
+import Concordium.Logger
 
 -- |Values used by the LMDBStoreMonad to manage the database.
 -- Sometimes we only want read access
@@ -89,7 +91,7 @@ initializeDatabase gb serState rp@RuntimeParameters{..} = do
     L.put _finalizationRecordStore 0 (Just gbfin)
   return handlers
 
-resizeDatabaseHandlers :: DatabaseHandlers -> Int -> IO DatabaseHandlers
+resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers -> Int -> m DatabaseHandlers
 resizeDatabaseHandlers dbh size = do
   let step = 2^(26 :: Int)
       delta = size + (step - size `mod` step)
@@ -97,12 +99,14 @@ resizeDatabaseHandlers dbh size = do
       newSize = mapSize lim + delta
       _limits = lim { mapSize = newSize }
       _storeEnv = dbh ^. storeEnv
-  resizeEnvironment _storeEnv newSize
-  _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
-  _finalizationRecordStore <- transaction _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
-  _transactionStatusStore <- transaction _storeEnv (getDatabase (Just transactionStatusStoreName) :: Transaction ReadWrite (Database TransactionHash T.TransactionStatus))
-  _finalizedByHeightStore <- transaction _storeEnv (getDatabase (Just finalizedByHeightStoreName) :: Transaction ReadWrite (Database BlockHeight BlockHash))
-  return DatabaseHandlers {..}
+  logEvent LMDB LLTrace $ "Resizing database from " ++ show (mapSize lim) ++ " to " ++ show newSize
+  liftIO $ do
+    resizeEnvironment _storeEnv newSize
+    _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
+    _finalizationRecordStore <- transaction _storeEnv (getDatabase (Just finalizationRecordStoreName) :: Transaction ReadWrite (Database FinalizationIndex FinalizationRecord))
+    _transactionStatusStore <- transaction _storeEnv (getDatabase (Just transactionStatusStoreName) :: Transaction ReadWrite (Database TransactionHash T.TransactionStatus))
+    _finalizedByHeightStore <- transaction _storeEnv (getDatabase (Just finalizedByHeightStoreName) :: Transaction ReadWrite (Database BlockHeight BlockHash))
+    return DatabaseHandlers {..}
 
 -- |For now the database supports four stores: blocks, finalization records, transaction statuses,
 -- and hashes of finalized blocks indexed by height. This type abstracts access to those four stores.
@@ -151,21 +155,31 @@ putInProperDB (TxStatuses statuses) dbh = do
   let putter (key, value) = L.put (dbh ^. transactionStatusStore) key (Just value)
   transaction env $ mapM_ putter statuses
 
-
 -- |Provided default function that tries to perform an insertion in a given database of a given value,
 -- altering the environment if needed when the database grows.
-putOrResize :: MonadIO m => DatabaseHandlers -> LMDBStoreType -> m DatabaseHandlers
-putOrResize dbh tup = liftIO $ handleJust selectDBFullError handleResize tryResizeDB
-    where tryResizeDB = dbh <$ putInProperDB tup dbh
+putOrResize :: forall m. (MonadLogger m, MonadIO m) => DatabaseHandlers -> LMDBStoreType -> m DatabaseHandlers
+putOrResize dbh tup = do
+  -- our handling function has to be `m DatabaseHandlers` in order to be able to
+  -- log and not restrict ourselves to the IO monad, and therefore it
+  -- is not suitable to be used inside `handleJust` so we will just
+  -- choose a path based on the second returned value.
+  (dh, b) <- liftIO $ handleJust selectDBFullError (const $ return (undefined, False)) tryResizeDB
+  if b
+  then
+    handleResize
+  else
+    return dh
+    where tryResizeDB :: IO (DatabaseHandlers, Bool)
+          tryResizeDB = (, True) <$> (dbh <$ putInProperDB tup dbh)
           -- only handle the db full error and propagate other exceptions.
           selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
                                     _ -> Nothing
           -- Resize the database handlers, and try to add again in case the size estimate
           -- given by lmdbStoreTypeSize is off.
-          handleResize () = do
+          handleResize :: m DatabaseHandlers
+          handleResize = do
             dbh' <- resizeDatabaseHandlers dbh (lmdbStoreTypeSize tup)
             putOrResize dbh' tup
-
 
 class (MonadIO m) => LMDBQueryMonad m where
    readBlock :: BlockHash -> m (Maybe (BlockPointerType m))
@@ -184,7 +198,10 @@ class (MonadIO m) => LMDBQueryMonad m where
 -- |Monad to abstract over the operations for writing to a LMDB database.
 -- It provides functions for reading and writing Blocks and FinalizationRecords.
 -- The databases should be indexed by the @BlockHash@ and the @FinalizationIndex@ in each case.
-class (MonadIO m) => LMDBStoreMonad m where
+--
+-- The underlying monad must be a MonadLogger in order to log the database resizing and other
+-- important events.
+class (MonadIO m, MonadLogger m) => LMDBStoreMonad m where
   -- |Write a block that was finalized by the given finalization record.
   -- The finalization index is stored with the block.
   writeBlock :: BlockPointerType m -> FinalizationRecord -> m ()

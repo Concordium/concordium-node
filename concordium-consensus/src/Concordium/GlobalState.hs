@@ -33,7 +33,7 @@ import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.SQL.AccountTransactionIndex
-import Concordium.Logger (runSilentLogger, MonadLogger)
+import Concordium.Logger (runLoggerT, LogMethod, runSilentLogger, MonadLogger)
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -163,7 +163,7 @@ deriving via (PersistentBlockStateMonad
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
                (FocusGlobalStateM PersistentBlockStateContext g m))
-    instance (MonadIO m, MonadLogger m,
+    instance (MonadIO m,
               BlockStateOperations (PersistentBlockStateMonad
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -172,7 +172,7 @@ deriving via (PersistentBlockStateMonad
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
                (FocusGlobalStateM PersistentBlockStateContext g m))
-    instance (MonadIO m, MonadLogger m,
+    instance (MonadIO m,
               BlockStateStorage (PersistentBlockStateMonad
                                   PersistentBlockStateContext
                                   (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -190,8 +190,7 @@ deriving via (PersistentBlockStateMonad
 -- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, MonadLogger,
-              BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
@@ -267,7 +266,7 @@ deriving via BlockStateM c r g s m
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (MonadLogger m, BlockStateQuery (GlobalStateM db c r g s m),
+    instance (BlockStateQuery (GlobalStateM db c r g s m),
               BlockStateOperations (BlockStateM c r g s m))
              => BlockStateOperations (GlobalStateM db c r g s m)
 
@@ -294,8 +293,7 @@ deriving via TreeStateBlockStateM g c r s m
              => BlockPointerMonad (GlobalStateM db c r g s m)
 
 deriving via TreeStateBlockStateM g c r s m
-    instance (MonadLogger m,
-              BlockStateStorage (BlockStateM c r g s m),
+    instance (Monad m, BlockStateStorage (BlockStateM c r g s m),
               TreeStateMonad (TreeStateBlockStateM g c r s m))
              => TreeStateMonad (GlobalStateM db c r g s m)
 
@@ -331,7 +329,7 @@ class GlobalStateConfig c where
     type GSLogContext c
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
-    initialiseGlobalState :: c -> IO (GSContext c, GSState c, GSLogContext c)
+    initialiseGlobalState :: c -> LogMethod IO -> IO (GSContext c, GSState c, GSLogContext c)
     -- |Shutdown the global state.
     shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> GSLogContext c -> IO ()
 
@@ -339,7 +337,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type instance GSContext MemoryTreeMemoryBlockConfig = ()
     type instance GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
     type instance GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
-    initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
+    initialiseGlobalState (MTMBConfig rtparams gendata bs) _ = do
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
 
@@ -349,14 +347,14 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
     type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
-    initialiseGlobalState (MTDBConfig rtparams gendata bs) = do
+    initialiseGlobalState (MTDBConfig rtparams gendata bs) _ = liftIO $ do
         pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
-        _ <- runPut <$> (runSilentLogger $ runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc)
+        _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = liftIO $ do
         closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
 
@@ -365,20 +363,20 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
 
-    initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
+    initialiseGlobalState (DTDBConfig rtparams gendata bs) logm = do
       -- check if all the necessary database files exist
-      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      (blockStateFile, existingDB) <- runLoggerT (checkExistingDatabase rtparams) logm
       if existingDB then do
         -- the block state file exists, is readable and writable
         -- we ignore the given block state parameter in such a case.
-        pbscBlobStore <- loadBlobStore blockStateFile
+        pbscBlobStore <- liftIO $ loadBlobStore blockStateFile
         -- we start with an empty module cache. It will be repopulated
         -- on block execution, and the cache is only an optimization, it is
         -- fine, if slow, if modules are always loaded from the database.
-        pbscModuleCache <- newIORef emptyModuleCache
+        pbscModuleCache <- liftIO $ newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
-        skovData <- loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)
-                      `onException` (closeBlobStore pbscBlobStore)
+        skovData <- runLoggerT (loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)) logm
+                     `onException` (closeBlobStore pbscBlobStore)
         return (pbsc, skovData, NoLogContext)
       else do
         pbscBlobStore <- createBlobStore blockStateFile
@@ -397,9 +395,9 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
     type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
-    initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
+    initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) logm = do
       -- check if all the necessary database files exist
-      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      (blockStateFile, existingDB) <- runLoggerT (checkExistingDatabase rtparams) logm
       dbHandle <- connectPostgres txLog
       createTable dbHandle
       if existingDB then do
@@ -413,7 +411,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         let pbsc = PersistentBlockStateContext{..}
         let ati = defaultValue
         skovData <-
-          loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)
+          runLoggerT (loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)) logm
           `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore)
         return (pbsc, skovData, PAAIConfig dbHandle)
       else do
