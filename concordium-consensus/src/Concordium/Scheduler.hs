@@ -819,7 +819,7 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
-        c = tickEnergy Cost.updateBakerKey
+        c = tickEnergy Cost.updateBakerSignKey
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
