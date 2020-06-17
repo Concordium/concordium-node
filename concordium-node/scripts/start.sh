@@ -25,16 +25,42 @@ then
     cd $DATA_DIR
 fi
 
-# Unwrap proper genesis bundle
+# Unwrap proper genesis bundle, and swap to one of the benchmarks if set
 if [ -n "$NUM_BAKERS" ];
 then
     if [ -n "$DATA_DIR" ];
     then
-        cd /genesis-data
-        tar -xvf $NUM_BAKERS-bakers.tar.gz
-        cd genesis_data/
-        cp * $DATA_DIR/
-        cd $DATA_DIR
+        if [ -n "$FINBENCH_NUM" ]; 
+        then
+            cd /genesis-data
+            tar -xzf finbench-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+            cp "genesis-finbench-${FINBENCH_NUM}.dat" genesis.dat
+        elif [ -n "$TPS_NUM" ];
+        then
+            cd /genesis-data
+            tar -xzf tps-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+            cp "genesis-tps-${TPS_NUM}.dat" genesis.dat
+        elif [ -n "$CATCHUP_NUM" ];
+        then
+            cd /genesis-data
+            tar -xzf catchup-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+            cp "genesis-catchup-${TPS_NUM}.dat" genesis.dat
+        else
+            cd /genesis-data
+            tar -xvf $NUM_BAKERS-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+        fi
     fi
 fi
 
