@@ -345,8 +345,8 @@ tickEnergyValueStorage ::
   => Value
   -> m ()
 tickEnergyValueStorage val =
-  -- NB: This uses ResourceMeasure instance from ByteSize, which
-  -- measures cost to store.
+  -- Compute the size of the value and charge for storing based on this size.
+  -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
   withExternalPure_ $ storableSizeWithLimit @ ByteSize val
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
@@ -359,6 +359,8 @@ getCurrentContractInstanceTicking ::
 getCurrentContractInstanceTicking cref = do
   tickEnergy $ Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
+  -- Compute the size of the contract state value and charge for the lookup based on this size.
+  -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
   withExternalPure_ $ storableSizeWithLimit @ Cost.LookupByteSize (Ins.instanceModel inst)
   return inst
 
@@ -817,7 +819,7 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
-        c = tickEnergy Cost.updateBakerKey
+        c = tickEnergy Cost.updateBakerSignKey
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
