@@ -29,7 +29,6 @@ import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.Logger (LoggerT, MonadLogger)
 
 data BlockStatus bp pb =
     BlockAlive !bp
