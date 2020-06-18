@@ -11,7 +11,7 @@ import Control.Exception
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
-import Control.Monad.Trans.Reader
+import Control.Monad.Trans.Reader hiding (ask)
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
@@ -33,7 +33,7 @@ import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.SQL.AccountTransactionIndex
-import Concordium.Logger (runLoggerT, LogMethod, runSilentLogger, MonadLogger)
+import Concordium.Logger
 
 -- For the avid reader.
 -- The strategy followed in this module is the following: First `BlockStateM` and
@@ -329,7 +329,7 @@ class GlobalStateConfig c where
     type GSLogContext c
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
-    initialiseGlobalState :: c -> LogMethod IO -> IO (GSContext c, GSState c, GSLogContext c)
+    initialiseGlobalState :: c -> LogIO (GSContext c, GSState c, GSLogContext c)
     -- |Shutdown the global state.
     shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> GSLogContext c -> IO ()
 
@@ -337,7 +337,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type instance GSContext MemoryTreeMemoryBlockConfig = ()
     type instance GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
     type instance GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
-    initialiseGlobalState (MTMBConfig rtparams gendata bs) _ = do
+    initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
 
@@ -347,7 +347,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
     type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
-    initialiseGlobalState (MTDBConfig rtparams gendata bs) _ = liftIO $ do
+    initialiseGlobalState (MTDBConfig rtparams gendata bs) = liftIO $ do
         pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
@@ -363,29 +363,32 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
 
-    initialiseGlobalState (DTDBConfig rtparams gendata bs) logm = do
+    initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
       -- check if all the necessary database files exist
-      (blockStateFile, existingDB) <- runLoggerT (checkExistingDatabase rtparams) logm
+      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
       if existingDB then do
-        -- the block state file exists, is readable and writable
-        -- we ignore the given block state parameter in such a case.
-        pbscBlobStore <- liftIO $ loadBlobStore blockStateFile
-        -- we start with an empty module cache. It will be repopulated
-        -- on block execution, and the cache is only an optimization, it is
-        -- fine, if slow, if modules are always loaded from the database.
-        pbscModuleCache <- liftIO $ newIORef emptyModuleCache
+        (pbscBlobStore, pbscModuleCache) <- liftIO $ do
+          -- the block state file exists, is readable and writable
+          -- we ignore the given block state parameter in such a case.
+          pbscBlobStore <- loadBlobStore blockStateFile
+          -- we start with an empty module cache. It will be repopulated
+          -- on block execution, and the cache is only an optimization, it is
+          -- fine, if slow, if modules are always loaded from the database.
+          (pbscBlobStore, ) <$> newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
-        skovData <- runLoggerT (loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)) logm
-                     `onException` (closeBlobStore pbscBlobStore)
+        logm <- ask
+        skovData <- liftIO (runLoggerT (loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)) logm
+                     `onException` (closeBlobStore pbscBlobStore))
         return (pbsc, skovData, NoLogContext)
       else do
-        pbscBlobStore <- createBlobStore blockStateFile
-        pbscModuleCache <- newIORef emptyModuleCache
+        (pbscBlobStore, pbscModuleCache) <- liftIO $ do
+             pbscBlobStore <- createBlobStore blockStateFile
+             (pbscBlobStore,) <$> newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runSilentLogger (runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc)
-        isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
-                 `onException` (destroyBlobStore pbscBlobStore)
+        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        isd <- liftIO (initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
+                            `onException` (destroyBlobStore pbscBlobStore))
         return (pbsc, isd, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
         closeBlobStore pbscBlobStore
@@ -395,34 +398,39 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
     type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
-    initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) logm = do
+    initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
       -- check if all the necessary database files exist
-      (blockStateFile, existingDB) <- runLoggerT (checkExistingDatabase rtparams) logm
-      dbHandle <- connectPostgres txLog
-      createTable dbHandle
+      (blockStateFile, existingDB) <- checkExistingDatabase rtparams
+      dbHandle <- liftIO $ do
+        dbHandle <- connectPostgres txLog
+        createTable dbHandle
+        return dbHandle
       if existingDB then do
-        -- the block state file exists, is readable and writable
-        -- we ignore the given block state parameter in such a case.
-        pbscBlobStore <- loadBlobStore blockStateFile
-        -- we start with an empty module cache. It will be repopulated
-        -- on block execution, and the cache is only an optimization, it is
-        -- fine, if slow, if modules are always loaded from the database.
-        pbscModuleCache <- newIORef emptyModuleCache
+        (pbscBlobStore, pbscModuleCache) <- liftIO $ do
+          -- the block state file exists, is readable and writable
+          -- we ignore the given block state parameter in such a case.
+          pbscBlobStore <- loadBlobStore blockStateFile
+          -- we start with an empty module cache. It will be repopulated
+          -- on block execution, and the cache is only an optimization, it is
+          -- fine, if slow, if modules are always loaded from the database.
+          (pbscBlobStore,) <$> newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         let ati = defaultValue
+        logm <- ask
         skovData <-
-          runLoggerT (loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)) logm
-          `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore)
+          liftIO (runLoggerT (loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)) logm
+          `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
         return (pbsc, skovData, PAAIConfig dbHandle)
       else do
-        pbscBlobStore <- createBlobStore blockStateFile
-        pbscModuleCache <- newIORef emptyModuleCache
+        (pbscBlobStore, pbscModuleCache) <- liftIO $ do
+            pbscBlobStore <- createBlobStore blockStateFile
+            (pbscBlobStore,) <$> newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runSilentLogger (runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc)
+        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
         let ati = defaultValue
-        isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
-                 `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
+        isd <- liftIO (initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
+                 `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore))
         return (pbsc, isd, PAAIConfig dbHandle)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
         closeBlobStore pbscBlobStore
