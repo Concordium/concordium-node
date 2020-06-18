@@ -99,7 +99,7 @@ resizeDatabaseHandlers dbh size = do
       newSize = mapSize lim + delta
       _limits = lim { mapSize = newSize }
       _storeEnv = dbh ^. storeEnv
-  logEvent LMDB LLTrace $ "Resizing database from " ++ show (mapSize lim) ++ " to " ++ show newSize
+  logEvent LMDB LLDebug $ "Resizing database from " ++ show (mapSize lim) ++ " to " ++ show newSize
   liftIO $ do
     resizeEnvironment _storeEnv newSize
     _blockStore <- transaction _storeEnv (getDatabase (Just blockStoreName) :: Transaction ReadWrite (Database BlockHash ByteString))
@@ -163,7 +163,7 @@ putOrResize dbh tup = do
   -- log and not restrict ourselves to the IO monad, and therefore it
   -- is not suitable to be used inside `handleJust` so we will just
   -- choose a path based on the second returned value.
-  (dh, b) <- liftIO $ handleJust selectDBFullError (const $ return (undefined, False)) tryResizeDB
+  (dh, b) <- liftIO $ handleJust selectDBFullError (const $ return (undefined, False)) tryResizeDB -- undefined will not be evaluated on the exception case
   if b
   then
     return dh

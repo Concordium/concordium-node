@@ -86,7 +86,7 @@ instance ATITypes (PureBlockStateMonad m) where
 instance Monad m => PerAccountDBOperations (PureBlockStateMonad m) where
   -- default implementation
 
-instance (Monad m) => BS.BlockStateQuery (PureBlockStateMonad m) where
+instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getModule #-}
     getModule bs mref =
         return $ bs ^. blockModules . to (Modules.getModule mref)
