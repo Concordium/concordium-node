@@ -2,10 +2,10 @@
 Small test framework for transactions.
 Allows to specify test cases consisting of a list of transactions to be executed in order
 together with assertions on the result after each step, i.e. on generated events for accepted
-transactions, on the reject reason for rejected transactions, as well as on the updated block state.
+transactions, the reject reason for rejected transactions, the failure kind for failed
+transactions and the updated block state.
 Also checks invariants on the block state after each processed transaction.
 
-NOTE: Currently this does not support testing for failed transactions, but this can be added easily.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
