@@ -45,7 +45,6 @@ import Data.Word
 import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
 
---import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
