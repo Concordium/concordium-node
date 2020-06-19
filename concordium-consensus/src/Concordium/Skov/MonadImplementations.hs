@@ -220,6 +220,11 @@ deriving via SkovTGSM h c' m
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
+              BakerOperations (SkovTGSM h c' m))
+             => BakerOperations (SkovT h c' m)
+
+deriving via SkovTGSM h c' m
+    instance (Monad m,
               BlockStateOperations (SkovTGSM h c' m))
              => BlockStateOperations (SkovT h c' m)
 
