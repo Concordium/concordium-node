@@ -379,7 +379,7 @@ elif [ "$MODE" == "basic" ]; then
     then
         trap _term SIGTERM
         /p2p_client-cli $ARGS &
-        $CHILD_PID=$!
+        CHILD_PID=$!
         wait $CHILD_PID
     else
         /p2p_client-cli $ARGS
