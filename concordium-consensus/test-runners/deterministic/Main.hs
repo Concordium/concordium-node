@@ -26,6 +26,7 @@ import System.Random
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import qualified Concordium.GlobalState.Basic.BlockState as BState
+import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
@@ -140,7 +141,7 @@ instance Ord PEvent where
 -- |The state of a particular baker.
 data BakerState = BakerState {
     _bsIdentity :: !BakerIdentity,
-    _bsInfo :: !BakerInfo,
+    _bsInfo :: !FullBakerInfo,
     _bsContext :: !(SkovContext BakerConfig),
     _bsState :: !(SkovState BakerConfig)
 }
@@ -246,7 +247,7 @@ initialState = do
                                 dummyIdentityProviders
                                 [Example.createCustomAccount 1000000000000 mateuszKP mateuszAccount]
                                 (Energy maxBound)
-        mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, BakerInfo)) -> IO BakerState
+        mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
             let

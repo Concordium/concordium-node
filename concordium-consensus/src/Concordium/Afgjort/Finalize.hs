@@ -66,7 +66,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.AccountTransactionIndex
@@ -188,7 +188,7 @@ makeLenses ''FinalizationState
 -- finalization round is constructed.
 -- NB: This function should for now only be used in a tree state that has no branches,
 -- and will raise an exception otherwise.
-recoverFinalizationState :: (MonadIO m, SkovQueryMonad m, BlockPointerMonad m)
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad m, BlockPointerMonad m, BakerOperations m)
                          => Maybe FinalizationInstance
                          -> m (FinalizationState timer)
 recoverFinalizationState mfinInstance = do
@@ -323,7 +323,7 @@ instance FinalizationQueueLenses (FinalizationState m) where
 instance FinalizationStateLenses (FinalizationState m) m where
     finState = id
 
-initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
+initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Map BakerId FullBakerInfo -> Amount -> FinalizationState timer
 initialPassiveFinalizationState genHash finParams genBakers totalGTU = FinalizationState {
     _finsSessionId = FinalizationSessionId genHash 0,
     _finsIndex = 1,
@@ -344,7 +344,7 @@ initialPassiveFinalizationState genHash finParams genBakers totalGTU = Finalizat
         initialGap = 1 + finalizationMinimumSkip finParams
 {-# INLINE initialPassiveFinalizationState #-}
 
-initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
+initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Map BakerId FullBakerInfo -> Amount -> FinalizationState timer
 initialFinalizationState FinalizationInstance{..} genHash finParams genBakers totalGTU = (initialPassiveFinalizationState genHash finParams genBakers totalGTU) {
     _finsCurrentRound = case Vec.find (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (parties com) of
         Nothing -> PassiveCurrentRound initialPassiveFinalizationRound
@@ -363,7 +363,7 @@ getFinalizationInstance = asks finalizationInstance
 
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m, BakerOperations m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
@@ -749,7 +749,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 --
 -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
 -- and the record is discarded.
-receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m) => Bool -> FinalizationRecord -> m UpdateResult
+receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m, BakerOperations m) => Bool -> FinalizationRecord -> m UpdateResult
 receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
         nextFinIx <- nextFinalizationIndex
         case compare finalizationIndex nextFinIx of
@@ -965,7 +965,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
 -- |Determine the finalization session ID and finalization committee used for finalizing
 -- at the given index i. Note that the finalization committee is determined based on the block state
 -- at index i-1.
-getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext :: (SkovQueryMonad m, BakerOperations m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 getFinalizationContext FinalizationRecord{..} = do
         genHash <- bpHash <$> genesisBlock
         let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
@@ -975,7 +975,7 @@ getFinalizationContext FinalizationRecord{..} = do
 
 -- |Check a finalization proof, returning the session id and finalization committee if
 -- successful.
-checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m, BakerOperations m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 checkFinalizationProof finRec =
     getQueuedFinalizationTrivial (finalizationIndex finRec) >>= \case
         Just (finSessId, finCom, altFinRec) -> return $ if finRec == altFinRec || verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
@@ -1062,7 +1062,7 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BakerOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
 
 deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
 deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM r s m)
