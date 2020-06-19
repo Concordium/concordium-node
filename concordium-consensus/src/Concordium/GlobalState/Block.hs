@@ -143,7 +143,6 @@ instance BlockMetadata BakedBlock where
 
 blockBody :: (BlockMetadata b, BlockData b) => b -> Put
 blockBody b = do
-        put __versionBlock
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
@@ -259,8 +258,6 @@ instance HashableTo BlockHash PendingBlock where
 -- NB: This does not check transaction signatures.
 getBlock :: TransactionTime -> Get Block
 getBlock arrivalTime = do
-    version <- get
-    when (version /= __versionBlock) (fail "Invalid block version")
     sl <- get
     if sl == 0 then GenesisBlock <$> get
     else do
