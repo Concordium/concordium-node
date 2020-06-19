@@ -19,7 +19,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.11", "0.2.10"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.12", "0.2.11"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
@@ -200,10 +200,7 @@ pub struct BakerConfig {
         help = "Path to a file exported by the database exporter"
     )]
     pub import_path: Option<String>,
-    #[structopt(
-        long = "baker-credentials-file",
-        help = "Absolute path of the baker credentials file"
-    )]
+    #[structopt(long = "baker-credentials-file", help = "Path to the baker credentials file")]
     pub baker_credentials_file: Option<String>,
 }
 
