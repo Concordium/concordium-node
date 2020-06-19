@@ -98,7 +98,6 @@ data GenesisData = GenesisData {
 
 instance Serialize GenesisData where
     put GenesisData{..} = do
-        put __versionGenesisData
         put genesisTime
         put genesisSlotDuration
         put genesisBakers
@@ -113,8 +112,6 @@ instance Serialize GenesisData where
         put genesisMaxBlockEnergy
 
     get = do
-      version <- get
-      when (version /= __versionGenesisData) (fail "Invalid genesis data version")
       genesisTime <- get
       genesisSlotDuration <- get
       genesisBakers <- get
@@ -215,29 +212,23 @@ data GenesisParameters = GenesisParameters {
 }
 
 instance FromJSON GenesisParameters where
-  parseJSON = withObject "VersionedGenesisParameters" $ \w -> do
-      version <- w .: "v"
-      value <- w .: "value"
-      when (version /= __versionGenesisParams) (fail "Invalid genesis parameters version")
-      withObject "GenesisParameters" parseGP value
-    where
-      parseGP v = do
-        gpGenesisTime <- v .: "genesisTime"
-        gpSlotDuration <- v .: "slotDuration"
-        gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
-        gpEpochLength <- Slot <$> v .: "epochLength"
-        when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
-        gpElectionDifficulty <- v .: "electionDifficulty"
-        gpFinalizationParameters <- v .: "finalizationParameters"
-        gpBakers <- v .: "bakers"
-        when (null gpBakers) $ fail "There should be at least one baker."
-        gpCryptographicParameters <- v .: "cryptographicParameters"
-        gpIdentityProviders <- v .:? "identityProviders" .!= []
-        gpInitialAccounts <- v .:? "initialAccounts" .!= []
-        gpControlAccounts <- v .:? "controlAccounts" .!= []
-        gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
-        gpMaxBlockEnergy <- v .: "maxBlockEnergy"
-        return GenesisParameters{..}
+  parseJSON = withObject "GenesisParameters" $ \v -> do
+    gpGenesisTime <- v .: "genesisTime"
+    gpSlotDuration <- v .: "slotDuration"
+    gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
+    gpEpochLength <- Slot <$> v .: "epochLength"
+    when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
+    gpElectionDifficulty <- v .: "electionDifficulty"
+    gpFinalizationParameters <- v .: "finalizationParameters"
+    gpBakers <- v .: "bakers"
+    when (null gpBakers) $ fail "There should be at least one baker."
+    gpCryptographicParameters <- v .: "cryptographicParameters"
+    gpIdentityProviders <- v .:? "identityProviders" .!= []
+    gpInitialAccounts <- v .:? "initialAccounts" .!= []
+    gpControlAccounts <- v .:? "controlAccounts" .!= []
+    gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+    gpMaxBlockEnergy <- v .: "maxBlockEnergy"
+    return GenesisParameters{..}
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.

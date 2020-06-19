@@ -61,14 +61,11 @@ data FinalizationRecord = FinalizationRecord {
 
 instance Serialize FinalizationRecord where
     put FinalizationRecord{..} = do
-        put __versionFinalizationRecord
         put finalizationIndex
         put finalizationBlockPointer
         put finalizationProof
         put finalizationDelay
     get = do
-        version <- get
-        when (version /= __versionFinalizationRecord) (fail "Invalid finalization-record version")
         finalizationIndex <- get
         finalizationBlockPointer <- get
         finalizationProof <- get
