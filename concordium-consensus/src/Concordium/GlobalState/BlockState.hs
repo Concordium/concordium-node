@@ -98,7 +98,7 @@ bakerData bid bkrs = do
     stake <- MaybeT (getBakerStake bkrs bid)
     return (bInfo, stake % totalStake)
 
-class (BlockStateTypes m, Monad m) => BirkParametersOperations m where
+class (BlockStateTypes m, BakerOperations m) => BirkParametersOperations m where
 
     getSeedState :: BirkParameters m -> m SeedState
 
