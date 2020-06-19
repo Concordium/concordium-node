@@ -106,7 +106,7 @@ makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
     then
     makePersistentBlockPointer (NormalBlock block) (Just $ getHash pb) (bpHeight parent + 1) parentW lfinW (bpHash lfin) st ati arr (pbReceiveTime pb) Nothing Nothing ene
     else do
-    logErrorAndThrow GlobalState "The hash of the given parent block and the hash in the block metadata don't match"
+    logErrorAndThrow GlobalState $ "The hash of the given parent block (" ++ show (getHash parent :: BlockHash) ++ ") and the hash in the block metadata (" ++ show (blockPointer bf) ++ ") don't match"
 
 -- | Create an unlinked persistent block pointer
 makeBlockPointerFromPersistentBlock :: (MonadIO m) =>

@@ -449,10 +449,8 @@ doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
         case updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) of
-            Nothing -> do
-              return $! (False, pbs)
-            Just newBakers -> do
-              (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
+            Nothing -> return (False, pbs)
+            Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
@@ -607,10 +605,9 @@ doDelegateStake pbs aaddr target = do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
                                 acct & accountStakeDelegate .~ target)
             Account.updateAccount updAcc aaddr (bspAccounts bsp) >>= \case
-                (Nothing, _) -> do
-                  error "Invalid account address"
+                (Nothing, _) -> error "Invalid account address"
                 (Just (acctOldTarget, acctBal, acctInsts), accts) -> do
-                    instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") (pinstanceAmount) <$> Instances.lookupContractInstance caddr (bspInstances bsp)
+                    instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") pinstanceAmount <$> Instances.lookupContractInstance caddr (bspInstances bsp)
                     let stake = acctBal + sum instBals
                     pbs' <- storePBS pbs bsp{
                             bspAccounts = accts,
