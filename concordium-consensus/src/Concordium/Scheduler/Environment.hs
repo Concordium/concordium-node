@@ -21,6 +21,7 @@ import Acorn.Types(InterpreterEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.Bakers(BakerError)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -197,9 +198,10 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
-  -- If a baker with the same SignatureVerifyKey already exists in the block state,
-  -- do nothing and return Nothing.
-  addBaker :: BakerCreationInfo -> m (Maybe BakerId)
+  -- If succesful, return the baker's ID
+  -- If the baker's signature key or aggregation key is already in used it returns
+  -- a baker error (either DuplicateSignKey or DuplicateAggregationKey)
+  addBaker :: BakerCreationInfo -> m (Either BakerError BakerId)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
@@ -214,6 +216,17 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- Precondition: the baker exists and the reward account
   -- also exists in the global state.
   updateBakerAccount :: BakerId -> AccountAddress -> m ()
+
+  -- |Replace the given baker's aggregation verification key with the given
+  -- value. Return true if the key was succesfully updated and false in case
+  -- it leads to a duplicate aggregation key.
+  -- Precondition: The baker exists.
+  updateBakerAggregationKey :: BakerId -> BakerAggregationVerifyKey -> m Bool
+
+  -- |Replace the given baker's election verification key with the given key
+  -- Return true if the key was succesfully updated and false otherwise.
+  -- Precondition: the baker exists.
+  updateBakerElectionKey :: BakerId -> BakerElectionVerifyKey -> m ()
 
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
   -- Returns 'True' if the delegation was successful, and 'False' if the baker is
