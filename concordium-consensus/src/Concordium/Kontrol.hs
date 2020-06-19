@@ -40,7 +40,7 @@ getSlotTimestamp slot = do
   return (addDuration genesisTime (genesisSlotDuration * fromIntegral slot))
 
 -- |Select the finalization committee based on bakers from the given block.
-getFinalizationCommittee :: (SkovQueryMonad m, BakerOperations m) => BlockPointerType m -> m FinalizationCommittee
+getFinalizationCommittee :: (SkovQueryMonad m) => BlockPointerType m -> m FinalizationCommittee
 getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
        blockState <- queryBlockState bp

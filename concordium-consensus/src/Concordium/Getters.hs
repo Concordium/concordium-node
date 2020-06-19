@@ -66,7 +66,7 @@ instance (SkovConfiguration c, SkovQueryMonad (SkovT () c IO))
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
 
-getBestBlockState :: (BlockPointerMonad m, SkovQueryMonad m, BS.BakerOperations m) => m (BlockState m)
+getBestBlockState :: (BlockPointerMonad m, SkovQueryMonad m) => m (BlockState m)
 getBestBlockState = queryBlockState =<< bestBlock
 
 getLastFinalState :: SkovQueryMonad m => m (BlockState m)
@@ -137,7 +137,7 @@ getNextAccountNonce addr sfsRef = runStateQuery sfsRef $ do
                     ]
 
 -- |Return a block with given hash and outcomes.
-getBlockSummary :: (SkovStateQueryable z m, BS.BakerOperations m) => BlockHash -> z -> IO Value
+getBlockSummary :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockSummary hash sfsRef = runStateQuery sfsRef $
   resolveBlock hash >>= \case
     Nothing -> return Null
@@ -233,7 +233,7 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
     "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer)
     ]
 
-getBlockBirkParameters :: (SkovStateQueryable z m, BS.BakerOperations m) => BlockHash -> z -> IO Value
+getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   bps <- BS.getBlockBirkParameters st
@@ -388,7 +388,7 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
 -- Returns >= 0 if keypair is part of the baking committee. In this case the return value
 -- is the baker id as appearing in blocks.
 -- NB: this function will not work correctly when there are more than 2^63-1 bakers.
-bakerIdBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m, BS.BakerOperations m)
+bakerIdBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
     => BakerSignVerifyKey
     -> z
     -> IO Int64
