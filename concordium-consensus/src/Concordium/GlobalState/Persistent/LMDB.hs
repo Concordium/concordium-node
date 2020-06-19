@@ -163,14 +163,13 @@ putOrResize dbh tup = do
   -- log and not restrict ourselves to the IO monad, and therefore it
   -- is not suitable to be used inside `handleJust` so we will just
   -- choose a path based on the second returned value.
-  (dh, b) <- liftIO $ handleJust selectDBFullError (const $ return (undefined, False)) tryResizeDB -- undefined will not be evaluated on the exception case
-  if b
-  then
-    return dh
-  else
-    handleResize
-    where tryResizeDB :: IO (DatabaseHandlers, Bool)
-          tryResizeDB = (, True) <$> (dbh <$ putInProperDB tup dbh)
+  mdh <- liftIO $ handleJust selectDBFullError (const $ return Nothing) tryResizeDB
+  case mdh of
+    Nothing -> handleResize
+    Just dh ->
+      return dh
+    where tryResizeDB :: IO (Maybe DatabaseHandlers)
+          tryResizeDB = Just <$> (dbh <$ putInProperDB tup dbh)
           -- only handle the db full error and propagate other exceptions.
           selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
                                     _ -> Nothing

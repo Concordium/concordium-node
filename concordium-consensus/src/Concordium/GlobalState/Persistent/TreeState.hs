@@ -85,11 +85,11 @@ instance Exception InitException where
   displayException (DatabaseInvariantViolation err) =
     "Database invariant violation: " ++ err
 
-logExceptionAndThrow' :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
-logExceptionAndThrow' = logExceptionAndThrow TreeState
+logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
+logExceptionAndThrowTS = logExceptionAndThrow TreeState
 
-logErrorAndThrow' :: (MonadLogger m, MonadIO m) => String -> m a
-logErrorAndThrow' = logErrorAndThrow TreeState
+logErrorAndThrowTS :: (MonadLogger m, MonadIO m) => String -> m a
+logErrorAndThrowTS = logErrorAndThrow TreeState
 
 --------------------------------------------------------------------------------
 
@@ -197,13 +197,15 @@ checkExistingDatabase rp = do
   let checkRWFile :: FilePath -> InitException -> m ()
       checkRWFile path exc = do
         fileEx <- liftIO $ doesFileExist path
-        unless fileEx $ do
-          logExceptionAndThrow' BlockStatePathDir
-        (perms, ok) <- liftIO $ catchJust (guard . isPermissionError)
-                           ((,True) <$> getPermissions path)
-                           (const $ return (undefined, False)) -- this undefined will not be evaluated if there was an error
-        unless (ok && readable perms && writable perms) $ do
-          logExceptionAndThrow' exc
+        unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
+        mperms <- liftIO $ catchJust (guard . isPermissionError)
+                           (Just <$> getPermissions path)
+                           (const $ return Nothing)
+        case mperms of
+          Nothing -> logExceptionAndThrowTS exc
+          Just perms ->
+            unless (readable perms && writable perms) $ do
+            logExceptionAndThrowTS exc
 
   -- if both files exist we check whether they are both readable and writable.
   -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
@@ -211,12 +213,12 @@ checkExistingDatabase rp = do
          -- check whether it is a normal file and whether we have the right permissions
          checkRWFile blockStateFile BlockStatePermissionError
          checkRWFile treeStateFile TreeStatePermissionError
-         logEvent TreeState LLTrace "Database found successfully"
+         mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
          return (blockStateFile, True)
      | bsPathEx -> do
-         logExceptionAndThrow' $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
+         logExceptionAndThrowTS $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
      | tsPathEx -> do
-         logExceptionAndThrow' $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
+         logExceptionAndThrowTS $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
      | otherwise ->
          return (blockStateFile, False)
 
@@ -248,7 +250,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
 
-  dbHandlers <- either (\(e :: InitException) -> logExceptionAndThrow' e) return =<< (liftIO $ try $ mapException DatabaseOpeningError $ databaseHandlers rp)
+  dbHandlers <- either (\(e :: InitException) -> logExceptionAndThrowTS e) return =<< (liftIO $ try $ mapException DatabaseOpeningError $ databaseHandlers rp)
 
   let env = dbHandlers ^. storeEnv -- database environment
       dbFH = dbHandlers  ^. finalizedByHeightStore -- finalized by height table
@@ -257,7 +259,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
 
   let failWith :: LogIO (Maybe a) -> InitException -> LogIO a
       failWith x exc =
-        x >>= \case Nothing -> logExceptionAndThrow' exc
+        x >>= \case Nothing -> logExceptionAndThrowTS exc
                     Just v -> return v
 
       -- Lookup a finalized block at a given height.
@@ -273,13 +275,13 @@ loadSkovPersistentData rp gd pbsc atiPair = do
         -- inside an LMDB transaction.
         case result of
           Nothing -> return Nothing
-          Just (bh, Nothing) -> logExceptionAndThrow' (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
+          Just (bh, Nothing) -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
           Just (bh, Just bytes) -> return (Just (bh, bytes))
 
       getBlockPointer :: ByteString -> LogIO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState)
       getBlockPointer bytes =
         case runGet getQuadruple bytes of
-          Left _ -> logExceptionAndThrow' (DatabaseInvariantViolation "Cannot deserialize block.")
+          Left err -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Cannot deserialize block: " ++ show err)
           Right (finIndex, blockInfo, newBlock, state') -> do
             st <- runReaderT (PBS.runPersistentBlockStateMonad state') pbsc
             let ati = defaultValue :: ATIValues ati
@@ -297,8 +299,8 @@ loadSkovPersistentData rp gd pbsc atiPair = do
       getMinimalBlockData :: ByteString -> LogIO FinalizationIndex
       getMinimalBlockData bytes =
         case runGetPartial S.get bytes of
-          S.Fail err _ -> logExceptionAndThrow' (DatabaseInvariantViolation $ "Cannot deserialize block: " ++ show err)
-          S.Partial _ -> logExceptionAndThrow' (DatabaseInvariantViolation $ "Cannot deserialize block. Partially successful.")
+          S.Fail err _ -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Cannot deserialize block: " ++ show err)
+          S.Partial _ -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Cannot deserialize block. Partially successful.")
           S.Done finIndex _ -> return finIndex
 
       -- Given the genesis block pointer this function tries to load as many blocks as possible
@@ -327,22 +329,23 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   -- Check that this is really a genesis pointer with the same genesis data
   (gBlockPointer, _, _) <- getBlockPointer gbBytes
 
-  unless (gbHash == getHash gBlockPointer) $ logExceptionAndThrow' (DatabaseInvariantViolation $ "Genesis given hash and computed hash differ.")
+  unless (gbHash == getHash gBlockPointer) $ logExceptionAndThrowTS
+    (DatabaseInvariantViolation $ "Genesis given hash (" ++ show gbHash ++ ") and computed hash (" ++ show (getHash gBlockPointer :: BlockHash) ++ ") differ.")
 
   case _bpBlock gBlockPointer of
-    GenesisBlock gd' -> unless (gd == gd') $ logExceptionAndThrow' (GenesisBlockIncorrect (getHash gBlockPointer))
-    _ -> logExceptionAndThrow' (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+    GenesisBlock gd' -> unless (gd == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash gBlockPointer))
+    _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
 
   -- We would ideally be able to simply query for the last finalization record, but the limitations
   -- of the LMDB bindings prevent us from doing that.
   ((lastPointer, lastBlockFinIndex, lastState), blocks) <- loadInSequence gBlockPointer gbBytes
 
   let getFinalizationRecord idx = L.readOnlyTransaction env (L.get dbFinRecords idx)
-  lastFinRecord <- liftIO (getFinalizationRecord lastBlockFinIndex) `failWith` (DatabaseInvariantViolation "Finalization record for known index does not exist.")
+  lastFinRecord <- liftIO (getFinalizationRecord lastBlockFinIndex) `failWith` (DatabaseInvariantViolation $ "Finalization record for known index ("++ show lastBlockFinIndex ++ ") does not exist.")
 
   -- make sure the block pointed to by the last finalization record is indeed in the database
   _ <- liftIO (readOnlyTransaction env (L.get dbB (finalizationBlockPointer lastFinRecord)))
-       `failWith` (DatabaseInvariantViolation "Finalization record points to a block which does not exist.")
+       `failWith` (DatabaseInvariantViolation $ "Finalization record points to a block (" ++ show (finalizationBlockPointer lastFinRecord) ++ ") which does not exist.")
 
   -- The final thing we need to establish is the transaction table invariants.
   -- This specifically means for each account we need to determine the next available nonce.
@@ -354,7 +357,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
         accs <- getAccountList lastState
         foldM (\table addr ->
                  getAccount lastState addr >>= \case
-                  Nothing -> logExceptionAndThrow' (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
+                  Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
                   Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
@@ -446,7 +449,7 @@ getWeakPointer weakPtr ptrHash name = do
             else do
               nb <- readBlock ptrHash
               case nb of
-                Nothing -> logErrorAndThrow' ("Couldn't find " ++ name ++ " block in disk")
+                Nothing -> logErrorAndThrowTS ("Couldn't find " ++ name ++ " block in disk")
                 Just n -> return n
 
 instance (MonadLogger (PersistentTreeStateMonad ati bs m),
@@ -578,11 +581,11 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                 case (b, fr) of
                   (Just block, Just finr) -> return $ Just (TS.BlockFinalized block finr)
                   (Just _, Nothing) -> do
-                      logErrorAndThrow' $ "Lost finalization record that was stored" ++ show bh
+                      logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
                   (Nothing, Just _) -> do
-                      logErrorAndThrow' $ "Lost block that was stored as finalized" ++ show bh
+                      logErrorAndThrowTS $ "Lost block that was stored as finalized" ++ show bh
                   _ -> do
-                      logErrorAndThrow' $ "Lost block and finalization record" ++ show bh
+                      logErrorAndThrowTS $ "Lost block and finalization record" ++ show bh
 
     makeLiveBlock block parent lastFin st ati arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
@@ -749,9 +752,9 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                                                                                            & (anftNextNonce .~ nonce + 1))
                         return ss
                     else do
-                       logErrorAndThrow' $ "Tried to finalize thransaction which is not known to be in the set of non finalized accounts for the sender " ++ show sender
+                       logErrorAndThrowTS $ "Tried to finalize thransaction which is not known to be in the set of non finalized accounts for the sender " ++ show sender
                 else do
-                 logErrorAndThrow' $
+                 logErrorAndThrowTS $
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
             finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
 
@@ -767,7 +770,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                                             tsFinResult=tsResults HM.! bh,
                                             -- the previous lookup is safe; finalized transaction must be on a block
                                             ..})
-                _ -> logErrorAndThrow' "Transaction should exist and be in committed state when finalized."
+                _ -> logErrorAndThrowTS "Transaction should exist and be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
         -- add a transaction status. This only updates the cached version which is correct at' the moment
