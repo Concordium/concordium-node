@@ -125,7 +125,7 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
 data MessageType = MessageBlock | MessageFinalizationRecord
     deriving (Eq, Show)
 
-class (SkovQueryMonad m, TimeMonad m, LoggerMonad m) => SkovMonad m where
+class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: PendingBlock -> m UpdateResult
@@ -198,7 +198,7 @@ deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (Ma
 
 deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
 
-instance (Monad (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
+instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
     storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
     receiveTransaction = lift . receiveTransaction
@@ -264,7 +264,7 @@ instance (Monad m,
     {-# INLINE nextFinalizationIndex #-}
     nextFinalizationIndex = lift TS.getNextFinalizationIndex
     {-# INLINE getBirkParameters #-}
-    getBirkParameters slot = lift . doGetBirkParameters slot 
+    getBirkParameters slot = lift . doGetBirkParameters slot
     {-# INLINE getGenesisData #-}
     getGenesisData = lift TS.getGenesisData
     {-# INLINE genesisBlock #-}

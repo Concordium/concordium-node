@@ -59,7 +59,7 @@ merge Proxy = go
             | fh < bpHeight b = encodeFinRec f : go (n-1) fs1 bs0
             | otherwise = encodeBlock b : go (n-1) fs0 bs1
 
-doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, LoggerMonad m)
+doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadLogger m)
                 => CatchUpStatus
                 -> Int -- ^How many blocks + finalization records should be sent.
                 -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
@@ -112,8 +112,8 @@ doHandleCatchUp peerCUS limit = do
                             -- this finalized block is assumed to be the finalized block at the given finalization index
                             extendForwardBranches acc bHeight | Seq.length acc >= limit = return acc
                                                               | otherwise = do
-                              
-                              getFinalizedAtHeight bHeight >>= \case 
+
+                              getFinalizedAtHeight bHeight >>= \case
                                 Nothing -> return acc
                                 Just bp -> extendForwardBranches (acc Seq.|> bp) (bHeight + 1)
 

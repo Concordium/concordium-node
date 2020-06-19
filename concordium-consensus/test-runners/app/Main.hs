@@ -21,7 +21,6 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Paired
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
