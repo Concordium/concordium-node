@@ -18,12 +18,10 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler as Sch
-import Concordium.Types hiding (slotTime)
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData

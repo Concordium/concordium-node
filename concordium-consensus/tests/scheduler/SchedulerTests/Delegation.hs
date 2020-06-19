@@ -16,7 +16,6 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Account as Acc

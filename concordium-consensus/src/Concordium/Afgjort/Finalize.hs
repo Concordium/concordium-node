@@ -188,7 +188,7 @@ makeLenses ''FinalizationState
 -- finalization round is constructed.
 -- NB: This function should for now only be used in a tree state that has no branches,
 -- and will raise an exception otherwise.
-recoverFinalizationState :: (MonadIO m, SkovQueryMonad m, BlockPointerMonad m, BakerOperations m)
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad m, BlockPointerMonad m)
                          => Maybe FinalizationInstance
                          -> m (FinalizationState timer)
 recoverFinalizationState mfinInstance = do
@@ -749,7 +749,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 --
 -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
 -- and the record is discarded.
-receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m, BakerOperations m) => Bool -> FinalizationRecord -> m UpdateResult
+receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m) => Bool -> FinalizationRecord -> m UpdateResult
 receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
         nextFinIx <- nextFinalizationIndex
         case compare finalizationIndex nextFinIx of
@@ -965,7 +965,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
 -- |Determine the finalization session ID and finalization committee used for finalizing
 -- at the given index i. Note that the finalization committee is determined based on the block state
 -- at index i-1.
-getFinalizationContext :: (SkovQueryMonad m, BakerOperations m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 getFinalizationContext FinalizationRecord{..} = do
         genHash <- bpHash <$> genesisBlock
         let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
@@ -975,7 +975,7 @@ getFinalizationContext FinalizationRecord{..} = do
 
 -- |Check a finalization proof, returning the session id and finalization committee if
 -- successful.
-checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m, BakerOperations m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 checkFinalizationProof finRec =
     getQueuedFinalizationTrivial (finalizationIndex finRec) >>= \case
         Just (finSessId, finCom, altFinRec) -> return $ if finRec == altFinRec || verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
