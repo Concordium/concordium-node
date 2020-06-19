@@ -843,15 +843,21 @@ pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
 /// Following the implementation of the log crate, error = 1, warning = 2, info
 /// = 3, 4 = debug, any other option is considered as trace.
 pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: *const u8) {
+    // These types are defined in `Concordium.Logger` inside the `globalstate_types`
+    // package.
     fn identifier_to_string(id: c_char) -> &'static str {
         match id {
-            1 => "Runner",
-            2 => "Afgjort",
-            3 => "Birk",
-            4 => "Crypto",
-            5 => "Kontrol",
-            6 => "Skov",
-            7 => "Baker",
+            0 => "Runner",
+            1 => "Afgjort",
+            2 => "Birk",
+            3 => "Crypto",
+            4 => "Kontrol",
+            5 => "Skov",
+            6 => "Baker",
+            8 => "GlobalState",
+            9 => "BlockState",
+            10 => "TreeState",
+            11 => "LMDB",
             _ => "External",
         }
     }
