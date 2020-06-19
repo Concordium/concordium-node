@@ -2,7 +2,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
-module Concordium.GlobalState.Bakers where
+module Concordium.GlobalState.Basic.BlockState.Bakers where
 
 import GHC.Generics
 import Data.Set(Set)
@@ -15,34 +15,12 @@ import Data.Ratio
 import Lens.Micro.Platform
 import Concordium.Utils
 
+import Concordium.GlobalState.BakerInfo
 import Concordium.Types
-
-data BakerCreationInfo = BakerCreationInfo !BakerElectionVerifyKey !BakerSignVerifyKey !BakerAggregationVerifyKey !AccountAddress
-
-data BakerError =
-      DuplicateSignKey
-    | DuplicateAggregationKey
-  deriving (Eq, Show)
-
-data BakerInfo = BakerInfo {
-    -- |The baker's public VRF key
-    _bakerElectionVerifyKey :: !BakerElectionVerifyKey,
-    -- |The baker's public signature key
-    _bakerSignatureVerifyKey :: !BakerSignVerifyKey,
-    -- |The baker's public key for finalization record aggregation
-    _bakerAggregationVerifyKey :: !BakerAggregationVerifyKey,
-    -- |The stake delegated to the baker
-    _bakerStake :: !Amount,
-    -- |The account associated with the baker
-    _bakerAccount :: !AccountAddress
-} deriving (Eq, Generic, Show)
-instance Serialize BakerInfo
-
-makeLenses ''BakerInfo
 
 data Bakers = Bakers {
     -- |The bakers, indexed by 'BakerId'
-    _bakerMap :: !(Map BakerId BakerInfo),
+    _bakerMap :: !(Map BakerId FullBakerInfo),
     -- |The baker ids indexed by the keys
     _bakersByKey :: !(Map BakerSignVerifyKey BakerId),
     -- |The total stake delegated to all bakers
@@ -63,7 +41,7 @@ instance Serialize Bakers where
         _nextBakerId <- get
         let
             (_bakersByKey, _bakerTotalStake, _aggregationKeys) = Map.foldrWithKey deriv (Map.empty, 0, Set.empty) _bakerMap
-            deriv bid BakerInfo{..} (m, t, aks) = (m & at' (_bakerSignatureVerifyKey) ?~ bid,
+            deriv bid FullBakerInfo{_bakerInfo = BakerInfo{..},..} (m, t, aks) = (m & at' (_bakerSignatureVerifyKey) ?~ bid,
                                                 t + _bakerStake,
                                                 Set.insert _bakerAggregationVerifyKey aks)
         return Bakers{..}
@@ -75,7 +53,7 @@ emptyBakers = Bakers Map.empty Map.empty 0 0 Set.empty
 -- NB: Only the first baker with the given signing key is used.
 -- NB: Likewise, only the first baker with the given aggregation key is used.
 -- The bakers which were not added are returned.
-bakersFromList :: [BakerInfo] -> (Bakers, [BakerInfo])
+bakersFromList :: [FullBakerInfo] -> (Bakers, [FullBakerInfo])
 bakersFromList bkrs = (
   Bakers {
       _bakerMap = Map.fromList bakerList,
@@ -86,8 +64,9 @@ bakersFromList bkrs = (
     where
       (_bakersByKey, bakerList, duplicateBakers, _nextBakerId, _bakerTotalStake, _aggregationKeys) =
         List.foldl' (\(known, bkrList, duplicate, nextId, totalStake, aggKeys) baker ->
-                        let key = baker ^. bakerSignatureVerifyKey
-                            aggKey = baker ^. bakerAggregationVerifyKey
+                        let binfo = baker ^. bakerInfo
+                            key = binfo ^. bakerSignatureVerifyKey
+                            aggKey = binfo ^. bakerAggregationVerifyKey
                         in case Map.lookup key known of
                              Nothing -> -- new baker key
                                -- if an aggregation key already exists skip the baker (mark it as duplicate)
@@ -102,21 +81,21 @@ bakersFromList bkrs = (
 
 bakerData :: BakerId -> Bakers -> Maybe (BakerInfo, LotteryPower)
 bakerData bid bkrs = (bkrs ^. bakerMap . at' bid) <&>
-                        \bkr -> (bkr, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
+                        \bkr -> (bkr ^. bakerInfo, (bkr ^. bakerStake) % (bkrs ^. bakerTotalStake))
 
 -- |Add a baker to the set of known bakers.
 -- If a baker with the given signing key already exists then return Right DuplicateSignKey,
 -- If a baker with the given aggregation key already exists, return Left DuplicateAggregationKey,
 -- otherwise assign it a fresh id and add it to the set of known bakers.a
-createBaker :: BakerCreationInfo -> Bakers -> Either BakerError (BakerId, Bakers)
-createBaker (BakerCreationInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
+createBaker :: BakerInfo -> Bakers -> Either BakerError (BakerId, Bakers)
+createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs =
   case bkrs ^. bakersByKey . at' _bakerSignatureVerifyKey of
     Nothing -> -- key does not yet exist
         if Set.member _bakerAggregationVerifyKey (bkrs ^. aggregationKeys) then
           Left DuplicateAggregationKey
         else -- aggregation keys is not already in use, so we insert baker
           Right (bid, bkrs
-                     & bakerMap . at' bid ?~ BakerInfo{..}
+                     & bakerMap . at' bid ?~ FullBakerInfo {_bakerInfo = BakerInfo{..}, ..}
                      & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                      & nextBakerId .~ bid + 1
                      & aggregationKeys %~ Set.insert _bakerAggregationVerifyKey)
@@ -164,8 +143,8 @@ updateBaker !BakerUpdate{..} !bakers =
                 if Set.member newAggKey (bakers ^. aggregationKeys) then
                   Nothing
                 else
-                  let oldAggKey = binfo ^. bakerAggregationVerifyKey
-                      newBakerInfo = binfo & bakerAggregationVerifyKey .~ newAggKey
+                  let oldAggKey = binfo ^. bakerInfo . bakerAggregationVerifyKey
+                      newBakerInfo = binfo & bakerInfo . bakerAggregationVerifyKey .~ newAggKey
                   in Just
                       (bs
                         & aggregationKeys %~ Set.delete oldAggKey -- delete old aggregation key from pool of aggregation keys in use
@@ -181,20 +160,20 @@ updateBaker !BakerUpdate{..} !bakers =
                    Just _ -> -- existing signing key
                      Nothing
                    Nothing -> -- fresh signing key
-                     let newBakerInfo = binfo & bakerSignatureVerifyKey .~ newSignKey
+                     let newBakerInfo = binfo & bakerInfo . bakerSignatureVerifyKey .~ newSignKey
                      in Just (bs
                              & bakerMap %~ Map.insert _buId newBakerInfo
-                             & bakersByKey . at' (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
+                             & bakersByKey . at' (binfo ^. bakerInfo . bakerSignatureVerifyKey) .~ Nothing -- remove old identification
                              & bakersByKey . at' newSignKey .~ Just _buId, -- and add new identification
                           newBakerInfo)
             handleUpdateBakerAccount binfo accountUpdate bs = case accountUpdate of
                 Nothing -> Just bs
                 Just newBakerAccount ->
-                  Just $ bs & bakerMap %~ Map.insert _buId (binfo & bakerAccount .~ newBakerAccount)
+                  Just $ bs & bakerMap %~ Map.insert _buId (binfo & bakerInfo . bakerAccount .~ newBakerAccount)
             handleUpdateElectionKey binfo ekUpdate bs = case ekUpdate of
                 Nothing -> Just (bs, binfo)
                 Just newElectionKey ->
-                  let newBakerInfo = binfo & bakerElectionVerifyKey .~ newElectionKey
+                  let newBakerInfo = binfo & bakerInfo . bakerElectionVerifyKey .~ newElectionKey
                   in Just (bs & bakerMap %~ Map.insert _buId newBakerInfo, newBakerInfo)
 
 removeBaker :: BakerId -> Bakers -> (Bool, Bakers)
@@ -203,9 +182,9 @@ removeBaker bid !bakers =
         Nothing -> (False, bakers)
         Just bkr -> (True, bakers
                             & (bakerMap . at' bid .~ Nothing)
-                            & bakersByKey . at' (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as wel.
+                            & bakersByKey . at' (bkr ^. bakerInfo . bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as wel.
                             & (bakerTotalStake %~ subtract (bkr ^. bakerStake))
-                            & aggregationKeys %~ Set.delete (bkr ^. bakerAggregationVerifyKey))
+                            & aggregationKeys %~ Set.delete (bkr ^. bakerInfo . bakerAggregationVerifyKey))
 
 modifyStake :: Maybe BakerId -> AmountDelta -> Bakers -> Bakers
 modifyStake (Just bid) delta bakers = case bakers ^. bakerMap . at' bid of

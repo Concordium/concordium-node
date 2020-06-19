@@ -17,9 +17,10 @@ import GHC.Generics (Generic)
 import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
 import qualified Concordium.GlobalState.Types as GT
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
@@ -79,6 +80,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
+    type Bakers (PureBlockStateMonad m) = Bakers
 
 instance ATITypes (PureBlockStateMonad m) where
   type ATIStorage (PureBlockStateMonad m) = ()
@@ -125,6 +127,18 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+
+instance Monad m => BS.BakerOperations (PureBlockStateMonad m) where
+
+  getBakerStake bs bid = return $ bs ^. bakerMap ^? ix bid . bakerStake
+
+  getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
+
+  getTotalBakerStake bs = return $ bs ^. bakerTotalStake
+
+  getBakerInfo bs bid = return $ bs ^. bakerMap ^? ix bid . bakerInfo
+  
+  getFullBakerInfos = return . _bakerMap        
 
 instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
@@ -309,7 +323,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoSetElectionDifficulty bs d = return $!
       bs & blockBirkParameters . birkElectionDifficulty .~ d
 
-instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
+instance BS.BakerOperations m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
                                       (blockBank . Rewards.identityIssuersRewards .~ HashMap.empty)

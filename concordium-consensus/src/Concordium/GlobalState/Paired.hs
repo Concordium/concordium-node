@@ -84,6 +84,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type BirkParameters (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (BirkParameters (BSML lc r lg s m),
                 BirkParameters (BSMR rc r rg s m))
+    type Bakers (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (Bakers (BSML lc r lg s m),
+                Bakers (BSMR rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -212,6 +215,33 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a2 <- coerceBSMR (getSpecialOutcomes rs)
         assert (a1 == a2) $ return a1
 
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerOperations (BSML lc r ls s m), BakerOperations (BSMR rc r rs s m))
+        => BakerOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+  getBakerStake (bkrs1, bkrs2) bid = do
+    s1 <- coerceBSML (getBakerStake bkrs1 bid)
+    s2 <- coerceBSMR (getBakerStake bkrs2 bid)
+    assert (s1 == s2) $ return s1
+
+  getBakerFromKey (bkrs1, bkrs2) k = do
+    b1 <- coerceBSML (getBakerFromKey bkrs1 k)
+    b2 <- coerceBSMR (getBakerFromKey bkrs2 k)
+    assert (b1 == b2) $ return b1
+
+  getTotalBakerStake (bkrs1, bkrs2) = do
+    s1 <- coerceBSML (getTotalBakerStake bkrs1)
+    s2 <- coerceBSMR (getTotalBakerStake bkrs2)
+    assert (s1 == s2) $ return s1
+
+  getBakerInfo (bkrs1, bkrs2) bid = do
+    bi1 <- coerceBSML (getBakerInfo bkrs1 bid)
+    bi2 <- coerceBSMR (getBakerInfo bkrs2 bid)
+    assert (bi1 == bi2) $ return bi1
+
+  getFullBakerInfos (bkrs1, bkrs2) = do
+    bi1 <- coerceBSML (getFullBakerInfos bkrs1)
+    bi2 <- coerceBSMR (getFullBakerInfos bkrs2)
+    assert (bi1 == bi2) $ return bi1
+
 instance (Monad m,
           C.HasGlobalStateContext (PairGSContext lc rc) r,
           BirkParametersOperations (BSML lc r ls s m),
@@ -235,12 +265,14 @@ instance (Monad m,
   getCurrentBakers (bps1, bps2) = do
     cb1 <- coerceBSML (getCurrentBakers bps1)
     cb2 <- coerceBSMR (getCurrentBakers bps2)
-    assert (cb1 == cb2) $ return cb1
+    -- TODO (MRA) insert assertion
+    return (cb1, cb2)
 
   getLotteryBakers (bps1, bps2) = do
     lb1 <- coerceBSML (getLotteryBakers bps1)
     lb2 <- coerceBSMR (getLotteryBakers bps2)
-    assert (lb1 == lb2) $ return lb1
+    -- TODO (MRA) insert assertion
+    return (lb1, lb2)
 
   updateSeedState ss (bps1, bps2) = do
     bps1' <- coerceBSML (updateSeedState ss bps1)

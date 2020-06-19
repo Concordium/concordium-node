@@ -4,8 +4,7 @@
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
     module Concordium.GlobalState.Parameters,
-    BakerInfo,
-    BakerCreationInfo(..)
+    BakerInfo
 ) where
 
 import Prelude hiding (fail)
@@ -18,7 +17,8 @@ import Data.Word
 
 import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.GlobalState.SeedState as SeedState
 import qualified Concordium.ID.Types as ID
@@ -257,12 +257,13 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
         genesisElectionDifficulty = gpElectionDifficulty
-        mkBaker GenesisBaker{..} = BakerInfo
+        mkBaker GenesisBaker{..} = FullBakerInfo
+            (BakerInfo
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
                 gbAggregationVerifyKey
-                (gaBalance gbAccount)
-                (gaAddress gbAccount)
+                (gaAddress gbAccount))
+            (gaBalance gbAccount)
 
         mkAccount GenesisAccount{..} =
           let cdv = ID.cdiValues gaCredential in

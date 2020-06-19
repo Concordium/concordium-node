@@ -80,7 +80,7 @@ import Concordium.GlobalState.SQL.AccountTransactionIndex
 
 
 -- |A newtype wrapper for providing instances of the block state related monads:
--- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
+-- 'BlockStateTypes', 'BlockStateQuery', 'BakerOperations', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
 --
 -- For the monad @BlockStateM c r g s m@, the underlying monad @m@ should satisfy
 -- @MonadReader r m@ and @MonadState s m@.  The types @c@ and @s@ should be components
@@ -125,6 +125,10 @@ deriving via PureBlockStateMonad m
 
 deriving via PureBlockStateMonad m
     instance (Monad m)
+             => BakerOperations (MemoryBlockStateM r g s m)
+
+deriving via PureBlockStateMonad m
+    instance (Monad m)
              => BirkParametersOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
@@ -133,7 +137,7 @@ deriving via PureBlockStateMonad m
              => BlockStateOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (Monad m,
+    instance (BakerOperations m,
               BlockStateOperations (MemoryBlockStateM r g s m))
              => BlockStateStorage (MemoryBlockStateM r g s m)
 
@@ -149,6 +153,15 @@ deriving via (PersistentBlockStateMonad
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BlockStateQuery (PersistentBlockStateM r g s m)
+
+deriving via (PersistentBlockStateMonad
+               PersistentBlockStateContext
+               (FocusGlobalStateM PersistentBlockStateContext g m))
+    instance (MonadIO m,
+              BakerOperations (PersistentBlockStateMonad
+                                PersistentBlockStateContext
+                                (FocusGlobalStateM PersistentBlockStateContext g m)))
+             => BakerOperations (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -190,7 +203,7 @@ deriving via (PersistentBlockStateMonad
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO,
-              BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+              BlockStateTypes, BlockStateQuery, BakerOperations, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
@@ -262,11 +275,15 @@ deriving via BlockStateM c r g s m
              => BlockStateQuery (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
+    instance (Monad m, BakerOperations (BlockStateM c r g s m))
+             => BakerOperations (GlobalStateM db c r g s m)
+
+deriving via BlockStateM c r g s m
     instance (Monad m, BirkParametersOperations (BlockStateM c r g s m))
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (BlockStateQuery (GlobalStateM db c r g s m),
+    instance (Monad m, BlockStateQuery (GlobalStateM db c r g s m),
               BlockStateOperations (BlockStateM c r g s m))
              => BlockStateOperations (GlobalStateM db c r g s m)
 

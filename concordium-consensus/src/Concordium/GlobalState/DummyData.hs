@@ -9,7 +9,8 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.IdentityProviders
@@ -68,10 +69,10 @@ dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
 dummyFinalizationCommitteeMaxSize = 1000
 
 {-# WARNING makeFakeBakers "Do not use in production" #-}
-makeFakeBakers :: Word -> [(BakerInfo, Account)]
+makeFakeBakers :: Word -> [(FullBakerInfo, Account)]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = (BakerInfo epk spk blspk stake accAddress, account):mbs gen''' (bid+1)
+        mbs gen bid = (FullBakerInfo (BakerInfo epk spk blspk accAddress) stake, account):mbs gen''' (bid+1)
             where
                 ((VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = randomBlockKeyPair gen'
@@ -87,13 +88,15 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
 -- The baker has 0 lottery power.
 -- mkBaker :: Int -> AccountAddress -> (BakerInfo
 {-# WARNING mkFullBaker "Do not use in production." #-}
-mkFullBaker :: Int -> AccountAddress -> (BakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
-mkFullBaker seed acc = (BakerInfo {
-  _bakerElectionVerifyKey = VRF.publicKey electionKey,
-  _bakerSignatureVerifyKey = Sig.verifyKey sk,
-  _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
-  _bakerStake = 0,
-  _bakerAccount = acc
+mkFullBaker :: Int -> AccountAddress -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
+mkFullBaker seed acc = (FullBakerInfo {
+    _bakerInfo = BakerInfo {
+      _bakerElectionVerifyKey = VRF.publicKey electionKey,
+      _bakerSignatureVerifyKey = Sig.verifyKey sk,
+      _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
+      _bakerAccount = acc
+    },
+    _bakerStake = 0
   }, VRF.privateKey electionKey, Sig.signKey sk, blssk)
   where electionKey = bakerElectionKey seed
         sk = bakerSignKey seed
