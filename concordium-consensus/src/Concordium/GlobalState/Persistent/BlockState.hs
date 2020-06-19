@@ -14,6 +14,7 @@ import Control.Monad.Trans
 import Control.Monad
 import Lens.Micro.Platform
 import Concordium.Utils
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
 import qualified Data.Vector as Vec
@@ -28,15 +29,17 @@ import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
 import Acorn.Types (linkExprWithMaxSize)
 
+import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.Basic.BlockState.Bakers as BB
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account
+import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
@@ -167,13 +170,13 @@ makePersistentModules (TransientMods.Modules m nmi rh) = do
 data PersistentBirkParameters = PersistentBirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
     -- |The current stake of bakers. All updates should be to this state.
-    _birkCurrentBakers :: !Bakers,
+    _birkCurrentBakers :: !PersistentBakers,
     -- |The state of bakers at the end of the previous epoch,
     -- will be used as lottery bakers in next epoch.
-    _birkPrevEpochBakers :: !(BufferedRef Bakers),
+    _birkPrevEpochBakers :: !(BufferedRef PersistentBakers),
     -- |The state of the bakers fixed before previous epoch,
     -- the lottery power and reward account is used in leader election.
-    _birkLotteryBakers :: !(BufferedRef Bakers),
+    _birkLotteryBakers :: !(BufferedRef PersistentBakers),
     _birkSeedState :: !SeedState
 } deriving (Generic, Show)
 
@@ -219,11 +222,11 @@ class HasModuleCache a where
 
 makePersistentBirkParameters :: MonadIO m => Basic.BasicBirkParameters -> m PersistentBirkParameters
 makePersistentBirkParameters Basic.BasicBirkParameters{..} = do
-    prevEpochBakers <- makeBufferedRef _birkPrevEpochBakers
-    lotteryBakers <- makeBufferedRef _birkLotteryBakers
+    prevEpochBakers <- makeBufferedRef $ makePersistentBakers _birkPrevEpochBakers
+    lotteryBakers <- makeBufferedRef $ makePersistentBakers _birkLotteryBakers
     return $ PersistentBirkParameters
         _birkElectionDifficulty
-        _birkCurrentBakers
+        (makePersistentBakers _birkCurrentBakers)
         prevEpochBakers
         lotteryBakers
         _birkSeedState
@@ -435,14 +438,14 @@ doPutLinkedContract pbs modRef n !lc = do
 doGetBlockBirkParameters :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m PersistentBirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
-doAddBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerCreationInfo -> m (Either BakerError BakerId, PersistentBlockState)
+doAddBaker :: (MonadIO m, MonadBlobStore (PersistentBlockStateMonad r m) BlobRef) => PersistentBlockState -> BakerInfo -> PersistentBlockStateMonad r m (Either BakerError BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
         case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
             Left err -> return (Left err, pbs)
             Right (bid, newBakers) -> (Right bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
-doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerUpdate -> m (Bool, PersistentBlockState)
+doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BB.BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
         case updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) of
@@ -597,7 +600,8 @@ doDelegateStake pbs aaddr target = do
         bsp <- loadPBS pbs
         let targetValid = case target of
                 Nothing -> True
-                Just bid -> isJust $ bspBirkParameters bsp ^. birkCurrentBakers . bakerMap . at' bid
+                Just bid -> isJust (bspBirkParameters bsp ^. birkCurrentBakers . bakerInfoMap . at' bid)
+                         && isJust (bspBirkParameters bsp ^. birkCurrentBakers . bakerStakeMap . at' bid)
         if targetValid then do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
                                 acct & accountStakeDelegate .~ target)
@@ -688,6 +692,7 @@ instance BlockStateTypes (PersistentBlockStateMonad r m) where
     type BlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type BirkParameters (PersistentBlockStateMonad r m) = PersistentBirkParameters
+    type Bakers (PersistentBlockStateMonad r m) = PersistentBakers
 
 instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => BlockStateQuery (PersistentBlockStateMonad r m) where
     getModule = doGetModule
@@ -712,6 +717,26 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getTransactionOutcome #-}
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
+
+instance (MonadIO m) => BakerOperations (PersistentBlockStateMonad r m) where
+
+  getBakerStake bs bid = return $ bs ^. bakerStakeMap ^? ix bid
+
+  getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
+
+  getTotalBakerStake bs = return $ bs ^. bakerTotalStake
+
+  getBakerInfo bs bid = return $ bs ^. bakerInfoMap ^? ix bid
+
+  getFullBakerInfos bs@PersistentBakers{..} = return $ Map.mapWithKey getFullInfo _bakerInfoMap
+    where getFullInfo bid binfo =
+            case bs ^. bakerStakeMap ^? ix bid of
+                 Just stake -> FullBakerInfo binfo stake
+                 -- This should never happen
+                 Nothing -> error $ "The domanins of _bakerStakeMap and _bakerInfoMap must match but _bakerInfoMap contains baker ID "
+                                      ++ show bid
+                                      ++ " whereas _bakerStakeMap does not."
+
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperations (PersistentBlockStateMonad r m) where
 

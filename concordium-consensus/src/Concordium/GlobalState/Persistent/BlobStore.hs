@@ -27,9 +27,9 @@ import System.Directory
 import Data.Proxy
 import GHC.Stack
 import Data.IORef
-import Concordium.GlobalState.Bakers (Bakers)
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
+import Concordium.GlobalState.Persistent.Bakers
 
 -- Imports for providing instances
 import qualified Concordium.GlobalState.IdentityProviders as IPS
@@ -493,7 +493,7 @@ instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
 -- BlobStorable instances
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
 instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicParameters
-instance (MonadBlobStore m ref) => BlobStorable m ref Bakers
+instance (MonadBlobStore m ref) => BlobStorable m ref PersistentBakers
 -- FIXME: This uses serialization of accounts for storing them.
 -- This is potentially quite wasteful when only small changes are made.
 instance (MonadBlobStore m ref) => BlobStorable m ref Account
