@@ -197,3 +197,14 @@ updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50
 -- |Cost to update the election difficulty.
 updateElectionDifficulty :: Energy
 updateElectionDifficulty = 0
+
+-- |Cost to update baker aggregation key
+-- The main part here is checking a dlog proof, and that cost is essentially
+-- the same as the cost in adding a baker - 2 * updateBakerKey.
+updateBakerAggregationVerifyKey :: Energy
+updateBakerAggregationVerifyKey = 2700
+
+-- |Cost to update baker election key.
+-- The underlying computation is the same as for updating the baker or account key.
+updateBakerElectionKey :: Energy
+updateBakerElectionKey = 90
