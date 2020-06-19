@@ -137,7 +137,7 @@ deriving via PureBlockStateMonad m
              => BlockStateOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (BakerOperations m,
+    instance (Monad m,
               BlockStateOperations (MemoryBlockStateM r g s m))
              => BlockStateStorage (MemoryBlockStateM r g s m)
 

@@ -323,7 +323,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoSetElectionDifficulty bs d = return $!
       bs & blockBirkParameters . birkElectionDifficulty .~ d
 
-instance BS.BakerOperations m => BS.BlockStateStorage (PureBlockStateMonad m) where
+instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
                                       (blockBank . Rewards.identityIssuersRewards .~ HashMap.empty)
