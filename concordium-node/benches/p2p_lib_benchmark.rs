@@ -1,11 +1,18 @@
 #[macro_use]
 extern crate criterion;
 
-use p2p_client::test_utils::{create_random_packet, generate_random_data};
+use p2p_client::test_utils::create_random_packet;
+#[cfg(feature = "dedup_benchmarks")]
+use p2p_client::test_utils::generate_random_data;
 
 use std::io::{Cursor, Seek, SeekFrom};
 
-#[cfg(any(not(feature = "s11n_fbs"), not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
+#[cfg(any(
+    not(feature = "s11n_fbs"),
+    not(feature = "s11n_capnp"),
+    not(feature = "s11n_serde"),
+    not(feature = "dedup_benchmarks")
+))]
 mod nop {
     use criterion::Criterion;
     pub fn nop_bench(_c: &mut Criterion) {}
@@ -38,6 +45,7 @@ macro_rules! bench_s11n {
     };
 }
 
+#[cfg(feature = "dedup_benchmarks")]
 macro_rules! dedup_bench {
     ($f:ident, $hasher:ty, $hasher_name:expr, $hash_size:expr, $msg_size:expr) => {
         pub fn $f(c: &mut Criterion) {
@@ -55,9 +63,9 @@ macro_rules! dedup_bench {
                 }
 
                 if MSG_SIZE > 4_000_000 {
-                    group.measurement_time(  Duration::from_secs( 240) );
+                    group.measurement_time(Duration::from_secs(240));
                 } else if MSG_SIZE > 1_000_000 {
-                    group.measurement_time(  Duration::from_secs( 60) );
+                    group.measurement_time(Duration::from_secs(60));
                 }
 
                 group.throughput(Throughput::Elements(size as u64));
@@ -78,14 +86,15 @@ macro_rules! dedup_bench {
     };
 }
 
+#[cfg(feature = "dedup_benchmarks")]
 mod dedup {
     use crate::*;
     use circular_queue::CircularQueue;
     use criterion::{BenchmarkId, Criterion, Throughput};
     use digest::Digest;
     use sha2::Sha256;
-    use twox_hash::XxHash64;
     use std::time::Duration;
+    use twox_hash::XxHash64;
 
     dedup_bench!(small_bench_dedup_xxhash64, XxHash64, "XxHash64", 8, 250);
     dedup_bench!(small_bench_dedup_sha256, Sha256, "SHA256", 32, 250);
@@ -137,6 +146,7 @@ criterion_group!(s11n_msgpack_benches, s11n::msgpack::bench_s11n);
 #[cfg(not(feature = "s11n_serde_msgpack"))]
 criterion_group!(s11n_msgpack_benches, nop::nop_bench);
 
+#[cfg(feature = "dedup_benchmarks")]
 criterion_group!(
     dedup_benches,
     dedup::small_bench_dedup_xxhash64,
@@ -146,6 +156,8 @@ criterion_group!(
     dedup::big_bench_dedup_xxhash64,
     dedup::big_bench_dedup_sha256
 );
+#[cfg(not(feature = "dedup_benchmarks"))]
+criterion_group!(dedup_benches, nop::nop_bench);
 
 criterion_main!(
     s11n_fbs_benches,
