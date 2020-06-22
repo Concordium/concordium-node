@@ -256,7 +256,7 @@ pub fn handle_consensus_inbound_msg(
         // early blocks should be removed from the deduplication queue
         if consensus_result == ConsensusFfiResponse::BlockTooEarly {
             write_or_die!(&node.connection_handler.deduplication_queues.blocks)
-                .flip_if_exists(&request.payload);
+                .invalidate_if_exists(&request.payload);
         }
 
         // adjust the peer state(s) based on the feedback from Consensus
