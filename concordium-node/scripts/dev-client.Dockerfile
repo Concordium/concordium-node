@@ -18,9 +18,9 @@ RUN --mount=type=ssh ./init.build.env.sh
 
 ### Baker id gen
 RUN \
-    rustup install nightly-2019-07-10 && \
+    rustup install nightly-2020-06-10 && \
     cd baker_id_gen && \
-    cargo +nightly-2019-07-10 build --release && \
+    cargo +nightly-2020-06-10 build --release && \
     mv target/release/baker_id_gen ../baker_id_generator && \
     cd .. && \
     rm -rf baker_id_gen

@@ -30,7 +30,7 @@ COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
     git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout 2de59e327234d19c84d219055b28b01d874b84ee && \
+    git checkout b2616912ac38c907c80f6628d9a0ac9c0439be6e && \
     git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
@@ -66,6 +66,7 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
+RUN git checkout 4b7f5b07a87ede1efb75f072ab0b1332acc4d80c
 ENV NODE_ENV=development
 # Building node dashboard
 RUN npm i
@@ -85,6 +86,7 @@ ENV NODE_URL=localhost:10000
 ENV COLLECTORD_URL=https://dashboard.eu.staging.concordium.com/nodes/post
 ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
+ENV ENABLE_TERM_HANDLER=true
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 libpq-dev liblmdb-dev jq
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector

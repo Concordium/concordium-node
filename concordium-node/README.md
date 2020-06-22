@@ -8,10 +8,10 @@ This repository relies on git submodules for internal component dependencies, so
 * Rust (stable 1.37+, and stable 1.42.0 (b8cedc004 2020-03-09) for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
-* flatc >= 1.11.0
+* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html) >= 1.11.0 (build using CMake and copy to `~/.local/bin`)
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
-* [Unbound](https://www.nlnetlabs.nl/projects/unbound/about/) >= 1.9.2
+* [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
 * PostGreSQL >= 10
 
 ### Optional dependencies

@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 
+# SIGTERM handler
+_term() {
+  kill -TERM ${CHILD_PID} 2>/dev/null
+  wait ${CHILD_PID}
+}
+
 # Haskell binding needs proper library path to function
 export LD_LIBRARY_PATH=/usr/local/lib
 
@@ -19,16 +25,42 @@ then
     cd $DATA_DIR
 fi
 
-# Unwrap proper genesis bundle
+# Unwrap proper genesis bundle, and swap to one of the benchmarks if set
 if [ -n "$NUM_BAKERS" ];
 then
     if [ -n "$DATA_DIR" ];
     then
-        cd /genesis-data
-        tar -xvf $NUM_BAKERS-bakers.tar.gz
-        cd genesis_data/
-        cp * $DATA_DIR/
-        cd $DATA_DIR
+        if [ -n "$FINBENCH_NUM" ]; 
+        then
+            cd /genesis-data
+            tar -xzf finbench-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+            cp "genesis-finbench-${FINBENCH_NUM}.dat" genesis.dat
+        elif [ -n "$TPS_NUM" ];
+        then
+            cd /genesis-data
+            tar -xzf tps-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+            cp "genesis-tps-${TPS_NUM}.dat" genesis.dat
+        elif [ -n "$CATCHUP_NUM" ];
+        then
+            cd /genesis-data
+            tar -xzf catchup-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+            cp "genesis-catchup-${TPS_NUM}.dat" genesis.dat
+        else
+            cd /genesis-data
+            tar -xvf $NUM_BAKERS-bakers.tar.gz
+            cd genesis_data/
+            cp * $DATA_DIR/
+            cd $DATA_DIR
+        fi
     fi
 fi
 
@@ -56,14 +88,24 @@ then
     ARGS="$ARGS --desired-nodes $DESIRED_PEERS"
 fi
 
-if [ -n "$BAKER_ID" ];
+# If BAKER_CREDENTIALS_FILENAME is provided, get that one.
+# Otherwise, use the old behavior (using BAKER-ID)
+if [ -n "$BAKER_CREDENTIALS_FILENAME" ];
+then
+    BAKER_CREDENTIALS_FILE="${DATA_DIR}/${BAKER_CREDENTIALS_FILENAME}"
+    if [ -f $BAKER_CREDENTIALS_FILE ];
+    then
+        ARGS="$ARGS --baker-credentials-file $BAKER_CREDENTIALS_FILE"
+    fi
+elif [ -n "$BAKER_ID" ];
 then
     REAL_BAKER_ID=$(echo $BAKER_ID | cut -d'-' -f2)
     BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
-    if [ -f $BAKER_CREDENTIALS_FILE ]; 
+    if [ -f $BAKER_CREDENTIALS_FILE ];
     then
         ARGS="$ARGS --baker-id $REAL_BAKER_ID"
     fi
+
     if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
         if [ $(($REAL_BAKER_ID % 2 )) == 0 ]; then
             ARGS="$ARGS --trace"
@@ -359,7 +401,16 @@ elif [ "$MODE" == "tps_sender" ]; then
     --connect-to 10.96.0.15:8888 \
     $ARGS
 elif [ "$MODE" == "basic" ]; then
-    /p2p_client-cli $ARGS
+    if [ -n "$ENABLE_TERM_HANDLER" ];
+    then
+        trap _term SIGTERM
+        /p2p_client-cli $ARGS &
+        $CHILD_PID=$!
+        wait $CHILD_PID
+    else
+        /p2p_client-cli $ARGS
+    fi
+
     if [ -n "$DONT_CRASH" ];
     then
         while [ 1 ]
