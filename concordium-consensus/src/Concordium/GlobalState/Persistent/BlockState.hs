@@ -48,6 +48,7 @@ import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),make
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 import Concordium.GlobalState.SeedState
+import Control.Exception.Base (assert)
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
@@ -186,24 +187,27 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
     storeUpdate p bps@PersistentBirkParameters{..} = do
         (ppebs, prevEpochBakers) <- storeUpdate p _birkPrevEpochBakers
         (plbs, lotteryBakers) <- storeUpdate p _birkLotteryBakers
+        (pcbs, currBakers) <- storeUpdate p _birkCurrentBakers
         let putBSP = do
                 put _birkElectionDifficulty
-                put _birkCurrentBakers
+                pcbs
                 ppebs
                 plbs
                 put _birkSeedState
         return (putBSP, bps {
+                    _birkCurrentBakers = currBakers,
                     _birkPrevEpochBakers = prevEpochBakers,
                     _birkLotteryBakers = lotteryBakers
                 })
     store p bps = fst <$> storeUpdate p bps
     load p = do
         _birkElectionDifficulty <- label "Election difficulty" get
-        _birkCurrentBakers <- label "Current bakers" get
+        mcbs <- label "Current bakers" $ load p
         mpebs <- label "Previous-epoch bakers" $ load p
         mlbs <- label "Lottery bakers" $ load p
         _birkSeedState <- label "Seed state" get
         return $! do
+            _birkCurrentBakers <- mcbs
             _birkPrevEpochBakers <- mpebs
             _birkLotteryBakers <- mlbs
             return $! PersistentBirkParameters{..}
@@ -222,11 +226,12 @@ class HasModuleCache a where
 
 makePersistentBirkParameters :: MonadIO m => Basic.BasicBirkParameters -> m PersistentBirkParameters
 makePersistentBirkParameters Basic.BasicBirkParameters{..} = do
-    prevEpochBakers <- makeBufferedRef $ makePersistentBakers _birkPrevEpochBakers
-    lotteryBakers <- makeBufferedRef $ makePersistentBakers _birkLotteryBakers
+    prevEpochBakers <- makeBufferedRef =<< makePersistentBakers _birkPrevEpochBakers
+    lotteryBakers <- makeBufferedRef =<< makePersistentBakers _birkLotteryBakers
+    currBakers <- makePersistentBakers _birkCurrentBakers
     return $ PersistentBirkParameters
         _birkElectionDifficulty
-        (makePersistentBakers _birkCurrentBakers)
+        currBakers
         prevEpochBakers
         lotteryBakers
         _birkSeedState
@@ -441,21 +446,21 @@ doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 doAddBaker :: (MonadIO m, MonadBlobStore (PersistentBlockStateMonad r m) BlobRef) => PersistentBlockState -> BakerInfo -> PersistentBlockStateMonad r m (Either BakerError BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
-        case createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) of
+        createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) >>= \case
             Left err -> return (Left err, pbs)
             Right (bid, newBakers) -> (Right bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BB.BakerUpdate -> m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
-        case updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) of
+        updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) >>= \case
             Nothing -> return $! (False, pbs)
             Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
         bsp <- loadPBS pbs
-        let (rv, newBakers) = removeBaker bid (bspBirkParameters bsp ^. birkCurrentBakers)
+        (rv, newBakers) <- removeBaker bid (bspBirkParameters bsp ^. birkCurrentBakers)
         (rv,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doGetRewardStatus :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Rewards.BankStatus
@@ -509,10 +514,11 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
             Just cdi -> Account.recordRegId (ID.cdvRegId cdi) accts1
             Nothing -> return accts1
         -- If the amount is changed update the delegate stake
-        let birkParams1 = case (_auAmount, mbalinfo) of
-                (Just deltaAmnt, Just delegate) ->
-                    bspBirkParameters bsp & birkCurrentBakers %~ modifyStake delegate deltaAmnt
-                _ -> bspBirkParameters bsp
+        birkParams1 <- case (_auAmount, mbalinfo) of
+                (Just deltaAmnt, Just delegate) -> do 
+                    newCurrBakers <- modifyStake delegate deltaAmnt (bspBirkParameters bsp ^. birkCurrentBakers)
+                    return $ bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers 
+                _ -> return $ bspBirkParameters bsp
         storePBS pbs (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
     where
         upd oldAccount = return ((oldAccount ^. accountStakeDelegate), updateAccount aUpd oldAccount)
@@ -541,10 +547,12 @@ doPutNewInstance pbs fnew = do
         -- Update the stake delegate
         case mdelegate of
             Nothing -> error "Invalid contract owner"
-            Just delegate -> (ca,) <$> storePBS pbs bsp{
+            Just delegate -> do
+                newCurrBakers <- modifyStake delegate (amountToDelta (instanceAmount inst)) (bspBirkParameters bsp ^. birkCurrentBakers)
+                (ca,) <$> storePBS pbs bsp{
                                     bspInstances = insts,
                                     bspAccounts = accts,
-                                    bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~ modifyStake delegate (amountToDelta (instanceAmount inst))
+                                    bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
                                 }
     where
         fnew' ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
@@ -581,9 +589,11 @@ doModifyInstance pbs caddr deltaAmnt val = do
                 -- Lookup the owner account and update its stake delegate
                 Account.getAccount owner (bspAccounts bsp) >>= \case
                     Nothing -> error "Invalid contract owner"
-                    Just acct -> storePBS pbs bsp{
+                    Just acct -> do
+                        newCurrBakers <- modifyStake (_accountStakeDelegate acct) deltaAmnt (bspBirkParameters bsp ^. birkCurrentBakers)
+                        storePBS pbs bsp{
                             bspInstances = insts,
-                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~ modifyStake (_accountStakeDelegate acct) deltaAmnt
+                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
                         }
     where
         upd oldInst = do
@@ -598,10 +608,13 @@ doModifyInstance pbs caddr deltaAmnt val = do
 doDelegateStake :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
 doDelegateStake pbs aaddr target = do
         bsp <- loadPBS pbs
-        let targetValid = case target of
-                Nothing -> True
-                Just bid -> isJust (bspBirkParameters bsp ^. birkCurrentBakers . bakerInfoMap . at' bid)
-                         && isJust (bspBirkParameters bsp ^. birkCurrentBakers . bakerStakeMap . at' bid)
+        targetValid <- case target of
+                Nothing -> return True
+                Just bid -> do
+                    bInfo <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerInfoMap
+                    bStake <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerStakeMap
+                    assert (isJust bInfo == isJust bStake) $
+                        return $ isJust bInfo && isJust bStake
         if targetValid then do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
                                 acct & accountStakeDelegate .~ target)
@@ -610,10 +623,10 @@ doDelegateStake pbs aaddr target = do
                 (Just (acctOldTarget, acctBal, acctInsts), accts) -> do
                     instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") pinstanceAmount <$> Instances.lookupContractInstance caddr (bspInstances bsp)
                     let stake = acctBal + sum instBals
+                    newCurrBakers <- removeStake acctOldTarget stake =<< addStake target stake (bspBirkParameters bsp ^. birkCurrentBakers)
                     (True,) <$> storePBS pbs bsp{
                             bspAccounts = accts,
-                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers %~
-                                removeStake acctOldTarget stake . addStake target stake
+                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
                         }
         else
             return (False, pbs)
@@ -718,20 +731,22 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
 
-instance (MonadIO m) => BakerOperations (PersistentBlockStateMonad r m) where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerOperations (PersistentBlockStateMonad r m) where
 
-  getBakerStake bs bid = return $ bs ^. bakerStakeMap ^? ix bid
+  getBakerStake bs bid = Trie.lookup bid (bs ^. bakerStakeMap)
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs bid = return $ bs ^. bakerInfoMap ^? ix bid
+  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerInfoMap)
 
-  getFullBakerInfos bs@PersistentBakers{..} = return $ Map.mapWithKey getFullInfo _bakerInfoMap
+  getFullBakerInfos bs@PersistentBakers{..} = do
+    bInfoMap <- Trie.toMap _bakerInfoMap
+    sequence $ Map.mapWithKey getFullInfo bInfoMap
     where getFullInfo bid binfo =
-            case bs ^. bakerStakeMap ^? ix bid of
-                 Just stake -> FullBakerInfo binfo stake
+            getBakerStake bs bid >>= \case
+                 Just stake -> return $ FullBakerInfo binfo stake
                  -- This should never happen
                  Nothing -> error $ "The domanins of _bakerStakeMap and _bakerInfoMap must match but _bakerInfoMap contains baker ID "
                                       ++ show bid
