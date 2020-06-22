@@ -25,11 +25,6 @@ RUN \
     cd .. && \
     rm -rf baker_id_gen
 
-### Wallet-server
-RUN \
-    ( cd deps/internal/consensus/crypto/rust-bins && cargo build --release ) && \
-    mv deps/internal/consensus/crypto/rust-bins/target/release/wallet_server .
-
 ### P2P client
 RUN --mount=type=ssh ./build-binaries.sh "collector"
 
@@ -44,7 +39,7 @@ ENV STACK_ROOT /.stack
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
-RUN git checkout dd74008854644bffc0ff898ec90e152aea8f2350
+RUN git checkout e762d1120c211ec115c452bf4302a923d8772422
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
 RUN cp deps/simple-client/extra-libs/*.so /libs
@@ -71,7 +66,6 @@ COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/node-collector-backend /node-collector-backend 
-COPY --from=build /build-project/wallet_server /wallet-server
 COPY --from=wallet-proxy-build /wallet-proxy/target/wallet-proxy-exe /wallet-proxy
 COPY --from=wallet-proxy-build /libs/* /usr/lib/
 
