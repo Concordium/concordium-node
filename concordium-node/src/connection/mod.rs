@@ -165,7 +165,7 @@ impl DeduplicationQueueSha256 {
 impl DeduplicationQueue for DeduplicationQueueSha256 {
     fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool> {
         let hash = self.hash(&input);
-        if !self.queue.iter().any(|n| &n[..] == &hash[..]) {
+        if !self.queue.iter().any(|n| *n == hash) {
             trace!("Message SHA256 {:X?} is unique, adding to dedup queue", &hash[..]);
             self.queue.push(hash);
             Ok(false)
@@ -177,7 +177,7 @@ impl DeduplicationQueue for DeduplicationQueueSha256 {
 
     fn invalidate_if_exists(&mut self, input: &[u8]) {
         let hash = self.hash(&input);
-        if let Some(old_val) = self.queue.iter_mut().find(|val| &val[..] == &hash[..]) {
+        if let Some(old_val) = self.queue.iter_mut().find(|val| **val == hash) {
             // zero out all bits in the old hash; we can't just remove the value from the
             // queue
             *old_val = [
@@ -368,16 +368,17 @@ impl Connection {
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => dedup_with(
                 &packet.message,
-                &mut *write_or_die!(deduplication_queues.finalizations),
+                &mut **write_or_die!(deduplication_queues.finalizations),
             )?,
-            Ok(PacketType::Transaction) => {
-                dedup_with(&packet.message, &mut *write_or_die!(deduplication_queues.transactions))?
-            }
+            Ok(PacketType::Transaction) => dedup_with(
+                &packet.message,
+                &mut **write_or_die!(deduplication_queues.transactions),
+            )?,
             Ok(PacketType::Block) => {
-                dedup_with(&packet.message, &mut *write_or_die!(deduplication_queues.blocks))?
+                dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.blocks))?
             }
             Ok(PacketType::FinalizationRecord) => {
-                dedup_with(&packet.message, &mut *write_or_die!(deduplication_queues.fin_records))?
+                dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.fin_records))?
             }
             _ => false,
         };
@@ -631,6 +632,6 @@ impl Drop for Connection {
 
 /// Returns a bool indicating whether the message is a duplicate.
 #[inline]
-fn dedup_with(message: &[u8], queue: &mut Box<dyn DeduplicationQueue>) -> Fallible<bool> {
+fn dedup_with(message: &[u8], queue: &mut dyn DeduplicationQueue) -> Fallible<bool> {
     queue.check_and_insert(message)
 }
