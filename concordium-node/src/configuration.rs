@@ -1,5 +1,6 @@
 //! The client's parameters and constants used by other modules.
 
+use crate::connection::DeduplicationHashAlgorithm;
 use app_dirs2::*;
 use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
@@ -347,6 +348,12 @@ pub struct ConnectionConfig {
         default_value = "10"
     )]
     pub events_queue_size: usize,
+    #[structopt(
+        long = "deduplication-hashing-algorithm",
+        help = "Hash algorithm used for deduplication [xxhash64|sha256]",
+        default_value = "xxhash64"
+    )]
+    pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
 }
 
 #[derive(StructOpt, Debug)]
