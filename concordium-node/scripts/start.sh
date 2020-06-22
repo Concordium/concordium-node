@@ -478,25 +478,6 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
         --id $NODE_ID \
         --listen-port 8888 \
         $EXTRA_ARGS
-elif [ "$MODE" == "local_wallet_server" ]; then
-    if [ -n "$WALLET_SERVER_ID_FILE" ];
-    then
-        ARGS="$ARGS --ip-infos $WALLET_SERVER_INFOS_FILE"
-    else
-        ARGS="$ARGS --ip-infos /genesis-complementary-bundle/identity-providers-with-metadata.json"
-    fi
-    if [ -n "$WALLET_SERVER_GLOBAL_FILE" ];
-    then
-        ARGS="$ARGS --global $WALLET_SERVER_GLOBAL_FILE"
-    else
-        ARGS="$ARGS --global /genesis-complementary-bundle/global.json"
-    fi
-    if [ -n "$DB_SLEEP" ];
-    then
-        echo "Sleeping for $DB_SLEEP"
-        sleep $DB_SLEEP
-    fi
-    /wallet-server --address 0.0.0.0:8000 $ARGS
 elif [ "$MODE" == "local_wallet_proxy" ]; then
     if [ -n "$WALLET_PROXY_GRPC_IP" ];
     then
@@ -515,6 +496,18 @@ elif [ "$MODE" == "local_wallet_proxy" ]; then
         ARGS="$ARGS --drop-account $WALLET_PROXY_ACCOUNT_FILE"
     else
         ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account.json"
+    fi
+    if [ -n "$WALLET_PROXY_GLOBAL_JSON" ]; 
+    then
+        ARGS="$ARGS --global $WALLET_PROXY_GLOBAL_JSON"
+    else
+        ARGS="$ARGS --global /genesis-complementary-bundle/global.json"
+    fi
+    if [ -n "$WALLET_PROXY_IPS_METADATA_JSON" ]; 
+    then
+        ARGS="$ARGS --ip-data $WALLET_PROXY_IPS_METADATA_JSON"
+    else
+        ARGS="$ARGS --ip-data /genesis-complementary-bundle/identity-providers-with-metadata.json"
     fi
     if [ -n "$DB_SLEEP" ];
     then
