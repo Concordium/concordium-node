@@ -13,9 +13,8 @@ impl NetworkMessage {
         from_slice::<NetworkMessage>(input).map_err(|e| e.into())
     }
 
-    pub fn serialize<T: Write + Seek>(&mut self, target: &mut T) -> Fallible<()> {
+    pub fn serialize<T: Write>(&self, target: &mut T) -> Fallible<()> {
         to_writer(target, self)?;
-        target.seek(SeekFrom::Start(0))?;
         Ok(())
     }
 }

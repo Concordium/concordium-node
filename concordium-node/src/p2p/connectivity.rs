@@ -18,6 +18,7 @@ use crate::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
         PacketDestination,
     },
+    only_fbs,
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };
 
@@ -40,14 +41,14 @@ macro_rules! send_to_all {
             let message = netmsg!(NetworkRequest, request);
             let filter = |_: &Connection| true;
 
-            if let Err(e) = {
+            only_fbs!({if let Err(e) = {
                 let mut buf = Vec::with_capacity(256);
                 message.serialize(&mut buf)
                     .map(|_| buf)
                     .map(|buf| self.send_over_all_connections(&buf, &filter))
             } {
                 error!("A network message couldn't be forwarded: {}", e);
-            }
+            }});
         }
     }
 }
@@ -190,7 +191,9 @@ impl P2PNode {
 
         let message = netmsg!(NetworkPacket, inner_pkt);
         let mut serialized = Vec::with_capacity(256);
-        message.serialize(&mut serialized)?;
+        only_fbs!({
+            message.serialize(&mut serialized)?;
+        });
 
         let mut sent = 0;
         if let Some(target_id) = target {
@@ -263,7 +266,9 @@ impl P2PNode {
             })
         );
         let mut serialized = Vec::with_capacity(128);
-        handshake_request.serialize(&mut serialized)?;
+        only_fbs!({
+            handshake_request.serialize(&mut serialized)?;
+        });
 
         Ok(serialized)
     }
