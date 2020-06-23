@@ -28,6 +28,7 @@ import Data.Aeson(Value(Null))
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
@@ -41,6 +42,7 @@ import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
+import Concordium.Afgjort.Finalize
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus)
 import qualified Concordium.Skov as Skov
@@ -507,7 +509,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case (deserializePendingBlock blockBS now) of
+        case (deserializePendingVersionedBlock blockBS now) of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail
@@ -533,13 +535,17 @@ receiveFinalization bptr cstr l = do
         Left _ -> do
             logm External LLDebug "Deserialization of finalization message failed."
             return ResultSerializationFail
-        Right finMsg -> do
-            logm External LLDebug "Finalization message deserialized."
-            case c of
-                BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
-                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
-                BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
-                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
+        Right (vFinMsg :: (Versioned FinalizationPseudoMessage)) -> 
+            if (vVersion vFinMsg) /= 0 then
+              return ResultSerializationFail
+            else do
+              logm External LLDebug "Finalization message deserialized."
+              let finMsg = vValue vFinMsg
+              case c of
+                  BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
+                  PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
+                  BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
+                  PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
