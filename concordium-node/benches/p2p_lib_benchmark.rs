@@ -69,11 +69,7 @@ mod dedup {
 }
 
 mod s11n {
-    #[cfg(all(
-        not(feature = "s11n_capnp"),
-        not(feature = "s11n_serde_cbor"),
-        not(feature = "s11n_serde_mgspack")
-    ))]
+    #[cfg(all(not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
     pub mod fbs {
         bench_s11n!("flatbuffers");
     }
@@ -94,13 +90,9 @@ mod s11n {
     }
 }
 
-#[cfg(all(
-    not(feature = "s11n_capnp"),
-    not(feature = "s11n_serde_cbor"),
-    not(feature = "s11n_serde_mgspack")
-))]
+#[cfg(all(not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
 criterion_group!(s11n_fbs_benches, s11n::fbs::bench_s11n);
-#[cfg(any(feature = "s11n_capnp", feature = "s11n_serde_cbor", feature = "s11n_serde_mgspack"))]
+#[cfg(any(feature = "s11n_capnp", feature = "s11n_serde"))]
 criterion_group!(s11n_fbs_benches, nop::nop_bench);
 
 #[cfg(feature = "s11n_capnp")]

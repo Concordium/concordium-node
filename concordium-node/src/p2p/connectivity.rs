@@ -36,6 +36,7 @@ pub const SELF_TOKEN: Token = Token(0);
 macro_rules! send_to_all {
     ($foo_name:ident, $object_type:ty, $req_type:ident) => {
         #[doc = "Send a specified network request to all peers"]
+        #[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused_variables))]
         pub fn $foo_name(&self, object: $object_type) {
             let request = NetworkRequest::$req_type(object);
             let message = netmsg!(NetworkRequest, request);

@@ -1,6 +1,7 @@
 //! Central node object handling.
 
 pub mod bans;
+#[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
 pub mod connectivity;
 pub mod maintenance;
 pub mod peers;

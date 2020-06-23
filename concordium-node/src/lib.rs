@@ -40,6 +40,7 @@ pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 
 pub mod common;
 pub mod configuration;
+#[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
 pub mod connection;
 
 pub mod network;

@@ -1,5 +1,10 @@
 //! Connection handling.
 
+#![cfg_attr(
+    any(feature = "s11n_serde", feature = "s11n_capnp"),
+    allow(unreachable_code, unused_variables, unusued_mut)
+)]
+
 mod low_level;
 pub mod message_handlers;
 #[cfg(test)]
@@ -371,34 +376,34 @@ impl Connection {
 
     /// Send a ping to the connection.
     pub fn send_ping(&mut self) -> Fallible<()> {
-        only_fbs!({
-            trace!("Sending a ping to {}", self);
+        trace!("Sending a ping to {}", self);
 
-            let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
+        let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
 
-            let mut serialized = Vec::with_capacity(56);
+        let mut serialized = Vec::with_capacity(56);
 
-            ping.serialize(&mut serialized)?;
-            self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
+        only_fbs!(ping.serialize(&mut serialized)?);
+        self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
 
-            self.async_send(Arc::from(serialized), MessageSendingPriority::High);
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-            Ok(())
-        });
+        Ok(())
     }
 
+    #[cfg_attr(
+        any(feature = "s11n_serde", feature = "s11n_capnp"),
+        allow(unreachable_code, unused_variables)
+    )]
     /// Send a pong to the connection.
     pub fn send_pong(&mut self) -> Fallible<()> {
-        only_fbs!({
-            trace!("Sending a pong to {}", self);
+        trace!("Sending a pong to {}", self);
 
-            let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
-            let mut serialized = Vec::with_capacity(56);
-            pong.serialize(&mut serialized)?;
-            self.async_send(Arc::from(serialized), MessageSendingPriority::High);
+        let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
+        let mut serialized = Vec::with_capacity(56);
+        only_fbs!(pong.serialize(&mut serialized)?);
+        self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
-            Ok(())
-        });
+        Ok(())
     }
 
     /// Send a response to a request for peers to the connection.
@@ -454,15 +459,13 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            only_fbs!({
-                ("Sending a PeerList to peer {}", requestor.id);
+            trace!("Sending a PeerList to peer {}", requestor.id);
 
-                let mut serialized = Vec::with_capacity(256);
-                resp.serialize(&mut serialized)?;
-                self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
+            let mut serialized = Vec::with_capacity(256);
+            only_fbs!(resp.serialize(&mut serialized)?);
+            self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
 
-                Ok(())
-            });
+            Ok(())
         } else {
             debug!("I don't have any peers to share with peer {}", requestor.id);
             Ok(())

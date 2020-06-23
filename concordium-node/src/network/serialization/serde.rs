@@ -6,7 +6,7 @@ use serde_cbor::{from_slice, to_writer};
 
 use crate::network::NetworkMessage;
 
-use std::io::{Seek, SeekFrom, Write};
+use std::io::Write;
 
 impl NetworkMessage {
     pub fn deserialize(input: &[u8]) -> Fallible<Self> {
@@ -26,7 +26,7 @@ mod tests {
         use crate::test_utils::create_random_packet;
 
         let payload_size = 1000;
-        let mut msg = create_random_packet(payload_size);
+        let msg = create_random_packet(payload_size);
         let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
         msg.serialize(&mut buffer).unwrap();
