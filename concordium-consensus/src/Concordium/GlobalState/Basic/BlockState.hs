@@ -72,9 +72,10 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
 
+type instance GS.BlockStatePointer BlockState = ()
+
 instance GS.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
-    type BlockStateRef (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
 
@@ -325,10 +326,10 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     archiveBlockState _ = return ()
 
     {-# INLINE saveBlockState #-}
-    saveBlockState = return
+    saveBlockState _ = return ()
 
     {-# INLINE loadBlockState #-}
-    loadBlockState = return
+    loadBlockState _ = error "Cannot load memory-based block state"
 
 
 -- |Initial block state.

@@ -49,6 +49,7 @@ import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Word
 import qualified Data.Vector as Vec
+import Data.Serialize(Serialize)
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -337,7 +338,7 @@ class BlockStateQuery m => BlockStateOperations m where
   bsoSetElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
-class BlockStateOperations m => BlockStateStorage m where
+class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
     -- state instance supports all the operations needed by the scheduler for
     -- block execution. Semantically the 'UpdatableBlockState' must be a copy,

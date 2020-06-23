@@ -62,13 +62,16 @@ instance (MonadReader r m, HasGlobalStateContext c r) => MonadReader c (FocusGlo
     {-# INLINE ask #-}
     {-# INLINE local #-}
 
+type family BlockStatePointer (bs :: Type) :: Type
+
 -- |The basic types associated with a monad providing an
 -- implementation of block state.
 class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
-    type BlockStateRef m :: Type
     type UpdatableBlockState m :: Type
     type BirkParameters m :: Type
+
+type BlockStateRef m = BlockStatePointer (BlockState m)
 
 -- |@MGSTrans t m@ is a newtype wrapper for a monad transformer @t@ applied
 -- to a monad @m@.  This wrapper exists to support lifting various monad
@@ -85,7 +88,6 @@ deriving instance (MonadWriter w (t m)) => MonadWriter w (MGSTrans t m)
 
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
-    type BlockStateRef (MGSTrans t m) = BlockStateRef m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
     type BirkParameters (MGSTrans t m) = BirkParameters m
 
