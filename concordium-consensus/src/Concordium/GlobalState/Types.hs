@@ -33,7 +33,7 @@ deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)
 class (BlockStateTypes m, BlockPointerData (BlockPointerType m)) => GlobalStateTypes m where
     type BlockPointerType m :: Type
 
-instance (GlobalStateTypes m) => GlobalStateTypes (MGSTrans t m) where
+instance BlockPointerData (BlockPointerType m) => GlobalStateTypes (MGSTrans t m) where
     type BlockPointerType (MGSTrans t m) = BlockPointerType m
 
 deriving via MGSTrans MaybeT m instance GlobalStateTypes m => GlobalStateTypes (MaybeT m)

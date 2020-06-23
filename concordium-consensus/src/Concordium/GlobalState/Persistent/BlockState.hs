@@ -8,6 +8,7 @@ module Concordium.GlobalState.Persistent.BlockState where
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Control.Exception.Base (assert)
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Trans
@@ -48,7 +49,7 @@ import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),make
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 import Concordium.GlobalState.SeedState
-import Control.Exception.Base (assert)
+import Concordium.Logger (MonadLogger)
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
@@ -454,7 +455,7 @@ doUpdateBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
         updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) >>= \case
-            Nothing -> return $! (False, pbs)
+            Nothing -> return (False, pbs)
             Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
@@ -515,9 +516,9 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
             Nothing -> return accts1
         -- If the amount is changed update the delegate stake
         birkParams1 <- case (_auAmount, mbalinfo) of
-                (Just deltaAmnt, Just delegate) -> do 
+                (Just deltaAmnt, Just delegate) -> do
                     newCurrBakers <- modifyStake delegate deltaAmnt (bspBirkParameters bsp ^. birkCurrentBakers)
-                    return $ bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers 
+                    return $ bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
                 _ -> return $ bspBirkParameters bsp
         storePBS pbs (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
     where
@@ -624,12 +625,12 @@ doDelegateStake pbs aaddr target = do
                     instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") pinstanceAmount <$> Instances.lookupContractInstance caddr (bspInstances bsp)
                     let stake = acctBal + sum instBals
                     newCurrBakers <- removeStake acctOldTarget stake =<< addStake target stake (bspBirkParameters bsp ^. birkCurrentBakers)
-                    (True,) <$> storePBS pbs bsp{
+                    pbs' <- storePBS pbs bsp{
                             bspAccounts = accts,
                             bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
                         }
-        else
-            return (False, pbs)
+                    return (True, pbs')
+        else return (False, pbs)
 
 doGetIdentityProvider :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do
@@ -699,13 +700,34 @@ instance HasBlobStore PersistentBlockStateContext where
     blobStore = pbscBlobStore
 
 newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad { runPersistentBlockStateMonad :: m a }
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
 instance BlockStateTypes (PersistentBlockStateMonad r m) where
     type BlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type BirkParameters (PersistentBlockStateMonad r m) = PersistentBirkParameters
     type Bakers (PersistentBlockStateMonad r m) = PersistentBakers
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperations (PersistentBlockStateMonad r m) where
+
+    getSeedState bps = return $ _birkSeedState bps
+
+    updateBirkParametersForNewEpoch seedState bps = do
+        currentBakers <- makeBufferedRef $ bps ^. birkCurrentBakers
+        return $ bps &
+            birkSeedState .~ seedState &
+            -- use stake distribution saved from the former epoch for leader election
+            birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
+            -- save the stake distribution from the end of the epoch
+            birkPrevEpochBakers .~ currentBakers
+
+    getElectionDifficulty = return . _birkElectionDifficulty
+
+    getCurrentBakers = return . _birkCurrentBakers
+
+    getLotteryBakers = loadBufferedRef . _birkLotteryBakers
+
+    updateSeedState f bps = return $ bps & birkSeedState %~ f
 
 instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => BlockStateQuery (PersistentBlockStateMonad r m) where
     getModule = doGetModule
@@ -751,28 +773,6 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerOperations (Persis
                  Nothing -> error $ "The domanins of _bakerStakeMap and _bakerInfoMap must match but _bakerInfoMap contains baker ID "
                                       ++ show bid
                                       ++ " whereas _bakerStakeMap does not."
-
-
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperations (PersistentBlockStateMonad r m) where
-
-    getSeedState bps = return $ _birkSeedState bps
-
-    updateBirkParametersForNewEpoch seedState bps = do
-        currentBakers <- makeBufferedRef $ bps ^. birkCurrentBakers
-        return $ bps &
-            birkSeedState .~ seedState &
-            -- use stake distribution saved from the former epoch for leader election
-            birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
-            -- save the stake distribution from the end of the epoch
-            birkPrevEpochBakers .~ currentBakers
-
-    getElectionDifficulty = return . _birkElectionDifficulty
-
-    getCurrentBakers = return . _birkCurrentBakers
-
-    getLotteryBakers = loadBufferedRef . _birkLotteryBakers
-
-    updateSeedState f bps = return $ bps & birkSeedState %~ f
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule

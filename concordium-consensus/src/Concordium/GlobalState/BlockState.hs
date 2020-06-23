@@ -87,7 +87,7 @@ class (BlockStateTypes m,  Monad m) => BakerOperations m where
   getTotalBakerStake :: Bakers m -> m Amount
 
   getBakerInfo :: Bakers m -> BakerId -> m (Maybe BakerInfo)
-  
+
   getFullBakerInfos :: Bakers m -> m (Map.Map BakerId FullBakerInfo)
 
 bakerData :: BakerOperations m => BakerId -> Bakers m -> m (Maybe (BakerInfo, LotteryPower))
@@ -393,6 +393,20 @@ class BlockStateOperations m => BlockStateStorage m where
     -- |Deserialize a block state.
     getBlockState :: S.Get (m (BlockState m))
 
+instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
+    getSeedState = lift . getSeedState
+    updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
+    getElectionDifficulty = lift . getElectionDifficulty
+    getCurrentBakers = lift . getCurrentBakers
+    getLotteryBakers = lift . getLotteryBakers
+    updateSeedState f = lift . updateSeedState f
+    {-# INLINE getSeedState #-}
+    {-# INLINE updateBirkParametersForNewEpoch #-}
+    {-# INLINE getElectionDifficulty #-}
+    {-# INLINE getCurrentBakers #-}
+    {-# INLINE getLotteryBakers #-}
+    {-# INLINE updateSeedState #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
@@ -506,28 +520,14 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE putBlockState #-}
     {-# INLINE getBlockState #-}
 
-instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
-    getSeedState = lift . getSeedState
-    updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
-    getElectionDifficulty = lift . getElectionDifficulty
-    getCurrentBakers = lift . getCurrentBakers
-    getLotteryBakers = lift . getLotteryBakers
-    updateSeedState f = lift . updateSeedState f
-    {-# INLINE getSeedState #-}
-    {-# INLINE updateBirkParametersForNewEpoch #-}
-    {-# INLINE getElectionDifficulty #-}
-    {-# INLINE getCurrentBakers #-}
-    {-# INLINE getLotteryBakers #-}
-    {-# INLINE updateSeedState #-}
-
-deriving via (MGSTrans MaybeT m) instance BakerOperations m => BakerOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BakerOperations m => BakerOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 
+deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BakerOperations m => BakerOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
