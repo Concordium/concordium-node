@@ -270,6 +270,13 @@ getBlock arrivalTime = do
         bbSignature <- get
         return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
+-- |Deserialize a versioned block
+getVersionedBlock :: TransactionTime -> Get Block
+getVersionedBlock arrivalTime = do
+    version <- get
+    unless (version == versionBlock) $ fail "Invalid block version"
+    getBlock arrivalTime
+
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
 makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
 
@@ -290,6 +297,13 @@ signBlock key slot parent baker proof bnonce finData transactions
         preBlock $! sig
     where
         preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
+
+deserializePendingVersionedBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializePendingVersionedBlock blockBS rectime =
+    case runGet (getVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
+        Left err -> Left $ "Block deserialization failed: " ++ err
+        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
+        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
 
 deserializePendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializePendingBlock blockBS rectime =
