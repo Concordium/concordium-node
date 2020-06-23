@@ -12,6 +12,7 @@ fn main() {
     capnpc::CompilerCommand::new()
         .src_prefix("src/network/serialization")
         .file("src/network/serialization/p2p.capnp")
+        .output_path("target/")
         .run()
         .expect("Can't compile the Cap'n'Proto schema");
 
