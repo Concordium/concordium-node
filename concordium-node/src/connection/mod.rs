@@ -1,10 +1,5 @@
 //! Connection handling.
 
-#![cfg_attr(
-    any(feature = "s11n_serde", feature = "s11n_capnp"),
-    allow(unreachable_code, unused_variables, unusued_mut)
-)]
-
 mod low_level;
 pub mod message_handlers;
 #[cfg(test)]
@@ -390,10 +385,6 @@ impl Connection {
         Ok(())
     }
 
-    #[cfg_attr(
-        any(feature = "s11n_serde", feature = "s11n_capnp"),
-        allow(unreachable_code, unused_variables)
-    )]
     /// Send a pong to the connection.
     pub fn send_pong(&mut self) -> Fallible<()> {
         trace!("Sending a pong to {}", self);
