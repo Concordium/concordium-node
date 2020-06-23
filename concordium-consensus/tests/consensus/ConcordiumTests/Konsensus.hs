@@ -325,7 +325,7 @@ instance Monad DummyM where
 instance TimeMonad DummyM where
     currentTime = return (posixSecondsToUTCTime 1)
 
-instance LoggerMonad DummyM where
+instance MonadLogger DummyM where
     logEvent src LLError msg = error $ show src ++ ": " ++ msg
     logEvent _ _ _ = return () -- trace (show src ++ ": " ++ msg) $ return ()
 
@@ -398,6 +398,9 @@ myRunSkovT a handlers ctx st es = liftIO $ flip runLoggerT doLog $ do
 
 myEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) IO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 myEvalSkovT a ctx st = liftIO $ evalSkovT a () ctx st
+
+myLoggedEvalSkovT :: (MonadIO m) => (SkovT () (Config DummyTimer) LogIO a) -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+myLoggedEvalSkovT a ctx st = liftIO $ runSilentLogger $ evalSkovT a () ctx st
 
 type FinComPartiesSet = Set.Set (Set.Set Sig.VerifyKey)
 
