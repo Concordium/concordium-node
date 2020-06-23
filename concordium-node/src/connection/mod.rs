@@ -142,7 +142,7 @@ impl DeduplicationQueue for DeduplicationQueueXxHash64 {
 /// SHA256 deduplication struct
 pub struct DeduplicationQueueSha256 {
     /// The queue itself
-    queue: CircularQueue<Vec<u8>>,
+    queue: CircularQueue<[u8; 32]>,
 }
 
 impl DeduplicationQueueSha256 {
@@ -154,11 +154,11 @@ impl DeduplicationQueueSha256 {
     }
 
     /// Hash an input given as a byte slice
-    fn hash(&self, input: &[u8]) -> Vec<u8> {
+    fn hash(&self, input: &[u8]) -> [u8; 32] {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
         hasher.input(&input);
-        hasher.result().as_slice().to_owned()
+        hasher.result().into()
     }
 }
 
@@ -183,8 +183,7 @@ impl DeduplicationQueue for DeduplicationQueueSha256 {
             *old_val = [
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0,
-            ]
-            .to_vec();
+            ];
         }
     }
 }
