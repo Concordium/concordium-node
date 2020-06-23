@@ -381,6 +381,8 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOp
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps2
         return (bs1', bs2')
 
+type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
+
 instance (Monad m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
@@ -403,17 +405,14 @@ instance (Monad m,
     archiveBlockState (bs1, bs2) = do
         coerceBSML $ archiveBlockState bs1
         coerceBSMR $ archiveBlockState bs2
-    putBlockState (bs1, bs2) = do
-        p1 <- coerceBSML $ putBlockState bs1
-        p2 <- coerceBSMR $ putBlockState bs2
-        return $ p1 >> p2
-    getBlockState = do
-        g1 <- getBlockState
-        g2 <- getBlockState
-        return $ do
-            bs1 <- coerceBSML g1
-            bs2 <- coerceBSMR g2
-            return (bs1, bs2)
+    saveBlockState (bs1, bs2) = do
+        p1 <- coerceBSML $ saveBlockState bs1
+        p2 <- coerceBSMR $ saveBlockState bs2
+        return $ (p1, p2)
+    loadBlockState (p1, p2) = do
+        bs1 <- coerceBSML $ loadBlockState p1
+        bs2 <- coerceBSMR $ loadBlockState p2
+        return (bs1, bs2)
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML lc r ls s m a -> TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m a

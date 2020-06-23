@@ -683,6 +683,8 @@ instance HasBlobStore PersistentBlockStateContext where
 newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad { runPersistentBlockStateMonad :: m a }
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
 
+type instance BlockStatePointer PersistentBlockState = BlobRef BlockStatePointers
+
 instance BlockStateTypes (PersistentBlockStateMonad r m) where
     type BlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
@@ -819,6 +821,17 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         inner' <- uncacheBuffered inner
         liftIO $ writeIORef pbs inner'
 
+    saveBlockState pbs = do
+        inner <- liftIO $ readIORef pbs
+        (inner', ref) <- flushBufferedRef inner
+        liftIO $ writeIORef pbs inner'
+        bs <- blobStore <$> ask
+        liftIO $ flushBlobStore bs
+        return ref
+    
+    loadBlockState = liftIO . newIORef . BRBlobbed
+
+{-
     putBlockState pbs = do
         inner <- liftIO $ readIORef pbs
         (inner', ref) <- flushBufferedRef inner
@@ -828,3 +841,4 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         return (put ref)
 
     getBlockState = liftIO . newIORef . BRBlobbed <$> get
+-}

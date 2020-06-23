@@ -28,7 +28,6 @@ import Control.Monad.Trans.Reader
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
-import Data.Serialize(runPut)
 import Data.Pool(destroyAllResources)
 import System.FilePath
 
@@ -366,7 +365,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
-        _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        _ <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
         closeBlobStore pbscBlobStore
@@ -397,13 +396,14 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
         isd <- initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
                  `onException` (destroyBlobStore pbscBlobStore)
         return (pbsc, isd, NoLogContext)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) st _ = do
         closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
+        closeSkovPersistentData st
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
@@ -433,12 +433,13 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
         let ati = defaultValue
         isd <- initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
                  `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore)
         return (pbsc, isd, PAAIConfig dbHandle)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) st (PAAIConfig dbHandle) = do
         closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
         destroyAllResources dbHandle
+        closeSkovPersistentData st
