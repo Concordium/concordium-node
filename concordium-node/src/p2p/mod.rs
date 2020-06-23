@@ -4,6 +4,7 @@ pub mod bans;
 #[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
 pub mod connectivity;
 pub mod maintenance;
+#[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
 pub mod peers;
 
 pub use self::maintenance::{Connections, P2PNode};

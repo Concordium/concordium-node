@@ -68,10 +68,6 @@ impl P2PNode {
         (avg_bps_in, avg_bps_out)
     }
 
-    #[cfg_attr(
-        any(feature = "s11n_serde", feature = "s11n_capnp"),
-        allow(unreachable_code, unused_variables)
-    )]
     fn send_get_peers(&self) {
         let request =
             NetworkRequest::GetPeers(read_or_die!(self.networks()).iter().copied().collect());
