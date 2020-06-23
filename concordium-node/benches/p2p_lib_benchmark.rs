@@ -1,11 +1,6 @@
 #[macro_use]
 extern crate criterion;
 
-use p2p_client::test_utils::{create_random_packet, generate_random_data};
-
-use std::io::{Cursor, Seek, SeekFrom};
-
-#[cfg(any(not(feature = "s11n_fbs"), not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
 mod nop {
     use criterion::Criterion;
     pub fn nop_bench(_c: &mut Criterion) {}
@@ -13,9 +8,9 @@ mod nop {
 
 macro_rules! bench_s11n {
     ($name:expr) => {
-        use crate::*;
         use criterion::{BenchmarkId, Criterion, Throughput};
-        use p2p_client::network::NetworkMessage;
+        use p2p_client::{network::NetworkMessage, test_utils::create_random_packet};
+        use std::io::{Cursor, Seek, SeekFrom};
 
         pub fn bench_s11n(c: &mut Criterion) {
             let mut group = c.benchmark_group($name);
@@ -39,10 +34,10 @@ macro_rules! bench_s11n {
 }
 
 mod dedup {
-    use crate::*;
     use circular_queue::CircularQueue;
     use criterion::{BenchmarkId, Criterion, Throughput};
     use digest::Digest;
+    use p2p_client::test_utils::generate_random_data;
     use twox_hash::XxHash64;
 
     pub fn bench_dedup(c: &mut Criterion) {
@@ -74,7 +69,7 @@ mod dedup {
 }
 
 mod s11n {
-    #[cfg(feature = "s11n_fbs")]
+    #[cfg(all(not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
     pub mod fbs {
         bench_s11n!("flatbuffers");
     }
@@ -95,9 +90,9 @@ mod s11n {
     }
 }
 
-#[cfg(feature = "s11n_fbs")]
+#[cfg(all(not(feature = "s11n_capnp"), not(feature = "s11n_serde")))]
 criterion_group!(s11n_fbs_benches, s11n::fbs::bench_s11n);
-#[cfg(not(feature = "s11n_fbs"))]
+#[cfg(any(feature = "s11n_capnp", feature = "s11n_serde"))]
 criterion_group!(s11n_fbs_benches, nop::nop_bench);
 
 #[cfg(feature = "s11n_capnp")]
