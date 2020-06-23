@@ -123,5 +123,5 @@ pub enum PacketDestination {
     /// A single node.
     Direct(P2PNodeId),
     /// All peers, optionally excluding the ones in the vector.
-    Broadcast(Vec<P2PNodeId>),
+    Broadcast(#[cfg_attr(feature = "s11n_serde", serde(skip))] Vec<P2PNodeId>),
 }
