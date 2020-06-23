@@ -175,7 +175,7 @@ instance SkovTimerHandlers (SkovPassiveHandlers c m) c m where
 -- |The 'SkovT' monad transformer equips a monad with state, context and handlers for
 -- performing Skov operations.
 newtype SkovT h c m a = SkovT { runSkovT' :: h -> SkovContext c -> StateT (SkovState c) m a }
-    deriving (Functor, Applicative, Monad, MonadState (SkovState c), MonadIO, LoggerMonad, TimeMonad)
+    deriving (Functor, Applicative, Monad, MonadState (SkovState c), MonadIO, MonadLogger, TimeMonad)
         via (ReaderT h (ReaderT (SkovContext c) (StateT (SkovState c) m)))
 
 -- GlobalStateM using config abstractions
@@ -264,7 +264,7 @@ deriving via SkovQueryMonadT (SkovT h c m) instance (
 instance (
         Monad m,
         TimeMonad m,
-        LoggerMonad m,
+        MonadLogger m,
         OnSkov (SkovT h c m),
         BlockStateStorage (SkovT h c m),
         TreeStateMonad (SkovT h c m),
@@ -342,7 +342,7 @@ instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf
       return (finInst, BufferedFinalizationState finalizationState emptyFinalizationBuffer)
     {-# INLINE initialiseFinalization #-}
 
-instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, LoggerMonad m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
+instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, MonadLogger m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
         => FinalizationOutputMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m) where
     broadcastFinalizationMessage = bufferFinalizationMessage (\msg' -> SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h (FPMMessage msg')))
     broadcastFinalizationPseudoMessage (FPMMessage msg) = broadcastFinalizationMessage msg
@@ -392,7 +392,7 @@ instance (
     type SkovLogContext (SkovConfig gsconf finconf hconf) = GSLogContext gsconf
 
     initialiseSkov conf@(SkovConfig gsc _ _) = do
-        (c, s, logCtx) <- liftIO $ initialiseGlobalState gsc
+        (c, s, logCtx) <- initialiseGlobalState gsc
         (finctx, finst) <- initialiseFinalization conf (c, s)
         logEvent Baker LLDebug $ "Initializing finalization with context = " ++ show finctx
         logEvent Baker LLDebug $ "Initializing finalization with initial state = " ++ show finst
@@ -456,7 +456,7 @@ deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (ActiveFinalizatio
         => FinalizationMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m)
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (BufferedFinalization t) hc)) (SkovState (SkovConfig gc (BufferedFinalization t) hc)) (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m))
-    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, LoggerMonad m, SkovMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
+    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, MonadLogger m, SkovMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
         TreeStateMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
         SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m, SkovFinalizationHandlers h m)
         => FinalizationMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m)

@@ -94,7 +94,7 @@ initialiseStatesDictator n = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             elDiff = 0.5
-            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState 
+            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
@@ -132,7 +132,7 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
 
 catchUpCheck :: (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
 catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
-        request <- myEvalSkovT (getCatchUpStatus True) c1 s1
+        request <- myLoggedEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request 2000) c2 s2
         let
             formatMsg (MessageBlock, b) = show (hash b)
@@ -150,9 +150,9 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
             Nothing -> fail "Response expected (to catch-up request), but none given"
             Just (l, rstatus) -> do
                 unless (cusIsResponse rstatus) $ fail "Response flag not set"
-                lfh1 <- myEvalSkovT (bpHeight <$> lastFinalizedBlock) c1 s1
+                lfh1 <- myLoggedEvalSkovT (bpHeight <$> lastFinalizedBlock) c1 s1
                 checkBinary (==) (cusLastFinalizedHeight request) lfh1 "==" "catch-up status last fin height" "actual last fin height"
-                lfh2 <- myEvalSkovT (bpHeight <$> lastFinalizedBlock) c2 s2
+                lfh2 <- myLoggedEvalSkovT (bpHeight <$> lastFinalizedBlock) c2 s2
                 checkBinary (==) (cusLastFinalizedHeight rstatus) lfh2 "==" "catch-up status last fin height" "actual last fin height"
                 -- Blocks/records should only be sent if the respondent's last finalized height is above the reqestor's
                 unless (null l) $
@@ -191,7 +191,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     -- Furthermore, check that the finalization records + the requestor's finalized blocks
                     -- add up to the respondent's finalized blocks.
                     testList reqLive reqFin l
-                    recBPs <- myEvalSkovT (forM recBHs (\bh -> fromJust <$> resolveBlock bh)) c2 s2
+                    recBPs <- myLoggedEvalSkovT (forM recBHs (\bh -> fromJust <$> resolveBlock bh)) c2 s2
                     case recBPs of
                         [] -> return ()
                         (hbp : bps) -> forM_ bps $ \bp -> checkBinary (<=) (bpArriveTime hbp) (bpArriveTime bp) "<=" "first block time" "other block time"

@@ -5,6 +5,7 @@ import Control.Monad
 import Data.Proxy
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe
+import Control.Monad.IO.Class
 
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
@@ -72,7 +73,7 @@ setup nBakers = do
         (_bakerMap genesisBakers)
         (genesisTotalGTU genData)
   let finInstances = map (makeFinalizationInstance . fst) bakers
-  (gsc, gss, _) <- initialiseGlobalState =<< makeGlobalStateConfig defaultRuntimeParameters genData
+  (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))
   active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
   passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
   return $ passive:active
