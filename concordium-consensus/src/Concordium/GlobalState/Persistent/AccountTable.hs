@@ -1,4 +1,7 @@
-{-# LANGUAGE DeriveFunctor, GeneralizedNewtypeDeriving, TypeFamilies, DerivingVia, DerivingStrategies, MultiParamTypeClasses, ViewPatterns, ScopedTypeVariables, LambdaCase, TupleSections, FlexibleContexts, DefaultSignatures, DeriveFoldable, DeriveTraversable, FlexibleInstances, QuantifiedConstraints, UndecidableInstances, StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE QuantifiedConstraints #-}
 module Concordium.GlobalState.Persistent.AccountTable where
 
 import Prelude hiding (lookup)
@@ -113,7 +116,7 @@ appendF acct t = mproject t >>= \case
     where
         newHash = getHash acct
         newLeaf = Leaf newHash acct
-    
+
 updateF :: forall m t a. (MRecursive m t, MCorecursive m t, Base t ~ ATF) => (Account -> m (a, Account)) -> AccountIndex -> t -> m (Maybe (a, H.Hash, t))
 updateF upd x t = mproject t >>= \case
     (Leaf _ acct) -> if x == 0 then do

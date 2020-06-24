@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Concordium.GlobalState.Finalization where
 
 import Data.Serialize
@@ -19,7 +17,7 @@ instance Serialize FinalizationIndex where
   put (FinalizationIndex w) = putWord64be w
   get = FinalizationIndex <$> getWord64be
 
--- TODO (MR) Should the first argument type be [Party] rather than [Word32]? 
+-- TODO (MR) Should the first argument type be [Party] rather than [Word32]?
 data FinalizationProof = FinalizationProof ([Word32], Bls.Signature)
     deriving (Eq)
 

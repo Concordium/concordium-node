@@ -1,5 +1,7 @@
-{-# LANGUAGE DeriveGeneric, TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards, BangPatterns, TypeFamilies #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Bakers where
 
 import GHC.Generics
