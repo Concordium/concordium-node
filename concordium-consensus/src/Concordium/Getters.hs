@@ -14,6 +14,7 @@ import qualified Data.HashMap.Strict as HM
 
 import Control.Monad.State.Class
 
+import Concordium.Common.Version
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
@@ -198,6 +199,19 @@ getInstances hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   ilist <- BS.getContractInstanceList st
   return $ toJSON (map iaddress ilist)
+
+getVersionedAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
+getVersionedAccountInfo hash sfsRef addr = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st ->
+  BS.getAccount st addr >>=
+      \case Nothing -> return Null
+            Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
+                                        ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
+                                        -- credentials in descending order
+                                        ,"accountCredentials" .= map (\v -> (Versioned versionCredential v)) (Queue.elems (acc ^. accountCredentials))
+                                        ,"accountDelegation" .= (acc ^. T.accountStakeDelegate)
+                                        ,"accountInstances" .= S.toList (acc ^. T.accountInstances)
+                                        ]
 
 getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
 getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
