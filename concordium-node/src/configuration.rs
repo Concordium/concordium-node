@@ -1,5 +1,6 @@
 //! The client's parameters and constants used by other modules.
 
+use crate::connection::DeduplicationHashAlgorithm;
 use app_dirs2::*;
 use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
@@ -185,11 +186,17 @@ pub struct BakerConfig {
     )]
     pub transaction_insertions_before_purge: u32,
     #[structopt(
-        long = "transaction_keep_alive",
+        long = "transaction-keep-alive",
         help = "Time during which a transaction can not be purged in seconds",
         default_value = "600"
     )]
     pub transaction_keep_alive: u32,
+    #[structopt(
+        long = "transactions-purging-delay",
+        help = "Time between automatic transaction table purging runs in seconds",
+        default_value = "300"
+    )]
+    pub transactions_purging_delay: u32,
     #[structopt(
         long = "scheduler-outcome-logging",
         help = "Enable outcome of finalized baked blocks from the scheduler"
@@ -346,6 +353,12 @@ pub struct ConnectionConfig {
         default_value = "10"
     )]
     pub events_queue_size: usize,
+    #[structopt(
+        long = "deduplication-hashing-algorithm",
+        help = "Hash algorithm used for deduplication [xxhash64|sha256]",
+        default_value = "xxhash64"
+    )]
+    pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
 }
 
 #[derive(StructOpt, Debug)]

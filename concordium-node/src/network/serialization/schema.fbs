@@ -2,11 +2,16 @@ namespace network;
 
 // network packet
 
-table Direct { target_id: uint64; }
+table DirectPayload { target_id: uint64; }
 
-table Broadcast { ids_to_exclude: [uint64]; }
+enum Direction: uint8 {
+    Direct, Broadcast
+}
 
-union Destination { Direct, Broadcast }
+table Destination {
+    variant: Direction;
+    payload: DirectPayload;
+}
 
 table NetworkPacket {
     destination: Destination;
