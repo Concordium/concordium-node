@@ -21,10 +21,11 @@ stages:
     - cargo test --all --features=static --color=always
     - echo "Running tests with network dump, instrumentation, and collector features"
     - cargo test --all --color=always --features=static,instrumentation,collector,network_dump
-    - echo "Running tests with s11n features"
-    - cargo test --all --color=always --features=static,s11n_capnp,s11n_serde_cbor
     - echo "Compiling the benches"
     - cargo bench --features=static --color=always --no-run
+    - cargo bench --features=static,s11n_capnp --color=always --no-run
+    - cargo bench --features=static,s11n_serde_cbor --color=always --no-run
+    - cargo bench --features=static,s11n_serde_msgpack --color=always --no-run
 
 .generic-lint:
   extends: .generic
@@ -47,4 +48,6 @@ stages:
     - echo "Running clippy with network dump, instrumentation, collector and staging net features"
     - cargo clippy --features=static,instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n features"
-    - cargo clippy --features=static,s11n_capnp,s11n_serde_cbor --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,s11n_capnp --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,s11n_serde_cbor --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,s11n_serde_msgpack --color=always --all -- -Dclippy::all
