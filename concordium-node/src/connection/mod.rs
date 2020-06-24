@@ -181,10 +181,7 @@ impl DeduplicationQueue for DeduplicationQueueSha256 {
         if let Some(old_val) = self.queue.iter_mut().find(|val| **val == hash) {
             // zero out all bits in the old hash; we can't just remove the value from the
             // queue
-            *old_val = [
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0,
-            ];
+            *old_val = Default::default();
         }
     }
 }
