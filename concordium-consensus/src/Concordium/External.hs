@@ -536,7 +536,7 @@ receiveFinalization bptr cstr l = do
             logm External LLDebug "Deserialization of finalization message failed."
             return ResultSerializationFail
         Right (vFinMsg :: (Versioned FinalizationPseudoMessage)) -> 
-            if (vVersion vFinMsg) /= 0 then
+            if (vVersion vFinMsg) /= versionFinalizationMessage then
               return ResultSerializationFail
             else do
               logm External LLDebug "Finalization message deserialized."
