@@ -255,15 +255,8 @@ pub fn handle_consensus_inbound_msg(
 
         // early blocks should be removed from the deduplication queue
         if consensus_result == ConsensusFfiResponse::BlockTooEarly {
-            let dedup_queues = &node.connection_handler.deduplication_queues;
-
-            let num = node.hash_message_for_deduplication(&request.payload);
-            if let Some(old_val) =
-                write_or_die!(dedup_queues.blocks).iter_mut().find(|val| **val == num)
-            {
-                // flip all bits in the old hash; we can't just remove the value from the queue
-                *old_val = !*old_val;
-            }
+            write_or_die!(&node.connection_handler.deduplication_queues.blocks)
+                .invalidate_if_exists(&request.payload);
         }
 
         // adjust the peer state(s) based on the feedback from Consensus

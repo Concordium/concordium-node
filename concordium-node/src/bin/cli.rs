@@ -126,6 +126,12 @@ async fn main() -> Fallible<()> {
         String::new()
     };
 
+    let mut database_directory = data_dir_path;
+    database_directory.push(p2p_client::configuration::DATABASE_SUB_DIRECTORY_NAME);
+    if !database_directory.exists() {
+        std::fs::create_dir_all(&database_directory)?;
+    }
+
     info!("Starting consensus layer");
     let consensus = plugins::consensus::start_consensus_layer(
         &conf.cli.baker,
@@ -140,7 +146,7 @@ async fn main() -> Fallible<()> {
         } else {
             ConsensusLogLevel::Info
         },
-        &data_dir_path,
+        &database_directory,
         &consensus_database_url,
     )?;
     info!("Consensus layer started");

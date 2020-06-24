@@ -1,5 +1,6 @@
 //! The client's parameters and constants used by other modules.
 
+use crate::connection::DeduplicationHashAlgorithm;
 use app_dirs2::*;
 use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
@@ -19,7 +20,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// A list of peer client versions applicable for connections.
 // it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
 // so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.10", "0.2.9"];
+pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.2.13", "0.2.12"];
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
@@ -52,6 +53,8 @@ pub const MAX_PREHANDSHAKE_KEEP_ALIVE: u64 = 10_000;
 pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
 pub const MAX_PEER_NETWORKS: usize = 20;
+/// Database subdirectory name
+pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v2";
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]
@@ -204,10 +207,7 @@ pub struct BakerConfig {
         help = "Path to a file exported by the database exporter"
     )]
     pub import_path: Option<String>,
-    #[structopt(
-        long = "baker-credentials-file",
-        help = "Absolute path of the baker credentials file"
-    )]
+    #[structopt(long = "baker-credentials-file", help = "Path to the baker credentials file")]
     pub baker_credentials_file: Option<String>,
 }
 
@@ -353,6 +353,12 @@ pub struct ConnectionConfig {
         default_value = "10"
     )]
     pub events_queue_size: usize,
+    #[structopt(
+        long = "deduplication-hashing-algorithm",
+        help = "Hash algorithm used for deduplication [xxhash64|sha256]",
+        default_value = "xxhash64"
+    )]
+    pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
 }
 
 #[derive(StructOpt, Debug)]
