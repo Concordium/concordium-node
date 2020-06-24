@@ -1,4 +1,4 @@
-{-# LANGUAGE StandaloneDeriving, DerivingVia, MultiParamTypeClasses, UndecidableInstances, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.BlockPointer where
 
 import Data.Kind
@@ -102,14 +102,14 @@ instance Serialize BasicBlockPointerData where
 -- |The type of a block pointer that was added to the tree and is
 -- linked to the blockstate and its parent and last finalized blocks.
 --
--- @t@ stands for the transaction type, @s@ stands for the blockstate
--- type and @p@ stands for the type of the pointers.
+-- @s@ stands for the blockstate type and @p@ stands for the type of the
+-- pointers.
 --
 -- An in-memory implementation should use `p ~ Identity` to make it
 -- work as a normal reference. A disk implementation might consider
 -- using `p ~ Weak` to get pointers that don't retain the parent
 -- and last finalized blocks. The type @p (BlockPointer t p s)@ will
--- used inside the `BlockPointerMonad` to resolve the actual blocks.
+-- be used inside the `BlockPointerMonad` to resolve the actual blocks.
 --
 -- All instances of this type will implement automatically:
 --
@@ -161,6 +161,7 @@ instance BlockData (BlockPointer ati p s) where
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE blockSignature #-}
+    {-# INLINE verifyBlockSignature #-}
     {-# INLINE putBlock #-}
 
 instance BlockPointerData (BlockPointer ati p s) where

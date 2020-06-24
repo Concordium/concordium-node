@@ -1,4 +1,5 @@
-{-# LANGUAGE TemplateHaskell, BangPatterns #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE BangPatterns #-}
 module Concordium.GlobalState.TransactionTable where
 
 import qualified Data.HashMap.Strict as HM

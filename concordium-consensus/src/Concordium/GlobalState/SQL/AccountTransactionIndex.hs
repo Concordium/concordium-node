@@ -1,9 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE QuasiQuotes, DerivingStrategies, StandaloneDeriving, UndecidableInstances #-}
+{-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.SQL.AccountTransactionIndex where
 

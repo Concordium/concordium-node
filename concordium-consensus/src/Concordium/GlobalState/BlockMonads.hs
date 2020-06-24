@@ -1,4 +1,7 @@
-{-# LANGUAGE ScopedTypeVariables, FlexibleInstances, MultiParamTypeClasses, TypeFamilies, FlexibleContexts, DefaultSignatures, UndecidableInstances, DerivingVia, StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Concordium.GlobalState.BlockMonads where
 
 import Control.Monad.Trans
@@ -36,6 +39,5 @@ instance (Monad (t m), MonadTrans t, BlockPointerMonad m) => BlockPointerMonad (
   {-# INLINE bpTransactionAffectSummaries #-}
   bpTransactionAffectSummaries = lift . bpTransactionAffectSummaries
 
-
-deriving via (MGSTrans MaybeT m) instance BlockPointerMonad m => BlockPointerMonad (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance BlockPointerMonad m => BlockPointerMonad (ExceptT e m)
+deriving via MGSTrans MaybeT m instance BlockPointerMonad m => BlockPointerMonad (MaybeT m)
+deriving via MGSTrans (ExceptT e) m instance BlockPointerMonad m => BlockPointerMonad (ExceptT e m)

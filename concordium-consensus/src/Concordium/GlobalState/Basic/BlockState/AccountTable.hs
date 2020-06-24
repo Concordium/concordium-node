@@ -1,4 +1,5 @@
-{-# LANGUAGE ViewPatterns, MultiParamTypeClasses, TypeFamilies #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Basic.BlockState.AccountTable where
 
 import Prelude hiding (lookup)

@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards, MultiParamTypeClasses, TypeFamilies, FlexibleInstances, FlexibleContexts #-}
 module Concordium.GlobalState.Basic.BlockState.Instances(
     InstanceParameters(..),
     Instance(..),
