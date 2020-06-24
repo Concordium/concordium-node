@@ -2,7 +2,7 @@ module Concordium.Kontrol.UpdateLeaderElectionParameters where
 
 import Data.Serialize
 
-import Concordium.GlobalState.Classes
+import Concordium.GlobalState.Types
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.SeedState
 import Concordium.Types
