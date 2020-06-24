@@ -66,6 +66,7 @@ ctrlc = "3.1"
 signal-hook = "0.1"
 flatbuffers = { version = "^0.6" }
 flatc-rust = { version = "^0.1" }
+sha2 = "0.8"
 
 # gRPC dependencies
 tonic = "0.2"

@@ -30,6 +30,7 @@ This repository relies on git submodules for internal component dependencies, so
 * collector - enables the build of the node-collector and backend
 * staging_net - enables special staging network only features like client username/password validation
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
+* dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).

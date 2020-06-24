@@ -18,7 +18,7 @@ use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
-    connection::{ConnChange, Connection, DeduplicationQueues},
+    connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     network::{Buckets, NetworkId, Networks},
     p2p::{
         bans::BanId,
@@ -89,6 +89,7 @@ pub struct NodeConfig {
     pub default_network: NetworkId,
     pub socket_so_linger: Option<usize>,
     pub events_queue_size: usize,
+    pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
 }
 
 /// The collection of connections to peer nodes.
@@ -129,6 +130,7 @@ impl ConnectionHandler {
         };
 
         let deduplication_queues = DeduplicationQueues::new(
+            conf.connection.deduplication_hashing_algorithm,
             conf.connection.dedup_size_long,
             conf.connection.dedup_size_short,
         );
@@ -195,8 +197,6 @@ pub struct P2PNode {
     pub kvs: Arc<RwLock<Rkv>>,
     /// The catch-up list of peers.
     pub peers: RwLock<PeerList>,
-    /// Seed used for all deduplication
-    pub deduplication_seed: u64,
 }
 
 impl P2PNode {
@@ -329,6 +329,7 @@ impl P2PNode {
             default_network: NetworkId::from(conf.common.network_ids[0]), // always present
             socket_so_linger: conf.connection.socket_so_linger,
             events_queue_size: conf.connection.events_queue_size,
+            deduplication_hashing_algorithm: conf.connection.deduplication_hashing_algorithm,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
@@ -339,8 +340,6 @@ impl P2PNode {
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new)
             .unwrap();
-
-        use rand::Rng;
 
         let node = Arc::new(P2PNode {
             poll_registry,
@@ -355,21 +354,11 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             peers: Default::default(),
-            deduplication_seed: rand::thread_rng().gen::<u64>(),
         });
 
         node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
 
         (node, poll)
-    }
-
-    /// Get the hash to be used for deduplication queues for a message
-    pub fn hash_message_for_deduplication(&self, input: &[u8]) -> u64 {
-        use std::hash::Hasher;
-        use twox_hash::XxHash64;
-        let mut hasher = XxHash64::with_seed(self.deduplication_seed);
-        hasher.write(&input);
-        hasher.finish()
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
