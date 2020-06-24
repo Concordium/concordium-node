@@ -33,6 +33,7 @@ import Concordium.Types
 import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
@@ -562,13 +563,17 @@ receiveFinalizationRecord bptr cstr l = do
         Left _ -> do
           logm External LLDebug "Deserialization of finalization record failed."
           return ResultSerializationFail
-        Right finRec -> do
-            logm External LLDebug "Finalization record deserialized."
-            case c of
-                BakerRunner{..} -> syncReceiveFinalizationRecord bakerSyncRunner finRec
-                PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
-                BakerRunnerWithLog{..} -> syncReceiveFinalizationRecord bakerSyncRunnerWithLog finRec
-                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
+        Right (vFinRec :: (Versioned FinalizationRecord)) -> do
+            if (vVersion vFinRec) /= versionFinalizationRecord then
+              return ResultSerializationFail
+            else do
+              logm External LLDebug "Finalization record deserialized."
+              let finRec = vValue vFinRec
+              case c of
+                  BakerRunner{..} -> syncReceiveFinalizationRecord bakerSyncRunner finRec
+                  PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
+                  BakerRunnerWithLog{..} -> syncReceiveFinalizationRecord bakerSyncRunnerWithLog finRec
+                  PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
 
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
@@ -579,7 +584,7 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- getTransactionTime
-    toReceiveResult <$> case runGet (getBlockItem now) tbs of
+    toReceiveResult <$> case runGet (getVersionedBlockItem now) tbs of
         Left _ -> do
             logm External LLDebug $ "Could not decode transaction."
             return ResultSerializationFail
