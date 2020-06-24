@@ -186,13 +186,13 @@ pub struct BakerConfig {
     )]
     pub transaction_insertions_before_purge: u32,
     #[structopt(
-        long = "transaction_keep_alive",
+        long = "transaction-keep-alive",
         help = "Time during which a transaction can not be purged in seconds",
         default_value = "600"
     )]
     pub transaction_keep_alive: u32,
     #[structopt(
-        long = "transactions_purging_delay",
+        long = "transactions-purging-delay",
         help = "Time between automatic transaction table purging runs in seconds",
         default_value = "300"
     )]
