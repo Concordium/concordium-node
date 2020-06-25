@@ -610,7 +610,7 @@ doDelegateStake pbs aaddr target = do
         targetValid <- case target of
                 Nothing -> return True
                 Just bid -> do
-                    bInfo <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerInfoMap
+                    bInfo <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerMap
                     return $ isJust bInfo
         if targetValid then do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
@@ -751,18 +751,18 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerOperations (PersistentBlockStateMonad r m) where
 
-  getBakerStake bs bid = fmap snd <$> Trie.lookup bid (bs ^. bakerInfoMap)
+  getBakerStake bs bid = fmap snd <$> Trie.lookup bid (bs ^. bakerMap)
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerInfoMap) >>= \case
+  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerMap) >>= \case
     Just (bInfoRef, _) -> Just <$> loadBufferedRef bInfoRef
     Nothing -> return Nothing
 
   getFullBakerInfos PersistentBakers{..} =
-    mapM getFullInfo =<< Trie.toMap _bakerInfoMap
+    mapM getFullInfo =<< Trie.toMap _bakerMap
     where getFullInfo (binfoRef, stake) = do
             binfo <- loadBufferedRef binfoRef
             return $ FullBakerInfo binfo stake
