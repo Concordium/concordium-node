@@ -45,7 +45,7 @@ import qualified Concordium.Types.Transactions as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
 import Control.Concurrent (runInBoundThread)
-import Control.Exception (handleJust, tryJust)
+import Control.Exception (tryJust)
 import Control.Monad.IO.Class
 import Control.Monad
 import Control.Monad.State
@@ -298,7 +298,7 @@ getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
 
 -- |Perform a database action that may require the database to be resized,
 -- resizing the database if necessary.
-resizeOnFull :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => Int
   -- ^Additional size
   -> (DatabaseHandlers st -> IO a)
@@ -306,21 +306,24 @@ resizeOnFull :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   -> m a
 resizeOnFull addSize a = do
     dbh <- use dbHandlers
-    (dbh', res) <- liftIO $ inner dbh
+    (dbh', res) <- inner dbh
     dbHandlers .= dbh'
     return res
   where
-    inner dbh = handleJust selectDBFullError (handleResize dbh) ((dbh, ) <$> a dbh)
+    inner dbh = do
+      r <- liftIO $ tryJust selectDBFullError ((dbh, ) <$> a dbh)
+      case r of
+        Left _ -> do
+          -- Resize the database handlers, and try to add again in case the size estimate
+          -- given by lmdbStoreTypeSize is off.
+          dbh' <- resizeDatabaseHandlers dbh addSize
+          inner dbh'
+        Right res -> return res
     -- only handle the db full error and propagate other exceptions.
     selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
                               _ -> Nothing
-    -- Resize the database handlers, and try to add again in case the size estimate
-    -- given by lmdbStoreTypeSize is off.
-    handleResize dbh () = do
-      dbh' <- resizeDatabaseHandlers dbh addSize
-      inner dbh'
 
-writeBlock :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
+writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
   => StoredBlock st -> m ()
 writeBlock block = resizeOnFull blockSize
     $ \dbh -> transaction (dbh ^. storeEnv) False 
@@ -331,7 +334,7 @@ writeBlock block = resizeOnFull blockSize
   where
     blockSize = 2*digestSize + fromIntegral (LBS.length (S.encodeLazy block))
 
-writeFinalizationRecord :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+writeFinalizationRecord :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => FinalizationRecord -> m ()
 writeFinalizationRecord finRec = resizeOnFull finRecSize
     $ \dbh -> transaction (dbh ^. storeEnv) False
@@ -342,7 +345,7 @@ writeFinalizationRecord finRec = resizeOnFull finRecSize
           -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
 
-writeTransactionStatus :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+writeTransactionStatus :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => TransactionHash -> FinalizedTransactionStatus -> m ()
 writeTransactionStatus th ts = resizeOnFull tsSize
     $ \dbh -> transaction (dbh ^. storeEnv) False
@@ -351,16 +354,16 @@ writeTransactionStatus th ts = resizeOnFull tsSize
   where
     tsSize = 2 * digestSize + 16
 
-writeTransactionStatuses :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+writeTransactionStatuses :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => [(TransactionHash, FinalizedTransactionStatus)] -> m ()
 writeTransactionStatuses ts0 = do
     dbh <- use dbHandlers
-    dbh' <- liftIO $ doWTS dbh ts0
+    dbh' <- doWTS dbh ts0
     dbHandlers .= dbh'
   where
     doWTS dbh [] = return dbh
     doWTS dbh ts = do
-      ts' <- transaction (dbh ^. storeEnv) False $ process dbh ts
+      ts' <- liftIO $ transaction (dbh ^. storeEnv) False $ process dbh ts
       case ts' of
         [] -> return dbh
         _ -> do
