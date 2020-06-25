@@ -584,9 +584,9 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- getTransactionTime
-    toReceiveResult <$> case runGet (getVersionedBlockItem now) tbs of
-        Left _ -> do
-            logm External LLDebug $ "Could not decode transaction."
+    toReceiveResult <$> case runGet (getBlockItemV0 now) tbs of
+        Left err -> do
+            logm External LLDebug $ "Could not decode transaction." ++ (show err)
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
