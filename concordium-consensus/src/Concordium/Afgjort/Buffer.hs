@@ -51,7 +51,7 @@ emptyFinalizationBuffer = FinalizationBuffer Map.empty Nothing
 -- A DoneReporting message will flush any buffered Seen message.
 -- If the message is added to a buffer, then the time at which the buffer
 -- should be polled and an identifier for the buffer are returned.
-bufferFinalizationMessage :: (MonadState s m, FinalizationBufferLenses s, TimeMonad m, LoggerMonad m, TimerMonad m) => (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
+bufferFinalizationMessage :: (MonadState s m, FinalizationBufferLenses s, TimeMonad m, MonadLogger m, TimerMonad m) => (FinalizationMessage -> m ()) -> FinalizationMessage -> m ()
 bufferFinalizationMessage handleMsg msg@FinalizationMessage{msgBody = WMVBAABBAMessage (CSSSeen phase ns) ,..} = do
         let bufId = (msgHeader, phase)
         now <- currentTime
@@ -98,7 +98,7 @@ bufferFinalizationMessage handleMsg msg@FinalizationMessage{msgBody = WMVBAABBAM
 bufferFinalizationMessage handleMsg msg = handleMsg msg
 
 -- |Alert a buffer that the notify time has elapsed.  The input time should be at least the notify time.
-notifyBuffer :: (MonadState s m, FinalizationBufferLenses s, LoggerMonad m, TimeMonad m) => (FinalizationMessage -> m ()) -> BufferId -> m ()
+notifyBuffer :: (MonadState s m, FinalizationBufferLenses s, MonadLogger m, TimeMonad m) => (FinalizationMessage -> m ()) -> BufferId -> m ()
 notifyBuffer handleMsg bufId = do
         notifyTime <- currentTime
         use (finBuffer . fbDelays . at bufId) >>= \case

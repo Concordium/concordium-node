@@ -15,7 +15,6 @@ import qualified Data.HashMap.Strict as HM
 import Control.Monad.State.Class
 
 import qualified Concordium.Scheduler.Types as AT
-import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
