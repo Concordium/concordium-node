@@ -31,7 +31,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
-import Concordium.Logger (MonadLogger)
+import Concordium.Logger (MonadLogger(..))
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
@@ -49,6 +49,10 @@ instance (MonadState s' m, Coercible s' s) =>
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
 
+-- Since we use the Paired state for testing purposes, this dummy implementation prevents any logging from happening.
+-- If logging is required for the Paired state, this needs to be implemented.
+instance Monad m => MonadLogger (ReviseRSM r s m) where
+  logEvent _ _ _ = return ()
 
 data PairGSContext lc rc = PairGSContext {
         _pairContextLeft :: !lc,
@@ -419,7 +423,10 @@ instance (MonadLogger m,
         return (ubs1, ubs2)
     freezeBlockState (ubs1, ubs2) = do
         bs1 <- coerceBSML $ freezeBlockState ubs1
-        bs2 <- coerceBSMR $ freezeBlockState ubs2
+        bs2 <- coerceBSMR $ do
+                  fbs <- freezeBlockState ubs2
+                  archiveBlockState fbs
+                  return fbs
         return (bs1, bs2)
     dropUpdatableBlockState (ubs1, ubs2) = do
         coerceBSML $ dropUpdatableBlockState ubs1

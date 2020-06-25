@@ -5,6 +5,7 @@
 {-# LANGUAGE BangPatterns #-}
 module Concordium.GlobalState.Persistent.Bakers where
 
+import Control.Monad (foldM, forM)
 import Control.Monad.IO.Class
 import Data.Serialize
 import qualified Data.Set as Set
@@ -23,9 +24,7 @@ type Trie = Trie.TrieN (BufferedBlobbed BlobRef)
 -- |Representation of the set of bakers on the chain.
 data PersistentBakers = PersistentBakers {
     -- |Baker information, indexed by 'BakerId'
-    _bakerInfoMap :: !(Trie BakerId BakerInfo),
-    -- |Baker stake, indexed by 'BakerId'
-    _bakerStakeMap :: !(Trie BakerId Amount),
+    _bakerInfoMap :: !(Trie BakerId (BufferedRef BakerInfo, Amount)),
     -- |The baker ids indexed by the keys
     _bakersByKey :: !(Map.Map BakerSignVerifyKey BakerId),
     -- |The total stake delegated to all bakers
@@ -42,40 +41,43 @@ makeLenses ''PersistentBakers
 instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef PersistentBakers where
     storeUpdate p PersistentBakers{..} = do
         (pInfoMap, bInfoMap) <- storeUpdate p _bakerInfoMap
-        (pStakeMap, bStakeMap) <- storeUpdate p _bakerStakeMap
         let newBakers = PersistentBakers {
                 _bakerInfoMap = bInfoMap,
-                _bakerStakeMap = bStakeMap,
                 ..
             }
         let putBs = do
                     pInfoMap
-                    pStakeMap
                     put _nextBakerId
         return (putBs, newBakers)
     store p a = fst <$> storeUpdate p a
     load p = do
         mInfoMap <- load p
-        mStakeMap <- load p
         mNextBakerId <- load p
         return $ do
             _bakerInfoMap <- mInfoMap
-            _bakerStakeMap <- mStakeMap
             _nextBakerId <- mNextBakerId
-            -- TODO (MRA) instead of using Trie.toMap below it might be more efficient to compute _bakersByKey, _aggregationKeys, and
-            -- _bakerTotalStake using the Trie API
-            let deriv bid BakerInfo{..} (m, aks) = (m & at' _bakerSignatureVerifyKey ?~ bid,
-                                                    Set.insert _bakerAggregationVerifyKey aks)
-            (_bakersByKey, _aggregationKeys) <- Map.foldrWithKey deriv (Map.empty, Set.empty) <$> Trie.toMap _bakerInfoMap
-            _bakerTotalStake <- sum <$> Trie.toMap _bakerStakeMap
+            bakerIds <- Trie.keys _bakerInfoMap
+            let collectBakerInfo (m, t, aks) bid =
+                  Trie.lookup bid _bakerInfoMap >>= \case
+                    Just (bInfoRef, stake) -> do
+                      BakerInfo {..} <- loadBufferedRef bInfoRef
+                      return (m & at' _bakerSignatureVerifyKey ?~ bid,
+                              t + stake,
+                              Set.insert _bakerAggregationVerifyKey aks)
+                    Nothing ->
+                      -- This should never happen
+                      error $ "Baker ID " ++ show bid ++ " should be contained in baker map"
+            (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) bakerIds
             return PersistentBakers {..}
 
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
 -- The new object is not yet stored on disk.
 makePersistentBakers :: MonadIO m => Basic.Bakers -> m PersistentBakers
 makePersistentBakers Basic.Bakers{..} = do
-    _bakerInfoMap <- Trie.fromList $ Map.toList $ _bakerInfo <$> _bakerMap
-    _bakerStakeMap <- Trie.fromList $ Map.toList $ _bakerStake <$> _bakerMap
+    persistentMap <- forM _bakerMap $ \FullBakerInfo{..} -> do
+      bakerRef <- makeBufferedRef _bakerInfo
+      return (bakerRef, _bakerStake)
+    _bakerInfoMap <- Trie.fromList $ Map.toList persistentMap
     return PersistentBakers{..}
 
 createBaker :: (MonadBlobStore m BlobRef, MonadIO m) => BakerInfo -> PersistentBakers -> m (Either BakerError (BakerId, PersistentBakers))
@@ -86,11 +88,10 @@ createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAg
             if Set.member _bakerAggregationVerifyKey (bkrs ^. aggregationKeys) then
               return $ Left DuplicateAggregationKey
             else do -- aggregation keys is not already in use, so we insert baker
-              newBakerInfoMap <- Trie.insert bid BakerInfo{..} bInfoMap
-              newBakerStakeMap <- Trie.insert bid _bakerStake (bkrs ^. bakerStakeMap)
+              bInfoRef <- makeBufferedRef BakerInfo{..}
+              newBakerInfoMap <- Trie.insert bid (bInfoRef, _bakerStake) bInfoMap
               return $ Right (bid, bkrs
                          & bakerInfoMap .~ newBakerInfoMap
-                         & bakerStakeMap .~ newBakerStakeMap
                          & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                          & nextBakerId .~ bid + 1
                          & aggregationKeys %~ Set.insert _bakerAggregationVerifyKey)
@@ -107,11 +108,13 @@ updateBaker !Basic.BakerUpdate{..} !bakers = do
   let bInfoMap = bakers ^. bakerInfoMap
   Trie.lookup _buId bInfoMap >>= \case
     Nothing -> return $ Just bakers
-    Just binfo -> do
+    Just (binfoRef, stake) -> do
+      binfo <- loadBufferedRef binfoRef
       let bacc = _buAccount ^. non (binfo ^. bakerAccount)
       case _buSignKey of
            Nothing -> do -- don't update the sign key, no clash possible
-             newBakerInfoMap <- Trie.insert _buId (binfo & bakerAccount .~ bacc) bInfoMap
+             newBakerInfoRef <- makeBufferedRef (binfo & bakerAccount .~ bacc)
+             newBakerInfoMap <- Trie.insert _buId (newBakerInfoRef, stake) bInfoMap
              return $ Just $ bakers & bakerInfoMap .~ newBakerInfoMap
            Just newSignKey ->
              -- new signing key, make sure it is new
@@ -119,38 +122,35 @@ updateBaker !Basic.BakerUpdate{..} !bakers = do
                Just _ -> -- existing signing key
                  return Nothing
                Nothing -> do -- fresh signing key
-                 newBakerInfoMap <- Trie.insert _buId (binfo & bakerSignatureVerifyKey .~ newSignKey) bInfoMap
+                 newBakerInfoRef <- makeBufferedRef (binfo & bakerSignatureVerifyKey .~ newSignKey)
+                 newBakerInfoMap <- Trie.insert _buId (newBakerInfoRef, stake) bInfoMap
                  return $ Just (bakers
                        & bakerInfoMap .~ newBakerInfoMap
                        & bakersByKey . at' (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
-                       & bakersByKey . at' newSignKey .~ Just _buId) -- and add new identification
+                       & bakersByKey . at' newSignKey ?~ _buId) -- and add new identification
 
 removeBaker :: (MonadBlobStore m BlobRef, MonadIO m) => BakerId -> PersistentBakers -> m (Bool, PersistentBakers)
 removeBaker bid !bakers = do
     let bInfoMap = bakers ^. bakerInfoMap
-        bStakeMap = bakers ^. bakerStakeMap
     mBakerInfo <- Trie.lookup bid bInfoMap
-    mBakerStake <- Trie.lookup bid bStakeMap
-    case (mBakerInfo, mBakerStake) of
-        (Nothing, Nothing) -> return (False, bakers)
-        (Just bkr, Just stake) -> do
+    case mBakerInfo of
+        Nothing -> return (False, bakers)
+        Just (bakerRef, stake) -> do
             newBakerInfoMap <- Trie.delete bid bInfoMap
-            newBakerStakeMap <- Trie.delete bid bStakeMap
+            bkr <- loadBufferedRef bakerRef
             return (True, bakers
                             & (bakerInfoMap .~ newBakerInfoMap)
                             & bakersByKey . at' (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as well.
-                            & (bakerStakeMap .~ newBakerStakeMap)
                             & (bakerTotalStake %~ subtract stake))
-        _ -> error $ "bakerInfoMap and bakerStakeMap must have the same domain, but they differ for key " ++ show bid
 
 modifyStake :: (MonadBlobStore m BlobRef, MonadIO m) => Maybe BakerId -> AmountDelta -> PersistentBakers -> m PersistentBakers
 modifyStake (Just bid) delta bakers = do
-    let bStakeMap = bakers ^. bakerStakeMap
-    Trie.lookup bid bStakeMap >>= \case
+    let bInfoMap = bakers ^. bakerInfoMap
+    Trie.lookup bid bInfoMap >>= \case
         Nothing -> return bakers
-        Just stake -> do
-            newStakeMap <- Trie.insert bid (applyAmountDelta delta stake) bStakeMap
-            return $ bakers & (bakerStakeMap .~ newStakeMap)
+        Just (bakerRef, stake) -> do
+            newBakerMap <- Trie.insert bid (bakerRef, applyAmountDelta delta stake) bInfoMap
+            return $ bakers & (bakerInfoMap .~ newBakerMap)
                             & (bakerTotalStake %~ applyAmountDelta delta)
 modifyStake _ _ bakers = return bakers
 

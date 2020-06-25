@@ -220,6 +220,24 @@ class (MonadBlobStore m ref) => BlobStorable m ref a where
             Left e -> error (e ++ " :: " ++ show bs)
             Right !mv -> mv
 
+instance (MonadIO m, MonadBlobStore m BlobRef, BlobStorable m BlobRef a, BlobStorable m BlobRef b) => BlobStorable m BlobRef (a, b) where
+
+  storeUpdate p (a, b) = do
+    (pa, a') <- storeUpdate p a
+    (pb, b') <- storeUpdate p b
+    let pab = pa >> pb
+    return (pab, (a', b'))
+
+  store p v = fst <$> storeUpdate p v
+
+  load p = do
+    ma <- load p
+    mb <- load p
+    return $ do
+      a <- ma
+      b <- mb
+      return (a, b)
+
 newtype SerializeStorable v = SerStore v
     deriving newtype (Eq, Ord, Show, Serialize)
 

@@ -8,14 +8,12 @@ module Concordium.GlobalState.Persistent.BlockState where
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
-import Control.Exception.Base (assert)
 import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Trans
 import Control.Monad
 import Lens.Micro.Platform
 import Concordium.Utils
-import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe
 import qualified Data.Vector as Vec
@@ -613,9 +611,7 @@ doDelegateStake pbs aaddr target = do
                 Nothing -> return True
                 Just bid -> do
                     bInfo <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerInfoMap
-                    bStake <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerStakeMap
-                    assert (isJust bInfo == isJust bStake) $
-                        return $ isJust bInfo && isJust bStake
+                    return $ isJust bInfo
         if targetValid then do
             let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
                                 acct & accountStakeDelegate .~ target)
@@ -755,24 +751,21 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerOperations (PersistentBlockStateMonad r m) where
 
-  getBakerStake bs bid = Trie.lookup bid (bs ^. bakerStakeMap)
+  getBakerStake bs bid = fmap snd <$> Trie.lookup bid (bs ^. bakerInfoMap)
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerInfoMap)
+  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerInfoMap) >>= \case
+    Just (bInfoRef, _) -> Just <$> loadBufferedRef bInfoRef
+    Nothing -> return Nothing
 
-  getFullBakerInfos bs@PersistentBakers{..} = do
-    bInfoMap <- Trie.toMap _bakerInfoMap
-    sequence $ Map.mapWithKey getFullInfo bInfoMap
-    where getFullInfo bid binfo =
-            getBakerStake bs bid >>= \case
-                 Just stake -> return $ FullBakerInfo binfo stake
-                 -- This should never happen
-                 Nothing -> error $ "The domanins of _bakerStakeMap and _bakerInfoMap must match but _bakerInfoMap contains baker ID "
-                                      ++ show bid
-                                      ++ " whereas _bakerStakeMap does not."
+  getFullBakerInfos PersistentBakers{..} =
+    mapM getFullInfo =<< Trie.toMap _bakerInfoMap
+    where getFullInfo (binfoRef, stake) = do
+            binfo <- loadBufferedRef binfoRef
+            return $ FullBakerInfo binfo stake
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule
