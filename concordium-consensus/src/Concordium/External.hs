@@ -307,6 +307,7 @@ startConsensus ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
+           -> Word64 -- ^Number of seconds between transaction table purging runs
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
@@ -317,7 +318,7 @@ startConsensus ::
            -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -327,7 +328,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
                         genData
                         connString
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
@@ -341,7 +342,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdata
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
                         genData
                     finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
                     hconfig = NoHandler
@@ -370,6 +371,7 @@ startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
+           -> Word64 -- ^Number of seconds between transaction table purging runs
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
@@ -378,7 +380,7 @@ startConsensusPassive ::
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         case decode gdata of
@@ -387,7 +389,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
                         genData
                         connString
                     finconfig = NoFinalization
@@ -399,7 +401,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsKeepAlive gdata
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive)
+                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
                         genData
                     finconfig = NoFinalization
                     hconfig = NoHandler
@@ -586,7 +588,7 @@ receiveTransaction bptr tdata len = do
                 BakerRunnerWithLog{..} -> syncReceiveTransaction bakerSyncRunnerWithLog tr
                 PassiveRunnerWithLog{..} -> syncPassiveReceiveTransaction passiveSyncRunnerWithLog tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, MonadState s m, LoggerMonad m) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, MonadState s m, MonadLogger m) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
 runConsensusQuery PassiveRunner{..} f = f passiveSyncRunner
 runConsensusQuery BakerRunnerWithLog{..} f = f bakerSyncRunnerWithLog
@@ -1046,8 +1048,8 @@ importBlocks cptr cstr len = do
   logm External LLDebug "Done importing file."
   return ret
 
-foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
-foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
