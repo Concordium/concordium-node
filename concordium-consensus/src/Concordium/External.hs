@@ -195,15 +195,15 @@ broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putBlock block
+            let blockbs = runPut $ putBlockV0 block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
-            let finbs = encode finMsg
+            let finbs = encode (Versioned versionFinalizationMessage finMsg)
             logM External LLDebug $ "Broadcasting finalization message [size=" ++ show (BS.length finbs) ++ "]: " ++ show finMsg
             callBroadcastCallback bcbk MTFinalization finbs
         handleB (SOMsgFinalizationRecord finRec) = do
-            let msgbs = encode finRec
+            let msgbs = encode (Versioned versionFinalizationRecord finRec)
             logM External LLDebug $ "Broadcasting finalization record [size=" ++ show (BS.length msgbs) ++ "]: " ++ show finRec
             callBroadcastCallback bcbk MTFinalizationRecord msgbs
 
@@ -510,7 +510,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case (deserializePendingVersionedBlock blockBS now) of
+        case (deserializePendingBlockV0 blockBS now) of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail

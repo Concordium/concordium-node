@@ -361,7 +361,7 @@ makeAsyncRunner logm bkr config = do
                 MsgShutdown -> stopSyncRunner sr
                 MsgBlockReceived src blockBS -> do
                     now <- currentTime
-                    case deserializePendingBlock blockBS now of
+                    case deserializePendingBlockV0 blockBS now of
                         Left err -> logm Runner LLWarning err
                         Right !block -> syncReceiveBlock sr block >>= handleResult src
                     msgLoop
@@ -486,7 +486,7 @@ importBlock :: ByteString
             -> t
             -> IO UpdateResult
 importBlock blockBS tm logm f syncRunner =
-  case deserializePendingBlock blockBS tm of
+  case deserializePendingBlockV0 blockBS tm of
     Left err -> do
       logm External LLError $ "Can't deserialize block: " ++ show err
       return ResultSerializationFail
