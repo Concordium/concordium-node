@@ -70,7 +70,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
             (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) bakerIds
             return PersistentBakers {..}
 
--- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
+-- |Convert an in-memory 'Basic.Bakers' value to a persistent 'PersistentBakers' value.
 -- The new object is not yet stored on disk.
 makePersistentBakers :: MonadIO m => Basic.Bakers -> m PersistentBakers
 makePersistentBakers Basic.Bakers{..} = do
@@ -102,7 +102,7 @@ createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAg
 
 -- |Update a given baker. If this would lead to duplicate baker signing keys
 -- return 'Nothing'. If the baker with the given id does not exist this function
--- returns the original 'Bakers' object.
+-- returns the original 'PersistentBakers' object.
 updateBaker :: (MonadBlobStore m BlobRef, MonadIO m) => Basic.BakerUpdate -> PersistentBakers -> m (Maybe PersistentBakers)
 updateBaker !Basic.BakerUpdate{..} !bakers = do
   let bInfoMap = bakers ^. bakerMap

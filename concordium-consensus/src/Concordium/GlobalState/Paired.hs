@@ -270,14 +270,16 @@ instance (Monad m,
   getCurrentBakers (bps1, bps2) = do
     cb1 <- coerceBSML (getCurrentBakers bps1)
     cb2 <- coerceBSMR (getCurrentBakers bps2)
-    -- TODO (MRA) insert assertion
-    return (cb1, cb2)
+    fbi1 <- coerceBSML (getFullBakerInfos cb1)
+    fbi2 <- coerceBSMR (getFullBakerInfos cb2)
+    assert (fbi1 == fbi2) $ return (cb1, cb2)
 
   getLotteryBakers (bps1, bps2) = do
     lb1 <- coerceBSML (getLotteryBakers bps1)
     lb2 <- coerceBSMR (getLotteryBakers bps2)
-    -- TODO (MRA) insert assertion
-    return (lb1, lb2)
+    fbi1 <- coerceBSML (getFullBakerInfos lb1)
+    fbi2 <- coerceBSMR (getFullBakerInfos lb2)
+    assert (fbi1 == fbi2) $ return (lb1, lb2)
 
   updateSeedState ss (bps1, bps2) = do
     bps1' <- coerceBSML (updateSeedState ss bps1)
@@ -423,10 +425,7 @@ instance (MonadLogger m,
         return (ubs1, ubs2)
     freezeBlockState (ubs1, ubs2) = do
         bs1 <- coerceBSML $ freezeBlockState ubs1
-        bs2 <- coerceBSMR $ do
-                  fbs <- freezeBlockState ubs2
-                  archiveBlockState fbs
-                  return fbs
+        bs2 <- coerceBSMR $ freezeBlockState ubs2
         return (bs1, bs2)
     dropUpdatableBlockState (ubs1, ubs2) = do
         coerceBSML $ dropUpdatableBlockState ubs1

@@ -74,20 +74,21 @@ data Module = Module {
     moduleSource :: Core.Module Core.UA
 }
 
--- TODO (MRA) document invariant that baker info map and baker stake map are synchronized
--- TODO (MRA) make this a state monad on bakers?
--- TODO (MRA) make this MaybeT?
--- TODO (MRA) document methods
 class (BlockStateTypes m,  Monad m) => BakerOperations m where
 
+  -- |If baker with given ID exists, get the stake delegated to that baker 
   getBakerStake :: Bakers m -> BakerId -> m (Maybe Amount)
 
+  -- |If baker with given signature verification key exists, get the baker's baker ID
   getBakerFromKey :: Bakers m -> BakerSignVerifyKey -> m (Maybe BakerId)
 
+  -- |Get the sum total stake of all bakers
   getTotalBakerStake :: Bakers m -> m Amount
 
+  -- |If baker with given ID exists, get the baker's account address and verification keys
   getBakerInfo :: Bakers m -> BakerId -> m (Maybe BakerInfo)
 
+  -- |Get baker IDs and full baker information (verification keys, account addresses, and stake) for all bakers
   getFullBakerInfos :: Bakers m -> m (Map.Map BakerId FullBakerInfo)
 
 bakerData :: BakerOperations m => BakerId -> Bakers m -> m (Maybe (BakerInfo, LotteryPower))
