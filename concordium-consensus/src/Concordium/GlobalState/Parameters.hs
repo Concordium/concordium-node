@@ -16,7 +16,6 @@ import Control.Monad hiding (fail)
 import Data.Ratio
 import Data.Word
 
-import Concordium.Common.Version
 import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.Bakers
