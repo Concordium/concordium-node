@@ -258,22 +258,22 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
-          getFirstBlock _db
-  _genesisBlockPointer <- makeBlockPointer genStoredBlock
+          liftIO (getFirstBlock _db)
+  _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
   case _bpBlock _genesisBlockPointer of
     GenesisBlock gd' -> unless (_genesisData == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash _genesisBlockPointer))
     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
   
   -- Populate the block table.
-  _blockTable <- loadBlocksFinalizationIndexes _db >>= \case
+  _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right hm -> return $! HM.map BlockFinalized hm
 
   -- Get the last finalized block.
-  (_lastFinalizationRecord, lfStoredBlock) <- getLastBlock _db >>= \case
+  (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
-  _lastFinalized <- makeBlockPointer lfStoredBlock
+  _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
   let lastState = _bpState _lastFinalized
 
   -- The final thing we need to establish is the transaction table invariants.
@@ -312,7 +312,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
   where
     makeBlockPointer :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState)
     makeBlockPointer StoredBlock{..} = do
-      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (BS.loadBlockState sbState)) pbsc
+      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
 -- |Close the database associated with a 'SkovPersistentData'.
@@ -405,7 +405,7 @@ constructBlock :: (MonadIO m,
                    CanExtend (ATIStorage m))
                => StoredBlock (TS.BlockStatePointer bs) -> m (PersistentBlockPointer (ATIStorage m) bs)
 constructBlock StoredBlock{..} = do
-  bstate <- BS.loadBlockState sbState
+  bstate <- loadBlockState sbState
   makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
 -- | This function will remove transactions that are pending for a long time.
@@ -485,9 +485,10 @@ purgeTransactionTable lastFinalizedSlot = do
                                                                      else if n2 > n then Nothing
                                                                      else Just (n1, n2)) acc pt) _pttWithSender e in v,
                                    ..}
-instance (MonadIO (PersistentTreeStateMonad ati bs m),
-          GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
-          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+instance (MonadLogger (PersistentTreeStateMonad ati bs m),
+          MonadIO (PersistentTreeStateMonad ati bs m),
+          BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+          BlockStateStorage (PersistentTreeStateMonad ati bs m),
           PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
@@ -527,7 +528,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
     markDead bh = blockTable . at' bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
-              st <- BS.saveBlockState (_bpState bp)
+              st <- saveBlockState (_bpState bp)
               writeBlock StoredBlock{
                   sbFinalizationIndex = finalizationIndex fr,
                   sbInfo = _bpInfo bp,

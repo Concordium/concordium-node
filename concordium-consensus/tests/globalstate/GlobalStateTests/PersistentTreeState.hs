@@ -67,7 +67,7 @@ specifyWithGS s f =
   specify s $
     withTempDirectory "." "test-directory" $
     \dbDir -> bracket (createGlobalState dbDir) destroyGlobalState $
-      void . uncurry (runRWST (runGlobalStateM $ f))
+      runSilentLogger . void . uncurry (runRWST (runGlobalStateM $ f))
 
 useI :: MonadState (Identity s) f => Getting b s b -> f b
 useI f = (^. f) <$> runIdentity <$> RWS.get
