@@ -1,4 +1,3 @@
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 module Concordium.GlobalState.Persistent.MonadicRecursive where
 
 import Data.Functor.Foldable

@@ -1,5 +1,5 @@
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ViewPatterns, BangPatterns, RecordWildCards, MultiParamTypeClasses #-}
+{-# LANGUAGE BangPatterns #-}
 module Concordium.GlobalState.Basic.BlockState.Account where
 
 import qualified Data.Map.Strict as Map

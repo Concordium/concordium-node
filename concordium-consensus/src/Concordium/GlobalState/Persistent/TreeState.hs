@@ -1,12 +1,12 @@
-{-# LANGUAGE ConstraintKinds, BangPatterns, TypeFamilies, TemplateHaskell,
-             NumericUnderscores, ScopedTypeVariables, DataKinds, RecordWildCards,
-             MultiParamTypeClasses, FlexibleInstances, GeneralizedNewtypeDeriving,
-             LambdaCase, FlexibleContexts, DerivingStrategies, DerivingVia,
-             StandaloneDeriving, UndecidableInstances, TypeApplications, MultiWayIf #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MultiWayIf #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
---
--- In this module we also implement the instances and functions that require a monadic context, such as the conversions.
 module Concordium.GlobalState.Persistent.TreeState where
 
 import Concordium.GlobalState.Types
@@ -14,8 +14,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
-import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.Classes as GS
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlockPointer as PB
@@ -27,7 +26,7 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions as T
-import Control.Exception hiding (handle)
+import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.HashMap.Strict hiding (toList)
@@ -48,8 +47,12 @@ import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
 import Data.Time.Clock
 import Data.Foldable as Fold (foldl')
--- * SkovPersistentData definition
+import Concordium.Logger
+import Control.Monad.Except
 
+-- * Exceptions
+
+-- |Exceptions that can be thrown while the TreeState is being initialized
 data InitException =
   -- |Block state path is a directory.
   BlockStatePathDir
@@ -79,8 +82,18 @@ instance Exception InitException where
     "Incorrect genesis block. Genesis block in the database does not match the genesis data. Hash of the database genesis block is: " ++ show bh
   displayException (DatabaseInvariantViolation err) =
     "Database invariant violation: " ++ err
-  
 
+logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
+logExceptionAndThrowTS = logExceptionAndThrow TreeState
+
+logErrorAndThrowTS :: (MonadLogger m, MonadIO m) => String -> m a
+logErrorAndThrowTS = logErrorAndThrow TreeState
+
+--------------------------------------------------------------------------------
+
+-- * Persistent version of the Skov Data
+
+-- |BlockStatus as recorded in the persistent implementation
 data PersistentBlockStatus ati bs =
     BlockAlive !(PersistentBlockPointer ati bs)
     | BlockDead
@@ -172,21 +185,31 @@ initialSkovPersistentData rp gd genState ati serState = do
             _atiCtx = snd ati
         }
 
-checkExistingDatabase :: RuntimeParameters -> IO (FilePath, Bool)
+--------------------------------------------------------------------------------
+
+-- * Initialization functions
+
+-- |Check the permissions in the required files.
+checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) => RuntimeParameters -> m (FilePath, Bool)
 checkExistingDatabase rp = do
   let blockStateFile = rpBlockStateFile rp <.> "dat"
       treeStateFile = rpTreeStateDir rp </> "data.mdb"
-  bsPathEx <- doesPathExist blockStateFile
-  tsPathEx <- doesPathExist treeStateFile
+  bsPathEx <- liftIO $ doesPathExist blockStateFile
+  tsPathEx <- liftIO $ doesPathExist treeStateFile
 
   -- Check whether a path is a normal file that is readable and writable
-  let checkRWFile path exc = do
-        fileEx <- doesFileExist path
-        unless fileEx $ throwIO BlockStatePathDir
-        perms <- catchJust (guard . isPermissionError)
-                           (getPermissions path)
-                           (const (throwIO exc))
-        unless (readable perms && writable perms) $ throwIO exc
+  let checkRWFile :: FilePath -> InitException -> m ()
+      checkRWFile path exc = do
+        fileEx <- liftIO $ doesFileExist path
+        unless fileEx $ logExceptionAndThrowTS BlockStatePathDir
+        mperms <- liftIO $ catchJust (guard . isPermissionError)
+                           (Just <$> getPermissions path)
+                           (const $ return Nothing)
+        case mperms of
+          Nothing -> logExceptionAndThrowTS exc
+          Just perms ->
+            unless (readable perms && writable perms) $ do
+            logExceptionAndThrowTS exc
 
   -- if both files exist we check whether they are both readable and writable.
   -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
@@ -194,11 +217,12 @@ checkExistingDatabase rp = do
          -- check whether it is a normal file and whether we have the right permissions
          checkRWFile blockStateFile BlockStatePermissionError
          checkRWFile treeStateFile TreeStatePermissionError
+         mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
          return (blockStateFile, True)
-     | bsPathEx -> 
-         throwIO (DatabaseInvariantViolation "Block state file exists, but tree state file does not.")
-     | tsPathEx -> 
-         throwIO (DatabaseInvariantViolation "Tree state file exists, but block state file does not.")
+     | bsPathEx -> do
+         logExceptionAndThrowTS $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
+     | tsPathEx -> do
+         logExceptionAndThrowTS $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
      | otherwise ->
          return (blockStateFile, False)
 
@@ -222,30 +246,32 @@ loadSkovPersistentData :: forall ati . CanExtend (ATIValues ati)
                        -> GenesisData
                        -> PBS.PersistentBlockStateContext
                        -> (ATIValues ati, ATIContext ati)
-                       -> IO (SkovPersistentData ati PBS.PersistentBlockState)
+                       -> LogIO (SkovPersistentData ati PBS.PersistentBlockState)
 loadSkovPersistentData rp _genesisData pbsc atiPair = do
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
-  _db <- mapException DatabaseOpeningError $ databaseHandlers rp
+  _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
+          liftIO (try $ databaseHandlers rp)
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
-  genStoredBlock <- getFirstBlock _db `failWith` GenesisBlockNotInDataBaseError
+  genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
+          getFirstBlock _db
   _genesisBlockPointer <- makeBlockPointer genStoredBlock
   case _bpBlock _genesisBlockPointer of
-    GenesisBlock gd' -> unless (_genesisData == gd') $ throwIO (GenesisBlockIncorrect (getHash _genesisBlockPointer))
-    _ -> throwIO (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+    GenesisBlock gd' -> unless (_genesisData == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash _genesisBlockPointer))
+    _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
   
   -- Populate the block table.
   _blockTable <- loadBlocksFinalizationIndexes _db >>= \case
-      Left s -> throwIO $ DatabaseInvariantViolation s
+      Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right hm -> return $! HM.map BlockFinalized hm
 
   -- Get the last finalized block.
   (_lastFinalizationRecord, lfStoredBlock) <- getLastBlock _db >>= \case
-      Left s -> throwIO $ DatabaseInvariantViolation s
+      Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
   _lastFinalized <- makeBlockPointer lfStoredBlock
   let lastState = _bpState _lastFinalized
@@ -254,12 +280,13 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
   -- This specifically means for each account we need to determine the next available nonce.
   -- For now we simply load all accounts, but after this table is also moved to
   -- some sort of a database we should not need to do that.
-  let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext IO) TransactionTable
+
+  let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
       getTransactionTable = do
-        accs <- BS.getAccountList lastState
+        accs <- getAccountList lastState
         foldM (\table addr ->
-                 BS.getAccount lastState addr >>= \case
-                  Nothing -> liftIO (throwIO (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded."))
+                 getAccount lastState addr >>= \case
+                  Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
                   Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
@@ -283,10 +310,6 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
         }
 
   where
-    failWith :: IO (Maybe a) -> InitException -> IO a
-    failWith x exc =
-        x >>= \case Nothing -> throwIO exc
-                    Just v -> return v
     makeBlockPointer :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState)
     makeBlockPointer StoredBlock{..} = do
       bstate <- runReaderT (PBS.runPersistentBlockStateMonad (BS.loadBlockState sbState)) pbsc
@@ -304,14 +327,16 @@ closeSkovPersistentData = closeDatabase . _db
 -- * `BlockStateQuery`
 -- * `BlockStateOperations`
 -- * `BlockStateStorage`
+-- * `MonadLogger`
+-- * `BirkParametersOperations`
 -- * `MonadState (SkovPersistentData bs)`
 -- * `PerAccountDBOperations`
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
 newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
-  deriving (Functor, Applicative, Monad, MonadIO, GS.BlockStateTypes,
-            BS.BlockStateQuery, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
+  deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
+            BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
          => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)
@@ -334,9 +359,10 @@ instance GlobalStateTypes (PersistentTreeStateMonad ati bs m) where
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData DiskDump bs) where
   logContext = atiCtx
 
-getWeakPointer :: (MonadIO (PersistentTreeStateMonad ati bs m),
-                   BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
-                   GS.BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
+getWeakPointer :: (MonadLogger (PersistentTreeStateMonad ati bs m),
+                  MonadIO (PersistentTreeStateMonad ati bs m),
+                   BlockStateStorage (PersistentTreeStateMonad ati bs m),
+                   BlockState (PersistentTreeStateMonad ati bs m) ~ bs,
                    CanExtend (ATIValues ati),
                    MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
                => Weak (PersistentBlockPointer (ATIValues ati) bs)
@@ -355,12 +381,13 @@ getWeakPointer weakPtr ptrHash name = do
               nb <- readBlock ptrHash
               case nb of
                 Just sb -> constructBlock sb
-                Nothing -> error ("Couldn't find " ++ name ++ " block in disk")
+                Nothing -> logErrorAndThrowTS ("Couldn't find " ++ name ++ " block in disk")
 
-instance (Monad (PersistentTreeStateMonad ati bs m),
+instance (MonadLogger (PersistentTreeStateMonad ati bs m),
+          Monad (PersistentTreeStateMonad ati bs m),
           MonadIO (PersistentTreeStateMonad ati bs m),
           TS.BlockState m ~ bs,
-          BS.BlockStateStorage (PersistentTreeStateMonad ati bs m),
+          BlockStateStorage (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m),
           CanExtend (ATIValues ati),
           CanRecordFootprint (Footprint (ATIValues ati)))
@@ -373,7 +400,7 @@ instance (Monad (PersistentTreeStateMonad ati bs m),
   bpTransactionAffectSummaries block = return (_bpATI block)
 
 constructBlock :: (MonadIO m,
-                   BS.BlockStateStorage m,
+                   BlockStateStorage m,
                    TS.BlockState m ~ bs,
                    CanExtend (ATIStorage m))
                => StoredBlock (TS.BlockStatePointer bs) -> m (PersistentBlockPointer (ATIStorage m) bs)
@@ -490,9 +517,9 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   (Just sb, Just finr) -> do
                     block <- constructBlock sb
                     return $ Just (TS.BlockFinalized block finr)
-                  (Just _, Nothing) -> error $ "Lost finalization record that was stored" ++ show bh
-                  (Nothing, Just _) -> error $ "Lost block that was stored as finalized" ++ show bh
-                  _ -> error $ "Lost block and finalization record" ++ show bh
+                  (Just _, Nothing) -> logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
+                  (Nothing, Just _) -> logErrorAndThrowTS $ "Lost block that was stored as finalized" ++ show bh
+                  _ -> logErrorAndThrowTS $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st ati arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
             blockTable . at' (getHash block) ?=! BlockAlive blockP
@@ -603,7 +630,6 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
         _ -> return Nothing
 
     addCommitTransaction bi@WithMetadata{..} slot = do
-      lastFinalizedSlot <- blockSlot <$> use lastFinalized
       let trHash = wmdHash
       tt <- use transactionTable
       -- check if the transaction is in the transaction table cache
@@ -619,7 +645,11 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   transactionTablePurgeCounter %= (+ 1)
-                  purgeTransactionTable lastFinalizedSlot
+                  purgeCount <- use transactionTablePurgeCounter
+                  RuntimeParameters{..} <- use runtimeParameters
+                  when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
+                    TS.purgeTransactionTable
+                    transactionTablePurgeCounter .= 0
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
               CredentialDeployment{..} -> do
@@ -645,10 +675,12 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                 let nonce = transactionNonce tr
                     sender = transactionSender tr
                 anft <- use (transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
-                assert (anft ^. anftNextNonce == nonce) $ do
+                if anft ^. anftNextNonce == nonce
+                then do
                     let nfn = anft ^. anftMap . at' nonce . non Set.empty
-                    let wmdtr = WithMetadata{wmdData=tr,..}
-                    assert (Set.member wmdtr nfn) $ do
+                        wmdtr = WithMetadata{wmdData=tr,..}
+                    if Set.member wmdtr nfn
+                    then do
                         -- Remove any other transactions with this nonce from the transaction table.
                         -- They can never be part of any other block after this point.
                         forM_ (Set.delete wmdtr nfn) $
@@ -660,6 +692,11 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing)
                                                                                            & (anftNextNonce .~ nonce + 1))
                         return ss
+                    else do
+                       logErrorAndThrowTS $ "Tried to finalize thransaction which is not known to be in the set of non finalized accounts for the sender " ++ show sender
+                else do
+                 logErrorAndThrowTS $
+                      "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
             finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
 
             deleteAndFinalizeStatus txHash = do
@@ -674,7 +711,7 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
                                             ftsIndex=tsResults HM.! bh
                                             -- the previous lookup is safe; finalized transaction must be on a block
                                             })
-                _ -> error "Transaction should exist and be in committed state when finalized."
+                _ -> logErrorAndThrowTS "Transaction should exist and be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
         -- add a transaction status. This only updates the cached version which is correct at' the moment
@@ -722,3 +759,75 @@ instance (MonadIO (PersistentTreeStateMonad ati bs m),
 
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
+
+    -- | This function will remove transactions that are pending for a long time.
+    -- First it goes over the account non finalized transactions and for each account it separates the transactions that
+    -- will be purged to those that won't. For a transaction to be purged its arrival time plus the transactions keep-alive
+    -- time must be lower that the current timestamp and its status must be `Received`.
+    -- The `ttNonFinalizedTransactions` map is updated and afterwards the transactions are removed from the `ttHashMap`.
+    -- The `PendingTransactionTable` is updated doing a rollback to the last seen nonce on the right side of each entry in
+    -- `pttWithSender`.
+    purgeTransactionTable = do
+      lfs <- blockSlot <$> use lastFinalized
+      tt <- use transactionTable
+      pt <- use pendingTransactions
+      RuntimeParameters{..} <- TS.getRuntimeParameters
+      txHighestNonces <- removeTransactions tt rpTransactionsKeepAliveTime lfs
+      pendingTransactions .= rollbackNonces txHighestNonces pt
+     where
+       removeTransactions TransactionTable{..} kat lastFinalizedSlot = do
+         tm <- liftIO (utcTimeToTransactionTime <$> getCurrentTime)
+         let removeTxs :: [(Nonce, Set.Set T.Transaction)] -> ([Set.Set T.Transaction], Map.Map Nonce (Set.Set T.Transaction), Nonce)
+             removeTxs ncs = (\(x, y, h) -> (x, Map.fromList y, h)) $ removeTxs' ncs 0
+
+             removeTxs' :: [(Nonce, Set.Set T.Transaction)] -> Nonce -> ([Set.Set T.Transaction], [(Nonce, Set.Set T.Transaction)], Nonce)
+             removeTxs' [] h = ([], [], h)
+             removeTxs' ((n, txs):ncs) hn =
+               -- We can only remove transactions which are not committed to any blocks.
+               -- Otherwise we would break many invariants.
+               let toRemove t =
+                     case _ttHashMap ^? ix (biHash t) . _2 of
+                       -- we cannot remove a transaction that was received in a block that has not yet been purged
+                       -- if its received slot is >= last finalized then the transaction will be in a live block
+                       -- that might be processed at some point.
+                       Just Received{..} -> _tsSlot <= lastFinalizedSlot
+                       _ -> False
+                   (toDrop, nn) =
+                     Set.partition (\t -> biArrivalTime t + kat < tm && toRemove t) txs in -- split in old and still valid transactions
+                 if Set.size nn == 0
+                 -- if all are to be removed, remove all the next txs and return previous nonce
+                 then (toDrop : fmap snd ncs, [], hn)
+                 else let (nextToDrop, nextToKeep, nextHn) = removeTxs' ncs n in
+                   -- else combine the transactions to drop and the transactions to keep with the ones from the next step
+                   (toDrop : nextToDrop, (n, nn) : nextToKeep, nextHn)
+
+             processANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([Set.Set T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce))
+             processANFT (acc, AccountNonFinalizedTransactions{..}) =
+               -- we need to get a list in ascending order
+               -- in order to do only one pass over the nonces if we ever hit a nonce that gets emptied
+               let (removed, kept, hn) = removeTxs (Map.toAscList _anftMap) in
+                 (removed, (acc, AccountNonFinalizedTransactions{_anftMap = kept, ..}), (acc, hn))
+
+             results = fmap processANFT (HM.toList $ _ttNonFinalizedTransactions)
+             allDeletes = fmap (^. _1) results
+             !newNFT = fromList $ fmap (^. _2) results
+             highestNonces = fmap (^. _3) results
+             -- remove all normal transactions that should be removed
+             !newTMap = Fold.foldl' (Fold.foldl' (Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)))) _ttHashMap allDeletes
+             -- and finally remove all the credential deployments that are too old.
+             !finalTT = HM.filter (\case
+                                      (WithMetadata{wmdData=CredentialDeployment{},..}, Received{..}) ->
+                                          wmdArrivalTime + kat >= tm && _tsSlot > lastFinalizedSlot
+                                      _ -> True
+                                  ) newTMap
+         transactionTable .= TransactionTable{_ttHashMap = finalTT, _ttNonFinalizedTransactions = newNFT}
+         return highestNonces
+
+       rollbackNonces :: [(AccountAddress, Nonce)] -> PendingTransactionTable -> PendingTransactionTable
+       rollbackNonces e PTT{..} = PTT {_pttWithSender =
+                                       let !v = Fold.foldl' (\pt (acc, n) ->
+                                                               update (\(n1, n2) ->
+                                                                         if n2 > n && n >= n1 then Just (n1, n)
+                                                                         else if n2 > n then Nothing
+                                                                         else Just (n1, n2)) acc pt) _pttWithSender e in v,
+                                       ..}

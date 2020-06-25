@@ -1,11 +1,4 @@
-{-# LANGUAGE
-        MultiParamTypeClasses,
-        TypeFamilies,
-        FlexibleInstances,
-        FlexibleContexts,
-        ScopedTypeVariables,
-        RecordWildCards
-        #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |An implementation of a BlockPointer that doesn't retain the parent or last finalized block so that they can be written into the disk and dropped from the memory.
 
 module Concordium.GlobalState.Persistent.BlockPointer where
@@ -17,12 +10,12 @@ import Concordium.GlobalState.Parameters
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.Transactions as Transactions
-import Control.Exception
 import Control.Monad.IO.Class
 import qualified Data.List as List
 import Data.Time.Clock
 import System.Mem.Weak
 import Data.Serialize
+import Concordium.Logger
 
 type PersistentBlockPointer ati = BlockPointer ati Weak
 
@@ -93,7 +86,7 @@ makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
       ..}
 
 -- |Converts a Pending Block into a PersistentBlockPointer
-makePersistentBlockPointerFromPendingBlock :: forall m ati bs. (MonadIO m) =>
+makePersistentBlockPointerFromPendingBlock :: forall m ati bs. (MonadLogger m, MonadIO m) =>
                                    PendingBlock      -- ^Pending block
                                  -> PersistentBlockPointer ati bs  -- ^Parent block
                                  -> PersistentBlockPointer ati bs  -- ^Last finalized block
@@ -102,13 +95,18 @@ makePersistentBlockPointerFromPendingBlock :: forall m ati bs. (MonadIO m) =>
                                  -> UTCTime                     -- ^Block arrival time
                                  -> Energy                      -- ^Energy cost of all transactions in the block
                                  -> m (PersistentBlockPointer ati bs)
-makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = liftIO $ do
-  parentW <- mkWeakPtr parent Nothing
-  lfinW <- mkWeakPtr lfin Nothing
+makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
+  (parentW, lfinW) <- liftIO $ do
+    parentW <- mkWeakPtr parent Nothing
+    lfinW <- mkWeakPtr lfin Nothing
+    return (parentW, lfinW)
   let block = pbBlock pb
       bf = bbFields block
-  assert (getHash parent == blockPointer bf) $
+  if getHash parent == blockPointer bf
+    then
     makePersistentBlockPointer (NormalBlock block) (Just $ getHash pb) (bpHeight parent + 1) parentW lfinW (bpHash lfin) st ati arr (pbReceiveTime pb) Nothing Nothing ene
+    else do
+    logErrorAndThrow GlobalState $ "The hash of the given parent block (" ++ show (getHash parent :: BlockHash) ++ ") and the hash in the block metadata (" ++ show (blockPointer bf) ++ ") don't match"
 
 -- | Create an unlinked persistent block pointer
 makeBlockPointerFromPersistentBlock :: (MonadIO m) =>

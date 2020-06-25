@@ -1,6 +1,3 @@
-{-# LANGUAGE
-    RecordWildCards,
-    MultiParamTypeClasses #-}
 module Concordium.GlobalState.Instance where
 
 import Data.Serialize

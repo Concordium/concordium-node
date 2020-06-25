@@ -1,12 +1,6 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE StandaloneDeriving, DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DerivingVia #-}
 module Concordium.GlobalState.TreeState(
     module Concordium.GlobalState.Classes,
     module Concordium.GlobalState.Types,
@@ -259,6 +253,10 @@ class (Eq (BlockPointerType m),
     -- Returns @True@ if and only if the transaction is purged.
     purgeTransaction :: BlockItem -> m Bool
 
+    -- |Try to purge expired items from the transaaction table.
+    -- Probably this will only be implemented in the Disk implementation.
+    purgeTransactionTable :: m ()
+
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
@@ -313,7 +311,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
-
+    purgeTransactionTable = lift purgeTransactionTable
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
@@ -352,6 +350,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getConsensusStatistics #-}
     {-# INLINE putConsensusStatistics #-}
     {-# INLINE getRuntimeParameters #-}
+    {-# INLINE purgeTransactionTable #-}
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
