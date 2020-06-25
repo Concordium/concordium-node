@@ -33,6 +33,8 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
+import Concordium.GlobalState.Paired
+import qualified Concordium.GlobalState.TreeState as TS
 
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
@@ -54,10 +56,25 @@ import Concordium.Types.DummyData (mateuszAccount)
 newtype DummyTimer = DummyTimer Integer
     deriving (Num, Eq, Ord)
 
+
+-- |Construct the global state configuration.
+-- Can be customised if changing the configuration.
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+
+{-
+type TreeConfig = DiskTreeDiskBlockConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+-}
+
+type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
+makeGlobalStateConfig rp genData =
+   return $ PairGSConfig (MTMBConfig rp genData (genesisState genData), DTDBConfig rp genData (genesisState genData))
+
+
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
 -- or to enable/disable finalization buffering.
-type BakerConfig = SkovConfig DiskTreeDiskBlockConfig (BufferedFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig TreeConfig (BufferedFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
 dummyIdentityProviders :: [IpInfo]
@@ -73,10 +90,6 @@ genesisState GenesisData{..} = Example.initialState
                        2 -- Initial number of counter contracts
                        genesisControlAccounts
 
--- |Construct the global state configuration.
--- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO DiskTreeDiskBlockConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
 
 -- |Monad that provides a deterministic implementation of 'TimeMonad' -- i.e. that is
 -- not dependent on real time.
@@ -97,7 +110,7 @@ type LogBase = LoggerT (DeterministicTime IO)
 type MyHandlers = SkovHandlers DummyTimer BakerConfig (StateT SimState LogBase)
 
 -- |The monad for bakers to run in.
-type BakerM a = SkovT MyHandlers BakerConfig (StateT SimState LogBase) a
+type BakerM = SkovT MyHandlers BakerConfig (StateT SimState LogBase)
 
 -- |Events that trigger actions by bakers.
 data Event
@@ -303,6 +316,9 @@ broadcastEvent curTime ev = ssEvents %= \e -> foldr addEvent e [PEvent curTime (
 displayBakerEvent :: (MonadIO m) => Int -> Event -> m ()
 displayBakerEvent i ev = liftIO $ putStrLn $ show i ++ "> " ++ show ev
 
+bpBlock :: TS.BlockPointerType BakerM -> Block
+bpBlock (PairBlockData (l, _)) = BS._bpBlock l
+
 -- |Run a step of the consensus. This takes the next event and
 -- executes that.
 stepConsensus :: StateT SimState IO ()
@@ -325,7 +341,7 @@ stepConsensus =
                         let doBake =
                                 bakeForSlot bakerIdentity sl
                         mb <- runBaker t i doBake
-                        forM_ (BS._bpBlock <$> mb) $ \case
+                        forM_ (bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()
                             NormalBlock b -> broadcastEvent t (EBlock b)
                         ssEvents %= addEvent (PEvent (t+1) (BakerEvent i (EBake (sl+1))))
