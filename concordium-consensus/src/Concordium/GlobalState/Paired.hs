@@ -1,15 +1,9 @@
-{-# LANGUAGE
-    TemplateHaskell,
-    FlexibleInstances,
-    FlexibleContexts,
-    MultiParamTypeClasses,
-    UndecidableInstances,
-    TypeFamilies,
-    DerivingVia,
-    StandaloneDeriving,
-    PartialTypeSignatures,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 -- |This module pairs together two global state implementations
 -- for testing purposes.
 module Concordium.GlobalState.Paired where
@@ -37,6 +31,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
+import Concordium.Logger (MonadLogger)
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
@@ -80,16 +75,16 @@ type BSML lc r ls s m = BlockStateM lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM
 type BSMR rc r rs s m = BlockStateM rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
-        => C.BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
+        => BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
     type BlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (C.BlockState (BSML lc r lg s m),
-                C.BlockState (BSMR rc r rg s m))
+            = (BlockState (BSML lc r lg s m),
+                BlockState (BSMR rc r rg s m))
     type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (C.UpdatableBlockState (BSML lc r lg s m),
-                C.UpdatableBlockState (BSMR rc r rg s m))
+            = (UpdatableBlockState (BSML lc r lg s m),
+                UpdatableBlockState (BSMR rc r rg s m))
     type BirkParameters (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (C.BirkParameters (BSML lc r lg s m),
-                C.BirkParameters (BSMR rc r rg s m))
+            = (BirkParameters (BSML lc r lg s m),
+                BirkParameters (BSMR rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -254,7 +249,7 @@ instance (Monad m,
     return (bps1', bps2')
 
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m))
+instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m))
         => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
@@ -383,7 +378,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOp
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 
-instance (Monad m,
+instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
     BlockStateStorage (BSMR rc r rs s m))
@@ -629,6 +624,8 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     -- For runtime parameters, we will only use one side
     getRuntimeParameters = coerceGSML getRuntimeParameters
 
+    purgeTransactionTable = coerceGSML purgeTransactionTable
+
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
 instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (PairGSConfig c1 c2) where
@@ -643,4 +640,3 @@ instance (GlobalStateConfig c1, GlobalStateConfig c2) => GlobalStateConfig (Pair
     shutdownGlobalState _ (PairGSContext ctx1 ctx2) (PairGState s1 s2) (c1, c2) = do
             shutdownGlobalState (Proxy :: Proxy c1) ctx1 s1 c1
             shutdownGlobalState (Proxy :: Proxy c2) ctx2 s2 c2
-

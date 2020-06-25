@@ -1,4 +1,7 @@
-{-# LANGUAGE TemplateHaskell, RecordWildCards, MultiParamTypeClasses, TypeFamilies, DeriveGeneric, GeneralizedNewtypeDeriving, StandaloneDeriving, DerivingVia #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DerivingVia #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
@@ -13,7 +16,7 @@ import GHC.Generics (Generic)
 
 import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
-import qualified Concordium.GlobalState.Classes as GS
+import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.AccountTransactionIndex
@@ -72,9 +75,9 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
 
-type instance GS.BlockStatePointer BlockState = ()
+type instance GT.BlockStatePointer BlockState = ()
 
-instance GS.BlockStateTypes (PureBlockStateMonad m) where
+instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters

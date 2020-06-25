@@ -1,4 +1,8 @@
-{-# LANGUAGE FlexibleContexts, NumericUnderscores, ScopedTypeVariables, TypeFamilies, FlexibleInstances, GeneralizedNewtypeDeriving, TemplateHaskell, UndecidableInstances, StandaloneDeriving, DerivingVia, RecordWildCards, LambdaCase, TypeApplications, DefaultSignatures #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |This module provides an abstraction over the operations done in the LMDB database that serves as a backend for storing blocks and finalization records.
 
 module Concordium.GlobalState.Persistent.LMDB (
@@ -51,6 +55,7 @@ import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
 import qualified Data.HashMap.Strict as HM
+import Concordium.Logger
 
 
 data StoredBlock st = StoredBlock {
@@ -115,7 +120,7 @@ instance MDBDatabase FinalizedByHeightStore where
   encodeValue _ = LBS.fromStrict . hashToByteString
 
 -- |Values used by the LMDBStoreMonad to manage the database.
--- Sometimes we only want read access 
+-- Sometimes we only want read access
 data DatabaseHandlers st = DatabaseHandlers {
     _dbMapSize :: !Int,
     _storeEnv :: !MDB_env,
@@ -187,18 +192,20 @@ initializeDatabase gb stRef rp@RuntimeParameters{..} = do
 closeDatabase :: DatabaseHandlers st -> IO ()
 closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 
-resizeDatabaseHandlers :: DatabaseHandlers st -> Int -> IO (DatabaseHandlers st)
+resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers st -> Int -> m (DatabaseHandlers st)
 resizeDatabaseHandlers dbh size = do
   let delta = size + (dbStepSize - size `mod` dbStepSize)
       _dbMapSize = (dbh ^. dbMapSize) + delta
       _storeEnv = dbh ^. storeEnv
-  mdb_env_set_mapsize _storeEnv _dbMapSize
-  transaction _storeEnv False $ \txn -> do
-    _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) [MDB_CREATE]
-    _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE]
-    _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) [MDB_CREATE]
-    _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) [MDB_CREATE]
-    return DatabaseHandlers{..}
+  logEvent LMDB LLDebug $ "Resizing database from " ++ show (dbh ^. dbMapSize) ++ " to " ++ show _dbMapSize
+  liftIO $ do
+    mdb_env_set_mapsize _storeEnv _dbMapSize
+    transaction _storeEnv False $ \txn -> do
+      _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) [MDB_CREATE]
+      _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE]
+      _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) [MDB_CREATE]
+      _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) [MDB_CREATE]
+      return DatabaseHandlers{..}
 
 -- |Read a block from the database by hash.
 readBlock :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
@@ -388,7 +395,10 @@ class (MonadIO m) => LMDBQueryMonad m where
 -- |Monad to abstract over the operations for writing to a LMDB database.
 -- It provides functions for reading and writing Blocks and FinalizationRecords.
 -- The databases should be indexed by the @BlockHash@ and the @FinalizationIndex@ in each case.
-class (MonadIO m) => LMDBStoreMonad m where
+--
+-- The underlying monad must be a MonadLogger in order to log the database resizing and other
+-- important events.
+class (MonadIO m, MonadLogger m) => LMDBStoreMonad m where
   -- |Write a block that was finalized by the given finalization record.
   -- The finalization index is stored with the block.
   writeBlock :: BlockPointerType m -> FinalizationRecord -> m ()

@@ -1,9 +1,5 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
@@ -217,9 +213,11 @@ data RuntimeParameters = RuntimeParameters {
   -- a purge to remove long living transactions that have not been executed for more
   -- than `rpTransactionsKeepAliveTime` seconds.
   rpInsertionsBeforeTransactionPurge :: !Int,
-  -- |Number of seconds after receiving a transction during which it is kept in the
+  -- |Number of seconds after receiving a transaction during which it is kept in the
   -- transaction table if a purge is executed.
-  rpTransactionsKeepAliveTime :: !TransactionTime
+  rpTransactionsKeepAliveTime :: !TransactionTime,
+  -- |Number of seconds between automatic transaction table purging  runs.
+  rpTransactionsPurgingDelay :: !Int
   }
 
 -- |Default runtime parameters, block size = 10MB.
@@ -230,7 +228,8 @@ defaultRuntimeParameters = RuntimeParameters {
   rpBlockStateFile = "blockstate",
   rpEarlyBlockThreshold = 30, -- 30 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
-  rpTransactionsKeepAliveTime = 5 * 60 -- 5 min
+  rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
+  rpTransactionsPurgingDelay = 3 * 60 -- 3 min
   }
 
 instance FromJSON RuntimeParameters where
@@ -241,6 +240,7 @@ instance FromJSON RuntimeParameters where
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
+    rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $

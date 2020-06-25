@@ -23,6 +23,7 @@ import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Logger
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Time.Clock.POSIX
 import Control.Monad.Identity
@@ -35,7 +36,7 @@ import System.FilePath ((</>))
 import System.Random
 import System.IO.Temp
 
-type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g IO)
+type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g LogIO)
 
 type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState)
 type Test = TestM ()
@@ -54,7 +55,7 @@ createGlobalState dbDir = do
     genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyEmptyIdentityProviders [] maxBound
     state = basicGenesisState genesis
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis state
-  (x, y, NoLogContext) <- initialiseGlobalState config
+  (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState) -> IO ()
