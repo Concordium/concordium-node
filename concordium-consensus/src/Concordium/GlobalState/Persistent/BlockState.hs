@@ -454,7 +454,8 @@ doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
         updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers) >>= \case
             Nothing -> return (False, pbs)
-            Just newBakers -> (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
+            Just newBakers ->
+              (True, ) <$!> storePBS pbs (bsp {bspBirkParameters =  bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
 doRemoveBaker :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> BakerId -> m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
