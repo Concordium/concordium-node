@@ -112,10 +112,8 @@ runWithStateLog :: MVar s -> LogMethod IO -> (s -> LogIO (a, s)) -> IO a
 {-# INLINE runWithStateLog #-}
 runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar mvState) $ \state0 -> do
         tid <- myThreadId
-        logm Runner LLTrace $ "Acquired consensus lock on thread " ++ show tid
         (ret, !state') <- runLoggerT (a state0) logm
         putMVar mvState state'
-        logm Runner LLTrace $ "Released consensus lock on thread " ++ show tid
         return ret
 
 
@@ -369,7 +367,7 @@ makeAsyncRunner logm bkr config = do
                     msgLoop
                 MsgTransactionReceived transBS -> do
                     now <- getTransactionTime
-                    case runGet (getBlockItem now) transBS of
+                    case runGet (getBlockItemV0 now) transBS of
                         Right !trans -> void $ syncReceiveTransaction sr trans
                         _ -> return ()
                     msgLoop
