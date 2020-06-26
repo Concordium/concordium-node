@@ -15,7 +15,7 @@ import qualified Acorn.Core as Core
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances as Ins
-import Concordium.GlobalState.Basic.BlockState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 
 import Lens.Micro.Platform
 
