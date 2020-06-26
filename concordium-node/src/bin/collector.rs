@@ -216,7 +216,7 @@ async fn collect_data<'a>(
     trace!("Requesting node total sent message count info via gRPC");
     let node_total_sent_reply = client.peer_total_sent(empty_req()).await?;
 
-    trace!(" Requesting node total received message count via gRPC");
+    trace!("Requesting node total received message count via gRPC");
     let node_total_received_reply = client.peer_total_received(empty_req()).await?;
 
     let node_info_reply = node_info_reply.get_ref();
@@ -226,12 +226,12 @@ async fn collect_data<'a>(
     let baker_committee = node_info_reply.consensus_baker_committee;
     let finalization_committee = node_info_reply.consensus_finalizer_committee;
     let consensus_running = node_info_reply.consensus_running;
-    let uptime = node_uptime_reply.get_ref().value as f64;
+    let uptime = node_uptime_reply.get_ref().value as u64;
     let version = node_version_reply.get_ref().value.to_owned();
-    let packets_sent = node_total_sent_reply.get_ref().value as f64;
-    let packets_received = node_total_received_reply.get_ref().value as f64;
+    let packets_sent = node_total_sent_reply.get_ref().value;
+    let packets_received = node_total_received_reply.get_ref().value;
     let baker_id = if let Some(baker_id) = node_info_reply.consensus_baker_id {
-        Some(baker_id as f64)
+        Some(baker_id)
     } else {
         None
     };
@@ -249,7 +249,7 @@ async fn collect_data<'a>(
     } else {
         None
     };
-    let peers_count = peer_stats.len() as f64;
+    let peers_count = peer_stats.len() as u64;
     let peers_list =
         peer_stats.iter().map(|element| element.node_id.clone()).collect::<Vec<String>>();
 
@@ -258,7 +258,7 @@ async fn collect_data<'a>(
         serde_json::from_str(&node_consensus_status_reply.get_ref().value)?;
 
     let best_block = json_consensus_value["bestBlock"].as_str().unwrap().to_owned();
-    let best_block_height = json_consensus_value["bestBlockHeight"].as_f64().unwrap();
+    let best_block_height = json_consensus_value["bestBlockHeight"].as_u64().unwrap();
     let best_arrived_time = if json_consensus_value["blockLastArrivedTime"].is_string() {
         Some(json_consensus_value["blockLastArrivedTime"].as_str().unwrap().to_owned())
     } else {
@@ -273,13 +273,13 @@ async fn collect_data<'a>(
     let block_receive_latency_ema = json_consensus_value["blockReceiveLatencyEMA"].as_f64();
     let block_receive_latency_emsd = json_consensus_value["blockReceiveLatencyEMSD"].as_f64();
 
-    let blocks_verified_count = json_consensus_value["blocksVerifiedCount"].as_f64();
-    let blocks_received_count = json_consensus_value["blocksReceivedCount"].as_f64();
-    let finalization_count = json_consensus_value["finalizationCount"].as_f64();
+    let blocks_verified_count = json_consensus_value["blocksVerifiedCount"].as_u64();
+    let blocks_received_count = json_consensus_value["blocksReceivedCount"].as_u64();
+    let finalization_count = json_consensus_value["finalizationCount"].as_u64();
     let genesis_block = json_consensus_value["genesisBlock"].as_str().unwrap().to_owned();
 
     let finalized_block = json_consensus_value["lastFinalizedBlock"].as_str().unwrap().to_owned();
-    let finalized_block_height = json_consensus_value["lastFinalizedBlockHeight"].as_f64().unwrap();
+    let finalized_block_height = json_consensus_value["lastFinalizedBlockHeight"].as_u64().unwrap();
     let finalized_time = if json_consensus_value["lastFinalizedTime"].is_string() {
         Some(json_consensus_value["lastFinalizedTime"].as_str().unwrap().to_owned())
     } else {
@@ -295,7 +295,7 @@ async fn collect_data<'a>(
         let block_and_height_req = req_with_auth!(
             proto::BlockHashAndAmount {
                 block_hash: best_block.clone(),
-                amount:     best_block_height as u64 - finalized_block_height as u64,
+                amount:     best_block_height - finalized_block_height,
             },
             grpc_auth_token
         );
@@ -330,15 +330,31 @@ async fn collect_data<'a>(
     let node_block_info_reply = client.get_block_info(block_req).await?;
     let json_block_info_value: Value =
         serde_json::from_str(&node_block_info_reply.get_ref().value)?;
-    let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_f64();
-    let best_block_transactions_size = json_block_info_value["transactionsSize"].as_f64();
-    let best_block_total_amount = json_block_info_value["totalAmount"].as_f64();
-    let best_block_transaction_count = json_block_info_value["transactionCount"].as_f64();
+    let best_block_total_encrypted_amount = json_block_info_value["totalEncryptedAmount"].as_u64();
+    let best_block_transactions_size = json_block_info_value["transactionsSize"].as_u64();
+    let best_block_total_amount = json_block_info_value["totalAmount"].as_u64();
+    let best_block_transaction_count = json_block_info_value["transactionCount"].as_u64();
     let best_block_transaction_energy_cost =
-        json_block_info_value["transactionEnergyCost"].as_f64();
-    let best_block_execution_cost = json_block_info_value["executionCost"].as_f64();
-    let best_block_central_bank_amount = json_block_info_value["centralBankAmount"].as_f64();
-    let best_block_baker_id = json_block_info_value["blockBaker"].as_f64();
+        json_block_info_value["transactionEnergyCost"].as_u64();
+    let best_block_execution_cost = json_block_info_value["executionCost"].as_u64();
+    let best_block_central_bank_amount = json_block_info_value["centralBankAmount"].as_u64();
+    let best_block_baker_id = json_block_info_value["blockBaker"].as_u64();
+
+    let finalized_block_parent = if best_block_height == finalized_block_height {
+        json_block_info_value["blockParent"].as_str().unwrap().to_owned()
+    } else {
+        let finalized_block_req = req_with_auth!(
+            proto::BlockHash {
+                block_hash: finalized_block.clone(),
+            },
+            grpc_auth_token
+        );
+
+        let node_finalized_block_info_reply = client.get_block_info(finalized_block_req).await?;
+        let json_finalized_block_info_value: Value =
+            serde_json::from_str(&node_finalized_block_info_reply.get_ref().value)?;
+        json_finalized_block_info_value["blockParent"].as_str().unwrap().to_owned()
+    };
 
     Ok(NodeInfo {
         nodeName: node_name.to_string(),
@@ -390,5 +406,6 @@ async fn collect_data<'a>(
         genesisBlock: genesis_block,
         averageBytesPerSecondIn: avg_bps_in,
         averageBytesPerSecondOut: avg_bps_out,
+        finalizedBlockParent: finalized_block_parent,
     })
 }
