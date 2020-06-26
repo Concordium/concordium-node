@@ -24,7 +24,7 @@ import qualified Data.Aeson as AE
 import Control.Monad.Logger
 import Control.Monad.Reader
 
-share [mkPersist sqlSettings] [persistLowerCase|
+share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
   Summary sql=summaries
     block (ByteStringSerialized BlockHash)
     timestamp Timestamp
@@ -34,7 +34,7 @@ share [mkPersist sqlSettings] [persistLowerCase|
 
   Entry sql=ati
     account (ByteStringSerialized AccountAddress)
-    summary (Key Summary)
+    summary SummaryId
     deriving Eq Show
   |]
 
@@ -43,6 +43,9 @@ connectPostgres connString = runNoLoggingT (createPostgresqlPool connString 5)
 
 runPostgres :: Pool SqlBackend -> ReaderT SqlBackend (NoLoggingT IO) a -> IO a
 runPostgres pool c = runNoLoggingT (runSqlPool c pool)
+
+createTable :: Pool SqlBackend -> IO ()
+createTable pool = runPostgres pool (runMigration migrateAll)
 
 writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
 writeEntries pool BlockContext{..} hm sos = do

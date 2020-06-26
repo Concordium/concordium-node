@@ -403,6 +403,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
       dbHandle <- liftIO $ do
         dbHandle <- connectPostgres txLog
+        createTable dbHandle
         return dbHandle
       if existingDB then do
         (pbscBlobStore, pbscModuleCache) <- liftIO $ do
