@@ -130,13 +130,13 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
 instance Monad m => BS.BakerOperations (PureBlockStateMonad m) where
 
-  getBakerStake bs bid = return $ bs ^. bakerMap ^? ix bid . bakerStake
+  getBakerStake bs bid = return $ bs ^? bakerMap . ix bid . bakerStake
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs bid = return $ bs ^. bakerMap ^? ix bid . bakerInfo
+  getBakerInfo bs bid = return $ bs ^? bakerMap . ix bid . bakerInfo
   
   getFullBakerInfos = return . _bakerMap        
 

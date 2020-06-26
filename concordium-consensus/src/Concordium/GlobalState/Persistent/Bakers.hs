@@ -57,7 +57,20 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
             _bakerMap <- mBakerMap
             _nextBakerId <- mNextBakerId
             bakerIds <- Trie.keys _bakerMap
-            let collectBakerInfo (m, t, aks) bid =
+            -- Since we only store the baker-ID-to-baker-info map and next baker ID in the persistent storage,
+            -- to create a 'PersistentBakers' result we need to reconstruct the baker-signature-key-to-ID map, the total baker stake,
+            -- and the set of aggregation keys. For that we fold over the baker IDs, collecting the above information
+            -- using this 'collectBakerInfo' function.
+            -- The function
+            --   - looks up a baker's 'BakerInfo' and stake in the '_bakerMap' trie
+            --   - extracts the signature key from the 'BakerInfo' to construct the first map
+            --   - extracts the aggregation key to compute the set of aggregation keys
+            --   - uses the stake to compute the total baker stake
+            let collectBakerInfo :: (MonadIO m, MonadBlobStore m BlobRef)
+                                 => (Map.Map BakerSignVerifyKey BakerId, Amount, Set.Set BakerAggregationVerifyKey) -- an accumulator for the result computed so far
+                                 -> BakerId -- the baker ID to gather information for in this iteration
+                                 -> m (Map.Map BakerSignVerifyKey BakerId, Amount, Set.Set BakerAggregationVerifyKey)
+                collectBakerInfo (m, t, aks) bid =
                   Trie.lookup bid _bakerMap >>= \case
                     Just (bInfoRef, stake) -> do
                       BakerInfo {..} <- loadBufferedRef bInfoRef
@@ -65,7 +78,8 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
                               t + stake,
                               Set.insert _bakerAggregationVerifyKey aks)
                     Nothing ->
-                      -- This should never happen
+                      -- This should never happen because above, we collected all baker IDs contained in the '_bakerMap' trie
+                      -- so this key lookup ought to be successful
                       error $ "Baker ID " ++ show bid ++ " should be contained in baker map"
             (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) bakerIds
             return PersistentBakers {..}
@@ -129,6 +143,8 @@ updateBaker !Basic.BakerUpdate{..} !bakers = do
                        & bakersByKey . at' (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
                        & bakersByKey . at' newSignKey ?~ _buId) -- and add new identification
 
+-- Removes a baker from the 'PersistentBakers' data type and returns the resulting bakers plus a flag indicating whether
+-- the baker was successfully removed (i.e. whether the baker with the given ID was part of the bakers). 
 removeBaker :: (MonadBlobStore m BlobRef, MonadIO m) => BakerId -> PersistentBakers -> m (Bool, PersistentBakers)
 removeBaker bid !bakers = do
     let bInfoMap = bakers ^. bakerMap
