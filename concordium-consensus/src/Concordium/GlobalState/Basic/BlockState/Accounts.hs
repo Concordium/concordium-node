@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
-module Concordium.GlobalState.Basic.BlockState.Account where
+module Concordium.GlobalState.Basic.BlockState.Accounts where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set

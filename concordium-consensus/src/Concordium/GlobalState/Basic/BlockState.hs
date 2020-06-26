@@ -23,7 +23,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Account
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS

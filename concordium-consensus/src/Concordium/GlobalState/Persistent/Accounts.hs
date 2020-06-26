@@ -2,7 +2,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
-module Concordium.GlobalState.Persistent.Account where
+module Concordium.GlobalState.Persistent.Accounts where
 
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -18,7 +18,7 @@ import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTabl
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
