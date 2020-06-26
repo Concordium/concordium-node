@@ -32,9 +32,9 @@ import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Basic.BlockState.Account as B
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
-import qualified Concordium.GlobalState.Persistent.Account as P
+import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.AccountTable as PAT
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types

@@ -12,7 +12,7 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
+import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters

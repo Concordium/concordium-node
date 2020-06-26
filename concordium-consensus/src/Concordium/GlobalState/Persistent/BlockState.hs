@@ -37,7 +37,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Rewards as Rewards
-import qualified Concordium.GlobalState.Persistent.Account as Account
+import qualified Concordium.GlobalState.Persistent.Accounts as Account
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
