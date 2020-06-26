@@ -21,7 +21,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Acc
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner
