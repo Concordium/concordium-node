@@ -34,7 +34,13 @@ use p2p_client::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
-use std::{sync::Arc, thread::JoinHandle};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+};
 
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
@@ -44,6 +50,7 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
+    let shutdown_handler_state = Arc::new(AtomicBool::new(false));
 
     #[cfg(feature = "staging_net")]
     {
@@ -58,24 +65,36 @@ async fn main() -> Fallible<()> {
     let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
     // Signal handling closure. so we shut down cleanly
-    let signal_closure = |signal_handler_node: &Arc<P2PNode>| {
-        info!("Signal received attempting to shutdown node cleanly");
-        if !signal_handler_node.close() {
-            error!("Can't shutdown node properly!");
-            std::process::exit(1);
+    let signal_closure = |signal_handler_node: &Arc<P2PNode>,
+                          shutdown_handler_state: &Arc<AtomicBool>| {
+        if !shutdown_handler_state.load(Ordering::SeqCst) {
+            shutdown_handler_state.store(true, Ordering::SeqCst);
+            info!("Signal received attempting to shutdown node cleanly");
+            if !signal_handler_node.close() {
+                error!("Can't shutdown node properly!");
+                std::process::exit(1);
+            }
+        } else {
+            info!(
+                "Signal received to shutdown node cleanly, but an attempt to do so is already in \
+                 progress"
+            );
         }
     };
 
     // Register a safe handler for SIGINT / ^C
     let ctrlc_node = node.clone();
-    ctrlc::set_handler(move || signal_closure(&ctrlc_node))?;
+    let ctrlc_shutdown_handler_state = shutdown_handler_state.clone();
+    ctrlc::set_handler(move || signal_closure(&ctrlc_node, &ctrlc_shutdown_handler_state))?;
 
     // Register a SIGTERM handler for a POSIX.1-2001 system
     #[cfg(not(windows))]
     {
         let signal_hook_node = node.clone();
         unsafe {
-            signal_hook::register(signal_hook::SIGTERM, move || signal_closure(&signal_hook_node))
+            signal_hook::register(signal_hook::SIGTERM, move || {
+                signal_closure(&signal_hook_node, &shutdown_handler_state)
+            })
         }?;
     }
 
