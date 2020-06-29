@@ -5,6 +5,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE GADTs #-}
 module Concordium.GlobalState.SQL.AccountTransactionIndex where
 
@@ -47,31 +48,36 @@ runPostgres pool c = runNoLoggingT (runSqlPool c pool)
 createTable :: Pool SqlBackend -> IO ()
 createTable pool = runPostgres pool (runMigration migrateAll)
 
+-- |Write the outcomes of the transactions and the special transaction outcomes of a block
+-- into the postgresql backend. Note that this will make only one database commit as it uses
+-- `runSqlConn` internally.
 writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
-writeEntries pool BlockContext{..} hm sos = do
+writeEntries pool BlockContext{..} ati sto = do
   runPostgres pool c
   where c :: ReaderT SqlBackend (NoLoggingT IO) ()
         c = do
-          let hm' =
-                fmap (\(k, v) -> (Summary {
-                                    summaryBlock = ByteStringSerialized bcHash,
-                                    summarySummary = AE.toJSON v,
-                                    summaryTimestamp = bcTime,
-                                    summaryHeight = bcHeight}
-                                , Entry (ByteStringSerialized k))) hm
-              sos' =
-                fmap (\v ->  (Summary {
-                                summaryBlock = ByteStringSerialized bcHash,
-                                summarySummary = AE.toJSON v,
-                                summaryTimestamp = bcTime,
-                                summaryHeight = bcHeight }
-                            , Entry (ByteStringSerialized $ stoBakerAccount v))) sos
+          let createSummary :: forall v. (AE.ToJSON v) => v -> Summary
+              createSummary v = Summary {
+                summaryBlock = ByteStringSerialized bcHash,
+                summarySummary = AE.toJSON v,
+                summaryTimestamp = bcTime,
+                summaryHeight = bcHeight}
+              -- In these collections the transaction outcomes are
+              -- mapped to the database values.
+              atiWithDatabaseValues = reverse $ -- reverse is because the latest entry is the head of the list
+                fmap (\(k, v) -> (createSummary v
+                                , Entry (ByteStringSerialized k))) ati
+              stoWithDatabaseValues =
+                fmap (\v ->  (createSummary v
+                            , Entry (ByteStringSerialized $ stoBakerAccount v))) sto
 
+              -- Insert all the Summaries, get the keys in the same query (postgresql does it in one query)
+              -- and insert all the entries after adding the correct `Key Summary` to each one of them.
               runInsertion :: [(Summary, Key Summary -> Entry)] -> ReaderT SqlBackend (NoLoggingT IO) ()
               runInsertion xs = do
                 xskeys <- insertMany (Prelude.map fst xs)
                 insertMany_ (Prelude.zipWith (\x y -> (snd x) y) xs xskeys)
 
-          runInsertion hm'
-          runInsertion sos'
+          runInsertion atiWithDatabaseValues
+          runInsertion stoWithDatabaseValues
           pure ()
