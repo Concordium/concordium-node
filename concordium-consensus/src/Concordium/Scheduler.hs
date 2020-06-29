@@ -64,6 +64,7 @@ import Control.Applicative
 import Control.Monad.Except
 import Control.Exception
 import qualified Data.HashMap.Strict as Map
+import qualified Data.Set as Set
 import Data.Maybe(fromJust, isJust)
 import Data.Ord
 import Data.List hiding (group)
@@ -1064,7 +1065,11 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
           else
             return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
 
--- TODO: document
+
+-- |Updates the the account keys. For each (index, key) pair, updates the key at
+-- the specified index to the specified key.
+-- Is valid when the indices all points to a key and no duplicates appear amongst
+-- the indices.
 handleUpdateAccountKeys ::
   SchedulerMonad m
     => WithDepositContext
@@ -1084,9 +1089,14 @@ handleUpdateAccountKeys wtc keys =
         Nothing -> do
           updateAccountKeys (senderAccount ^. accountAddress) keys
           return (TxSuccess [AccountKeysUpdated keys], energyCost, usedEnergy)
-        Just idx -> return (TxReject (NonexistentAccountKey idx), energyCost, usedEnergy)
+        Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
 
--- TODO: Document
+
+-- |Removes the account keys at the supplied indices and, optionally, updates
+-- the signature threshold.
+-- Is valid when the indeces supplied are already in use, the new threshold
+-- does not exceed the new total amount of keys, and there are no duplicates
+-- amongst the supplied indices.
 handleRemoveAccountKeys ::
   SchedulerMonad m
     => WithDepositContext
@@ -1100,17 +1110,29 @@ handleRemoveAccountKeys wtc indices threshold =
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.removeAccountKeys $ length indices
+    numOfKeys = length (ID.akKeys $ senderAccount ^. accountVerificationKeys)
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       case checkKeysExist (senderAccount ^. accountVerificationKeys) indices of
-        Nothing -> do
-          removeAccountKeys (senderAccount ^. accountAddress) indices (fromIntegral 0) -- TODO: handle threshold update
-          return (TxSuccess [AccountKeysRemoved indices], energyCost, usedEnergy)
-        Just idx -> return (TxReject (NonexistentAccountKey idx), energyCost, usedEnergy)
+        Nothing ->
+          case threshold of
+            Just newThreshold ->
+              if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+                removeAccountKeys (senderAccount ^. accountAddress) indices threshold
+                return (TxSuccess [AccountKeysRemoved indices, AccountKeysSignThresholdUpdated newThreshold], energyCost, usedEnergy)
+              else
+                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+            Nothing -> do
+              removeAccountKeys (senderAccount ^. accountAddress) indices threshold
+              return (TxSuccess [AccountKeysRemoved indices], energyCost, usedEnergy)
+        Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
 
 
--- TODO: document
+-- |Adds keys to the account at the supplied indices and, optionally, updates
+-- the signature threshold
+-- Is valid when the indeces supplies are not already in use, there are no duplicates
+-- amongst the indices and the new threshold doesn’t exceed the new total amount of keys
 handleAddAccountKeys ::
   SchedulerMonad m
     => WithDepositContext
@@ -1124,30 +1146,54 @@ handleAddAccountKeys wtc keys threshold =
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.addAccountKeys $ length keys
+    numOfKeys = length (ID.akKeys $ senderAccount ^. accountVerificationKeys)
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      addAccountKeys (senderAccount ^. accountAddress) keys (fromIntegral 0) -- TODO: handle threshold update 
-      return (TxReject InvalidProof, energyCost, usedEnergy) -- TODO: do stuff here
+      case checkKeysDontExist (senderAccount ^. accountVerificationKeys) (map fst keys) of
+        Nothing -> case threshold of
+          Just newThreshold ->
+            if newThreshold <= (fromIntegral (numOfKeys + (length keys))) then do
+              addAccountKeys (senderAccount ^. accountAddress) keys threshold
+              return (TxSuccess [AccountKeysAdded keys, AccountKeysSignThresholdUpdated newThreshold], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+          Nothing -> do
+            addAccountKeys (senderAccount ^. accountAddress) keys threshold
+            return (TxSuccess [AccountKeysAdded keys], energyCost, usedEnergy)
+        Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
+
 
 -- Checks if a key in AccountKeys belongs to each index in the list of indices.
--- Returns Nothing if a key belongs to each index. Otherwise returns the first index
--- encountered for which there is no key
-checkKeysExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe ID.KeyIndex
-checkKeysExist accountKeys = f
+-- Returns Nothing if a key belongs to each index and no duplicates are encountered
+-- in the list.
+checkKeysExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe RejectReason
+checkKeysExist accountKeys = f Set.empty
   where
-    f [] = Nothing
-    f (idx : idxs) = case ID.getAccountKey idx accountKeys of
-      Just _ -> f idxs
-      Nothing -> Just idx
+    f _ [] = Nothing
+    f seen (idx : idxs) = case ID.getAccountKey idx accountKeys of
+      Just _ ->
+        if Set.member idx seen then
+          Just $ DuplicateKeyIndex idx
+        else
+          f (Set.insert idx seen) idxs
+      Nothing -> Just $ NonexistentAccountKey idx
 
-checkKeysDontExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe ID.KeyIndex
-checkKeysDontExist accountKeys = f
+
+-- Inverse of checkKeysExist.
+-- Returns Nothing if a key does not belongs to each index and no duplicates are
+-- encountered in the list.
+checkKeysDontExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe RejectReason
+checkKeysDontExist accountKeys = f Set.empty
   where
-    f [] = Nothing
-    f (idx : idxs) = case ID.getAccountKey idx accountKeys of
-      Just _ -> Just idx
-      Nothing -> f idxs
+    f _ [] = Nothing
+    f seen (idx : idxs) = case ID.getAccountKey idx accountKeys of
+      Just _ -> Just $ KeyIndexAlreadyInUse idx
+      Nothing ->
+        if Set.member idx seen then
+          Just $ DuplicateKeyIndex idx
+        else
+          f (Set.insert idx seen) idxs
 
 
 -- * Exposed methods.

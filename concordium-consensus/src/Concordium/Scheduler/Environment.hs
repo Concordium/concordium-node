@@ -238,13 +238,13 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- account's keys. does NOT check that these indices are already associated with
   -- keys - this should be checked BEFORE.
   -- Precondition: The  account exists
-  removeAccountKeys :: AccountAddress -> [ID.KeyIndex] -> ID.SignatureThreshold -> m ()
+  removeAccountKeys :: AccountAddress -> [ID.KeyIndex] -> Maybe ID.SignatureThreshold -> m ()
 
   -- |Adds the account verification keys to the account at the specified indicies.
   -- Does NOT check that these key indexes doesn't already have keys associated with
   -- them - this should be checked BEFORE callin.
   -- Preconditinon: The account exists
-  addAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> m ()
+  addAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] ->  Maybe ID.SignatureThreshold -> m ()
 
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
   -- Returns 'True' if the delegation was successful, and 'False' if the baker is
