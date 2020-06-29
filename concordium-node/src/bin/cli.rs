@@ -21,7 +21,6 @@ use consensus_rust::{
     ffi,
     messaging::ConsensusMessage,
 };
-use ctrlc;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
     configuration as config,
