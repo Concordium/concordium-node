@@ -271,6 +271,7 @@ extern "C" {
         max_block_size: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
+        transactions_purging_delay: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         private_data: *const u8,
@@ -289,6 +290,7 @@ extern "C" {
         max_block_size: u64,
         insertions_before_purging: u64,
         transaction_keep_alive: u64,
+        transactions_purging_delay: u64,
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
@@ -415,6 +417,7 @@ pub fn get_consensus_ptr(
     max_block_size: u64,
     insertions_before_purging: u64,
     transaction_keep_alive: u64,
+    transactions_purging_delay: u64,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
@@ -438,6 +441,7 @@ pub fn get_consensus_ptr(
                     max_block_size,
                     insertions_before_purging,
                     transaction_keep_alive,
+                    transactions_purging_delay,
                     c_string_genesis.as_ptr() as *const u8,
                     genesis_data_len as i64,
                     c_string_private_data.as_ptr() as *const u8,
@@ -462,6 +466,7 @@ pub fn get_consensus_ptr(
                         max_block_size,
                         insertions_before_purging,
                         transaction_keep_alive,
+                        transactions_purging_delay,
                         c_string_genesis.as_ptr() as *const u8,
                         genesis_data_len as i64,
                         catchup_status_callback,
@@ -838,15 +843,21 @@ pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
 /// Following the implementation of the log crate, error = 1, warning = 2, info
 /// = 3, 4 = debug, any other option is considered as trace.
 pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_message: *const u8) {
+    // These types are defined in `Concordium.Logger` inside the `globalstate_types`
+    // package.
     fn identifier_to_string(id: c_char) -> &'static str {
         match id {
-            1 => "Runner",
-            2 => "Afgjort",
-            3 => "Birk",
-            4 => "Crypto",
-            5 => "Kontrol",
-            6 => "Skov",
-            7 => "Baker",
+            0 => "Runner",
+            1 => "Afgjort",
+            2 => "Birk",
+            3 => "Crypto",
+            4 => "Kontrol",
+            5 => "Skov",
+            6 => "Baker",
+            8 => "GlobalState",
+            9 => "BlockState",
+            10 => "TreeState",
+            11 => "LMDB",
             _ => "External",
         }
     }

@@ -535,7 +535,7 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
                         delay = fromIntegral ticks' * durationToNominalDiffTime finalizationWaitingTime
                     if delay == 0 then
                         triggerWMVBA _finsSessionId _finsIndex roundDelta action
-                    else 
+                    else
                         () <$ onTimeout (DelayFor delay) (triggerWMVBA _finsSessionId _finsIndex roundDelta action)
                     handleEvs b evs'
             handleEvs False evs
@@ -823,7 +823,7 @@ findInstanceInCommittee finInst committee =
       ps = parties committee
   in case Vec.find (\p -> partySignKey p == myVerifyKey && partyVRFKey p == myPublicVRFKey) ps of
        Just p -> Just (partyIndex p)
-       Nothing -> Nothing        
+       Nothing -> Nothing
 
 -- |Produce 'OutputWitnesses' based on the pending finalization messages.
 -- This is used when we know finalization has occurred (by receiving a
@@ -1058,11 +1058,11 @@ nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType
 nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
-    
+
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, LoggerMonad, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
 
 deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
 deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM r s m)

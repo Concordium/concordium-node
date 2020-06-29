@@ -127,13 +127,15 @@ linkPer100Size = 1
 link :: LinkedTermSize -> Energy
 link size = ((fromIntegral size + 99) `div` 100) * linkPer100Size
 
--- | For a given amount of energy, determine the maximum resulting size of a tearm that can be
+-- | For a given amount of energy, determine the maximum resulting size of a term that can be
 -- linked using that energy.
 maxLink :: Energy -> LinkedTermSize
 maxLink e = fromIntegral $ (e * 100) `div` linkPer100Size
 
 -- * Cost for individual transactions / actions
 
+-- TODO Remove this summarization of only part of the transaction's cost.
+-- Maybe instead add 'storeModule' to abstract from 'storeBytes'.
 -- |Cost to deploy the module (cost for typechecking and storing it), excluding cost for
 -- loading dependencies (see 'lookupModule'). Also includes cost for compiling the module.
 -- Computed from the serialized size of the module.
@@ -156,8 +158,6 @@ updateMessageTypecheck :: Word64 -> Energy
 updateMessageTypecheck = typeCheck
 
 -- |Fixed cost per generated inter-contract message.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
 interContractMessage :: Energy
 interContractMessage = 10
 
@@ -183,14 +183,13 @@ updateBakerAccount :: Energy
 updateBakerAccount = 90
 
 -- |Cost to update the baker's signature verification key.
-updateBakerKey :: Energy
-updateBakerKey = 90
+updateBakerSignKey :: Energy
+updateBakerSignKey = 90
 
 -- |Cost to update an account's stake delegate.
 -- This is parametrised by the number of smart contract instances
 -- owned by the account.
--- TODO This cost is outdated and has to be set in relation to the other cost when
--- the respective transactions are enabled.
+-- TODO This cost is examplary, and a suitable relation for the parameters has to be determined.
 updateStakeDelegate :: Int -> Energy
 updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50
 
@@ -200,7 +199,7 @@ updateElectionDifficulty = 0
 
 -- |Cost to update baker aggregation key
 -- The main part here is checking a dlog proof, and that cost is essentially
--- the same as the cost in adding a baker - 2 * updateBakerKey.
+-- the same as the cost in adding a baker - 3 * updateBakerSignKey.
 updateBakerAggregationVerifyKey :: Energy
 updateBakerAggregationVerifyKey = 2700
 
