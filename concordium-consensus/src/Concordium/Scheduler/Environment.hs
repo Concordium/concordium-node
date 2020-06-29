@@ -229,21 +229,30 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   updateBakerElectionKey :: BakerId -> BakerElectionVerifyKey -> m ()
 
   -- |Replaces the account verification keys at the indices with the paired key
-  -- for the account at the given account. Does NOT check that there is already
-  -- keys associated with the supplied indices - this should be checked BEFORE
-  -- Precondition: The accounts exists
+  -- for the account at the given account.
+  -- Preconditions:
+  -- * The account exists
+  -- * The account has keys defined at the specified indicies
+  -- * There are no duplicates amongst the indices.
   updateAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] -> m ()
 
   -- |Removes the account verification keys at the given indices from the
-  -- account's keys. does NOT check that these indices are already associated with
-  -- keys - this should be checked BEFORE.
-  -- Precondition: The  account exists
+  -- account's keys.
+  -- Preconditions:
+  -- * The account exists
+  -- * The account has keys defined at the specified indicies
+  -- * There are no duplicates amongst the indices.
+  -- * The new threshold does not exceed the new total number of keys
   removeAccountKeys :: AccountAddress -> [ID.KeyIndex] -> Maybe ID.SignatureThreshold -> m ()
 
   -- |Adds the account verification keys to the account at the specified indicies.
   -- Does NOT check that these key indexes doesn't already have keys associated with
-  -- them - this should be checked BEFORE callin.
-  -- Preconditinon: The account exists
+  -- them - this should be checked BEFORE calling.
+  -- Preconditions:
+  -- * The account exists
+  -- * The account does not have keys defined at the specified indicies
+  -- * There are no duplicates amongst the indices.
+  -- * The new threshold does not exceed the new total number of keys
   addAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] ->  Maybe ID.SignatureThreshold -> m ()
 
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.

@@ -291,19 +291,21 @@ instance (MonadReader ContextState m,
   {-# INLINE updateAccountKeys #-}
   updateAccountKeys accAddr keys = do
     s <- use schedulerBlockState
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr)) -- TODO: add actualy behaviour to the update
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ SetKeys keys))
     schedulerBlockState .= s'
 
   {-# INLINE addAccountKeys #-}
   addAccountKeys accAddr keys threshold = do
     s <- use schedulerBlockState
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr)) -- TODO: add actualy behaviour to the update
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ SetKeys keys
+                                                               & auSignThreshold .~ threshold))
     schedulerBlockState .= s'
 
   {-# INLINE removeAccountKeys #-}
   removeAccountKeys accAddr keyIdxs threshold = do
     s <- use schedulerBlockState
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr)) -- TODO: add actualy behaviour to the update
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ RemoveKeys keyIdxs
+                                                               & auSignThreshold .~ threshold))
     schedulerBlockState .= s'
 
   {-# INLINE delegateStake #-}
