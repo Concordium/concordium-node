@@ -77,7 +77,7 @@ async fn main() -> Fallible<()> {
         } else {
             info!(
                 "Signal received to shutdown node cleanly, but an attempt to do so is already in \
-                 progress"
+                 progress."
             );
         }
     };
