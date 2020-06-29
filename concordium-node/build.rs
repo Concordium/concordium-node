@@ -1,9 +1,3 @@
-use flatc_rust;
-use tonic_build;
-
-#[cfg(feature = "s11n_capnp")]
-use capnpc;
-
 use std::path::Path;
 
 fn main() {

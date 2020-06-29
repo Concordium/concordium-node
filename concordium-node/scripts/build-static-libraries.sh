@@ -215,7 +215,7 @@ cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
     cd crypto/rust-bins &&
     cargo build --release
 )
-cp $(pwd)/crypto/rust-bins/target/release/{client,genesis_tool,generate_testdata,server,wallet_server} /binaries/bin/
+cp $(pwd)/crypto/rust-bins/target/release/{client,genesis_tool,generate_testdata,server} /binaries/bin/
 
 
 #############################################################################################################################

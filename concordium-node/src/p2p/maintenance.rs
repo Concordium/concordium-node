@@ -3,10 +3,6 @@
 use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
 use failure::Fallible;
-#[cfg(not(target_os = "windows"))]
-use get_if_addrs;
-#[cfg(target_os = "windows")]
-use ipconfig;
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rkv::{Manager, Rkv};

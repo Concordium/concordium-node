@@ -1,4 +1,3 @@
-use capnp;
 use failure::Fallible;
 
 use crate::{

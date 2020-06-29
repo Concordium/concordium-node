@@ -22,7 +22,6 @@ use gotham::{
     state::{FromState, State},
 };
 use hyper::{body, Body, Response, StatusCode};
-use rmp_serde;
 use std::{
     collections::HashMap,
     hash::BuildHasherDefault,

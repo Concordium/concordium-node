@@ -2,7 +2,6 @@
 use env_logger::Env;
 use failure::Fallible;
 use p2p_client::{common::collector_utils::NodeInfo, req_with_auth, utils::setup_logger_env};
-use rmp_serde;
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
