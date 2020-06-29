@@ -19,11 +19,13 @@ import Database.Persist.Postgresql
 import Database.Persist.Postgresql.JSON()
 import Database.Persist.TH
 import Data.Pool
+import qualified Data.HashMap.Strict as HM (insert)
 
 import qualified Data.Aeson as AE
 
 import Control.Monad.Logger
 import Control.Monad.Reader
+import Data.Text (Text)
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
   Summary sql=summaries
@@ -56,27 +58,27 @@ writeEntries pool BlockContext{..} ati sto = do
   runPostgres pool c
   where c :: ReaderT SqlBackend (NoLoggingT IO) ()
         c = do
-          let createSummary :: forall v. (AE.ToJSON v) => v -> Summary
-              createSummary v = Summary {
+          let createSummary :: forall v. (AE.ToJSON v) => v -> Text -> Summary
+              createSummary v tagText = Summary {
                 summaryBlock = ByteStringSerialized bcHash,
-                summarySummary = AE.toJSON v,
+                summarySummary = (\(AE.Object o) -> AE.Object $ HM.insert "tag" (AE.String tagText) o) (AE.toJSON v),
                 summaryTimestamp = bcTime,
                 summaryHeight = bcHeight}
               -- In these collections the transaction outcomes are
               -- mapped to the database values.
               atiWithDatabaseValues = reverse $ -- reverse is because the latest entry is the head of the list
-                fmap (\(k, v) -> (createSummary v
+                fmap (\(k, v) -> (createSummary v "BlockTransaction"
                                 , Entry (ByteStringSerialized k))) ati
               stoWithDatabaseValues =
-                fmap (\v ->  (createSummary v
+                fmap (\v ->  (createSummary v "SpecialTransaction"
                             , Entry (ByteStringSerialized $ stoBakerAccount v))) sto
 
               -- Insert all the Summaries, get the keys in the same query (postgresql does it in one query)
               -- and insert all the entries after adding the correct `Key Summary` to each one of them.
               runInsertion :: [(Summary, Key Summary -> Entry)] -> ReaderT SqlBackend (NoLoggingT IO) ()
               runInsertion xs = do
-                xskeys <- insertMany (Prelude.map fst xs)
-                insertMany_ (Prelude.zipWith (\x y -> (snd x) y) xs xskeys)
+                xskeys <- insertMany (map fst xs)
+                insertMany_ (zipWith (\x y -> (snd x) y) xs xskeys)
 
           runInsertion atiWithDatabaseValues
           runInsertion stoWithDatabaseValues
