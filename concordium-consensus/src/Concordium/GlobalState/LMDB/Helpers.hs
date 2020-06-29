@@ -72,15 +72,12 @@ class MDBDatabase db where
 -- specifies if the transaction is read-only.
 transaction :: MDB_env -> Bool -> (MDB_txn -> IO a) -> IO a
 transaction env readOnly tx
-  = threadRun $ bracketOnError
-      (mdb_txn_begin env Nothing readOnly)
-      mdb_txn_abort 
-      runTx
-  where
-    runTx txn = do
-      res <- tx txn
+  = threadRun $ mask $ \unmask -> do
+      txn <- mdb_txn_begin env Nothing readOnly
+      res <- unmask (tx txn) `onException` mdb_txn_abort txn
       mdb_txn_commit txn
       return res
+  where
     threadRun
         | readOnly = id
         | otherwise = runInBoundThread

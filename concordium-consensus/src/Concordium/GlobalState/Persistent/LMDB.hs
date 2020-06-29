@@ -323,6 +323,8 @@ resizeOnFull addSize a = do
     selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
                               _ -> Nothing
 
+-- |Write a block to the database. Adds it both to the index by height and
+-- by block hash.
 writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
   => StoredBlock st -> m ()
 writeBlock block = resizeOnFull blockSize
@@ -334,6 +336,7 @@ writeBlock block = resizeOnFull blockSize
   where
     blockSize = 2*digestSize + fromIntegral (LBS.length (S.encodeLazy block))
 
+-- |Write a finalization record to the database.
 writeFinalizationRecord :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => FinalizationRecord -> m ()
 writeFinalizationRecord finRec = resizeOnFull finRecSize
@@ -345,6 +348,7 @@ writeFinalizationRecord finRec = resizeOnFull finRecSize
           -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
 
+-- |Write a single transaction status to the database.
 writeTransactionStatus :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => TransactionHash -> FinalizedTransactionStatus -> m ()
 writeTransactionStatus th ts = resizeOnFull tsSize
@@ -354,61 +358,12 @@ writeTransactionStatus th ts = resizeOnFull tsSize
   where
     tsSize = 2 * digestSize + 16
 
+-- |Write a collection of transaction statuses to the database.  This occurs
+-- as a single transaction which is faster than writing them individually.
 writeTransactionStatuses :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => [(TransactionHash, FinalizedTransactionStatus)] -> m ()
-writeTransactionStatuses ts0 = do
-    dbh <- use dbHandlers
-    dbh' <- doWTS dbh ts0
-    dbHandlers .= dbh'
+writeTransactionStatuses tss = resizeOnFull tssSize
+    $ \dbh -> transaction (dbh ^. storeEnv) False
+    $ \txn -> forM_ tss (\(tHash, tStatus) -> storeReplaceRecord txn (dbh ^. transactionStatusStore) tHash tStatus)
   where
-    doWTS dbh [] = return dbh
-    doWTS dbh ts = do
-      ts' <- liftIO $ transaction (dbh ^. storeEnv) False $ process dbh ts
-      case ts' of
-        [] -> return dbh
-        _ -> do
-          dbh' <- resizeDatabaseHandlers dbh (Prelude.length ts' * (2*digestSize + 16))
-          doWTS dbh' ts'
-    process _ [] _ = return []
-    process dbh ts@((tHash, tStatus) : rts) txn = do
-      res <- tryJust selectDBFullError $ storeReplaceRecord txn (dbh ^. transactionStatusStore) tHash tStatus
-      case res of
-        -- If the DB is full, commit the transaction as is, then retry
-        -- once it is resized.
-        Left _ -> return ts
-        Right _ -> process dbh rts txn
-    selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
-                              _ -> Nothing
-
-{-
-class (MonadIO m) => LMDBQueryMonad m where
-   readBlock :: BlockHash -> m (Maybe (BlockPointerType m))
-   readFinalizationRecord :: FinalizationIndex -> m (Maybe FinalizationRecord)
-   readTransactionStatus :: TransactionHash -> m (Maybe T.TransactionStatus)
-   -- |Read a finalized block at a given height, if it exists.
-   readFinalizedBlockAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
-
-   -- |Check if the given key is in the on-disk transaction table. At the moment
-   -- this has a default implementation in terms of 'readTransactionStatus', but
-   -- this could be replaced with a more efficient variant which does not load
-   -- the data from memory.
-   memberTransactionTable :: TransactionHash -> m Bool
-   memberTransactionTable = fmap isJust . readTransactionStatus
-
--- |Monad to abstract over the operations for writing to a LMDB database.
--- It provides functions for reading and writing Blocks and FinalizationRecords.
--- The databases should be indexed by the @BlockHash@ and the @FinalizationIndex@ in each case.
---
--- The underlying monad must be a MonadLogger in order to log the database resizing and other
--- important events.
-class (MonadIO m, MonadLogger m) => LMDBStoreMonad m where
-  -- |Write a block that was finalized by the given finalization record.
-  -- The finalization index is stored with the block.
-  writeBlock :: BlockPointerType m -> FinalizationRecord -> m ()
-
-  writeFinalizationRecord :: FinalizationRecord -> m ()
-
-  writeTransactionStatus :: TransactionHash -> T.TransactionStatus -> m ()
-
-  writeTransactionStatuses :: [(TransactionHash, T.TransactionStatus)] -> m ()
--}
+    tssSize = (Prelude.length tss) * (2 * digestSize + 16)
