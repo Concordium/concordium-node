@@ -283,7 +283,7 @@ deriving via BlockStateM c r g s m
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, BlockStateQuery (GlobalStateM db c r g s m),
+    instance (BlockStateQuery (GlobalStateM db c r g s m),
               BlockStateOperations (BlockStateM c r g s m))
              => BlockStateOperations (GlobalStateM db c r g s m)
 
