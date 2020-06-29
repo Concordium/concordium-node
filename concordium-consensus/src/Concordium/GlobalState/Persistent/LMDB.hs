@@ -195,17 +195,11 @@ closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers st -> Int -> m (DatabaseHandlers st)
 resizeDatabaseHandlers dbh size = do
   let delta = size + (dbStepSize - size `mod` dbStepSize)
-      _dbMapSize = (dbh ^. dbMapSize) + delta
+      newMapSize = (dbh ^. dbMapSize) + delta
       _storeEnv = dbh ^. storeEnv
-  logEvent LMDB LLDebug $ "Resizing database from " ++ show (dbh ^. dbMapSize) ++ " to " ++ show _dbMapSize
-  liftIO $ do
-    mdb_env_set_mapsize _storeEnv _dbMapSize
-    transaction _storeEnv False $ \txn -> do
-      _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) [MDB_CREATE]
-      _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE]
-      _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) [MDB_CREATE]
-      _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) [MDB_CREATE]
-      return DatabaseHandlers{..}
+  logEvent LMDB LLDebug $ "Resizing database from " ++ show (dbh ^. dbMapSize) ++ " to " ++ show newMapSize
+  liftIO $ mdb_env_set_mapsize _storeEnv newMapSize
+  return dbh{_dbMapSize = newMapSize}
 
 -- |Read a block from the database by hash.
 readBlock :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)

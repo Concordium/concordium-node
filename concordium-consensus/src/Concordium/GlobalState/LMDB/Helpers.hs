@@ -82,7 +82,10 @@ transaction env readOnly tx
         | readOnly = id
         | otherwise = runInBoundThread
 
--- |Use a 'ByteString' as an 'MDB_val'.
+-- |Use a 'ByteString' as an 'MDB_val'.  This uses 'BS.unsafeUseAsCStringLen',
+-- which means some caveats apply.  If the string is zero-length, the pointer
+-- is not required to be valid (and may be null).  The data at the pointer
+-- should also not be overwritten as this will unsafely modify the ByteString.
 withMDB_val :: ByteString -> (MDB_val -> IO a) -> IO a
 withMDB_val bs a = BS.unsafeUseAsCStringLen bs $ \(ptr, plen) -> a $ MDB_val (fromIntegral plen) (coerce ptr)
 
