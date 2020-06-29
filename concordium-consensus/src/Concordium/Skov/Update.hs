@@ -86,7 +86,7 @@ class OnSkov m where
 -- been in the tree before, and now it never can be.  Any descendents of
 -- this block that have previously arrived cannot have been added to the
 -- tree, and we purge them recursively from '_skovPossiblyPendingTable'.
-blockArriveDead :: (HasCallStack, BlockPointerMonad m, LoggerMonad m, TreeStateMonad m) => BlockHash -> m ()
+blockArriveDead :: (HasCallStack, BlockPointerMonad m, MonadLogger m, TreeStateMonad m) => BlockHash -> m ()
 blockArriveDead cbp = do
         markDead cbp
         logEvent Skov LLDebug $ "Block " ++ show cbp ++ " arrived dead"
@@ -94,7 +94,7 @@ blockArriveDead cbp = do
         forM_ children blockArriveDead
 
 -- |Purge pending blocks with slot numbers predating the last finalized slot.
-purgePending :: (HasCallStack, TreeStateMonad m, LoggerMonad m) => m ()
+purgePending :: (HasCallStack, TreeStateMonad m, MonadLogger m) => m ()
 purgePending = do
         lfSlot <- getLastFinalizedSlot
         let purgeLoop = takeNextPendingUntil lfSlot >>= \case
@@ -200,7 +200,7 @@ processFinalization newFinBlock finRec@FinalizationRecord{..} = do
         unTrimmedBranches <- pruneBranches [newFinBlock] (Seq.drop pruneHeight oldBranches)
         -- This removes empty lists at the end of branches which can result in finalizing on a
         -- block not in the current best local branch
-        let 
+        let
             trimBranches Seq.Empty = return Seq.Empty
             trimBranches prunedbrs@(xs Seq.:|> x) =
                 case x of
