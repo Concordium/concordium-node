@@ -272,7 +272,7 @@ getBlock arrivalTime = do
         bfBlockProof <- get
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
-        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
+        bbTransactions <- getListOf (getBlockItem arrivalTime)
         bbSignature <- get
         return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
