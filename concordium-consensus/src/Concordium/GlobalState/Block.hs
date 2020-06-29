@@ -74,6 +74,9 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- to get the serialized version of the block that we want to write into the disk.
     putBlock :: b -> Put
 
+putBlockV0 :: (BlockData b) => b -> Put
+putBlockV0 b = put versionBlock >> putBlock b
+
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
     blockReceiveTime :: b -> UTCTime

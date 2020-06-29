@@ -85,7 +85,7 @@ initializeDatabase gb serState rp@RuntimeParameters{..} = do
   transaction _storeEnv $ do
     L.put _blockStore gbh (Just $ runPut (S.put (0 :: FinalizationIndex) <>
                                           S.put (_bpInfo gb) <>
-                                          putBlock gb <>
+                                          putBlockV0 gb <>
                                           serState))
     L.put _finalizedByHeightStore 0 (Just gbh)
     L.put _finalizationRecordStore 0 (Just gbfin)
