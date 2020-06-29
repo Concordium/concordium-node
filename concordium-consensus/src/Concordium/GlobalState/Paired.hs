@@ -35,7 +35,7 @@ import Concordium.Logger (MonadLogger)
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
-    deriving (Functor, Applicative, Monad, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
 instance (MonadReader r' m, Coercible r' r) =>
         MonadReader r (ReviseRSM r s m) where
