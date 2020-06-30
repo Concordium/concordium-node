@@ -1111,6 +1111,7 @@ handleRemoveAccountKeys wtc indices threshold =
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.removeAccountKeys $ length indices
     numOfKeys = length (ID.akKeys $ senderAccount ^. accountVerificationKeys)
+    currentThreshold = (ID.akThreshold $ senderAccount ^. accountVerificationKeys)
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
@@ -1127,8 +1128,11 @@ handleRemoveAccountKeys wtc indices threshold =
               else
                 return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
             Nothing -> do
-              removeAccountKeys (senderAccount ^. accountAddress) indices threshold
-              return (TxSuccess [AccountKeysRemoved (senderAccount ^. accountAddress) indices], energyCost, usedEnergy)
+              if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+                removeAccountKeys (senderAccount ^. accountAddress) indices threshold
+                return (TxSuccess [AccountKeysRemoved (senderAccount ^. accountAddress) indices], energyCost, usedEnergy)
+              else
+                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
         Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
 
 
