@@ -62,7 +62,7 @@ tOkayE :: Amount -> Nonce -> Energy -> TransactionJSON
 tOkayE amount nonce energy =
   TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
         , metadata = makeDummyHeader alesAccount nonce energy
-        , keypair = alesKP
+        , keys = [(0, alesKP)]
         }
 
 -- | Make a test transaction (simple transfer with given amount) that will fail with 'tFailKind'.
@@ -70,7 +70,7 @@ tFail :: Amount -> Nonce -> TransactionJSON
 tFail amount nonce =
   TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
         , metadata = makeDummyHeader alesAccount nonce 0 -- will result in DepositInsufficient failure
-        , keypair = alesKP
+        , keys = [(0, alesKP)]
         }
 
 -- | 'FailureKind' of 'tFail'.
