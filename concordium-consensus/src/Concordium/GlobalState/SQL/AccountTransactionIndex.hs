@@ -10,6 +10,7 @@
 module Concordium.GlobalState.SQL.AccountTransactionIndex where
 
 import Concordium.Types
+import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.SQL
@@ -19,13 +20,10 @@ import Database.Persist.Postgresql
 import Database.Persist.Postgresql.JSON()
 import Database.Persist.TH
 import Data.Pool
-import qualified Data.HashMap.Strict as HM (insert)
-
 import qualified Data.Aeson as AE
 
 import Control.Monad.Logger
 import Control.Monad.Reader
-import Data.Text (Text)
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
   Summary sql=summaries
@@ -50,6 +48,8 @@ runPostgres pool c = runNoLoggingT (runSqlPool c pool)
 createTable :: Pool SqlBackend -> IO ()
 createTable pool = runPostgres pool (runMigration migrateAll)
 
+type PersistentTransactionOutcome = Either TransactionSummary SpecialTransactionOutcome
+
 -- |Write the outcomes of the transactions and the special transaction outcomes of a block
 -- into the postgresql backend. Note that this will make only one database commit as it uses
 -- `runSqlConn` internally.
@@ -58,19 +58,19 @@ writeEntries pool BlockContext{..} ati sto = do
   runPostgres pool c
   where c :: ReaderT SqlBackend (NoLoggingT IO) ()
         c = do
-          let createSummary :: forall v. (AE.ToJSON v) => v -> Text -> Summary
-              createSummary v tagText = Summary {
+          let createSummary :: v -> (v -> PersistentTransactionOutcome) -> Summary
+              createSummary v constructor = Summary {
                 summaryBlock = ByteStringSerialized bcHash,
-                summarySummary = (\(AE.Object o) -> AE.Object $ HM.insert "tag" (AE.String tagText) o) (AE.toJSON v),
+                summarySummary = AE.toJSON (constructor v),
                 summaryTimestamp = bcTime,
                 summaryHeight = bcHeight}
               -- In these collections the transaction outcomes are
               -- mapped to the database values.
               atiWithDatabaseValues = reverse $ -- reverse is because the latest entry is the head of the list
-                fmap (\(k, v) -> (createSummary v "BlockTransaction"
+                fmap (\(k, v) -> (createSummary v Left
                                 , Entry (ByteStringSerialized k))) ati
               stoWithDatabaseValues =
-                fmap (\v ->  (createSummary v "SpecialTransaction"
+                fmap (\v ->  (createSummary v Right
                             , Entry (ByteStringSerialized $ stoBakerAccount v))) sto
 
               -- Insert all the Summaries, get the keys in the same query (postgresql does it in one query)
