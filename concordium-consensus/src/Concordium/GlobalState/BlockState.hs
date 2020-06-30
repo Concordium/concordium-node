@@ -61,9 +61,14 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
-import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.ID.Types as ID
+import Concordium.ID.Types (CredentialDeploymentValues)
+import Concordium.ID.Types (CredentialValidTo)
+import Data.PQueue.Prio.Max (MaxPQueue)
+import Data.Set (Set)
+import Concordium.ID.Types (AccountKeys)
+import Concordium.ID.Types (CredentialRegistrationID)
 
 type ModuleIndex = Word64
 
@@ -98,6 +103,30 @@ bakerData bid bkrs = do
     bInfo <- MaybeT (getBakerInfo bkrs bid)
     stake <- MaybeT (getBakerStake bkrs bid)
     return (bInfo, stake % totalStake)
+
+-- TODO (MRA) add documentation
+class (BlockStateTypes m,  Monad m) => AccountOperations m where
+
+  getAccountAddress :: Account m -> m AccountAddress
+
+  getAccountAmount :: Account m -> m Amount
+  
+  getAccountNonce :: Account m -> m Nonce
+  
+  getAccountCredentials :: Account m -> m (MaxPQueue CredentialValidTo CredentialDeploymentValues)
+  
+  getAccountVerificationKeys :: Account m -> m ID.AccountKeys
+  
+  getAccountEncryptedAmount :: Account m -> m [EncryptedAmount]
+  
+  getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
+  
+  getAccountInstances :: Account m -> m (Set ContractAddress)
+
+  -- |Create an empty account with the given public key.
+  createNewAccount :: AccountKeys -> AccountAddress -> CredentialRegistrationID -> m (Account m)
+
+  updateAccountAmount :: Account m -> Amount -> m (Account m)
 
 class (BlockStateTypes m, BakerOperations m) => BirkParametersOperations m where
 
@@ -135,11 +164,11 @@ birkEpochBakerByKeys sigKey bps = do
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class BirkParametersOperations m => BlockStateQuery m where
+class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m where
     -- |Get the module from the module table of the state instance.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
     -- |Get the account state from the account table of the state instance.
-    getAccount :: BlockState m -> AccountAddress -> m (Maybe Account)
+    getAccount :: BlockState m -> AccountAddress -> m (Maybe (Account m))
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -189,27 +218,6 @@ makeLenses ''AccountUpdate
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
 emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
 
--- |Apply account updates to an account. It is assumed that the address in
--- account updates and account are the same.
-updateAccount :: AccountUpdate -> Account -> Account
-updateAccount !upd !acc =
-  acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
-       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
-       _accountCredentials =
-          case upd ^. auCredential of
-            Nothing -> acc ^. accountCredentials
-            Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
-       _accountEncryptedAmount =
-          case upd ^. auEncrypted of
-            Empty -> acc ^. accountEncryptedAmount
-            Add ea -> ea:(acc ^. accountEncryptedAmount)
-            Replace ea -> [ea]
-    }
-
-  where setMaybe (Just x) _ = x
-        setMaybe Nothing y = y
-
-
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
@@ -217,7 +225,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
   -- |Get an account by its address.
-  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe Account)
+  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (Account m))
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -227,7 +235,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Try to add a new account to the state. If an account with the address already exists
   -- return @False@, and if the account was successfully added return @True@.
-  bsoPutNewAccount :: UpdatableBlockState m -> Account -> m (Bool, UpdatableBlockState m)
+  bsoPutNewAccount :: UpdatableBlockState m -> Account m -> m (Bool, UpdatableBlockState m)
   -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
@@ -298,7 +306,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     fmap (_bakerAccount . fst) <$> birkBaker bid bps
 
   -- |Get the reward account of the given baker.
-  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
+  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe (Account m))
   bsoGetEpochBakerAccount s bid = do
     bps <- bsoGetBlockBirkParameters s
     account <- fmap (_bakerAccount . fst) <$> birkEpochBaker bid bps
@@ -444,6 +452,28 @@ instance (Monad (t m), MonadTrans t, BakerOperations m) => BakerOperations (MGST
   {-# INLINE getBakerInfo #-}
   {-# INLINE getFullBakerInfos #-}
 
+instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
+  getAccountAddress = lift . getAccountAddress
+  getAccountAmount = lift. getAccountAmount
+  getAccountNonce = lift . getAccountNonce
+  getAccountCredentials = lift . getAccountCredentials
+  getAccountVerificationKeys = lift . getAccountVerificationKeys
+  getAccountEncryptedAmount = lift . getAccountEncryptedAmount
+  getAccountStakeDelegate = lift . getAccountStakeDelegate
+  getAccountInstances = lift . getAccountInstances
+  createNewAccount ks addr = lift . createNewAccount ks addr
+  updateAccountAmount acc = lift . updateAccountAmount acc
+  {-# INLINE getAccountAddress #-}
+  {-# INLINE getAccountAmount #-}
+  {-# INLINE getAccountCredentials #-}
+  {-# INLINE getAccountNonce #-}
+  {-# INLINE getAccountVerificationKeys #-}
+  {-# INLINE getAccountEncryptedAmount #-}
+  {-# INLINE getAccountStakeDelegate #-}
+  {-# INLINE getAccountInstances #-}
+  {-# INLINE createNewAccount #-}
+  {-# INLINE updateAccountAmount #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
@@ -524,11 +554,13 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
 deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BakerOperations m => BakerOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BakerOperations m => BakerOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)

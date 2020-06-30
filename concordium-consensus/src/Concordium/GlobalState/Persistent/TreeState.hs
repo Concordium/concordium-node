@@ -17,6 +17,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockPointer as PB
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
@@ -405,7 +406,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
 -- type used in the implementation.
 newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
-            BlockStateQuery, BakerOperations, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+            BlockStateQuery, AccountOperations, BakerOperations, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
          => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)

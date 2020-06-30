@@ -14,7 +14,6 @@ import Data.Maybe
 
 import GHC.Generics (Generic)
 
-import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
@@ -23,12 +22,14 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
+import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Account
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
+import Concordium.ID.Types (cdvRegId)
 
 import qualified Acorn.Utils.Init as Acorn
 
@@ -81,6 +82,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
     type Bakers (PureBlockStateMonad m) = Bakers
+    type Account (PureBlockStateMonad m) = Account
 
 instance ATITypes (PureBlockStateMonad m) where
   type ATIStorage (PureBlockStateMonad m) = ()
@@ -127,6 +129,28 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+
+instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
+  
+  getAccountAddress acc = return $ acc ^. accountAddress
+    
+  getAccountAmount acc = return $ acc ^. accountAmount
+  
+  getAccountNonce acc = return $ acc ^. accountNonce
+  
+  getAccountCredentials acc = return $ acc ^. accountCredentials
+  
+  getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
+  
+  getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
+  
+  getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
+  
+  getAccountInstances acc = return $ acc ^. accountInstances
+  
+  createNewAccount keys addr regId = return $ newAccount keys addr regId
+  
+  updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt 
 
 instance Monad m => BS.BakerOperations (PureBlockStateMonad m) where
 
@@ -242,7 +266,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                                    (accountUpdates ^. BS.auAmount . non 0))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
-            updatedAccount = BS.updateAccount accountUpdates account
+            updatedAccount = Account.updateAccount accountUpdates account
 
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =

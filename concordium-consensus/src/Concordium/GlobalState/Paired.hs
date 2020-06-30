@@ -93,6 +93,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type Bakers (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (Bakers (BSML lc r lg s m),
                 Bakers (BSMR rc r rg s m))
+    type Account (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (Account (BSML lc r lg s m),
+                Account (BSMR rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -181,7 +184,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getAccount (ls, rs) addr = do
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
-        assert (a1 == a2) $ return a1
+        case (a1, a2) of
+          (Just a1', Just a2') -> 
+            -- TODO (MRA) add assertion
+            return $ Just (a1', a2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
+          (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
     getContractInstance (ls, rs) caddr = do
         c1 <- coerceBSML (getContractInstance ls caddr)
         c2 <- coerceBSMR (getContractInstance rs caddr)
@@ -220,6 +230,61 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getSpecialOutcomes ls)
         a2 <- coerceBSMR (getSpecialOutcomes rs)
         assert (a1 == a2) $ return a1
+
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m))
+  => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+
+    getAccountAddress (acc1, acc2) = do
+        addr1 <- coerceBSML (getAccountAddress acc1)
+        addr2 <- coerceBSMR (getAccountAddress acc2)
+        assert (addr1 == addr2) $ return addr1
+
+    getAccountAmount (acc1, acc2) = do
+        amnt1 <- coerceBSML (getAccountAmount acc1)
+        amnt2 <- coerceBSMR (getAccountAmount acc2)
+        assert (amnt1 == amnt2) $ return amnt1
+        
+    getAccountNonce (acc1, acc2) = do
+        n1 <- coerceBSML (getAccountNonce acc1)
+        n2 <- coerceBSMR (getAccountNonce acc2)
+        assert (n1 == n2) $ return n1
+    
+    getAccountCredentials (acc1, acc2) = do
+        cs1 <- coerceBSML (getAccountCredentials acc1)
+        cs2 <- coerceBSMR (getAccountCredentials acc2)
+        assert (cs1 == cs2) $ return cs1
+        
+    getAccountVerificationKeys (acc1, acc2) = do
+        ks1 <- coerceBSML (getAccountVerificationKeys acc1)
+        ks2 <- coerceBSMR (getAccountVerificationKeys acc2)
+        assert (ks1 == ks2) $ return ks1                            
+    
+    getAccountEncryptedAmount (acc1, acc2) = do
+        amnts1 <- coerceBSML (getAccountEncryptedAmount acc1)
+        amnts2 <- coerceBSMR (getAccountEncryptedAmount acc2)
+        assert (amnts1 == amnts2) $ return amnts1                        
+    
+    getAccountStakeDelegate (acc1, acc2) = do
+        bid1 <- coerceBSML (getAccountStakeDelegate acc1)
+        bid2 <- coerceBSMR (getAccountStakeDelegate acc2)
+        assert (bid1 == bid2) $ return bid1                   
+    
+    getAccountInstances (acc1, acc2) = do
+        ais1 <- coerceBSML (getAccountInstances acc1)
+        ais2 <- coerceBSMR (getAccountInstances acc2)
+        assert (ais1 == ais2) $ return ais1
+
+    createNewAccount keys addr regId = do
+        acc1 <- coerceBSML (createNewAccount keys addr regId)
+        acc2 <- coerceBSMR (createNewAccount keys addr regId)
+        -- TODO(MRA) add assertion
+        return (acc1, acc2)
+
+    updateAccountAmount (acc1, acc2) amnt = do
+        acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
+        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
+        -- TODO (MRA) insert assertion
+        return (acc1', acc2')
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerOperations (BSML lc r ls s m), BakerOperations (BSMR rc r rs s m))
         => BakerOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -297,7 +362,16 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetAccount (bs1, bs2) aref = do
         r1 <- coerceBSML $ bsoGetAccount bs1 aref
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
-        assert (r1 == r2) $ return r1
+        case (r1, r2) of
+          (Just r1', Just r2') ->
+            -- TODO (MRA) insert assertion
+            return $ Just (r1', r2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) ->
+            error $ "Cannot get account with address " ++ show aref ++ " in left implementation"
+          (_, Nothing) ->
+            error $ "Cannot get account with address " ++ show aref ++ " in right implementation"
     bsoGetInstance (bs1, bs2) iref = do
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
@@ -306,9 +380,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoRegIdExists bs1 regid
         r2 <- coerceBSMR $ bsoRegIdExists bs2 regid
         assert (r1 == r2) $ return r1
-    bsoPutNewAccount (bs1, bs2) acct = do
-        (r1, bs1') <- coerceBSML $ bsoPutNewAccount bs1 acct
-        (r2, bs2') <- coerceBSMR $ bsoPutNewAccount bs2 acct
+    bsoPutNewAccount (bs1, bs2) (acct1, acct2) = do
+        (r1, bs1') <- coerceBSML $ bsoPutNewAccount bs1 acct1
+        (r2, bs2') <- coerceBSMR $ bsoPutNewAccount bs2 acct2
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoSetElectionDifficulty (bs1, bs2) diff = do
         bs1' <- coerceBSML $ bsoSetElectionDifficulty bs1 diff

@@ -11,8 +11,11 @@ import GHC.Generics
 import Data.Maybe
 import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
+import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Types
+import Concordium.GlobalState.BlockState (AccountUpdate(..), EncryptedAmountUpdate(..), auNonce, auAmount, auCredential, auEncrypted)
+import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.AccountTable as AT
 import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTable)
 import qualified Concordium.ID.Types as ID
@@ -127,7 +130,7 @@ emptyAccounts = Accounts Trie.empty AT.empty (Some Set.empty) (RegIdHistory [] N
 -- and recording it in 'accountMap'.
 -- If an account with the address already exists, 'accountTable' is updated
 -- to reflect the new state of the account.
-putAccount :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> Accounts -> m Accounts
+putAccount :: (MonadBlobStore m BlobRef, MonadIO m) => PersistentAccount -> Accounts -> m Accounts
 putAccount !acct accts0 = do
         (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
         newAccountTable <- case isFresh of
@@ -144,7 +147,7 @@ putAccount !acct accts0 = do
 
 -- |Add a new account. Returns @False@ and leaves the accounts unchanged if
 -- there is already an account with the same address.
-putNewAccount :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> Accounts -> m (Bool, Accounts)
+putNewAccount :: (MonadBlobStore m BlobRef, MonadIO m) => PersistentAccount -> Accounts -> m (Bool, Accounts)
 putNewAccount !acct accts0 = do
         (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
         if isFresh then do
@@ -164,14 +167,14 @@ exists addr Accounts{..} = isJust <$> Trie.lookup addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m (Maybe Account)
+getAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m (Maybe PersistentAccount)
 getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> AT.lookup ai accountTable
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.
-unsafeGetAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m Account
+unsafeGetAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m PersistentAccount
 unsafeGetAccount addr accts = getAccount addr accts <&> \case
         Just acct -> acct
         Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
@@ -198,12 +201,33 @@ recordRegId rid accts0 = do
 -- Does nothing (returning @Nothing@) if the account does not exist.
 -- This should not be used to alter the address of an account (which is
 -- disallowed).
-updateAccount :: (MonadBlobStore m BlobRef, MonadIO m) => (Account -> m (a, Account)) -> AccountAddress -> Accounts -> m (Maybe a, Accounts)
-updateAccount fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
+updateAccounts :: (MonadBlobStore m BlobRef, MonadIO m) => (PersistentAccount -> m (a, PersistentAccount)) -> AccountAddress -> Accounts -> m (Maybe a, Accounts)
+updateAccounts fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return (Nothing, a0)
         Just ai -> AT.update fupd ai accountTable >>= \case
             Nothing -> return (Nothing, a0)
             Just (res, act') -> return (Just res, a0 {accountTable = act'})
+
+
+-- |Apply account updates to an account. It is assumed that the address in
+-- account updates and account are the same.
+updateAccount :: AccountUpdate -> PersistentAccount -> PersistentAccount
+updateAccount !upd !acc =
+  acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
+       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
+       _accountCredentials =
+          case upd ^. auCredential of
+            Nothing -> acc ^. accountCredentials
+            Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
+       _accountEncryptedAmount =
+          case upd ^. auEncrypted of
+            Empty -> acc ^. accountEncryptedAmount
+            Add ea -> ea:(acc ^. accountEncryptedAmount)
+            Replace ea -> [ea]
+    }
+
+  where setMaybe (Just x) _ = x
+        setMaybe Nothing y = y
 
 -- |Get a list of all account addresses.
 accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]

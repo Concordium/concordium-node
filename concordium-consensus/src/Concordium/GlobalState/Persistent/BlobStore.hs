@@ -31,10 +31,12 @@ import Data.IORef
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.Types (Account, Amount, BakerId)
+import Concordium.GlobalState.Persistent.Account
+import Concordium.Types (Amount, BakerId)
 
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
@@ -517,4 +519,5 @@ instance (MonadBlobStore m ref) => BlobStorable m ref Account
 instance (MonadBlobStore m ref) => BlobStorable m ref Amount
 instance (MonadBlobStore m ref) => BlobStorable m ref BakerId
 instance (MonadBlobStore m ref) => BlobStorable m ref BakerInfo
+instance (MonadBlobStore m ref) => BlobStorable m ref PersistentAccount
 instance (MonadBlobStore m ref) => BlobStorable m ref Word64
