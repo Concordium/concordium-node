@@ -74,7 +74,7 @@ data Module = Module {
     moduleSource :: Core.Module Core.UA
 }
 
-class (BlockStateTypes m,  Monad m) => BakerOperations m where
+class (BlockStateTypes m,  Monad m) => BakerQuery m where
 
   -- |If baker with given ID exists, get the stake delegated to that baker 
   getBakerStake :: Bakers m -> BakerId -> m (Maybe Amount)
@@ -91,7 +91,7 @@ class (BlockStateTypes m,  Monad m) => BakerOperations m where
   -- |Get baker IDs and full baker information (verification keys, account addresses, and stake) for all bakers
   getFullBakerInfos :: Bakers m -> m (Map.Map BakerId FullBakerInfo)
 
-bakerData :: BakerOperations m => BakerId -> Bakers m -> m (Maybe (BakerInfo, LotteryPower))
+bakerData :: BakerQuery m => BakerId -> Bakers m -> m (Maybe (BakerInfo, LotteryPower))
 bakerData bid bkrs = do
   totalStake <- getTotalBakerStake bkrs
   runMaybeT $ do
@@ -99,7 +99,7 @@ bakerData bid bkrs = do
     stake <- MaybeT (getBakerStake bkrs bid)
     return (bInfo, stake % totalStake)
 
-class (BlockStateTypes m, BakerOperations m) => BirkParametersOperations m where
+class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
 
     getSeedState :: BirkParameters m -> m SeedState
 
@@ -113,16 +113,16 @@ class (BlockStateTypes m, BakerOperations m) => BirkParametersOperations m where
 
     updateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
 
-birkBaker :: (BakerOperations m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
+birkBaker :: (BakerQuery m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
 birkBaker bid bps = bakerData bid =<< getCurrentBakers bps
 
-birkEpochBaker :: (BakerOperations m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
+birkEpochBaker :: (BakerQuery m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
 birkEpochBaker bid bps = bakerData bid =<< getLotteryBakers bps
 
 birkLeadershipElectionNonce :: BirkParametersOperations m => BirkParameters m -> m LeadershipElectionNonce
 birkLeadershipElectionNonce bps = currentSeed <$> getSeedState bps
 
-birkEpochBakerByKeys :: (BakerOperations m, BirkParametersOperations m) => BakerSignVerifyKey -> BirkParameters m -> m (Maybe (BakerId, BakerInfo, LotteryPower))
+birkEpochBakerByKeys :: (BakerQuery m, BirkParametersOperations m) => BakerSignVerifyKey -> BirkParameters m -> m (Maybe (BakerId, BakerInfo, LotteryPower))
 birkEpochBakerByKeys sigKey bps = do
     lotteryBakers <- getLotteryBakers bps
     mbid <- getBakerFromKey lotteryBakers sigKey
@@ -213,7 +213,7 @@ updateAccount !upd !acc =
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
-class (BakerOperations m, BlockStateQuery m) => BlockStateOperations m where
+class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
   -- |Get an account by its address.
@@ -432,7 +432,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
 
-instance (Monad (t m), MonadTrans t, BakerOperations m) => BakerOperations (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
   getBakerFromKey bs = lift . getBakerFromKey bs
   getTotalBakerStake = lift . getTotalBakerStake
@@ -523,12 +523,12 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
 
 deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance BakerOperations m => BakerOperations (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance BakerQuery m => BakerQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance BakerOperations m => BakerOperations (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance BakerQuery m => BakerQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)
