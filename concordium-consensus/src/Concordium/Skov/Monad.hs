@@ -33,7 +33,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BakerOperations, BirkParametersOperations, BlockStateStorage, BlockStateOperations)
+import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BakerQuery, BirkParametersOperations, BlockStateStorage, BlockStateOperations)
 import Concordium.GlobalState.Classes as C
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -238,7 +238,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance ATITypes m => ATITypes (SkovQ
 deriving via (MGSTrans SkovQueryMonadT m) instance GlobalStateTypes m => GlobalStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance AccountOperations m => AccountOperations (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance BakerOperations m => BakerOperations (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance BakerQuery m => BakerQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BirkParametersOperations m => BirkParametersOperations (SkovQueryMonadT m)
