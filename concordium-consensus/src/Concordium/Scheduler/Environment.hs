@@ -20,7 +20,8 @@ import qualified Acorn.Core as Core
 import Acorn.Types(InterpreterEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
-import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.Types
+import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
@@ -83,7 +84,7 @@ instance ResourceMeasure Cost.LookupByteSize where
 -- * Scheduler monad
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m) => SchedulerMonad m where
+class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m, AccountOperations m) => SchedulerMonad m where
 
   tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
 
@@ -99,7 +100,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Get the amount of funds at the particular account address.
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
-  getAccount :: AccountAddress -> m (Maybe Account)
+  getAccount :: AccountAddress -> m (Maybe (Account m))
 
   -- |Check whether a given registration id exists in the global state.
   accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
@@ -146,16 +147,16 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Bump the next available transaction nonce of the account.
   -- Precondition: the account exists in the block state.
-  increaseAccountNonce :: Account -> m ()
+  increaseAccountNonce :: Account m -> m ()
 
   -- FIXME: This method should not be here, but rather in the transaction monad.
   -- |Add account credential to an account address.
   -- Precondition: The account with this address exists in the block state.
-  addAccountCredential :: Account -> ID.CredentialDeploymentValues -> m ()
+  addAccountCredential :: Account m -> ID.CredentialDeploymentValues -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
   --  successfully created and @False@ if the account address already existed.
-  putNewAccount :: Account -> m Bool
+  putNewAccount :: Account m -> m Bool
 
   -- |Notify energy used by the current execution.
   -- Add to the current running total of energy used.
@@ -261,15 +262,15 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
-  withAccountToContractAmount :: Account -> Instance -> Amount -> m a -> m a
+  withAccountToContractAmount :: Account m -> Instance -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first account to the second and run the
   -- computation in the modified environment.
-  withAccountToAccountAmount :: Account -> Account -> Amount -> m a -> m a
+  withAccountToAccountAmount :: Account m -> Account m -> Amount -> m a -> m a
 
   -- |Transfer an amount from the given instance to the given account and run the
   -- computation in the modified environment.
-  withContractToAccountAmount :: Instance -> Account -> Amount -> m a -> m a
+  withContractToAccountAmount :: Instance -> Account m -> Amount -> m a -> m a
 
   -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
@@ -278,18 +279,18 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either Instance Account -> Instance -> Amount -> m a -> m a
+  withToContractAmount :: Either Instance (Account m) -> Instance -> Amount -> m a -> m a
   withToContractAmount (Left i) = withContractToContractAmount i
   withToContractAmount (Right a) = withAccountToContractAmount a
 
   -- |Transfer an amount from the first given instance or account to the account in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToAccountAmount #-}
-  withToAccountAmount :: Either Instance Account -> Account -> Amount -> m a -> m a
+  withToAccountAmount :: Either Instance (Account m) -> Account m -> Amount -> m a -> m a
   withToAccountAmount (Left i) = withContractToAccountAmount i
   withToAccountAmount (Right a) = withAccountToAccountAmount a
 
-  getCurrentAccount :: AccountAddress -> m (Maybe Account)
+  getCurrentAccount :: AccountAddress -> m (Maybe (Account m))
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
@@ -305,13 +306,13 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue NoAnnot -> m (LinkedContractValue NoAnnot)
 
   {-# INLINE getCurrentAmount #-}
-  getCurrentAmount :: Either Instance Account -> m Amount
+  getCurrentAmount :: Either Instance (Account m) -> m Amount
   getCurrentAmount (Left i) = getCurrentContractAmount i
   getCurrentAmount (Right a) = getCurrentAccountAmount a
 
   -- |Get the current amount on the given account. This value changes
   -- throughout the execution of the transaction.
-  getCurrentAccountAmount :: Account -> m Amount
+  getCurrentAccountAmount :: Account m -> m Amount
 
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: Instance -> m Amount
@@ -373,16 +374,16 @@ csWithAccountDelta txHash addr !amnt =
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
-addAmountToCS :: Account -> AmountDelta -> ChangeSet -> ChangeSet
-addAmountToCS acc !amnt !cs =
+addAmountToCS :: (AccountOperations m) => Account m -> AmountDelta -> ChangeSet -> m ChangeSet
+addAmountToCS acc !amnt !cs = do
+  addr <- getAccountAddress acc
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
-  cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case Just x -> Just (x + amnt)
-                                                                                    Nothing -> Just amnt
-                                                           )
-                                          Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
+  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case Just x -> Just (x + amnt)
+                                                                                             Nothing -> Just amnt
+                                                                    )
+                                                   Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
-  where addr = acc ^. accountAddress
 
 -- |Modify the amount on the given account in the changeset by a given delta.
 -- It is assumed that the account is already in the changeset and that its balance
@@ -458,6 +459,13 @@ runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEn
 
   where !ctx = TransactionContext{..}
 
+instance BlockStateTypes (LocalT r m) where
+    type BlockState (LocalT r m) = BlockState m
+    type UpdatableBlockState (LocalT r m) = UpdatableBlockState m
+    type BirkParameters (LocalT r m) = BirkParameters m
+    type Bakers (LocalT r m) = Bakers m
+    type Account (LocalT r m) = Account m
+
 {-# INLINE energyUsed #-}
 -- |Compute how much energy was used from the upper bound in the header of a
 -- transaction and the amount left.
@@ -482,15 +490,16 @@ computeExecutionCharge meta energy =
 -- is the only one affected by the transaction, either because a transaction was
 -- rejected, or because it was a transaction which only affects one account's
 -- balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: SchedulerMonad m => TransactionHash -> Account -> Amount -> m ()
-chargeExecutionCost txHash acc amnt =
-    let balance = acc ^. accountAmount
-    in do assert (balance >= amnt) $
-              commitChanges (csWithAccountDelta txHash (acc ^. accountAddress) (amountDiff 0 amnt))
-          notifyExecutionCost amnt
+chargeExecutionCost :: (AccountOperations m) => SchedulerMonad m => TransactionHash -> Account m -> Amount -> m ()
+chargeExecutionCost txHash acc amnt = do
+    balance <- getAccountAmount acc
+    addr <- getAccountAddress acc
+    assert (balance >= amnt) $
+          commitChanges (csWithAccountDelta txHash addr (amountDiff 0 amnt))
+    notifyExecutionCost amnt
 
-data WithDepositContext = WithDepositContext{
-  _wtcSenderAccount :: !Account,
+data WithDepositContext m = WithDepositContext{
+  _wtcSenderAccount :: !(Account m),
   -- ^Address of the account initiating the transaction.
   _wtcTransactionType :: !TransactionType,
   -- ^Type of the top-level transaction.
@@ -520,7 +529,7 @@ makeLenses ''WithDepositContext
 --   * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
   SchedulerMonad m
-  => WithDepositContext
+  => WithDepositContext m
   -> LocalT a m a
   -- ^The computation to run in the modified environment with reduced amount on the initial account.
   -> (LocalState -> a -> m (ValidResult, Amount, Energy))
@@ -575,7 +584,7 @@ withDeposit wtc comp k = do
 -- from the current changeset and returns the recorded events, the amount corresponding to the
 -- used energy and the used energy.
 defaultSuccess ::
-  SchedulerMonad m => WithDepositContext -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
+  SchedulerMonad m => WithDepositContext m -> LocalState -> [Event] -> m (ValidResult, Amount, Energy)
 defaultSuccess wtc = \ls events -> do
   let txHash = wtc ^. wtcTransactionHash
       meta = wtc ^. wtcTransactionHeader
@@ -618,6 +627,17 @@ instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
 
   putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
 
+instance AccountOperations m => AccountOperations (LocalT r m) where
+  getAccountAmount = liftLocal . getAccountAmount
+  getAccountAddress = liftLocal . getAccountAddress
+  getAccountNonce = liftLocal . getAccountNonce
+  getAccountCredentials = liftLocal . getAccountCredentials
+  getAccountVerificationKeys = liftLocal . getAccountVerificationKeys
+  getAccountEncryptedAmount = liftLocal . getAccountEncryptedAmount
+  getAccountStakeDelegate = liftLocal . getAccountStakeDelegate
+  getAccountInstances = liftLocal . getAccountInstances
+  createNewAccount keys addr = liftLocal . createNewAccount keys addr
+  updateAccountAmount acc = liftLocal . updateAccountAmount acc
 
 instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withInstanceState #-}
@@ -627,20 +647,22 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
   {-# INLINE withAccountToAccountAmount #-}
   withAccountToAccountAmount fromAcc toAcc amount cont = do
-    changeSet %= addAmountToCS toAcc (amountToDelta amount)
-    changeSet %= addAmountToCS fromAcc (amountDiff 0 amount)
+    cs <- use changeSet
+    changeSet <~ (addAmountToCS toAcc (amountToDelta amount) cs >>= 
+                  addAmountToCS fromAcc (amountDiff 0 amount)) 
     cont
 
   {-# INLINE withAccountToContractAmount #-}
   withAccountToContractAmount fromAcc toAcc amount cont = do
-    changeSet %= addContractAmountToCS toAcc (amountToDelta amount)
-    changeSet %= addAmountToCS fromAcc (amountDiff 0 amount)
+    cs <- changeSet <%= addContractAmountToCS toAcc (amountToDelta amount)
+    changeSet <~ addAmountToCS fromAcc (amountDiff 0 amount) cs
     cont
 
   {-# INLINE withContractToAccountAmount #-}
   withContractToAccountAmount fromAcc toAcc amount cont = do
-    changeSet %= addAmountToCS toAcc (amountToDelta amount)
-    changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
+    cs <- use changeSet
+    cs' <- addAmountToCS toAcc (amountToDelta amount) cs
+    changeSet .= addContractAmountToCS fromAcc (amountDiff 0 amount) cs'
     cont
 
   {-# INLINE withContractToContractAmount #-}
@@ -649,11 +671,12 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
 
-  getCurrentAccount addr =
+  getCurrentAccount addr = do
     liftLocal (getAccount addr) >>= \case
       Just acc -> do
         amnt <- getCurrentAccountAmount acc
-        return . Just $ (acc & accountAmount .~ amnt)
+        updatedAcc <- updateAccountAmount acc amnt
+        return $ Just updatedAcc
       Nothing -> return Nothing
 
   getCurrentContractInstance addr = do
@@ -671,8 +694,8 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
   {-# INLINE getCurrentAccountAmount #-}
   getCurrentAccountAmount acc = do
-    let addr = acc ^. accountAddress
-    let amnt = acc ^. accountAmount
+    addr <- getAccountAddress acc
+    amnt <- getAccountAmount acc
     !txCtx <- ask
     -- additional delta that arises due to the deposit
     let additionalDelta =

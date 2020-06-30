@@ -18,6 +18,7 @@ import Lens.Micro.Platform
 import Data.Text
 import qualified Data.HashMap.Strict as Map
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SS

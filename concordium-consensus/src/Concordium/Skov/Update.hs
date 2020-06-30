@@ -33,6 +33,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
+import Data.Maybe (fromMaybe)
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -458,7 +459,7 @@ doReceiveTransactionInternal tr slot =
                   focus <- getFocusBlock
                   st <- blockState focus
                   macct <- getAccount st $! transactionSender tx
-                  let nextNonce = maybe minNonce _accountNonce macct
+                  nextNonce <- fromMaybe minNonce <$> mapM getAccountNonce macct
                   -- If a transaction with this nonce has already been run by
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.
