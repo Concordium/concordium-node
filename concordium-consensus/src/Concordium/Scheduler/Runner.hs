@@ -16,6 +16,7 @@ import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
 
+import Concordium.ID.Types
 import Concordium.Types
 import qualified Concordium.Scheduler.Types as Types
 
@@ -26,10 +27,13 @@ import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
--- |Sign a transaction with a single keypair, assuming the account has only one
--- key, with index 0.
-signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
-signTx kp TransactionHeader{..} encPayload = Types.signTransactionSingle kp header encPayload
+-- |Sign a transaction with with the given list of keys
+signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
+    where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
+
+signTxSingle :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle key header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
 transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
@@ -90,6 +94,12 @@ transactionHelper t =
       in do
         Just ubekProof <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair sk pk)
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerElectionKey bid pk ubekProof))
+    (TJSON meta (UpdateAccountKeys keyUpdates) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateAccountKeys keyUpdates))
+    (TJSON meta (RemoveAccountKeys keyIdxs threshold) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.RemoveAccountKeys keyIdxs threshold))
+    (TJSON meta (AddAccountKeys newKeys threshold) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -168,6 +178,17 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      ubekSecretKey :: !VRF.SecretKey,
                      ubekPublicKey :: !VRF.PublicKey
                      }
+                 | UpdateAccountKeys {
+                     uakUpdates :: ![(KeyIndex, AccountVerificationKey)]
+                     }
+                 | RemoveAccountKeys {
+                     rakIndices :: ![KeyIndex],
+                     rakThreshold :: !(Maybe SignatureThreshold)
+                     }
+                 | AddAccountKeys {
+                     aakKeys :: ![(KeyIndex, AccountVerificationKey)],
+                     aakThreshold :: !(Maybe SignatureThreshold)
+                     }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {
@@ -183,6 +204,6 @@ data TransactionHeader = TransactionHeader {
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader
                              , payload :: PayloadJSON
-                             , keypair :: KeyPair
+                             , keys :: [(KeyIndex, KeyPair)]
                              }
   deriving(Show,Generic)

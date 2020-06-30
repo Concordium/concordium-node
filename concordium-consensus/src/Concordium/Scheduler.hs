@@ -1088,7 +1088,7 @@ handleUpdateAccountKeys wtc keys =
       case checkKeysExist (senderAccount ^. accountVerificationKeys) (map fst keys) of
         Nothing -> do
           updateAccountKeys (senderAccount ^. accountAddress) keys
-          return (TxSuccess [AccountKeysUpdated keys], energyCost, usedEnergy)
+          return (TxSuccess [AccountKeysUpdated (senderAccount ^. accountAddress) keys], energyCost, usedEnergy)
         Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
 
 
@@ -1120,12 +1120,15 @@ handleRemoveAccountKeys wtc indices threshold =
             Just newThreshold ->
               if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
                 removeAccountKeys (senderAccount ^. accountAddress) indices threshold
-                return (TxSuccess [AccountKeysRemoved indices, AccountKeysSignThresholdUpdated newThreshold], energyCost, usedEnergy)
+                return (TxSuccess [AccountKeysRemoved (senderAccount ^. accountAddress) indices,
+                                   AccountKeysSignThresholdUpdated (senderAccount ^. accountAddress) newThreshold],
+                        energyCost,
+                        usedEnergy)
               else
                 return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
             Nothing -> do
               removeAccountKeys (senderAccount ^. accountAddress) indices threshold
-              return (TxSuccess [AccountKeysRemoved indices], energyCost, usedEnergy)
+              return (TxSuccess [AccountKeysRemoved (senderAccount ^. accountAddress) indices], energyCost, usedEnergy)
         Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
 
 
@@ -1155,12 +1158,15 @@ handleAddAccountKeys wtc keys threshold =
           Just newThreshold ->
             if newThreshold <= (fromIntegral (numOfKeys + (length keys))) then do
               addAccountKeys (senderAccount ^. accountAddress) keys threshold
-              return (TxSuccess [AccountKeysAdded keys, AccountKeysSignThresholdUpdated newThreshold], energyCost, usedEnergy)
+              return (TxSuccess [AccountKeysAdded (senderAccount ^. accountAddress) keys,
+                                 AccountKeysSignThresholdUpdated (senderAccount ^. accountAddress) newThreshold],
+                      energyCost,
+                      usedEnergy)
             else
               return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
           Nothing -> do
             addAccountKeys (senderAccount ^. accountAddress) keys threshold
-            return (TxSuccess [AccountKeysAdded keys], energyCost, usedEnergy)
+            return (TxSuccess [AccountKeysAdded (senderAccount ^. accountAddress) keys], energyCost, usedEnergy)
         Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
 
 

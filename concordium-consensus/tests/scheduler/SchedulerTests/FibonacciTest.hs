@@ -44,7 +44,7 @@ transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "FibContract"
          , metadata = makeDummyHeader alesAccount 1 1000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
 
   ,TJSON { payload = InitContract { amount = 100
@@ -53,7 +53,7 @@ transactionsInput =
                                   , contractName = "Fibonacci"
                                   }
         , metadata = makeDummyHeader alesAccount 2 10000000
-        , keypair = alesKP
+        , keys = [(0, alesKP)]
         }
   ,TJSON { payload = Update { amount = 0
                             , moduleName = "FibContract"
@@ -61,7 +61,7 @@ transactionsInput =
                             , address = Types.ContractAddress { contractIndex = 0, contractSubindex = 0}
                             }
         , metadata = makeDummyHeader alesAccount 3 100000000
-        , keypair = alesKP
+        , keys = [(0, alesKP)]
         }
   ]
 
@@ -71,7 +71,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
 
 testFibonacci ::
   PR.Context Core.UA IO TestResult
-    
+
 testFibonacci = do
     let file = "test/contracts/FibContract.acorn"
     source <- liftIO $ TIO.readFile file

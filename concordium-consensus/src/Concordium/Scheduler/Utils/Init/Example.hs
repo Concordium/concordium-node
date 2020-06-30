@@ -77,7 +77,7 @@ initialTrans :: Int -> [Types.BareTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
 
 initSimpleCounter :: Int -> Types.BareTransaction
-initSimpleCounter n = Runner.signTx
+initSimpleCounter n = Runner.signTxSingle
                              mateuszKP
                              header
                              payload
@@ -97,7 +97,7 @@ initSimpleCounter n = Runner.signTx
 {-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
 -- All transactions have the same arrival time (0)
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BlockItem
-makeTransaction inc ca n = Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTx mateuszKP header payload
+makeTransaction inc ca n = Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTxSingle mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -113,7 +113,7 @@ makeTransaction inc ca n = Types.normalTransaction . Types.fromBareTransaction 0
 {-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
 makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BlockItem
 makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
-  Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTx fromKP header payload
+  Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTxSingle fromKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
