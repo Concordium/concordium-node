@@ -131,28 +131,28 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
 
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
-  
-  getAccountAddress acc = return $ acc ^. accountAddress
-    
-  getAccountAmount acc = return $ acc ^. accountAmount
-  
-  getAccountNonce acc = return $ acc ^. accountNonce
-  
-  getAccountCredentials acc = return $ acc ^. accountCredentials
-  
-  getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
-  
-  getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
-  
-  getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
-  
-  getAccountInstances acc = return $ acc ^. accountInstances
-  
-  createNewAccount keys addr regId = return $ newAccount keys addr regId
-  
-  updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt 
 
-instance Monad m => BS.BakerOperations (PureBlockStateMonad m) where
+  getAccountAddress acc = return $ acc ^. accountAddress
+
+  getAccountAmount acc = return $ acc ^. accountAmount
+
+  getAccountNonce acc = return $ acc ^. accountNonce
+
+  getAccountCredentials acc = return $ acc ^. accountCredentials
+
+  getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
+
+  getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
+
+  getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
+
+  getAccountInstances acc = return $ acc ^. accountInstances
+
+  createNewAccount keys addr regId = return $ newAccount keys addr regId
+
+  updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
+
+instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
 
   getBakerStake bs bid = return $ bs ^? bakerMap . ix bid . bakerStake
 

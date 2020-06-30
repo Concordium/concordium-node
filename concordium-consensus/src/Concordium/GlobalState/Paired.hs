@@ -185,7 +185,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
         case (a1, a2) of
-          (Just a1', Just a2') -> 
+          (Just a1', Just a2') ->
             -- TODO (MRA) add assertion
             return $ Just (a1', a2')
           (Nothing, Nothing) ->
@@ -243,32 +243,32 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         amnt1 <- coerceBSML (getAccountAmount acc1)
         amnt2 <- coerceBSMR (getAccountAmount acc2)
         assert (amnt1 == amnt2) $ return amnt1
-        
+
     getAccountNonce (acc1, acc2) = do
         n1 <- coerceBSML (getAccountNonce acc1)
         n2 <- coerceBSMR (getAccountNonce acc2)
         assert (n1 == n2) $ return n1
-    
+
     getAccountCredentials (acc1, acc2) = do
         cs1 <- coerceBSML (getAccountCredentials acc1)
         cs2 <- coerceBSMR (getAccountCredentials acc2)
         assert (cs1 == cs2) $ return cs1
-        
+
     getAccountVerificationKeys (acc1, acc2) = do
         ks1 <- coerceBSML (getAccountVerificationKeys acc1)
         ks2 <- coerceBSMR (getAccountVerificationKeys acc2)
-        assert (ks1 == ks2) $ return ks1                            
-    
+        assert (ks1 == ks2) $ return ks1
+
     getAccountEncryptedAmount (acc1, acc2) = do
         amnts1 <- coerceBSML (getAccountEncryptedAmount acc1)
         amnts2 <- coerceBSMR (getAccountEncryptedAmount acc2)
-        assert (amnts1 == amnts2) $ return amnts1                        
-    
+        assert (amnts1 == amnts2) $ return amnts1
+
     getAccountStakeDelegate (acc1, acc2) = do
         bid1 <- coerceBSML (getAccountStakeDelegate acc1)
         bid2 <- coerceBSMR (getAccountStakeDelegate acc2)
-        assert (bid1 == bid2) $ return bid1                   
-    
+        assert (bid1 == bid2) $ return bid1
+
     getAccountInstances (acc1, acc2) = do
         ais1 <- coerceBSML (getAccountInstances acc1)
         ais2 <- coerceBSMR (getAccountInstances acc2)
@@ -286,8 +286,8 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         -- TODO (MRA) insert assertion
         return (acc1', acc2')
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerOperations (BSML lc r ls s m), BakerOperations (BSMR rc r rs s m))
-        => BakerOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
+        => BakerQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
   getBakerStake (bkrs1, bkrs2) bid = do
     s1 <- coerceBSML (getBakerStake bkrs1 bid)
     s2 <- coerceBSMR (getBakerStake bkrs2 bid)
