@@ -8,8 +8,9 @@ import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Concordium.Utils
 import Concordium.Types
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
-import Concordium.GlobalState.Basic.BlockState.AccountTable (AccountIndex, AccountTable(Empty))
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
@@ -34,9 +35,9 @@ import qualified Data.PQueue.Prio.Max as Queue
 -- The data integrity of accounts is also not enforced by these operations.
 data Accounts = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
-    accountMap :: !(Map.Map AccountAddress AccountIndex),
+    accountMap :: !(Map.Map AccountAddress AT.AccountIndex),
     -- |Hashed Merkle-tree of the accounts.
-    accountTable :: !AccountTable,
+    accountTable :: !AT.AccountTable,
     -- |Set of 'ID.CredentialRegistrationID's that have been used for accounts.
     accountRegIds :: !(Set.Set ID.CredentialRegistrationID)
 }
@@ -48,7 +49,7 @@ instance Show Accounts where
 
 -- |An 'Accounts' with no accounts.
 emptyAccounts :: Accounts
-emptyAccounts = Accounts Map.empty Empty Set.empty
+emptyAccounts = Accounts Map.empty AT.Empty Set.empty
 
 -- |Add or modify a given account.
 -- If an account matching the given account's address does not exist,
@@ -80,6 +81,26 @@ getAccount :: AccountAddress -> Accounts -> Maybe Account
 getAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> accountTable ^? ix i
+
+-- |Apply account updates to an account. It is assumed that the address in
+-- account updates and account are the same.
+updateAccount :: AccountUpdate -> Account -> Account
+updateAccount !upd !acc =
+  acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
+       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
+       _accountCredentials =
+          case upd ^. auCredential of
+            Nothing -> acc ^. accountCredentials
+            Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
+       _accountEncryptedAmount =
+          case upd ^. auEncrypted of
+            Empty -> acc ^. accountEncryptedAmount
+            Add ea -> ea:(acc ^. accountEncryptedAmount)
+            Replace ea -> [ea]
+    }
+
+  where setMaybe (Just x) _ = x
+        setMaybe Nothing y = y
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.

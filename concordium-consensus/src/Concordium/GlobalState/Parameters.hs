@@ -16,6 +16,7 @@ import Data.Ratio
 import Data.Word
 
 import Concordium.Types
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers

@@ -18,12 +18,14 @@ class BlockStateTypes (m :: Type -> Type) where
     type UpdatableBlockState m :: Type
     type BirkParameters m :: Type
     type Bakers m :: Type
+    type Account m :: Type
 
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
     type BirkParameters (MGSTrans t m) = BirkParameters m
     type Bakers (MGSTrans t m) = Bakers m
+    type Account (MGSTrans t m) = Account m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

@@ -106,7 +106,7 @@ initialSkovData rp gd genState =
 -- type used in the implementation.
 newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
-            BS.BlockStateQuery, BS.BakerOperations, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
+            BS.BlockStateQuery, BS.AccountOperations, BS.BakerOperations, BS.BlockStateOperations, BS.BlockStateStorage, BS.BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
 
