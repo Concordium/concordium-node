@@ -128,7 +128,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
 
-instance Monad m => BS.BakerOperations (PureBlockStateMonad m) where
+instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
 
   getBakerStake bs bid = return $ bs ^? bakerMap . ix bid . bakerStake
 

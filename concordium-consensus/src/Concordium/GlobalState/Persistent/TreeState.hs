@@ -405,7 +405,7 @@ loadSkovPersistentData rp gd pbsc atiPair = do
 -- type used in the implementation.
 newtype PersistentTreeStateMonad ati bs m a = PersistentTreeStateMonad { runPersistentTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes, MonadLogger, MonadError e,
-            BlockStateQuery, BakerOperations, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+            BlockStateQuery, BakerQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 deriving instance (Monad m, MonadState (SkovPersistentData ati bs) m)
          => MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m)

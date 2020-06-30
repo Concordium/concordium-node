@@ -221,8 +221,8 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a2 <- coerceBSMR (getSpecialOutcomes rs)
         assert (a1 == a2) $ return a1
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerOperations (BSML lc r ls s m), BakerOperations (BSMR rc r rs s m))
-        => BakerOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
+        => BakerQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
   getBakerStake (bkrs1, bkrs2) bid = do
     s1 <- coerceBSML (getBakerStake bkrs1 bid)
     s2 <- coerceBSMR (getBakerStake bkrs2 bid)

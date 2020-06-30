@@ -750,7 +750,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerOperations (PersistentBlockStateMonad r m) where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentBlockStateMonad r m) where
 
   getBakerStake bs bid = fmap snd <$> Trie.lookup bid (bs ^. bakerMap)
 
