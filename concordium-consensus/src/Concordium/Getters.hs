@@ -204,12 +204,18 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st ->
   BS.getAccount st addr >>=
       \case Nothing -> return Null
-            Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
-                                        ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
+            Just acc -> do
+              Nonce nonce <- BS.getAccountNonce acc
+              amount <- BS.getAccountAmount acc
+              creds <- BS.getAccountCredentials acc
+              delegate <- BS.getAccountStakeDelegate acc
+              instances <- BS.getAccountInstances acc
+              return $ object ["accountNonce" .= nonce
+                                        ,"accountAmount" .= toInteger amount
                                         -- credentials in descending order
-                                        ,"accountCredentials" .= Queue.elems (acc ^. accountCredentials)
-                                        ,"accountDelegation" .= (acc ^. T.accountStakeDelegate)
-                                        ,"accountInstances" .= S.toList (acc ^. T.accountInstances)
+                                        ,"accountCredentials" .= Queue.elems creds
+                                        ,"accountDelegation" .= delegate
+                                        ,"accountInstances" .= S.toList instances
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value

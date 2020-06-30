@@ -13,6 +13,7 @@ import qualified Data.Kind as DK
 import Control.Monad
 
 import Concordium.Types
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
@@ -85,6 +86,11 @@ mkInitialSS _lssBlockState =
                     _lssNextIndex = 0,
                     ..}
 
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance BlockStateTypes (BlockStateMonad w state m)
+
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)
 
 deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (
@@ -126,10 +132,11 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
   case macc of
     Nothing -> error "Precondition violated. Baker account does not exist."
     Just acc -> do
+      addr <- getAccountAddress acc
       bshandle2 <- bsoModifyAccount bshandle1
-         (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
+         (emptyAccountUpdate addr & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
       -- record the block reward transaction in the transaction outcomes for this block
-      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid (acc ^. accountAddress) (executionReward + bakingReward))
+      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid addr (executionReward + bakingReward))
 
 
 -- |Execute a block from a given starting state.
