@@ -22,6 +22,7 @@ import Control.Monad.Reader.Class
 import qualified Data.PQueue.Min as MinPQ
 import qualified Data.Sequence as Seq
 import System.Random
+import System.IO
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
@@ -61,15 +62,15 @@ newtype DummyTimer = DummyTimer Integer
 -- Can be customised if changing the configuration.
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 
-{-
+
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
--}
 
+{-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
 makeGlobalStateConfig rp genData =
    return $ PairGSConfig (MTMBConfig rp genData (genesisState genData), DTDBConfig rp genData (genesisState genData))
-
+-}
 
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
@@ -224,7 +225,7 @@ instance Events RandomisedEvents where
 
 -- |Maximal baker ID.
 maxBakerId :: (Integral a) => a
-maxBakerId = 9
+maxBakerId = 0 -- 9
 
 -- |List of all baker IDs.
 allBakers :: (Integral a) => [a]
@@ -275,7 +276,9 @@ initialState = do
 -- |Log an event for a particular baker.
 logFor :: (MonadIO m) => Int -> LogMethod m
 -- logFor _ _ _ _ = return ()
-logFor i src lvl msg = liftIO $ putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+logFor i src lvl msg = liftIO $ do
+    putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+    hFlush stdout
 
 -- |Run a baker action in the state monad.
 runBaker :: Integer -> Int -> BakerM a -> StateT SimState IO a
@@ -317,7 +320,8 @@ displayBakerEvent :: (MonadIO m) => Int -> Event -> m ()
 displayBakerEvent i ev = liftIO $ putStrLn $ show i ++ "> " ++ show ev
 
 bpBlock :: TS.BlockPointerType BakerM -> Block
-bpBlock (PairBlockData (l, _)) = BS._bpBlock l
+-- bpBlock (PairBlockData (l, _)) = BS._bpBlock l
+bpBlock = BS._bpBlock
 
 -- |Run a step of the consensus. This takes the next event and
 -- executes that.
