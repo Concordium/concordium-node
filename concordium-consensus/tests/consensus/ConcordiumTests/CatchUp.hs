@@ -23,7 +23,8 @@ import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
@@ -129,7 +130,7 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
-catchUpCheck :: (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
+catchUpCheck :: (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
 catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myLoggedEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request 2000) c2 s2

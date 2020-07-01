@@ -41,7 +41,8 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 
@@ -241,7 +242,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
         addContext r = r
 
-invariantSkovFinalization :: SkovState (Config t) -> BakerInfo -> FinalizationCommitteeSize -> Either String ()
+invariantSkovFinalization :: SkovState (Config t) -> FullBakerInfo -> FinalizationCommitteeSize -> Either String ()
 invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ _) baker maxFinComSize = do
         let finParams = finalizationParameters maxFinComSize
         invariantSkovData sd
@@ -253,12 +254,12 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
                     max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) == oldGap then truncate ((oldGap * 4) % 5) else 2 * oldGap
         checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
         let prevState  = BS._bpState lfb
-            prevBakers = BState._birkCurrentBakers $ BState._blockBirkParameters prevState
+            prevBakers = _bakerMap $ BState._birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ BState._blockBank prevState
-        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU $ prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
-            bakerEqParty PartyInfo{..} = baker ^. bakerSignatureVerifyKey == partySignKey
+            bakerEqParty PartyInfo{..} = baker ^. bakerInfo . bakerSignatureVerifyKey == partySignKey
         checkBinary (==) bakerInFinCommittee (isActiveCurrentRound _finsCurrentRound) "<->" "baker is in finalization committee" "baker has current finalization round"
         onActiveCurrentRound _finsCurrentRound $ \FinalizationRound{..} -> do
             -- The following checks are performed only for the baker; the baker is part of the in the current finalization round
@@ -359,7 +360,7 @@ selectFromSeq g s =
 
 newtype DummyTimer = DummyTimer Integer
 
-type States = Vec.Vector (BakerIdentity, BakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
+type States = Vec.Vector (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 
 data ExecState = ExecState {
     _esEventPool :: EventPool,
@@ -492,7 +493,7 @@ genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromLi
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
-makeBaker :: BakerId -> Amount -> Gen (BakerInfo, BakerIdentity, Account, SigScheme.KeyPair)
+makeBaker :: BakerId -> Amount -> Gen (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair)
 makeBaker bid initAmount = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
         sk                     <- genBlockKeyPair
@@ -500,7 +501,7 @@ makeBaker bid initAmount = resize 0x20000000 $ do
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
         let (account, kp) = makeBakerAccountKP bid initAmount
-        return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account, kp)
+        return (FullBakerInfo (BakerInfo epk spk blspk (_accountAddress account)) initAmount, BakerIdentity sk ek blssk, account, kp)
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
@@ -532,7 +533,7 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
         nonFinBs <- bakers restStake bs
         createInitStates (finBs ++ nonFinBs) maxFinComSize []
 
-createInitStates :: [(BakerId, (BakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
+createInitStates :: [(BakerId, (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
 createInitStates bis maxFinComSize specialAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
             elDiff = 0.5
@@ -581,7 +582,7 @@ withInitialStatesTransferTransactions n trcount maxFinComSize r = monadicIO $ do
             minTransferAmount = 10 ^ (3 :: Int)
             maxTransferAmount = 10 ^ (6 :: Int)
         s0 <- initialiseStatesTransferTransactions finComSize (n - finComSize) averageStake stakeDiff maxFinComSize
-        let kpAddressPairs = Vec.toList $ (\(_, binfo, kp, _, _) -> (kp, _bakerAccount binfo)) <$> s0
+        let kpAddressPairs = Vec.toList $ (\(_, binfo, kp, _, _) -> (kp, binfo ^. bakerInfo . bakerAccount)) <$> s0
         trs <- pick . genTransferTransactions minTransferAmount maxTransferAmount kpAddressPairs $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)
