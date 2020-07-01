@@ -19,6 +19,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.Account
 
 import Concordium.Types
 
@@ -78,7 +79,7 @@ instance S.Serialize Account where
     return Account{..}
 
 instance HashableTo Hash.Hash Account where
-  getHash = Hash.hash . S.runPut . S.put
+  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount PersistingAccountData{..}
 
 -- |Create an empty account with the given public key.
 newAccount :: AccountKeys -> AccountAddress -> CredentialRegistrationID -> Account
