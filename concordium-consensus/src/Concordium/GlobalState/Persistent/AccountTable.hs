@@ -39,7 +39,7 @@ showATFString :: ATF String -> String
 showATFString (Branch lvl _ _ l r) = "Branch(" ++ show lvl ++ ", " ++ l ++ ", " ++ r ++ ")"
 showATFString (Leaf _ a) = show a
 
-instance (BlobStorable m ref r) => BlobStorable m ref (ATF r) where
+instance (BlobStorable m BlobRef r, MonadIO m) => BlobStorable m BlobRef (ATF r) where
     storeUpdate p (Branch lvl fll hsh cl cr) = do
         (pcl, cl') <- storeUpdate p cl
         (pcr, cr') <- storeUpdate p cr
@@ -188,7 +188,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Account
 empty :: AccountTable
 empty = Empty
 
-lookup :: (MonadBlobStore m BlobRef) => AccountIndex -> AccountTable -> m (Maybe PersistentAccount)
+lookup :: (MonadBlobStore m BlobRef, MonadIO m) => AccountIndex -> AccountTable -> m (Maybe PersistentAccount)
 lookup _ Empty = return Nothing
 lookup x (Tree _ _ t) = lookupF x t
 
@@ -204,7 +204,7 @@ update :: (MonadBlobStore m BlobRef, MonadIO m) => (PersistentAccount -> m (a, P
 update _ _ Empty = return Nothing
 update upd i (Tree nai _ t) = fmap (\(res, h, t') -> (res, Tree nai h t')) <$> updateF upd i t
 
-toList :: (MonadBlobStore m BlobRef) => AccountTable -> m [(AccountIndex, PersistentAccount)]
+toList :: (MonadBlobStore m BlobRef, MonadIO m) => AccountTable -> m [(AccountIndex, PersistentAccount)]
 toList Empty = return []
 toList (Tree _ _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t
 
@@ -218,6 +218,7 @@ makePersistent (Transient.Tree t0) = tree <$> conv t0
             b <- makeBufferedBlobbed (Branch lvl fll hsh ((\(_, _, t) -> t) l') cr)
             return (nxtr + 2^lvl, hsh, b)
         conv (Transient.Leaf hsh acct) = do
-            b <- makeBufferedBlobbed (Leaf hsh (makePersistentAccount acct))
+            pAcct <- makePersistentAccount acct
+            b <- makeBufferedBlobbed (Leaf hsh pAcct)
             return (1, hsh, b)
         tree (ai, hsh, t) = Tree ai hsh t
