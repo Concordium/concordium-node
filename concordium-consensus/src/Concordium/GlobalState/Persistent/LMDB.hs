@@ -143,7 +143,7 @@ finalizedByHeightStoreName = "finalizedByHeight"
 transactionStatusStoreName = "transactionstatus"
 
 dbStepSize :: Int
-dbStepSize = 2^(16 :: Int) -- 64MB
+dbStepSize = 2^(26 :: Int) -- 64MB
 
 dbInitSize :: Int
 dbInitSize = dbStepSize
