@@ -19,6 +19,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.List as List
 import Data.Proxy
 
+import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Concordium.Types
 
@@ -175,7 +176,7 @@ coerceBSML = coerce
 coerceBSMR :: BSMR rc r rs s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceBSMR = coerce
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m))
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
@@ -186,7 +187,8 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a2 <- coerceBSMR (getAccount rs addr)
         case (a1, a2) of
           (Just a1', Just a2') ->
-            return $ Just (a1', a2')
+            assert ((getHash a1' :: H.Hash) == getHash a2') $
+              return $ Just (a1', a2')
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
@@ -230,7 +232,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a2 <- coerceBSMR (getSpecialOutcomes rs)
         assert (a1 == a2) $ return a1
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m))
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
 
     getAccountAddress (acc1, acc2) = do
@@ -276,12 +278,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
     createNewAccount keys addr regId = do
         acc1 <- coerceBSML (createNewAccount keys addr regId)
         acc2 <- coerceBSMR (createNewAccount keys addr regId)
-        return (acc1, acc2)
+        assert ((getHash acc1 :: H.Hash) == getHash acc2) $
+          return (acc1, acc2)
 
     updateAccountAmount (acc1, acc2) amnt = do
         acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
-        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
-        return (acc1', acc2')
+        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt) 
+        assert ((getHash acc1 :: H.Hash) == getHash acc2) $
+          return (acc1', acc2')
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
         => BakerQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -350,7 +354,7 @@ instance (Monad m,
     return (bps1', bps2')
 
 
-instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m))
+instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
@@ -361,7 +365,8 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
         case (r1, r2) of
           (Just r1', Just r2') ->
-            return $ Just (r1', r2')
+            assert ((getHash r1' :: H.Hash) == getHash r2') $
+              return $ Just (r1', r2')
           (Nothing, Nothing) ->
             return Nothing
           (Nothing, _) ->
@@ -488,7 +493,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
 instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
-    BlockStateStorage (BSMR rc r rs s m))
+    BlockStateStorage (BSMR rc r rs s m),
+    HashableTo H.Hash (Account (BSML lc r ls s m)),
+    HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateStorage (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     thawBlockState (bs1, bs2) = do
         ubs1 <- coerceBSML $ thawBlockState bs1

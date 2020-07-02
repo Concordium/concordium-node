@@ -41,6 +41,8 @@ instance Serialize PersistingAccountData where
     _accountInstances <- Set.fromList <$> get
     return PersistingAccountData{..}
 
+-- TODO To avoid recomputing the hash for the persisting account data each time we update an account
+-- we might want to explicitly store its hash, too.
 makeAccountHash :: Nonce -> Amount -> [EncryptedAmount] -> PersistingAccountData -> Hash.Hash
 makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put pd

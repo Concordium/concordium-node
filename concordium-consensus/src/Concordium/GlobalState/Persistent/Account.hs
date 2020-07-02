@@ -69,9 +69,13 @@ makePersistentAccount Transient.Account{..} = do
 
 -- |Checks whether the two arguments represent the same account
 sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
-sameAccount bAcc PersistentAccount{..} = do
+sameAccount bAcc pAcc@PersistentAccount{..} = do
   PersistingAccountData{..} <- loadBufferedRef _persistingData
-  return $ Transient.Account{..} == bAcc
+  return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
+
+-- |Checks whether the two arguments represent the same account by comparing the account hashes
+sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
+sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^. accountAddress@ returns the account's address.
 (^^.) :: (MonadIO m, MonadBlobStore m BlobRef)
@@ -89,12 +93,12 @@ setPAD :: (MonadIO m, MonadBlobStore m BlobRef)
           => (PersistingAccountData -> PersistingAccountData)
           -> PersistentAccount
           -> m PersistentAccount
-setPAD f acc = do
+setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   newPData <- makeBufferedRef $ f pData
   return $ acc & persistingData .~ newPData
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData 
 
--- TODO (MRA) check if the value is different and leave pointer unchanged if it isn't?
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
 -- account's stake delegate to 'Nothing'.
