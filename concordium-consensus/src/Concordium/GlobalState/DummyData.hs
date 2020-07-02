@@ -67,6 +67,15 @@ dummyIdentityProviders =
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
 
+
+{-# NOINLINE dummyArs #-}
+{-# WARNING dummyArs "Do not use in production." #-}
+dummyArs :: AnonymityRevokers
+dummyArs = 
+  case unsafePerformIO (eitherReadAnonymityRevokers <$> BSL.readFile "testdata/anonymity_revokers.json") of
+    Left err -> error $ "Could not load anonymity revoker data: " ++ err
+    Right ars -> ars
+
 dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
 dummyFinalizationCommitteeMaxSize = 1000
 
@@ -167,7 +176,8 @@ createBlockState accounts =
       (blockAccounts .~ accounts) .
       (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
-      (blockIdentityProviders .~ dummyIdentityProviders)
+      (blockIdentityProviders .~ dummyIdentityProviders) .
+      (blockAnonymityRevokers .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
 blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
