@@ -36,6 +36,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import Concordium.GlobalState.Persistent.Bakers
@@ -57,6 +58,7 @@ data BlockStatePointers = BlockStatePointers {
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
     bspIdentityProviders :: !(BufferedRef IPS.IdentityProviders),
+    bspAnonymityRevokers :: !(BufferedRef ARS.AnonymityRevokers),
     bspBirkParameters :: !PersistentBirkParameters,
     bspCryptographicParameters :: !(BufferedRef CryptographicParameters),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
@@ -69,6 +71,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef BlockSt
         (pinsts, bspInstances') <- storeUpdate p bspInstances
         (pmods, bspModules') <- storeUpdate p bspModules
         (pips, bspIdentityProviders') <- storeUpdate p bspIdentityProviders
+        (pars, bspAnonymityRevokers') <- storeUpdate p bspAnonymityRevokers
         (pbps, bspBirkParameters') <- storeUpdate p bspBirkParameters
         (pcryptps, bspCryptographicParameters') <- storeUpdate p bspCryptographicParameters
         let putBSP = do
@@ -77,6 +80,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef BlockSt
                 pmods
                 put bspBank
                 pips
+                pars
                 pbps
                 pcryptps
                 put bspTransactionOutcomes
@@ -85,6 +89,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef BlockSt
                     bspInstances = bspInstances',
                     bspModules = bspModules',
                     bspIdentityProviders = bspIdentityProviders',
+                    bspAnonymityRevokers = bspAnonymityRevokers',
                     bspBirkParameters = bspBirkParameters',
                     bspCryptographicParameters = bspCryptographicParameters'
                 })
@@ -95,6 +100,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef BlockSt
         mmods <- label "Modules" $ load p
         bspBank <- label "Bank" $ get
         mpips <- label "Identity providers" $ load p
+        mars <- label "Anonymity revokers" $ load p
         mbps <- label "Birk parameters" $ load p
         mcryptps <- label "Cryptographic parameters" $ load p
         bspTransactionOutcomes <- label "Transaction outcomes" $ get
@@ -103,6 +109,7 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef BlockSt
             bspInstances <- minsts
             bspModules <- mmods
             bspIdentityProviders <- mpips
+            bspAnonymityRevokers <- mars
             bspBirkParameters <- mbps
             bspCryptographicParameters <- mcryptps
             return $! BlockStatePointers{..}
@@ -243,6 +250,7 @@ makePersistent Basic.BlockState{..} = do
         persistentMods <- makePersistentModules _blockModules
         modules <- makeBufferedRef $! persistentMods
         identityProviders <- makeBufferedRef $! _blockIdentityProviders
+        anonymityRevokers <- makeBufferedRef $! _blockAnonymityRevokers
         cryptographicParameters <- makeBufferedRef $! _blockCryptographicParameters
         blockAccounts <- Account.makePersistent _blockAccounts
         bsp <- makeBufferedRef $ BlockStatePointers {
@@ -251,6 +259,7 @@ makePersistent Basic.BlockState{..} = do
             , bspModules = modules
             , bspBank = _blockBank
             , bspIdentityProviders = identityProviders
+            , bspAnonymityRevokers = anonymityRevokers
             , bspBirkParameters = persistentBirkParameters
             , bspCryptographicParameters = cryptographicParameters
             , bspTransactionOutcomes = _blockTransactionOutcomes
@@ -261,9 +270,10 @@ initialPersistentState :: MonadIO m => Basic.BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [IPS.IpInfo]
+             -> ARS.AnonymityRevokers
              -> Amount
              -> m PersistentBlockState
-initialPersistentState bps cps accts ips amt = makePersistent $ Basic.initialState bps cps accts ips amt
+initialPersistentState bps cps accts ips ars amt = makePersistent $ Basic.initialState bps cps accts ips ars amt
 
 
 newtype LinkerWrapper r m a = LinkerWrapper { runLinkerWrapper :: ReaderT PersistentBlockState m a }
@@ -289,6 +299,7 @@ emptyBlockState :: MonadIO m => PersistentBirkParameters -> CryptographicParamet
 emptyBlockState bspBirkParameters cryptParams = liftIO $ do
     modules <- makeBufferedRef $! emptyModules
     identityProviders <- makeBufferedRef $! IPS.emptyIdentityProviders
+    anonymityRevokers <- makeBufferedRef $! ARS.emptyAnonymityRevokers
     cryptographicParameters <- makeBufferedRef $! cryptParams
     bsp <- makeBufferedRef $ BlockStatePointers {
         bspAccounts = Account.emptyAccounts
@@ -296,6 +307,7 @@ emptyBlockState bspBirkParameters cryptParams = liftIO $ do
         , bspModules = modules
         , bspBank = Rewards.emptyBankStatus
         , bspIdentityProviders = identityProviders
+        , bspAnonymityRevokers = anonymityRevokers
         , bspCryptographicParameters = cryptographicParameters
         , bspTransactionOutcomes = Transactions.emptyTransactionOutcomes
         ,..
@@ -635,6 +647,13 @@ doGetIdentityProvider pbs ipId = do
         ips <- loadBufferedRef (bspIdentityProviders bsp)
         return $! IPS.idProviders ips ^? ix ipId
 
+doGetAnonymityRevokers :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [ID.ArIdentity] -> m (Maybe [ARS.ArInfo])
+doGetAnonymityRevokers pbs arIds = do
+        bsp <- loadPBS pbs
+        ars <- loadBufferedRef (bspAnonymityRevokers bsp)
+        return $! let arsMap = ARS.arRevokers ars
+                  in forM arIds (flip HM.lookup arsMap)
+
 doGetCryptoParams :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m CryptographicParameters
 doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
@@ -794,6 +813,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoDecrementCentralBankGTU = doDecrementCentralBankGTU
     bsoDelegateStake = doDelegateStake
     bsoGetIdentityProvider = doGetIdentityProvider
+    bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
@@ -824,6 +844,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoDecrementCentralBankGTU #-}
     {-# INLINE bsoDelegateStake #-}
     {-# INLINE bsoGetIdentityProvider #-}
+    {-# INLINE bsoGetAnonymityRevokers #-}
     {-# INLINE bsoGetCryptoParams #-}
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
