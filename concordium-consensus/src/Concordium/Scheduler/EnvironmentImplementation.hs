@@ -306,6 +306,11 @@ instance (MonadReader ContextState m,
     s <- use schedulerBlockState
     lift (bsoGetIdentityProvider s ipId)
 
+  {-# INLINE getArInfos #-}
+  getArInfos arIds = do
+    s <- use schedulerBlockState
+    lift (bsoGetAnonymityRevokers s arIds)
+
   {-# INLINE getCrypoParams #-}
   getCrypoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
 
