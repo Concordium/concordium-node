@@ -15,8 +15,10 @@ module Concordium.GlobalState.Persistent.LMDB (
   , finalizationRecordStore
   , transactionStatusStore
   , databaseHandlers
+  , makeDatabaseHandlers
   , initializeDatabase
   , closeDatabase
+  , resizeOnResized
   , finalizedByHeightStore
   , StoredBlock(..)
   , readBlock
@@ -25,6 +27,7 @@ module Concordium.GlobalState.Persistent.LMDB (
   , readFinalizedBlockAtHeight
   , memberTransactionTable
   , loadBlocksFinalizationIndexes
+  , getFinalizedBlockAtHeight
   , getLastBlock
   , getFirstBlock
   , writeBlock
@@ -45,7 +48,7 @@ import qualified Concordium.Types.Transactions as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
 import Control.Concurrent (runInBoundThread)
-import Control.Exception (tryJust)
+import Control.Exception (tryJust, handleJust)
 import Control.Monad.IO.Class
 import Control.Monad
 import Control.Monad.State
@@ -122,7 +125,6 @@ instance MDBDatabase FinalizedByHeightStore where
 -- |Values used by the LMDBStoreMonad to manage the database.
 -- Sometimes we only want read access
 data DatabaseHandlers st = DatabaseHandlers {
-    _dbMapSize :: !Int,
     _storeEnv :: !MDB_env,
     _blockStore :: !(BlockStore st),
     _finalizationRecordStore :: !FinalizationRecordStore,
@@ -141,7 +143,7 @@ finalizedByHeightStoreName = "finalizedByHeight"
 transactionStatusStoreName = "transactionstatus"
 
 dbStepSize :: Int
-dbStepSize = 2^(26 :: Int) -- 64MB
+dbStepSize = 2^(16 :: Int) -- 64MB
 
 dbInitSize :: Int
 dbInitSize = dbStepSize
@@ -151,20 +153,28 @@ dbInitSize = dbStepSize
 
 -- |Initialize database handlers in ReadWrite mode.
 -- This simply loads the references and does not initialize the databases.
-databaseHandlers ::  RuntimeParameters -> IO (DatabaseHandlers st)
-databaseHandlers RuntimeParameters{..} = do
-  let _dbMapSize = dbInitSize
+databaseHandlers :: RuntimeParameters -> IO (DatabaseHandlers st)
+databaseHandlers RuntimeParameters{..} = makeDatabaseHandlers rpTreeStateDir False
+
+-- |Initialize database handlers.
+makeDatabaseHandlers
+  :: FilePath
+  -- ^Path of database
+  -> Bool
+  -- ^Open read only
+  -> IO (DatabaseHandlers st)
+makeDatabaseHandlers treeStateDir readOnly = do
   _storeEnv <- mdb_env_create
-  mdb_env_set_mapsize _storeEnv _dbMapSize
+  mdb_env_set_mapsize _storeEnv dbInitSize
   mdb_env_set_maxdbs _storeEnv 4
   mdb_env_set_maxreaders _storeEnv 126
   -- TODO: Consider MDB_NOLOCK
-  mdb_env_open _storeEnv rpTreeStateDir []
-  transaction _storeEnv False $ \txn -> do
-    _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) [MDB_CREATE]
-    _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE]
-    _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) [MDB_CREATE]
-    _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) [MDB_CREATE]
+  mdb_env_open _storeEnv treeStateDir [MDB_RDONLY | readOnly]
+  transaction _storeEnv readOnly $ \txn -> do
+    _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) [MDB_CREATE | not readOnly]
+    _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) [MDB_CREATE | not readOnly]
+    _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) [MDB_CREATE | not readOnly]
+    _transactionStatusStore <- TransactionStatusStore <$> mdb_dbi_open' txn (Just transactionStatusStoreName) [MDB_CREATE | not readOnly]
     return DatabaseHandlers{..}
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
@@ -192,14 +202,27 @@ initializeDatabase gb stRef rp@RuntimeParameters{..} = do
 closeDatabase :: DatabaseHandlers st -> IO ()
 closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 
-resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers st -> Int -> m (DatabaseHandlers st)
+-- |Resize the LMDB map if the file size has changed.
+-- This is used to allow a secondary process that is reading the database
+-- to handle resizes to the database that are made by the writer.
+-- The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
+-- error, then the map will be resized and the action retried.
+resizeOnResized :: DatabaseHandlers st -> IO a -> IO a
+resizeOnResized dbh a = inner
+  where
+    inner = handleJust checkResized onResized a
+    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
+    onResized _ = mdb_env_set_mapsize (dbh ^. storeEnv) 0 >> inner
+
+resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers st -> Int -> m ()
 resizeDatabaseHandlers dbh size = do
+  envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv)
   let delta = size + (dbStepSize - size `mod` dbStepSize)
-      newMapSize = (dbh ^. dbMapSize) + delta
+      oldMapSize = fromIntegral $ me_mapsize envInfo
+      newMapSize = oldMapSize + delta
       _storeEnv = dbh ^. storeEnv
-  logEvent LMDB LLDebug $ "Resizing database from " ++ show (dbh ^. dbMapSize) ++ " to " ++ show newMapSize
+  logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
   liftIO $ mdb_env_set_mapsize _storeEnv newMapSize
-  return dbh{_dbMapSize = newMapSize}
 
 -- |Read a block from the database by hash.
 readBlock :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
@@ -231,17 +254,23 @@ readTransactionStatus txHash = do
     $ transaction (dbh ^. storeEnv) True
     $ \txn -> loadRecord txn (dbh ^. transactionStatusStore) txHash
 
+-- |Get a block from the database by its height.
+getFinalizedBlockAtHeight :: (S.Serialize st)
+  => DatabaseHandlers st
+  -> BlockHeight
+  -> IO (Maybe (StoredBlock st))
+getFinalizedBlockAtHeight dbh bHeight = transaction (dbh ^. storeEnv) True
+    $ \txn -> do
+        mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) bHeight
+        join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
+
 -- |Read a block from the database by its height.
 readFinalizedBlockAtHeight :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
   => BlockHeight
   -> m (Maybe (StoredBlock st))
 readFinalizedBlockAtHeight bHeight = do
   dbh <- use dbHandlers
-  liftIO
-    $ transaction (dbh ^. storeEnv) True
-    $ \txn -> do
-        mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) bHeight
-        join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
+  liftIO $ getFinalizedBlockAtHeight dbh bHeight
 
 -- |Check if the given key is in the on-disk transaction table.        
 memberTransactionTable :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
@@ -291,7 +320,8 @@ getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
 
 
 -- |Perform a database action that may require the database to be resized,
--- resizing the database if necessary.
+-- resizing the database if necessary. The size argument is only evaluated
+-- if the resize actually happens.
 resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => Int
   -- ^Additional size
@@ -300,18 +330,16 @@ resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers s
   -> m a
 resizeOnFull addSize a = do
     dbh <- use dbHandlers
-    (dbh', res) <- inner dbh
-    dbHandlers .= dbh'
-    return res
+    inner dbh
   where
     inner dbh = do
-      r <- liftIO $ tryJust selectDBFullError ((dbh, ) <$> a dbh)
+      r <- liftIO $ tryJust selectDBFullError (a dbh)
       case r of
         Left _ -> do
           -- Resize the database handlers, and try to add again in case the size estimate
           -- given by lmdbStoreTypeSize is off.
-          dbh' <- resizeDatabaseHandlers dbh addSize
-          inner dbh'
+          resizeDatabaseHandlers dbh addSize
+          inner dbh
         Right res -> return res
     -- only handle the db full error and propagate other exceptions.
     selectDBFullError = \case (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
