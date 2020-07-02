@@ -10,6 +10,7 @@ import qualified Acorn.Utils.Init as Init
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -49,8 +50,8 @@ testAccountCreation ::
     IO
     ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-     [Maybe Types.Account],
-     Types.Account,
+     [Maybe Account],
+     Account,
      Types.BankStatus)
 testAccountCreation = do
     let transactions = Types.emptyGroupedTransactions {
@@ -75,8 +76,8 @@ testAccountCreation = do
 checkAccountCreationResult ::
   ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-     [Maybe Types.Account],
-     Types.Account,
+     [Maybe Account],
+     Account,
      Types.BankStatus)
   -> Bool
 checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
@@ -97,8 +98,8 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
         txstateAccs = case stateAccs of
                         [Just _, Just _, Just _, Just _, Just _] -> True
                         _ -> False
-        noCost = stateAles ^. Types.accountAmount == initialAmount && bankState ^. Types.executionCost == 0
-        stateInvariant = stateAles ^. Types.accountAmount + bankState ^. Types.executionCost == initialAmount
+        noCost = stateAles ^. accountAmount == initialAmount && bankState ^. Types.executionCost == 0
+        stateInvariant = stateAles ^. accountAmount + bankState ^. Types.executionCost == initialAmount
 
 tests :: Spec
 tests =
