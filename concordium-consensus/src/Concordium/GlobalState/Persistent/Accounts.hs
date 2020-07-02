@@ -216,19 +216,22 @@ updateAccount :: (MonadBlobStore m BlobRef, MonadIO m) => AccountUpdate -> Persi
 updateAccount !upd !acc = do
   let pDataRef = acc ^. persistingData
   pData <- loadBufferedRef pDataRef
-  -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  newPData <- case upd ^. auCredential of
-                   Nothing -> return pDataRef -- if the credentials don't need to be updated return the old pointer
-                   Just c -> makeBufferedRef $ pData & accountCredentials %~ Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c
   let newEncryptedAmount = case upd ^. auEncrypted of
                                 Empty -> acc ^. accountEncryptedAmount
                                 Add ea -> ea:(acc ^. accountEncryptedAmount)
                                 Replace ea -> [ea]
-  return $
-    acc & accountNonce %~ setMaybe (upd ^. auNonce)
-        & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
-        & persistingData .~ newPData
-        & accountEncryptedAmount .~ newEncryptedAmount
+  let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
+                                                    & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
+                                                    & accountEncryptedAmount .~ newEncryptedAmount
+  -- create a new pointer for the persisting account data if the account credential information needs to be updated:
+  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pdata
+  case upd ^. auCredential of
+       Nothing -> return $ newAccWithoutHash & hashUpdate pData
+       Just c -> do
+         let newPData = pData & accountCredentials %~ Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c
+         newPDataRef <- makeBufferedRef newPData
+         return $ newAccWithoutHash & persistingData .~ newPDataRef
+                                    & hashUpdate newPData
 
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y

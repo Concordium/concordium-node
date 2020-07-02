@@ -813,10 +813,13 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => AccountOperations (Pers
           _accountAmount = 0
           _accountEncryptedAmount = []
       _persistingData <- makeBufferedRef pData
-      let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData 
+      let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
       return $ PersistentAccount {..}
 
-  updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
+  updateAccountAmount acc amnt = do
+    let newAcc@PersistentAccount{..} = acc & accountAmount .~ amnt
+    pData <- loadBufferedRef _persistingData
+    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt _accountEncryptedAmount pData 
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule
