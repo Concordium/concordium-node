@@ -14,6 +14,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
@@ -112,6 +113,7 @@ makeTestingGenesisData ::
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> GenesisData
@@ -124,6 +126,7 @@ makeTestingGenesisData
   finalizationCommitteeMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
+  genesisAnonymityRevokers
   genesisControlAccounts
   genesisMaxBlockEnergy
     = GenesisData{..}
