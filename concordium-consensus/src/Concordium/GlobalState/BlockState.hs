@@ -45,7 +45,7 @@ import qualified Data.Map as Map
 import Data.Ratio
 import Data.Word
 import qualified Data.Vector as Vec
-import qualified Data.Serialize as S
+import Data.Serialize(Serialize)
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -360,7 +360,7 @@ class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
   bsoSetElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
-class BlockStateOperations m => BlockStateStorage m where
+class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
     -- state instance supports all the operations needed by the scheduler for
     -- block execution. Semantically the 'UpdatableBlockState' must be a copy,
@@ -388,11 +388,11 @@ class BlockStateOperations m => BlockStateStorage m where
     -- consensus (but could be required for historical queries).
     archiveBlockState :: BlockState m -> m ()
 
-    -- |Serialize a block state.
-    putBlockState :: BlockState m -> m S.Put
+    -- |Ensure that a block state is stored and return a reference to it.
+    saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- |Deserialize a block state.
-    getBlockState :: S.Get (m (BlockState m))
+    -- |Load a block state from a reference.
+    loadBlockState :: BlockStateRef m -> m (BlockState m)
 
 instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
     getSeedState = lift . getSeedState
@@ -511,15 +511,15 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     dropUpdatableBlockState = lift . dropUpdatableBlockState
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
-    putBlockState = lift . putBlockState
-    getBlockState = fmap lift getBlockState
+    saveBlockState = lift . saveBlockState
+    loadBlockState = lift . loadBlockState
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
     {-# INLINE purgeBlockState #-}
     {-# INLINE archiveBlockState #-}
-    {-# INLINE putBlockState #-}
-    {-# INLINE getBlockState #-}
+    {-# INLINE saveBlockState #-}
+    {-# INLINE loadBlockState #-}
 
 deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)

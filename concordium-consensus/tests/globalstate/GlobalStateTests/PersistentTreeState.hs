@@ -15,12 +15,14 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Persistent.LMDB
+import Concordium.GlobalState.LMDB.Helpers
 import Control.Monad.State hiding (state)
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Logger
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Time.Clock.POSIX
@@ -29,12 +31,7 @@ import Data.Proxy
 import Test.Hspec
 import Control.Exception
 import Lens.Micro.Platform
-import Data.Maybe
-import Database.LMDB.Simple
-import Database.LMDB.Simple.Extra
-import System.Directory
 import Concordium.Crypto.VRF as VRF
-import Data.ByteString (ByteString)
 import System.FilePath ((</>))
 import System.Random
 import System.IO.Temp
@@ -49,19 +46,6 @@ instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlo
 
 instance HasGlobalState (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState) where
   globalState = id
-
-deriving via (PersistentTreeStateMonad
-              ()
-              PBS.PersistentBlockState
-              TestM)
-  instance LMDBStoreMonad TestM
-
-deriving via (PersistentTreeStateMonad
-              ()
-              PBS.PersistentBlockState
-              TestM)
-  instance LMDBQueryMonad TestM
-
 
 createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
 createGlobalState dbDir = do
@@ -81,8 +65,9 @@ destroyGlobalState (c, s) =
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =
   specify s $
-    withTempDirectory "." "test-directory"
-    (\dbDir -> runSilentLogger $ void (uncurry (runRWST (runGlobalStateM $ f)) =<< liftIO (createGlobalState dbDir)))
+    withTempDirectory "." "test-directory" $
+    \dbDir -> bracket (createGlobalState dbDir) destroyGlobalState $
+      runSilentLogger . void . uncurry (runRWST (runGlobalStateM $ f))
 
 useI :: MonadState (Identity s) f => Getting b s b -> f b
 useI f = (^. f) <$> runIdentity <$> RWS.get
@@ -111,18 +96,24 @@ testFinalizeABlock = do
     fr `shouldBe` frec
 
   --- The database should now contain 2 items, check them
-  env <-  use (db . storeEnv)
-  dbB <- use (db . blockStore)
-  sB <- liftIO $ transaction env $ (size dbB :: Transaction ReadWrite Int)
-  liftIO $ sB `shouldBe` 2
-  dbF <- use (db . finalizationRecordStore)
-  sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
-  liftIO $ sF `shouldBe` 2
-  blocksBytes <-  liftIO $ transaction env $ (toList dbB :: Transaction ReadWrite [(BlockHash, ByteString)])
-  blocks <- mapM (\(_, bs) -> constructBlock (Just bs)) blocksBytes
-  frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
-  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [blockPtr, genesisBlock])) (catMaybes blocks)
-  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [frec, genesisFr])) frecs
+  theDB <- use db
+  (storedBlocks, finRecs) <- liftIO $ do
+    let
+        env = theDB ^. storeEnv
+        dbB = theDB ^. blockStore
+        dbF = theDB ^. finalizationRecordStore
+    sB <- transaction env True (flip databaseSize dbB)
+    sB `shouldBe` 2
+    sF <- transaction env True (flip databaseSize dbF)
+    sF `shouldBe` 2
+    storedBlocks <- transaction env True (flip loadAll dbB)
+    finRecs <- map snd <$> transaction env True (flip loadAll dbF)
+    return (storedBlocks, finRecs)
+  blocks <- mapM (constructBlock . snd) storedBlocks
+  liftIO $ do
+    forM_ blocks (`shouldSatisfy` flip elem [blockPtr, genesisBlock])
+    forM_ finRecs (`shouldSatisfy` flip elem [frec, genesisFr])
+
   -- check the blocktable
   bs <- use (blockTable . at (bpHash blockPtr))
   liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 1)
@@ -145,18 +136,24 @@ testFinalizeABlock = do
   addFinalization blockPtr2 frec2
 
   --- The database should now contain 3 items, check them
-  env <- use (db . storeEnv)
-  dbB <- use (db . blockStore)
-  sB <- liftIO $ transaction env $ (size dbB :: Transaction ReadWrite Int)
-  liftIO $ sB `shouldBe` 3
-  dbF <- use (db . finalizationRecordStore)
-  sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
-  liftIO $ sF `shouldBe` 3
-  blocksBytes <-  liftIO $ transaction env $ (toList dbB :: Transaction ReadWrite [(BlockHash, ByteString)])
-  blocks <- mapM (\(_, bs) -> constructBlock (Just bs)) blocksBytes
-  frecs <- liftIO $ transaction env $ (elems dbF :: Transaction ReadWrite [FinalizationRecord])
-  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [blockPtr2, blockPtr, genesisBlock])) (catMaybes blocks)
-  mapM_ (\b -> liftIO $ b `shouldSatisfy` (flip elem [frec2, frec, genesisFr])) frecs
+  theDB <- use db
+  (storedBlocks, finRecs) <- liftIO $ do
+    let
+        env = theDB ^. storeEnv
+        dbB = theDB ^. blockStore
+        dbF = theDB ^. finalizationRecordStore
+    sB <- transaction env True (flip databaseSize dbB)
+    sB `shouldBe` 3
+    sF <- transaction env True (flip databaseSize dbF)
+    sF `shouldBe` 3
+    storedBlocks <- transaction env True (flip loadAll dbB)
+    finRecs <- map snd <$> transaction env True (flip loadAll dbF)
+    return (storedBlocks, finRecs)
+  blocks <- mapM (constructBlock . snd) storedBlocks
+  liftIO $ do
+    forM_ blocks (`shouldSatisfy` flip elem [blockPtr2, blockPtr, genesisBlock])
+    forM_ finRecs (`shouldSatisfy` flip elem [frec2, frec, genesisFr])
+
   -- check the blocktable
   bs <- use (blockTable . at (bpHash blockPtr2))
   liftIO $ bs `shouldBe` Just (Concordium.GlobalState.Persistent.TreeState.BlockFinalized 2)
@@ -171,25 +168,27 @@ testEmptyGS :: Test
 testEmptyGS = do
   gb <- use genesisBlockPointer
   let gbh = bpHash gb
-  env <- use (db . storeEnv)
-  dbB <- use (db . blockStore)
-  sB <- liftIO $ transaction env $ (size dbB :: Transaction ReadWrite Int)
-  liftIO $ sB `shouldBe` 1
-  dbF <- use (db . finalizationRecordStore)
-  sF <- liftIO $ transaction env $ (size dbF :: Transaction ReadWrite Int)
-  liftIO $ sF `shouldBe` 1
+
+  theDB <- use db
+  liftIO $ do
+    let
+        env = theDB ^. storeEnv
+        dbB = theDB ^. blockStore
+        dbF = theDB ^. finalizationRecordStore
+    sB <- transaction env True (flip databaseSize dbB)
+    sB `shouldBe` 1
+    sF <- transaction env True (flip databaseSize dbF)
+    sF `shouldBe` 1
   b <- readBlock gbh
-  liftIO $ b `shouldNotBe` Nothing
-  case b of
+  liftIO $ case b of
     Just b ->
-      liftIO $ bpHash b `shouldBe` gbh
-    _ -> undefined
+      getHash (sbBlock b) `shouldBe` gbh
+    _ -> expectationFailure "Genesis block is missing"
   fr <- readFinalizationRecord 0
-  liftIO $ fr `shouldNotBe` Nothing
-  case fr of
+  liftIO $ case fr of
     Just fr ->
-      liftIO $ finalizationBlockPointer fr `shouldBe` gbh
-    _ -> undefined
+      finalizationBlockPointer fr `shouldBe` gbh
+    _ -> expectationFailure "Finalization record for genesis is missing"
 
 tests :: Spec
 tests = do
