@@ -102,11 +102,14 @@ genesisTotalGTU GenesisData{..} =
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
 
-readAnonymityRevokers :: BSL.ByteString -> Maybe [ArInfo]
+readAnonymityRevokers :: BSL.ByteString -> Maybe AnonymityRevokers
 readAnonymityRevokers = AE.decode
 
 eitherReadIdentityProviders :: BSL.ByteString -> Either String [IpInfo]
 eitherReadIdentityProviders = AE.eitherDecode
+
+eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
+eitherReadAnonymityRevokers = AE.eitherDecode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readCryptographicParameters = AE.decode
