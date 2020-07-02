@@ -43,6 +43,7 @@ basicGenesisState genData = Basic.initialState
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisControlAccounts genData)
                        (genesisIdentityProviders genData)
+                       (genesisAnonymityRevokers genData)
                        (genesisMintPerSlot genData)
 
 -- kp :: Int -> Sig.KeyPair
