@@ -76,6 +76,8 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
 
+type instance GT.BlockStatePointer BlockState = ()
+
 instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
@@ -249,7 +251,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
 
     bsoNotifyIdentityIssuerCredential bs idk =
-      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank ^. Rewards.identityIssuersRewards) in
+      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank . Rewards.identityIssuersRewards) in
       return $! bs & blockBank . Rewards.identityIssuersRewards .~ updatedRewards
 
     {-# INLINE bsoGetExecutionCost #-}
@@ -340,11 +342,11 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE archiveBlockState #-}
     archiveBlockState _ = return ()
 
-    {-# INLINE putBlockState #-}
-    putBlockState _ = return (return ())
+    {-# INLINE saveBlockState #-}
+    saveBlockState _ = return ()
 
-    {-# INLINE getBlockState #-}
-    getBlockState = fail "Basic block state cannot be deserialized"
+    {-# INLINE loadBlockState #-}
+    loadBlockState _ = error "Cannot load memory-based block state"
 
 
 -- |Initial block state.
