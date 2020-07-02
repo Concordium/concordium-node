@@ -186,7 +186,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a2 <- coerceBSMR (getAccount rs addr)
         case (a1, a2) of
           (Just a1', Just a2') ->
-            -- TODO (MRA) add assertion
             return $ Just (a1', a2')
           (Nothing, Nothing) ->
             return Nothing
@@ -277,13 +276,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
     createNewAccount keys addr regId = do
         acc1 <- coerceBSML (createNewAccount keys addr regId)
         acc2 <- coerceBSMR (createNewAccount keys addr regId)
-        -- TODO(MRA) add assertion
         return (acc1, acc2)
 
     updateAccountAmount (acc1, acc2) amnt = do
         acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
         acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
-        -- TODO (MRA) insert assertion
         return (acc1', acc2')
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
@@ -364,7 +361,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
         case (r1, r2) of
           (Just r1', Just r2') ->
-            -- TODO (MRA) insert assertion
             return $ Just (r1', r2')
           (Nothing, Nothing) ->
             return Nothing

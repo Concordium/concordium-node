@@ -36,7 +36,7 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.Types (Amount, BakerId, Nonce, EncryptedAmount)
+import Concordium.Types
 
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
@@ -522,6 +522,5 @@ instance (MonadBlobStore m ref) => BlobStorable m ref BakerInfo
 instance (MonadBlobStore m ref) => BlobStorable m ref EncryptedAmount
 -- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
 instance (MonadBlobStore m ref) => BlobStorable m ref [EncryptedAmount]
-instance (MonadBlobStore m ref) => BlobStorable m ref Nonce
 instance (MonadBlobStore m ref) => BlobStorable m ref PersistingAccountData
 instance (MonadBlobStore m ref) => BlobStorable m ref Word64

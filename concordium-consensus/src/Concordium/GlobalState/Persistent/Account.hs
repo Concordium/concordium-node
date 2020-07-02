@@ -45,16 +45,13 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
         return (putAccs, persistentAcc)
     store p a = fst <$> storeUpdate p a
     load p = do
-        mAccNonce <- load p
-        mAccAmount <- load p
-        mAccEncryptedAmount <- load p
-        mAccData <- load p
+        _accountNonce <- get
+        _accountAmount <- get
+        _accountEncryptedAmount <- get
+        mAccDataPtr <- load p
         return $ do
-          _accountNonce <- mAccNonce
-          _accountAmount <- mAccAmount
-          _accountEncryptedAmount <- mAccEncryptedAmount
-          pData <- mAccData
-          _persistingData <- makeBufferedRef pData
+          _persistingData <- mAccDataPtr
+          pData <- loadBufferedRef _persistingData
           let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
           return PersistentAccount {..}
 
@@ -72,7 +69,7 @@ makePersistentAccount Transient.Account{..} = do
 sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc PersistentAccount{..} = do
   PersistingAccountData{..} <- loadBufferedRef _persistingData
-  return $ Transient.Account{..} == bAcc  
+  return $ Transient.Account{..} == bAcc
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^. accountAddress@ returns the account's address.
 (^^.) :: (MonadIO m, MonadBlobStore m BlobRef)
