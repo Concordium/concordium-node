@@ -23,8 +23,10 @@ data PersistentAccount = PersistentAccount {
   -- |List of encrypted amounts on the account.
   -- TODO (MRA) create bufferedref list
   ,_accountEncryptedAmount :: ![EncryptedAmount]
+  -- |A pointer to account data that changes rarely
   ,_persistingData :: !(BufferedRef PersistingAccountData)
-  -- TODO (MRA) explain that we need this for the merkle tree because we can't create the hash based on a pointer to PersistingAccountData
+  -- A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
+  -- the persisting account data is stored behind a pointer
   ,_accountHash :: !Hash.Hash
   } deriving Show
 
