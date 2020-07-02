@@ -83,6 +83,17 @@ acc ^^. l = (^. l) <$> loadBufferedRef (acc ^. persistingData)
 {-# INLINE (^^.) #-}
 infixl 8 ^^.
 
+-- |Update a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
+-- Used to implement '.~~' and '%~~'.
+setPAD :: (MonadIO m, MonadBlobStore m BlobRef)
+          => (PersistingAccountData -> PersistingAccountData)
+          -> PersistentAccount
+          -> m PersistentAccount
+setPAD f acc = do
+  pData <- loadBufferedRef (acc ^. persistingData)
+  newPData <- makeBufferedRef $ f pData
+  return $ acc & persistingData .~ newPData
+
 -- TODO (MRA) check if the value is different and leave pointer unchanged if it isn't?
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
@@ -92,15 +103,11 @@ infixl 8 ^^.
       -> b
       -> PersistentAccount
       -> m PersistentAccount
-(.~~) l v acc = do
-  pData <- loadBufferedRef (acc ^. persistingData)
-  newPData <- makeBufferedRef $ pData & l .~ v
-  return $ acc & persistingData .~ newPData
+(.~~) l v = setPAD (l .~ v)
 
 {-# INLINE (.~~) #-}
 infixr 4 .~~
 
--- TODO (MRA) factor out common code between these two functions
 -- |Modify a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountInstances %~~ Set.insert i@ inserts an instance @i@ to the set of an account's instances.
 (%~~) :: (MonadIO m, MonadBlobStore m BlobRef)
@@ -108,10 +115,7 @@ infixr 4 .~~
       -> (a -> b)
       -> PersistentAccount
       -> m PersistentAccount
-(%~~) l f acc = do
-  pData <- loadBufferedRef (acc ^. persistingData)
-  newPData <- makeBufferedRef $ pData & l %~ f
-  return $ acc & persistingData .~ newPData
+(%~~) l f = setPAD (l %~ f)
 
 {-# INLINE (%~~) #-}
 infixr 4 %~~
