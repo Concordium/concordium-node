@@ -30,6 +30,7 @@ import Concordium.Crypto.SHA256
 import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.TreeState as TS

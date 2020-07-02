@@ -23,7 +23,7 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
 
-import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
+import Concordium.Scheduler.Types hiding (Payload(..))
 
 import System.Random
 import Lens.Micro.Platform
