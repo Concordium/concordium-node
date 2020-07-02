@@ -68,6 +68,12 @@ makePersistentAccount Transient.Account{..} = do
   _persistingData <- makeBufferedRef pdata
   return PersistentAccount {..}
 
+-- |Checks whether the two arguments represent the same account
+sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
+sameAccount bAcc PersistentAccount{..} = do
+  PersistingAccountData{..} <- loadBufferedRef _persistingData
+  return $ Transient.Account{..} == bAcc  
+
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^. accountAddress@ returns the account's address.
 (^^.) :: (MonadIO m, MonadBlobStore m BlobRef)
       => PersistentAccount

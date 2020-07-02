@@ -5,14 +5,17 @@
     MonoLocalBinds,
     ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# LANGUAGE UndecidableInstances #-}
 module GlobalStateTests.Accounts where
 
 import Prelude hiding (fail)
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
 import Control.Monad.IO.Class
+import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans.Reader
 import Control.Exception
+import Data.Maybe
 import qualified Data.Set as Set
 import Data.Proxy
 import Data.Serialize as S
@@ -31,9 +34,12 @@ import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 
+import Concordium.GlobalState.Account
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Basic.BlockState.Account as BA
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
+import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.AccountTable as PAT
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -50,21 +56,37 @@ assertRight _ = return ()
 checkBinary :: (Show a, MonadFail m) => (a -> a -> Bool) -> a -> a -> String -> String -> String -> m ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
+checkBinaryM :: (Monad m, Show a, Show b, MonadFail m) => (a -> b -> m Bool) -> a -> b -> String -> String -> String -> m ()
+checkBinaryM bop x y sbop sx sy = do
+  satisfied <- bop x y
+  unless satisfied $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ show y ++ " (" ++ sy ++ ")"
+
 -- |Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 -- That is, they have the same account map, account table, and set of
 -- use registration ids.
-checkEquivalent :: (MonadBlobStore m BlobRef, MonadFail m) => B.Accounts -> P.Accounts -> m ()
+checkEquivalent :: (MonadReader r m, HasBlobStore r, MonadFail m, MonadIO m) => B.Accounts -> P.Accounts -> m ()
 checkEquivalent ba pa = do
     pam <- Trie.toMap (P.accountMap pa)
     checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
     let bat = BAT.toList (B.accountTable ba)
     pat <- PAT.toList (P.accountTable pa)
-    checkBinary (==) bat pat "==" "Basic account table (as list)" "Persistent account table (as list)"
+    checkBinaryM sameAccList bat pat "==" "Basic account table (as list)" "Persistent account table (as list)"
     let bath = getHash (B.accountTable ba) :: H.Hash
     let path = getHash (P.accountTable pa) :: H.Hash
     checkBinary (==) bath path "==" "Basic account table hash" "Persistent account table hash"
     (pregids, _) <- P.loadRegIds pa
     checkBinary (==) (B.accountRegIds ba) pregids "==" "Basic registration ids" "Persistent registration ids"
+
+    where -- Check whether an in-memory account-index and account pair is equivalent to a persistent account-index and account pair
+          sameAccPair :: (MonadIO m, MonadBlobStore m BlobRef)
+                      => Bool -- accumulator for the fold in 'sameAccList'
+                      -> ((BAT.AccountIndex, BA.Account), (PAT.AccountIndex, PA.PersistentAccount)) -- the pairs to be compared
+                      -> m Bool
+          sameAccPair b ((bInd, bAcc), (pInd, pAcc)) = do
+            sameAcc <- PA.sameAccount bAcc pAcc
+            return $ b && bInd == pInd && sameAcc
+          -- Check whether a list of in-memory account-index and account pairs is equivalent to a persistent list of account-index and account pairs
+          sameAccList l1 l2 = foldM sameAccPair True $ zip l1 l2
 
 data AccountAction
     = PutAccount Account
@@ -137,7 +159,7 @@ randomActions = sized (ra Set.empty Set.empty)
                     (_, addr) <- elements (Set.toList s)
                     newNonce <- Nonce <$> arbitrary
                     newAmount <- Amount <$> arbitrary
-                    let upd acc = if _accountAddress acc == addr
+                    let upd acc = if BA._accountAddress acc == addr
                             then
                                 acc {_accountAmount = newAmount, _accountNonce = newNonce}
                             else
@@ -167,12 +189,16 @@ randomActions = sized (ra Set.empty Set.empty)
                     (RecordRegId rid:) <$> ra s rids (n-1)
 
 
+makePureAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PA.PersistentAccount -> m Account
+makePureAccount PA.PersistentAccount{..} = do
+  PersistingAccountData{..} <- loadBufferedRef _persistingData
+  return Account{..}
 
-
-runAccountAction :: (MonadBlobStore m BlobRef, MonadFail m, MonadIO m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
+runAccountAction :: (MonadBlobStore m BlobRef, MonadReader r m, HasBlobStore r, MonadFail m, MonadIO m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
 runAccountAction (PutAccount acct) (ba, pa) = do
         let ba' = B.putAccount acct ba
-        pa' <- P.putAccount acct pa
+        pAcct <- PA.makePersistentAccount acct
+        pa' <- P.putAccount pAcct pa
         return (ba', pa')
 runAccountAction (Exists addr) (ba, pa) = do
         let be = B.exists addr ba
@@ -182,16 +208,23 @@ runAccountAction (Exists addr) (ba, pa) = do
 runAccountAction (GetAccount addr) (ba, pa) = do
         let bacct = B.getAccount addr ba
         pacct <- P.getAccount addr pa
-        checkBinary (==) bacct pacct "==" "account in basic" "account in persistent"
+        let sameAcc (Just ba) (Just pa) = PA.sameAccount ba pa
+            sameAcc _ _ = return False
+        checkBinaryM sameAcc bacct pacct "==" "account in basic" "account in persistent"
         return (ba, pa)
 runAccountAction (UpdateAccount addr upd) (ba, pa) = do
         let ba' = ba & ix addr %~ upd
-        (_, pa') <- P.updateAccount (return . ((), ) . upd) addr pa
+            -- Transform a function that updates in-memory accounts into a function that updates persistent accounts
+            liftP :: (MonadIO m, MonadBlobStore m BlobRef) => (Account -> Account) -> PA.PersistentAccount -> m PA.PersistentAccount
+            liftP f pAcc = do
+              bAcc <- makePureAccount pAcc
+              PA.makePersistentAccount $ f bAcc
+        (_, pa') <- P.updateAccounts (fmap ((),) . liftP upd) addr pa
         return (ba', pa')
 runAccountAction (UnsafeGetAccount addr) (ba, pa) = do
         let bacct = B.unsafeGetAccount addr ba
         pacct <- P.unsafeGetAccount addr pa
-        checkBinary (==) bacct pacct "==" "account in basic" "account in persistent"
+        checkBinaryM PA.sameAccount bacct pacct "==" "account in basic" "account in persistent"
         return (ba, pa)
 runAccountAction FlushPersistent (ba, pa) = do
         (_, pa') <- storeUpdate (Proxy :: Proxy BlobRef) pa
