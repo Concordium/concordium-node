@@ -104,28 +104,44 @@ bakerData bid bkrs = do
     stake <- MaybeT (getBakerStake bkrs bid)
     return (bInfo, stake % totalStake)
 
--- TODO (MRA) add documentation
+
 class (BlockStateTypes m,  Monad m) => AccountOperations m where
 
+  -- | Get the address of the account
   getAccountAddress :: Account m -> m AccountAddress
 
+  -- | Get the current public account balance
   getAccountAmount :: Account m -> m Amount
 
+  -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce
 
+  -- |For now the only operation we need with a credential is to check whether
+  -- there are any credentials that are valid, and validity only depends on expiry.
+  -- A Max priority queue allows us to efficiently check for existence of such credentials,
+  -- as well as listing of all valid credentials, and efficient insertion of new credentials.
+  -- The priority is the expiry time of the credential.
   getAccountCredentials :: Account m -> m (MaxPQueue CredentialValidTo CredentialDeploymentValues)
 
+  -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountKeys
 
+  -- |Get the list of encrypted amounts on the account
   getAccountEncryptedAmount :: Account m -> m [EncryptedAmount]
 
+  -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
 
+  -- |The set of instances belonging to this account
+  -- TODO: Revisit choice of datastructure. Additions and removals
+  -- are expected to be rare. The set is traversed when stake delegation
+  -- changes.
   getAccountInstances :: Account m -> m (Set ContractAddress)
 
   -- |Create an empty account with the given public key.
   createNewAccount :: AccountKeys -> AccountAddress -> CredentialRegistrationID -> m (Account m)
 
+  -- |Update the public account balance
   updateAccountAmount :: Account m -> Amount -> m (Account m)
 
 class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
