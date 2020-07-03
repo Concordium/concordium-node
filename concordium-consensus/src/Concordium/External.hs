@@ -224,6 +224,7 @@ genesisState GenesisData{..} = Basic.initialState
                        genesisCryptographicParameters
                        (genesisAccounts ++ genesisControlAccounts)
                        genesisIdentityProviders
+                       genesisAnonymityRevokers
                        genesisMintPerSlot
 
 type TreeConfig = DiskTreeDiskBlockConfig
