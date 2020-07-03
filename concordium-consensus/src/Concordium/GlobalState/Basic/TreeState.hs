@@ -294,4 +294,4 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
 
-    purgeTransactionTable = const $ return ()
+    purgeTransactionTable = const . const $ return ()
