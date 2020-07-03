@@ -14,6 +14,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
@@ -42,6 +43,7 @@ basicGenesisState genData = Basic.initialState
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisControlAccounts genData)
                        (genesisIdentityProviders genData)
+                       (genesisAnonymityRevokers genData)
                        (genesisMintPerSlot genData)
 
 -- kp :: Int -> Sig.KeyPair
@@ -64,6 +66,15 @@ dummyIdentityProviders =
   case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
+
+
+{-# NOINLINE dummyArs #-}
+{-# WARNING dummyArs "Do not use in production." #-}
+dummyArs :: AnonymityRevokers
+dummyArs = 
+  case unsafePerformIO (eitherReadAnonymityRevokers <$> BSL.readFile "testdata/anonymity_revokers.json") of
+    Left err -> error $ "Could not load anonymity revoker data: " ++ err
+    Right ars -> ars
 
 dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
 dummyFinalizationCommitteeMaxSize = 1000
@@ -112,6 +123,7 @@ makeTestingGenesisData ::
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> GenesisData
@@ -124,6 +136,7 @@ makeTestingGenesisData
   finalizationCommitteeMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
+  genesisAnonymityRevokers
   genesisControlAccounts
   genesisMaxBlockEnergy
     = GenesisData{..}
@@ -163,7 +176,8 @@ createBlockState accounts =
       (blockAccounts .~ accounts) .
       (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
-      (blockIdentityProviders .~ dummyIdentityProviders)
+      (blockIdentityProviders .~ dummyIdentityProviders) .
+      (blockAnonymityRevokers .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
 blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
