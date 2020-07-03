@@ -307,9 +307,9 @@ tests = do
 
     specify "Update first baker's election key" $
       case (results !! 12, results !! 13) of
-        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], bps13)) ->
+        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], _bps13)) ->
             let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
-                b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
+--                b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
             in do
               assertEqual "Election key before update" (b3_bps12 ^. bakerElectionVerifyKey) (VRF.pubKey $ baker1 ^. _2)
               assertEqual "Updated election key" k (VRF.pubKey $ baker3 ^. _2)
@@ -317,7 +317,7 @@ tests = do
 
     specify "Fail to update first baker's election key using wrong account" $
       case (results !! 13, results !! 14) of
-        ((_,_, bps13), ([(_, Types.TxReject (Types.NotFromBakerAccount thomasAccount alesAccount))], [], bps14)) ->
+        ((_,_, bps13), ([(_, Types.TxReject (Types.NotFromBakerAccount _ _))], [], bps14)) ->
             let b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
                 b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
             in assertEqual "Unchanged election key" (b3_bps13 ^. bakerElectionVerifyKey) (b3_bps14 ^. bakerElectionVerifyKey)

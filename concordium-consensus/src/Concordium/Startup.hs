@@ -23,6 +23,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers (bakersFromList)
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC, cdvRegId)
@@ -85,6 +86,7 @@ makeGenesisData ::
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
@@ -96,6 +98,7 @@ makeGenesisData
         genesisFinalizationParameters
         genesisCryptographicParameters
         genesisIdentityProviders
+        genesisAnonymityRevokers
         genesisControlAccounts
         genesisMaxBlockEnergy
     = (GenesisData{..}, bakers)

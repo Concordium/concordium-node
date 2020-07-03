@@ -64,6 +64,7 @@ import Control.Applicative
 import Control.Monad.Except
 import Control.Exception
 import qualified Data.HashMap.Strict as Map
+import qualified Data.Map.Strict as OrdMap
 import Data.Maybe(fromJust, isJust)
 import Data.Ord
 import Data.List hiding (group)
@@ -926,53 +927,56 @@ handleDeployCredential cdi cdiHash = do
       if not (isTimestampBefore (slotTime cm) expiry) then
         return $ Just (TxInvalid AccountCredentialInvalid)
       else if regIdEx then
-        return $ (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
+        return $ Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv)))
       else do
         -- We now look up the identity provider this credential is derived from.
         -- Of course if it does not exist we reject the transaction.
         let credentialIP = ID.cdvIpId cdv
         getIPInfo credentialIP >>= \case
-          Nothing -> return $! Just (TxInvalid (NonExistentIdentityProvider (ID.cdvIpId cdv)))
+          Nothing -> return $ Just (TxInvalid (NonExistentIdentityProvider (ID.cdvIpId cdv)))
           Just ipInfo -> do
-            cryptoParams <- getCrypoParams
-            -- we have two options. One is that we are deploying a credential on an existing account.
-            case ID.cdvAccount cdv of
-              ID.ExistingAccount aaddr ->
-                -- first check whether an account with the address exists in the global store
-                -- if it does not we cannot deploy the credential.
-                getAccount aaddr >>= \case
-                  Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
-                  Just account -> do
-                        -- otherwise we just try to add a credential to the account
-                        -- but only if the credential is from the same identity provider
-                        -- as the existing ones on the account.
-                        -- Since we always maintain this invariant it is sufficient to check
-                        -- for one credential only.
-                        let credentials = account ^. accountCredentials
-                        let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
-                        if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
-                          addAccountCredential account cdv
-                          mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                        else
-                          return $ (Just (TxInvalid AccountCredentialInvalid))
-              ID.NewAccount keys threshold ->
-                -- account does not yet exist, so create it, but we need to be careful
-                if null keys || length keys > 255 then
-                  return $ Just (TxInvalid AccountCredentialInvalid)
-                else do
-                  let accountKeys = ID.makeAccountKeys keys threshold
-                  let aaddr = ID.addressFromRegId regId
-                  let account = newAccount accountKeys aaddr regId
-                  -- this check is extremely unlikely to fail (it would amount to a hash collision since
-                  -- we checked regIdEx above already).
-                  accExistsAlready <- isJust <$> getAccount aaddr
-                  let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
-                  if not accExistsAlready && check then do
-                    _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                               -- We know the address does not yet exist.
-                    addAccountCredential account cdv  -- and then add the credentials
-                    mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                  else return $ Just (TxInvalid AccountCredentialInvalid)
+            getArInfos (OrdMap.keys (ID.cdvArData cdv)) >>= \case
+              Nothing -> return $ Just (TxInvalid UnsupportedAnonymityRevokers)
+              Just arsInfos -> do
+                cryptoParams <- getCrypoParams
+                -- we have two options. One is that we are deploying a credential on an existing account.
+                case ID.cdvAccount cdv of
+                  ID.ExistingAccount aaddr ->
+                    -- first check whether an account with the address exists in the global store
+                    -- if it does not we cannot deploy the credential.
+                    getAccount aaddr >>= \case
+                      Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
+                      Just account -> do
+                            -- otherwise we just try to add a credential to the account
+                            -- but only if the credential is from the same identity provider
+                            -- as the existing ones on the account.
+                            -- Since we always maintain this invariant it is sufficient to check
+                            -- for one credential only.
+                            let credentials = account ^. accountCredentials
+                            let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
+                            if sameIP && AH.verifyCredential cryptoParams ipInfo arsInfos (Just (account ^. accountVerificationKeys)) cdiBytes then do
+                              addAccountCredential account cdv
+                              mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                            else
+                              return $ (Just (TxInvalid AccountCredentialInvalid))
+                  ID.NewAccount keys threshold ->
+                    -- account does not yet exist, so create it, but we need to be careful
+                    if null keys || length keys > 255 then
+                      return $ Just (TxInvalid AccountCredentialInvalid)
+                    else do
+                      let accountKeys = ID.makeAccountKeys keys threshold
+                      let aaddr = ID.addressFromRegId regId
+                      let account = newAccount accountKeys aaddr regId
+                      -- this check is extremely unlikely to fail (it would amount to a hash collision since
+                      -- we checked regIdEx above already).
+                      accExistsAlready <- isJust <$> getAccount aaddr
+                      let check = AH.verifyCredential cryptoParams ipInfo arsInfos Nothing cdiBytes
+                      if not accExistsAlready && check then do
+                        _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                                   -- We know the address does not yet exist.
+                        addAccountCredential account cdv  -- and then add the credentials
+                        mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                      else return $ Just (TxInvalid AccountCredentialInvalid)
 
 -- |Update the baker's public aggregation key. The transaction is considered valid if
 --

@@ -33,6 +33,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import Concordium.GlobalState.Paired
@@ -81,6 +82,9 @@ type BakerConfig = SkovConfig TreeConfig (BufferedFinalization DummyTimer) NoHan
 -- |The identity providers to use.
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
+
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
 
 -- |Construct genesis state.
 genesisState :: GenesisData -> BState.BlockState
@@ -259,6 +263,7 @@ initialState = do
                                 defaultFinalizationParameters
                                 dummyCryptographicParameters
                                 dummyIdentityProviders
+                                dummyArs
                                 [Example.createCustomAccount 1000000000000 mateuszKP mateuszAccount]
                                 (Energy maxBound)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
