@@ -45,7 +45,6 @@ import System.Directory
 import System.IO.Error
 import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
-import Data.Time.Clock
 import Data.Foldable as Fold (foldl')
 import Concordium.Logger
 import Control.Monad.Except
@@ -566,11 +565,6 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
                   transactionTablePurgeCounter %= (+ 1)
-                  purgeCount <- use transactionTablePurgeCounter
-                  RuntimeParameters{..} <- use runtimeParameters
-                  when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
-                    TS.purgeTransactionTable
-                    transactionTablePurgeCounter .= 1
                   let wmdtr = WithMetadata{wmdData=tr,..}
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
@@ -691,17 +685,19 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
     -- The `ttNonFinalizedTransactions` map is updated and afterwards the transactions are removed from the `ttHashMap`.
     -- The `PendingTransactionTable` is updated doing a rollback to the last seen nonce on the right side of each entry in
     -- `pttWithSender`.
-    purgeTransactionTable = do
-      lastFinalizedSlot <- blockSlot <$> use lastFinalized
-      transactionTable' <- use transactionTable
-      pendingTransactions' <- use pendingTransactions
-      RuntimeParameters{..} <- TS.getRuntimeParameters
+    purgeTransactionTable currentTime = do
+      purgeCount <- use transactionTablePurgeCounter
+      RuntimeParameters{..} <- use runtimeParameters
+      when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
+        transactionTablePurgeCounter .= 0
+        lastFinalizedSlot <- blockSlot <$> use lastFinalized
+        transactionTable' <- use transactionTable
+        pendingTransactions' <- use pendingTransactions
 
-      txHighestNonces <- removeTransactions transactionTable' rpTransactionsKeepAliveTime lastFinalizedSlot
-      pendingTransactions .= rollbackNonces txHighestNonces pendingTransactions'
+        txHighestNonces <- removeTransactions transactionTable' rpTransactionsKeepAliveTime lastFinalizedSlot
+        pendingTransactions .= rollbackNonces txHighestNonces pendingTransactions'
      where
        removeTransactions TransactionTable{..} keepAliveTime lastFinalizedSlot = do
-         currentTime <- liftIO (utcTimeToTransactionTime <$> getCurrentTime)
          let removeTxs :: [(Nonce, Set.Set T.Transaction)] -> Nonce -> ([T.Transaction], [(Nonce, Set.Set T.Transaction)], Nonce)
              removeTxs [] h = ([], [], h) -- If we have no more transactions to process, return the same value as before.
              removeTxs ((thisNonce, transactionsForThisNonce):setsOfTxsByNonce) highestNonce =
@@ -715,12 +711,12 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                        Just Received{..} -> _tsSlot <= lastFinalizedSlot
                        _ -> False
                    (transactionsToDrop, transactionsToKeep) =
-                     Set.partition (\t -> biArrivalTime t + keepAliveTime < currentTime && removable t) transactionsForThisNonce in -- split in old and still valid transactions
+                     Set.partition (\t -> biArrivalTime t + keepAliveTime < utcTimeToTransactionTime currentTime && removable t) transactionsForThisNonce in -- split in old and still valid transactions
                  if Set.size transactionsToKeep == 0
                  then
                     -- If we don't keep any transactions for this nonce, because:
-                    -- * They all expired
-                    -- * They were not included in a block that was finalized or still live
+                    -- - They all expired
+                    -- - They were not included in a block that was finalized or still live
                     -- then we can assume that transactions with higher nonces should be dropped.
                     (Set.elems transactionsToDrop ++ concatMap (Set.elems . snd) setsOfTxsByNonce, [], highestNonce)
                  else
@@ -747,7 +743,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
              -- and finally remove all the credential deployments that are too old.
              !finalTT = HM.filter (\case
                                       (WithMetadata{wmdData=CredentialDeployment{},..}, Received{..}) ->
-                                          wmdArrivalTime + keepAliveTime >= currentTime && _tsSlot > lastFinalizedSlot
+                                          wmdArrivalTime + keepAliveTime >= utcTimeToTransactionTime currentTime && _tsSlot > lastFinalizedSlot
                                       _ -> True
                                   ) newTMap
          transactionTable .= TransactionTable{_ttHashMap = finalTT, _ttNonFinalizedTransactions = newNFT}

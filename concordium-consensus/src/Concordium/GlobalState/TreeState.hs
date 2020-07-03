@@ -255,7 +255,7 @@ class (Eq (BlockPointerType m),
 
     -- |Try to purge expired items from the transaaction table.
     -- Probably this will only be implemented in the Disk implementation.
-    purgeTransactionTable :: m ()
+    purgeTransactionTable :: UTCTime -> m ()
 
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
@@ -311,7 +311,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
-    purgeTransactionTable = lift purgeTransactionTable
+    purgeTransactionTable = lift . purgeTransactionTable
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
