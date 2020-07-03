@@ -263,7 +263,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
   case _bpBlock _genesisBlockPointer of
     GenesisBlock gd' -> unless (_genesisData == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash _genesisBlockPointer))
     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
-  
+
   -- Populate the block table.
   _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
@@ -565,15 +565,15 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
-                  let wmdtr = WithMetadata{wmdData=tr,..}
-                  transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
-                                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   transactionTablePurgeCounter %= (+ 1)
                   purgeCount <- use transactionTablePurgeCounter
                   RuntimeParameters{..} <- use runtimeParameters
                   when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
                     TS.purgeTransactionTable
-                    transactionTablePurgeCounter .= 0
+                    transactionTablePurgeCounter .= 1
+                  let wmdtr = WithMetadata{wmdData=tr,..}
+                  transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
+                                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
               CredentialDeployment{..} -> do
@@ -725,17 +725,18 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                    -- else combine the transactions to drop and the transactions to keep with the ones from the next step
                    (toDrop : nextToDrop, (n, nn) : nextToKeep, nextHn)
 
-             processANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([Set.Set T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce))
+             processANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([Set.Set T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce, Bool))
              processANFT (acc, AccountNonFinalizedTransactions{..}) =
                -- we need to get a list in ascending order
                -- in order to do only one pass over the nonces if we ever hit a nonce that gets emptied
                let (removed, kept, hn) = removeTxs (Map.toAscList _anftMap) in
-                 (removed, (acc, AccountNonFinalizedTransactions{_anftMap = kept, ..}), (acc, hn))
+                 (removed, (acc, AccountNonFinalizedTransactions{_anftMap = kept, ..}), (acc, hn, Map.size kept == 0))
 
              results = fmap processANFT (HM.toList $ _ttNonFinalizedTransactions)
              allDeletes = fmap (^. _1) results
              !newNFT = fromList $ fmap (^. _2) results
              highestNonces = fmap (^. _3) results
+
              -- remove all normal transactions that should be removed
              !newTMap = Fold.foldl' (Fold.foldl' (Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)))) _ttHashMap allDeletes
              -- and finally remove all the credential deployments that are too old.
@@ -747,10 +748,12 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
          transactionTable .= TransactionTable{_ttHashMap = finalTT, _ttNonFinalizedTransactions = newNFT}
          return highestNonces
 
-       rollbackNonces :: [(AccountAddress, Nonce)] -> PendingTransactionTable -> PendingTransactionTable
+       rollbackNonces :: [(AccountAddress, Nonce, Bool)] -> PendingTransactionTable -> PendingTransactionTable
        rollbackNonces e PTT{..} = PTT {_pttWithSender =
-                                       let !v = Fold.foldl' (\pt (acc, n) ->
-                                                               update (\(n1, n2) ->
+                                       let !v = Fold.foldl' (\pt (acc, n, remove) ->
+                                                               if remove then Data.HashMap.Strict.delete acc pt
+                                                               else
+                                                                 update (\(n1, n2) ->
                                                                          if n2 > n && n >= n1 then Just (n1, n)
                                                                          else if n2 > n then Nothing
                                                                          else Just (n1, n2)) acc pt) _pttWithSender e in v,
