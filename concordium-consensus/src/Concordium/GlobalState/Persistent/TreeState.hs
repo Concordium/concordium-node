@@ -29,7 +29,6 @@ import Concordium.Types.Transactions as T
 import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.ByteString (ByteString)
 import Data.HashMap.Strict hiding (toList)
 import qualified Data.HashMap.Strict as HM
 import Data.List as List
@@ -37,9 +36,8 @@ import qualified Data.Map.Strict as Map
 import Data.Typeable
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
-import Data.Serialize as S (runGet, runGetPartial, Result(..), put, get, runPut, Put)
 import qualified Data.Set as Set
-import Database.LMDB.Simple as L
+import Data.Serialize (Serialize(..))
 import Lens.Micro.Platform
 import Concordium.Utils
 import System.Mem.Weak
@@ -134,28 +132,34 @@ data SkovPersistentData ati bs = SkovPersistentData {
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
     -- | Database handlers
-    _db :: !DatabaseHandlers,
+    _db :: !(DatabaseHandlers (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
     _atiCtx :: !(ATIContext ati)
 }
 makeLenses ''SkovPersistentData
 
+instance (bsp ~ TS.BlockStatePointer bs)
+    => HasDatabaseHandlers bsp (SkovPersistentData ati bs) where
+  dbHandlers = db
+
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault
-    :: FilePath
+    :: (Serialize (TS.BlockStatePointer bs))
+    => FilePath
     -> GenesisData
     -> bs
     -> (ATIValues ati, ATIContext ati)
-    -> S.Put -- ^How to serialize the block state reference for inclusion in the table.
+    -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
     -> IO (SkovPersistentData ati bs)
 initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
 
 initialSkovPersistentData
-    :: RuntimeParameters
+    :: (Serialize (TS.BlockStatePointer bs))
+    => RuntimeParameters
     -> GenesisData
     -> bs
     -> (ATIValues ati, ATIContext ati)
-    -> S.Put -- ^How to serialize the block state reference for inclusion in the table.
+    -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
     -> IO (SkovPersistentData ati bs)
 initialSkovPersistentData rp gd genState ati serState = do
   gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
@@ -243,109 +247,34 @@ loadSkovPersistentData :: forall ati . CanExtend (ATIValues ati)
                        -> PBS.PersistentBlockStateContext
                        -> (ATIValues ati, ATIContext ati)
                        -> LogIO (SkovPersistentData ati PBS.PersistentBlockState)
-loadSkovPersistentData rp gd pbsc atiPair = do
+loadSkovPersistentData rp _genesisData pbsc atiPair = do
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
+  _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
+          liftIO (try $ databaseHandlers rp)
 
-  dbHandlers <- either (\(e :: InitException) -> logExceptionAndThrowTS e) return =<< (liftIO $ try $ mapException DatabaseOpeningError $ databaseHandlers rp)
-
-  let env = dbHandlers ^. storeEnv -- database environment
-      dbFH = dbHandlers  ^. finalizedByHeightStore -- finalized by height table
-      dbB = dbHandlers ^. blockStore
-      dbFinRecords = dbHandlers ^. finalizationRecordStore
-
-  let failWith :: LogIO (Maybe a) -> InitException -> LogIO a
-      failWith x exc =
-        x >>= \case Nothing -> logExceptionAndThrowTS exc
-                    Just v -> return v
-
-      -- Lookup a finalized block at a given height.
-      -- Raises an exception at internal database violation.
-      lookupAtHeight :: BlockHeight -> LogIO (Maybe (BlockHash, ByteString))
-      lookupAtHeight bHeight = do
-        result <-
-          liftIO $ transaction env $ do
-            (L.get dbFH bHeight :: (L.Transaction ReadOnly (Maybe BlockHash))) >>= \case
-              Nothing -> return Nothing
-              Just bh -> Just . (bh, ) <$> L.get dbB bh
-        -- the reason for doing it this way is that I am wary of throwing exceptions
-        -- inside an LMDB transaction.
-        case result of
-          Nothing -> return Nothing
-          Just (bh, Nothing) -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "A referred to block does not exist: " ++ show bh)
-          Just (bh, Just bytes) -> return (Just (bh, bytes))
-
-      getBlockPointer :: ByteString -> LogIO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState)
-      getBlockPointer bytes =
-        case runGet getQuadruple bytes of
-          Left err -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Cannot deserialize block: " ++ show err)
-          Right (finIndex, blockInfo, newBlock, state') -> do
-            st <- runReaderT (PBS.runPersistentBlockStateMonad state') pbsc
-            let ati = defaultValue :: ATIValues ati
-            (, finIndex, st) <$> makeBlockPointerFromPersistentBlock newBlock st ati blockInfo
-        where getQuadruple = do
-                finIndex <- S.get
-                blockInfo <- S.get
-                newBlock <- getBlock (utcTimeToTransactionTime (_bpReceiveTime blockInfo))
-                state' <- getBlockState
-                return (finIndex, blockInfo, newBlock, state')
-
-      -- Look up the minimal data, without deserializing the rest of it.
-      -- Due to the way LMDB works right now this still involves loading the entire block
-      -- into memory.
-      getMinimalBlockData :: ByteString -> LogIO FinalizationIndex
-      getMinimalBlockData bytes =
-        case runGetPartial S.get bytes of
-          S.Fail err _ -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Cannot deserialize block: " ++ show err)
-          S.Partial _ -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Cannot deserialize block. Partially successful.")
-          S.Done finIndex _ -> return finIndex
-
-      -- Given the genesis block pointer this function tries to load as many blocks as possible
-      -- from disk. It returns the last blockpointer that was loaded.
-      loadInSequence ::
-        PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState -- Genesis block pointer
-        -> ByteString -- Bytes of the genesis block as stored in the database.
-        -> LogIO ((PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState, FinalizationIndex, PBS.PersistentBlockState),
-               [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
-      loadInSequence gbp gBytes = do
-        (lastBytes, blocks) <- go 1 gBytes [(getHash gbp, BlockFinalized 0)]
-        (, blocks) <$> getBlockPointer lastBytes
-        where go :: BlockHeight
-                 -> ByteString
-                 -> [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)]
-                 -> LogIO (ByteString, [(BlockHash, PersistentBlockStatus (ATIValues ati) PBS.PersistentBlockState)])
-              go height lastBytes acc =
-                lookupAtHeight height >>= \case
-                  Nothing -> return (lastBytes, acc)
-                  Just (bh, bytes) ->
-                    getMinimalBlockData bytes >>=
-                    \finIndex -> go (height + 1) bytes ((bh, BlockFinalized finIndex):acc)
-
-  (gbHash, gbBytes) <- lookupAtHeight 0 `failWith` GenesisBlockNotInDataBaseError
-
-  -- Check that this is really a genesis pointer with the same genesis data
-  (gBlockPointer, _, _) <- getBlockPointer gbBytes
-
-  unless (gbHash == getHash gBlockPointer) $ logExceptionAndThrowTS
-    (DatabaseInvariantViolation $ "Genesis given hash (" ++ show gbHash ++ ") and computed hash (" ++ show (getHash gBlockPointer :: BlockHash) ++ ") differ.")
-
-  case _bpBlock gBlockPointer of
-    GenesisBlock gd' -> unless (gd == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash gBlockPointer))
+  -- Get the genesis block and check that its data matches the supplied genesis data.
+  genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
+          liftIO (getFirstBlock _db)
+  _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
+  case _bpBlock _genesisBlockPointer of
+    GenesisBlock gd' -> unless (_genesisData == gd') $ logExceptionAndThrowTS (GenesisBlockIncorrect (getHash _genesisBlockPointer))
     _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
+  
+  -- Populate the block table.
+  _blockTable <- liftIO (loadBlocksFinalizationIndexes _db) >>= \case
+      Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
+      Right hm -> return $! HM.map BlockFinalized hm
 
-  -- We would ideally be able to simply query for the last finalization record, but the limitations
-  -- of the LMDB bindings prevent us from doing that.
-  ((lastPointer, lastBlockFinIndex, lastState), blocks) <- loadInSequence gBlockPointer gbBytes
-
-  let getFinalizationRecord idx = L.readOnlyTransaction env (L.get dbFinRecords idx)
-  lastFinRecord <- liftIO (getFinalizationRecord lastBlockFinIndex) `failWith` (DatabaseInvariantViolation $ "Finalization record for known index ("++ show lastBlockFinIndex ++ ") does not exist.")
-
-  -- make sure the block pointed to by the last finalization record is indeed in the database
-  _ <- liftIO (readOnlyTransaction env (L.get dbB (finalizationBlockPointer lastFinRecord)))
-       `failWith` (DatabaseInvariantViolation $ "Finalization record points to a block (" ++ show (finalizationBlockPointer lastFinRecord) ++ ") which does not exist.")
+  -- Get the last finalized block.
+  (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
+      Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
+      Right r -> return r
+  _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+  let lastState = _bpState _lastFinalized
 
   -- The final thing we need to establish is the transaction table invariants.
   -- This specifically means for each account we need to determine the next available nonce.
@@ -364,15 +293,10 @@ loadSkovPersistentData rp gd pbsc atiPair = do
   tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
 
   return SkovPersistentData {
-            _blockTable = HM.fromList blocks,
             _possiblyPendingTable = HM.empty,
             _possiblyPendingQueue = MPQ.empty,
-            _lastFinalized = lastPointer,
-            _lastFinalizationRecord = lastFinRecord,
             _branches = Seq.empty,
-            _genesisData = gd,
-            _genesisBlockPointer = gBlockPointer,
-            _focusBlock = lastPointer,
+            _focusBlock = _lastFinalized,
             _pendingTransactions = emptyPendingTransactionTable,
             _transactionTable = tt,
             _transactionTablePurgeCounter = 0,
@@ -381,13 +305,20 @@ loadSkovPersistentData rp gd pbsc atiPair = do
             -- consensus started.
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _db = dbHandlers,
-            _atiCtx = snd atiPair
+            _atiCtx = snd atiPair,
+            ..
         }
 
---------------------------------------------------------------------------------
+  where
+    makeBlockPointer :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState)
+    makeBlockPointer StoredBlock{..} = do
+      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState sbState)) pbsc
+      makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
--- * The PersistentTreeStateMonad
+-- |Close the database associated with a 'SkovPersistentData'.
+-- The database should not be used after this.
+closeSkovPersistentData :: SkovPersistentData ati bs -> IO ()
+closeSkovPersistentData = closeDatabase . _db
 
 -- |Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
 -- The underlying Monad must provide instances for:
@@ -449,8 +380,8 @@ getWeakPointer weakPtr ptrHash name = do
             else do
               nb <- readBlock ptrHash
               case nb of
+                Just sb -> constructBlock sb
                 Nothing -> logErrorAndThrowTS ("Couldn't find " ++ name ++ " block in disk")
-                Just n -> return n
 
 instance (MonadLogger (PersistentTreeStateMonad ati bs m),
           Monad (PersistentTreeStateMonad ati bs m),
@@ -468,86 +399,14 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
   bpLastFinalized block = getWeakPointer (_bpLastFinalized block) (_bpLastFinalizedHash (_bpInfo block)) "last finalized"
   bpTransactionAffectSummaries block = return (_bpATI block)
 
-
--- |Construct a block from a serialized form.
--- The @ati@ is filled with a default value.
 constructBlock :: (MonadIO m,
                    BlockStateStorage m,
                    TS.BlockState m ~ bs,
                    CanExtend (ATIStorage m))
-               => Maybe ByteString -> m (Maybe (PersistentBlockPointer (ATIStorage m) bs))
-constructBlock Nothing = return Nothing
-constructBlock (Just bytes) =
-  case runGet getTriple bytes of
-    Left _ -> return Nothing
-    Right (blockInfo, newBlock, state') -> do
-      st <- state'
-      let ati = defaultValue
-      Just <$> (makeBlockPointerFromPersistentBlock newBlock st ati blockInfo)
-  where getTriple = do
-          (_ :: FinalizationIndex) <- S.get -- TODO: This is ugly, but needed when loading from existing database.
-          blockInfo <- S.get
-          newBlock <- getBlock (utcTimeToTransactionTime (_bpReceiveTime blockInfo))
-          state' <- getBlockState
-          return (blockInfo, newBlock, state')
-
-instance (MonadLogger (PersistentTreeStateMonad ati bs m),
-          MonadIO (PersistentTreeStateMonad ati bs m),
-          TS.BlockState m ~ bs,
-          BlockStateStorage (PersistentTreeStateMonad ati bs m),
-          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
-         => LMDBStoreMonad (PersistentTreeStateMonad ati bs m) where
-  writeBlock bp fr = do
-    dbh <- use db
-    bs <- putBlockState (_bpState bp)
-    let blockBS = runPut (S.put (finalizationIndex fr) <> S.put (_bpInfo bp) <> putBlock bp <> bs)
-    dbh' <- putOrResize dbh (Block (getHash bp) (bpHeight bp) blockBS)
-    db .=! dbh'
-
-  writeFinalizationRecord fr = do
-    dbh <- use db
-    dbh' <- putOrResize dbh (Finalization (finalizationIndex fr) fr)
-    db .=! dbh'
-
-  writeTransactionStatus th t = do
-    dbh <- use db
-    dbh' <- putOrResize dbh (TxStatus th t)
-    db .=! dbh'
-
-  writeTransactionStatuses tss = do
-    dbh <- use db
-    dbh' <- putOrResize dbh (TxStatuses tss)
-    db .=! dbh'
-
-instance (MonadIO (PersistentTreeStateMonad ati bs m),
-          BlockStateStorage (PersistentTreeStateMonad ati bs m),
-          TS.BlockState m ~ bs,
-          CanExtend (ATIValues ati),
-          MonadState (SkovPersistentData ati bs) (PersistentTreeStateMonad ati bs m))
-         => LMDBQueryMonad (PersistentTreeStateMonad ati bs m) where
-  readBlock bh = do
-    env <- use (db . storeEnv)
-    dbB <- use (db . blockStore)
-    bytes <- liftIO $ transaction env (L.get dbB bh :: L.Transaction ReadOnly (Maybe ByteString))
-    constructBlock bytes
-
-  readFinalizationRecord bh = do
-    env <- use (db . storeEnv)
-    dbF <- use (db . finalizationRecordStore)
-    liftIO $ transaction env (L.get dbF bh :: L.Transaction ReadOnly (Maybe FinalizationRecord))
-
-  readFinalizedBlockAtHeight bHeight = do
-    env <- use (db . storeEnv)
-    dbFH <- use (db . finalizedByHeightStore)
-    mbh <- liftIO $ transaction env (L.get dbFH bHeight :: L.Transaction ReadOnly (Maybe BlockHash))
-    case mbh of
-      Nothing -> return Nothing
-      Just bh -> readBlock bh
-
-  readTransactionStatus th = do
-    env <- use (db . storeEnv)
-    dbT <- use (db . transactionStatusStore)
-    liftIO $ transaction env (L.get dbT th :: L.Transaction ReadOnly (Maybe T.TransactionStatus))
+               => StoredBlock (TS.BlockStatePointer bs) -> m (PersistentBlockPointer (ATIStorage m) bs)
+constructBlock StoredBlock{..} = do
+  bstate <- loadBlockState sbState
+  makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
 instance (MonadLogger (PersistentTreeStateMonad ati bs m),
           MonadIO (PersistentTreeStateMonad ati bs m),
@@ -579,14 +438,12 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                 b <- readBlock bh
                 fr <- readFinalizationRecord fidx
                 case (b, fr) of
-                  (Just block, Just finr) -> return $ Just (TS.BlockFinalized block finr)
-                  (Just _, Nothing) -> do
-                      logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
-                  (Nothing, Just _) -> do
-                      logErrorAndThrowTS $ "Lost block that was stored as finalized" ++ show bh
-                  _ -> do
-                      logErrorAndThrowTS $ "Lost block and finalization record" ++ show bh
-
+                  (Just sb, Just finr) -> do
+                    block <- constructBlock sb
+                    return $ Just (TS.BlockFinalized block finr)
+                  (Just _, Nothing) -> logErrorAndThrowTS $ "Lost finalization record that was stored" ++ show bh
+                  (Nothing, Just _) -> logErrorAndThrowTS $ "Lost block that was stored as finalized" ++ show bh
+                  _ -> logErrorAndThrowTS $ "Lost block and finalization record" ++ show bh
     makeLiveBlock block parent lastFin st ati arrTime energy = do
             blockP <- makePersistentBlockPointerFromPendingBlock block parent lastFin st ati arrTime energy
             blockTable . at' (getHash block) ?=! BlockAlive blockP
@@ -594,7 +451,13 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
     markDead bh = blockTable . at' bh ?= BlockDead
     markFinalized bh fr = use (blockTable . at' bh) >>= \case
             Just (BlockAlive bp) -> do
-              writeBlock bp fr
+              st <- saveBlockState (_bpState bp)
+              writeBlock StoredBlock{
+                  sbFinalizationIndex = finalizationIndex fr,
+                  sbInfo = _bpInfo bp,
+                  sbBlock = _bpBlock bp,
+                  sbState = st
+                }
               blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
@@ -617,7 +480,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
         dfr <- readFinalizationRecord finIndex
         case dfr of
           Just diskFinRec -> do
-             readBlock (finalizationBlockPointer diskFinRec)
+             msb <- readBlock (finalizationBlockPointer diskFinRec)
+             mapM constructBlock msb
           _ -> return Nothing
 
     getRecordAtIndex finIndex = do
@@ -632,7 +496,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
       if bHeight == bpHeight lfin then do
         return $ Just lfin
       else do
-        readFinalizedBlockAtHeight bHeight
+        msb <- readFinalizedBlockAtHeight bHeight
+        mapM constructBlock msb
 
     getBranches = use branches
     putBranches brs = branches .= brs
@@ -765,11 +630,11 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                   -- delete the transaction from the cache
                   transactionTable . ttHashMap . at' txHash .= Nothing
                   -- and write the status to disk
-                  return (txHash, Finalized{_tsSlot=slot,
-                                            tsBlockHash=bh,
-                                            tsFinResult=tsResults HM.! bh,
+                  return (txHash, FinalizedTransactionStatus{ftsSlot=slot,
+                                            ftsBlockHash=bh,
+                                            ftsIndex=tsResults HM.! bh
                                             -- the previous lookup is safe; finalized transaction must be on a block
-                                            ..})
+                                            })
                 _ -> logErrorAndThrowTS "Transaction should exist and be in committed state when finalized."
 
     commitTransaction slot bh tr idx =
@@ -811,7 +676,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
        ts <- preuse (transactionTable . ttHashMap . ix th . _2)
        case ts of
          Just t -> return $ Just t
-         Nothing -> readTransactionStatus th
+         Nothing -> fmap finalizedToTransactionStatus <$> readTransactionStatus th
 
     getConsensusStatistics = use statistics
     putConsensusStatistics stats = statistics .=! stats
