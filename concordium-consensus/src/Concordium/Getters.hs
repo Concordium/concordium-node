@@ -208,7 +208,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
             Just acc -> return $ object ["accountNonce" .= let Nonce n = (acc ^. T.accountNonce) in n
                                         ,"accountAmount" .= toInteger (acc ^. T.accountAmount)
                                         -- credentials in descending order
-                                        ,"accountCredentials" .= map (\v -> (Versioned versionCredential v)) (Queue.elems (acc ^. accountCredentials))
+                                        ,"accountCredentials" .= map (Versioned versionCredential v) (Queue.elems (acc ^. accountCredentials))
                                         ,"accountDelegation" .= (acc ^. T.accountStakeDelegate)
                                         ,"accountInstances" .= S.toList (acc ^. T.accountInstances)
                                         ]
