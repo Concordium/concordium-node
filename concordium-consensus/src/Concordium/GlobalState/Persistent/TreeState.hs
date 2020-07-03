@@ -681,14 +681,15 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
     -- | This function will remove transactions that are pending for a long time.
     -- First it goes over the account non finalized transactions and for each account it separates the transactions that
     -- will be purged to those that won't. For a transaction to be purged its arrival time plus the transactions keep-alive
-    -- time must be lower that the current timestamp and its status must be `Received`.
+    -- time must be lower that the current timestamp and its status must be `Received` or `Committed` in a block that no longer.
+    -- will be in a live branch.
     -- The `ttNonFinalizedTransactions` map is updated and afterwards the transactions are removed from the `ttHashMap`.
     -- The `PendingTransactionTable` is updated doing a rollback to the last seen nonce on the right side of each entry in
-    -- `pttWithSender`.
-    purgeTransactionTable currentTime = do
+    -- `pttWithSender` or removing the entry if we removed all the pending transactions for that account.
+    purgeTransactionTable ignoreInsertions currentTime = do
       purgeCount <- use transactionTablePurgeCounter
       RuntimeParameters{..} <- use runtimeParameters
-      when (purgeCount > rpInsertionsBeforeTransactionPurge) $ do
+      when (ignoreInsertions || purgeCount > rpInsertionsBeforeTransactionPurge) $ do
         transactionTablePurgeCounter .= 0
         lastFinalizedSlot <- blockSlot <$> use lastFinalized
         transactionTable' <- use transactionTable
