@@ -209,6 +209,7 @@ runAccountAction (GetAccount addr) (ba, pa) = do
         let bacct = B.getAccount addr ba
         pacct <- P.getAccount addr pa
         let sameAcc (Just ba) (Just pa) = PA.sameAccount ba pa
+            sameAcc Nothing Nothing = return True
             sameAcc _ _ = return False
         checkBinaryM sameAcc bacct pacct "==" "account in basic" "account in persistent"
         return (ba, pa)
