@@ -36,7 +36,7 @@ import Concordium.Logger (MonadLogger(..))
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
-    deriving (Functor, Applicative, Monad, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
 instance (MonadReader r' m, Coercible r' r) =>
         MonadReader r (ReviseRSM r s m) where
@@ -49,12 +49,6 @@ instance (MonadState s' m, Coercible s' s) =>
     get = ReviseRSM (fmap coerce (get :: m s'))
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
-
--- Since we use the 'ReviseRSM' type just for testing with the Paired state, and the global-state monad implementations
--- below provide testing assertions for the Paired state with the 'ReviseRSM' type, we just provide a placeholder
--- logging implementation for 'ReviseRSM' here. However, if logging is required, this needs to be implemented.
-instance Monad m => MonadLogger (ReviseRSM r s m) where
-  logEvent _ _ _ = return ()
 
 data PairGSContext lc rc = PairGSContext {
         _pairContextLeft :: !lc,
@@ -490,6 +484,8 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps2
         return (bs1', bs2')
 
+type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
+
 instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
@@ -514,17 +510,14 @@ instance (MonadLogger m,
     archiveBlockState (bs1, bs2) = do
         coerceBSML $ archiveBlockState bs1
         coerceBSMR $ archiveBlockState bs2
-    putBlockState (bs1, bs2) = do
-        p1 <- coerceBSML $ putBlockState bs1
-        p2 <- coerceBSMR $ putBlockState bs2
-        return $ p1 >> p2
-    getBlockState = do
-        g1 <- getBlockState
-        g2 <- getBlockState
-        return $ do
-            bs1 <- coerceBSML g1
-            bs2 <- coerceBSMR g2
-            return (bs1, bs2)
+    saveBlockState (bs1, bs2) = do
+        p1 <- coerceBSML $ saveBlockState bs1
+        p2 <- coerceBSMR $ saveBlockState bs2
+        return $ (p1, p2)
+    loadBlockState (p1, p2) = do
+        bs1 <- coerceBSML $ loadBlockState p1
+        bs2 <- coerceBSMR $ loadBlockState p2
+        return (bs1, bs2)
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML lc r ls s m a -> TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m a
