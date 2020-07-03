@@ -217,6 +217,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
+                  transactionTablePurgeCounter %= (+ 1)
                   let wmdtr = WithMetadata{wmdData=tr,..}
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
