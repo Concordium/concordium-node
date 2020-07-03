@@ -92,37 +92,6 @@ data GenesisData = GenesisData {
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
-    put GenesisData{..} = do
-        put genesisTime
-        put genesisSlotDuration
-        put genesisBakers
-        put genesisSeedState
-        put genesisElectionDifficulty
-        put genesisAccounts
-        put genesisControlAccounts
-        put genesisFinalizationParameters
-        put genesisCryptographicParameters
-        put genesisIdentityProviders
-        put genesisMintPerSlot
-        put genesisMaxBlockEnergy
-
-    get = do
-      genesisTime <- get
-      genesisSlotDuration <- get
-      genesisBakers <- get
-      genesisSeedState <- get
-      genesisElectionDifficulty <- get
-      genesisAccounts <- get
-      genesisControlAccounts <- get
-      genesisFinalizationParameters <- get
-      genesisCryptographicParameters <- get
-      genesisIdentityProviders <- get
-      genesisMintPerSlot <- get
-      genesisMaxBlockEnergy <- get
-      return $! GenesisData{..}
-
-
-
 
 genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
