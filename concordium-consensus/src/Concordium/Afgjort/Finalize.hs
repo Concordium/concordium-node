@@ -66,7 +66,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.AccountTransactionIndex
@@ -323,7 +323,7 @@ instance FinalizationQueueLenses (FinalizationState m) where
 instance FinalizationStateLenses (FinalizationState m) m where
     finState = id
 
-initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
+initialPassiveFinalizationState :: BlockHash -> FinalizationParameters -> Map BakerId FullBakerInfo -> Amount -> FinalizationState timer
 initialPassiveFinalizationState genHash finParams genBakers totalGTU = FinalizationState {
     _finsSessionId = FinalizationSessionId genHash 0,
     _finsIndex = 1,
@@ -344,7 +344,7 @@ initialPassiveFinalizationState genHash finParams genBakers totalGTU = Finalizat
         initialGap = 1 + finalizationMinimumSkip finParams
 {-# INLINE initialPassiveFinalizationState #-}
 
-initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Bakers -> Amount -> FinalizationState timer
+initialFinalizationState :: FinalizationInstance -> BlockHash -> FinalizationParameters -> Map BakerId FullBakerInfo -> Amount -> FinalizationState timer
 initialFinalizationState FinalizationInstance{..} genHash finParams genBakers totalGTU = (initialPassiveFinalizationState genHash finParams genBakers totalGTU) {
     _finsCurrentRound = case Vec.find (\p -> partySignKey p == Sig.verifyKey finMySignKey && partyVRFKey p == VRF.publicKey finMyVRFKey) (parties com) of
         Nothing -> PassiveCurrentRound initialPassiveFinalizationRound
@@ -363,7 +363,7 @@ getFinalizationInstance = asks finalizationInstance
 
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m, BakerQuery m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
@@ -1062,7 +1062,7 @@ nextFinalizationRecord parentBlock = do
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
 newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BirkParametersOperations, BlockStateQuery, BakerQuery, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
 
 deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
 deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM r s m)

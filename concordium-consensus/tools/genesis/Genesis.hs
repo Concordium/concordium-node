@@ -18,7 +18,8 @@ import Lens.Micro.Platform
 import Data.Text
 import qualified Data.HashMap.Strict as Map
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SS
 import Concordium.ID.Types
 import Concordium.Types
@@ -175,7 +176,7 @@ main = cmdArgsRun mode >>=
 
               putStrLn $ "Genesis bakers:"
               putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
-              forM_ (OrdMap.toAscList (genesisBakers ^. bakerMap)) $ \(bid, BakerInfo{..}) -> do
+              forM_ (OrdMap.toAscList (genesisBakers ^. bakerMap)) $ \(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> do
                 putStrLn $ "  - baker: " ++ show bid
                 putStrLn $ "    * stake: " ++ showBalance (genesisBakers ^. bakerTotalStake) _bakerStake
                 putStrLn $ "    * account: " ++ show _bakerAccount

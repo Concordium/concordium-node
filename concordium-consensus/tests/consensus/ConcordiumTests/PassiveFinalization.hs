@@ -30,7 +30,8 @@ import Concordium.Crypto.SHA256
 import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
@@ -104,7 +105,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (BakerInfo, BakerIdentity, Account)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
 
 -- This test has the following set up:
 -- There are two bakers, baker1 and baker2, and a finalization-committee member, finMember.
@@ -285,7 +286,7 @@ makeBaker initAmount bid = resize 0x20000000 $ do
         let spk     = Sig.verifyKey sk
         let blspk   = Bls.derivePublicKey blssk
         let account = makeBakerAccount bid initAmount
-        return (BakerInfo epk spk blspk initAmount (_accountAddress account), BakerIdentity sk ek blssk, account)
+        return (FullBakerInfo (BakerInfo epk spk blspk (_accountAddress account)) initAmount, BakerIdentity sk ek blssk, account)
 
 -- Create initial states for two bakers, a finalization committee member, and a list of additional finalization committee members
 createInitStates :: Int -> IO (BakerState, BakerState, BakerState, [BakerState])
@@ -309,7 +310,7 @@ createInitStates additionalFinMembers = do
                                            (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] 2 []))
                                            (ActiveFinalization fininst)
                                            NoHandler
-                                   (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
+                                   (initCtx, initState) <- runSilentLogger (initialiseSkov config)
                                    return (bid, initCtx, initState))
     b1 <- createState baker1
     b2 <- createState baker2
