@@ -15,7 +15,8 @@ import Concordium.Startup hiding (dummyCryptographicParameters)
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
@@ -39,7 +40,7 @@ makeGlobalStateConfig rt genData@GenesisData{..} = return $ MTMBConfig rt genDat
   where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters
         birkParams = BS.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
 
-genesis :: Word -> (GenesisData, [(BakerIdentity, BakerInfo)])
+genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
     makeGenesisData
     0
@@ -63,13 +64,13 @@ setup nBakers = do
         inst
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        genesisBakers
+        (_bakerMap genesisBakers)
         (genesisTotalGTU genData)
   let initialPassiveState =
         initialPassiveFinalizationState
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        genesisBakers
+        (_bakerMap genesisBakers)
         (genesisTotalGTU genData)
   let finInstances = map (makeFinalizationInstance . fst) bakers
   (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))

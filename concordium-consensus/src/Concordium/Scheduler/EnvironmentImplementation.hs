@@ -25,7 +25,7 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))
 import Concordium.GlobalState.TreeState hiding (BlockState)
-import Concordium.GlobalState.Bakers as Bakers
+import Concordium.GlobalState.Basic.BlockState.Bakers
 
 import qualified Acorn.Core as Core
 
@@ -243,10 +243,10 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
     schedulerBlockState .= s'
 
-  {-# INLINE getBakerInfo #-}
-  getBakerInfo bid = do
+  {-# INLINE getBakerAccountAddress #-}
+  getBakerAccountAddress bid = do
     s <- use schedulerBlockState
-    lift (bsoGetBakerInfo s bid)
+    lift (bsoGetBakerAccountAddress s bid)
 
   {-# INLINE addBaker #-}
   addBaker binfo = do
