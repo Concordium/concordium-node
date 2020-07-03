@@ -253,7 +253,10 @@ class (Eq (BlockPointerType m),
     -- Returns @True@ if and only if the transaction is purged.
     purgeTransaction :: BlockItem -> m Bool
 
-    -- |Try to purge expired items from the transaaction table.
+    -- | This function try to remove transactions that are pending for a long time.
+    -- It has to find the transactions that should be removed for each account, remove those from the collection of
+    -- non finalized transactions, remove them from the transaction table and update the pending transaction table
+    -- to roll back the nonces or remove the relevat account if needed.
     purgeTransactionTable :: Bool -- ^ Whether to ignore the amount of insertions and forcedly perform a purge
                           -> UTCTime -- ^ Current time
                           -> m ()
