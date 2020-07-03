@@ -179,7 +179,7 @@ startSyncRunner sr@SyncRunner{..} = do
         let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
             purgingLoop = do
               tm <- currentTime
-              runSkovTransaction sr (purgeTransactionTable tm)
+              runSkovTransaction sr (purgeTransactionTable True tm)
               threadDelay delay
               purgingLoop
         putMVar syncTransactionPurgingThread =<< forkIO purgingLoop
@@ -283,7 +283,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
         let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
         let loop = do
               tm <- currentTime
-              runSkovPassive spr (purgeTransactionTable tm)
+              runSkovPassive spr (purgeTransactionTable True tm)
               threadDelay delay
               loop
         putMVar syncPTransactionPurgingThread =<< forkIO loop

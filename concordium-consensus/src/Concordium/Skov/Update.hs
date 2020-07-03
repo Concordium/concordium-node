@@ -410,7 +410,7 @@ doStoreBlock pb@GB.PendingBlock{..} = do
                 blockArriveDead cbp
                 return ResultInvalid
               Just newTransactions -> do
-                purgeTransactionTable =<< currentTime
+                purgeTransactionTable False =<< currentTime
                 let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
                 updateReceiveStatistics block1
                 addBlock block1
@@ -444,7 +444,7 @@ doStoreBakedBlock = \pb parent lastFin result -> do
 doReceiveTransaction :: (TreeStateMonad m, TimeMonad m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = do
   (_, ur) <- doReceiveTransactionInternal tr slot
-  when (ur == ResultSuccess) $ purgeTransactionTable =<< currentTime
+  when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
   return ur
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
