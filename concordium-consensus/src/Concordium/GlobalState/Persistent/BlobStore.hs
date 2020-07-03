@@ -33,6 +33,7 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 -- Imports for providing instances
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.Types (Account, Amount, BakerId)
 
@@ -510,6 +511,7 @@ instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
 
 -- BlobStorable instances
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
+instance (MonadBlobStore m ref) => BlobStorable m ref ARS.AnonymityRevokers
 instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicParameters
 -- FIXME: This uses serialization of accounts for storing them.
 -- This is potentially quite wasteful when only small changes are made.

@@ -11,6 +11,7 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
+import Control.Monad
 
 import GHC.Generics (Generic)
 
@@ -27,6 +28,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 
@@ -51,6 +53,7 @@ data BlockState = BlockState {
     _blockModules :: !Modules.Modules,
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
+    _blockAnonymityRevokers :: !ARS.AnonymityRevokers,
     _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !CryptographicParameters,
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
@@ -68,6 +71,7 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
   , _blockModules = Modules.emptyModules
   , _blockBank = Rewards.emptyBankStatus
   , _blockIdentityProviders = IPS.emptyIdentityProviders
+  , _blockAnonymityRevokers = ARS.emptyAnonymityRevokers
   , _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
   ,..
   }
@@ -308,6 +312,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetIdentityProvider bs ipId =
       return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
 
+    {-# INLINE bsoGetAnonymityRevokers #-}
+    bsoGetAnonymityRevokers bs arIds = return $! 
+      let ars = bs ^. blockAnonymityRevokers . to ARS.arRevokers
+      in forM arIds (flip HashMap.lookup ars)
+
     {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
       return $! bs ^. blockCryptographicParameters
@@ -354,9 +363,10 @@ initialState :: BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [IPS.IpInfo]
+             -> ARS.AnonymityRevokers
              -> Amount
              -> BlockState
-initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips mintPerSlot = BlockState{..}
+initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips _blockAnonymityRevokers mintPerSlot = BlockState{..}
   where
     _blockAccounts = List.foldl' (flip Account.putAccountWithRegIds) Account.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances

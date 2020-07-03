@@ -59,6 +59,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 import qualified Data.PQueue.Prio.Max as Queue
@@ -343,6 +344,10 @@ class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
   -- the identity provider with given ID does not exist.
   bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
+  -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
+  -- anonymity revokers are not found.
+  bsoGetAnonymityRevokers :: UpdatableBlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
+
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
@@ -470,6 +475,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
   bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
+  bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
@@ -500,6 +506,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoDecrementCentralBankGTU #-}
   {-# INLINE bsoDelegateStake #-}
   {-# INLINE bsoGetIdentityProvider #-}
+  {-# INLINE bsoGetAnonymityRevokers #-}
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
