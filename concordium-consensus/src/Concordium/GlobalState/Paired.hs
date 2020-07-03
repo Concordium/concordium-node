@@ -49,12 +49,6 @@ instance (MonadState s' m, Coercible s' s) =>
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
 
--- Since we use the 'ReviseRSM' type just for testing with the Paired state, and the global-state monad implementations
--- below provide testing assertions for the Paired state with the 'ReviseRSM' type, we just provide a placeholder
--- logging implementation for 'ReviseRSM' here. However, if logging is required, this needs to be implemented.
-instance Monad m => MonadLogger (ReviseRSM r s m) where
-  logEvent _ _ _ = return ()
-
 data PairGSContext lc rc = PairGSContext {
         _pairContextLeft :: !lc,
         _pairContextRight :: !rc
