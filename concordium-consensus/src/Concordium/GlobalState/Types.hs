@@ -20,6 +20,10 @@ class BlockStateTypes (m :: Type -> Type) where
     type Bakers m :: Type
     type Account m :: Type
 
+type family BlockStatePointer (bs :: Type) :: Type
+
+type BlockStateRef m = BlockStatePointer (BlockState m)
+
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
