@@ -48,11 +48,12 @@ import Concordium.Birk.Bake
 import Concordium.TimerMonad
 import Concordium.Kontrol
 import Concordium.TimeMonad
-
 import Concordium.Startup
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
+
+import System.Directory
 
 -- |A timer is represented as an integer identifier.
 -- Timers are issued with increasing identifiers.
@@ -268,6 +269,7 @@ initialState = do
                                 (Energy maxBound)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
+            createDirectoryIfMissing True "data"
             gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
             let
                 finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
