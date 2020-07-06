@@ -17,7 +17,7 @@ newtype IdentityProviders = IdentityProviders {
   }
 
 instance Show IdentityProviders where
-    show (IdentityProviders m) = "IdentityProviers {\n" ++ concatMap f (HM.elems m) ++ "}"
+    show (IdentityProviders m) = "IdentityProviders {\n" ++ concatMap f (HM.elems m) ++ "}"
         where
             f x = show x ++ "\n"
 

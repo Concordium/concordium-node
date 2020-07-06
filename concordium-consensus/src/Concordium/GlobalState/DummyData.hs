@@ -9,10 +9,12 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
@@ -41,6 +43,7 @@ basicGenesisState genData = Basic.initialState
                        (genesisCryptographicParameters genData)
                        (genesisAccounts genData ++ genesisControlAccounts genData)
                        (genesisIdentityProviders genData)
+                       (genesisAnonymityRevokers genData)
                        (genesisMintPerSlot genData)
 
 -- kp :: Int -> Sig.KeyPair
@@ -64,14 +67,23 @@ dummyIdentityProviders =
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
 
+
+{-# NOINLINE dummyArs #-}
+{-# WARNING dummyArs "Do not use in production." #-}
+dummyArs :: AnonymityRevokers
+dummyArs = 
+  case unsafePerformIO (eitherReadAnonymityRevokers <$> BSL.readFile "testdata/anonymity_revokers.json") of
+    Left err -> error $ "Could not load anonymity revoker data: " ++ err
+    Right ars -> ars
+
 dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
 dummyFinalizationCommitteeMaxSize = 1000
 
 {-# WARNING makeFakeBakers "Do not use in production" #-}
-makeFakeBakers :: Word -> [(BakerInfo, Account)]
+makeFakeBakers :: Word -> [(FullBakerInfo, Account)]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = (BakerInfo epk spk blspk stake accAddress, account):mbs gen''' (bid+1)
+        mbs gen bid = (FullBakerInfo (BakerInfo epk spk blspk accAddress) stake, account):mbs gen''' (bid+1)
             where
                 ((VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = randomBlockKeyPair gen'
@@ -87,13 +99,15 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
 -- The baker has 0 lottery power.
 -- mkBaker :: Int -> AccountAddress -> (BakerInfo
 {-# WARNING mkFullBaker "Do not use in production." #-}
-mkFullBaker :: Int -> AccountAddress -> (BakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
-mkFullBaker seed acc = (BakerInfo {
-  _bakerElectionVerifyKey = VRF.publicKey electionKey,
-  _bakerSignatureVerifyKey = Sig.verifyKey sk,
-  _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
-  _bakerStake = 0,
-  _bakerAccount = acc
+mkFullBaker :: Int -> AccountAddress -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
+mkFullBaker seed acc = (FullBakerInfo {
+    _bakerInfo = BakerInfo {
+      _bakerElectionVerifyKey = VRF.publicKey electionKey,
+      _bakerSignatureVerifyKey = Sig.verifyKey sk,
+      _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
+      _bakerAccount = acc
+    },
+    _bakerStake = 0
   }, VRF.privateKey electionKey, Sig.signKey sk, blssk)
   where electionKey = bakerElectionKey seed
         sk = bakerSignKey seed
@@ -109,6 +123,7 @@ makeTestingGenesisData ::
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> GenesisData
@@ -121,6 +136,7 @@ makeTestingGenesisData
   finalizationCommitteeMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
+  genesisAnonymityRevokers
   genesisControlAccounts
   genesisMaxBlockEnergy
     = GenesisData{..}
@@ -160,7 +176,8 @@ createBlockState accounts =
       (blockAccounts .~ accounts) .
       (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
-      (blockIdentityProviders .~ dummyIdentityProviders)
+      (blockIdentityProviders .~ dummyIdentityProviders) .
+      (blockAnonymityRevokers .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
 blockStateWithAlesAccount :: Amount -> Accounts -> BlockState

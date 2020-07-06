@@ -27,14 +27,15 @@ import System.Directory
 import Data.Proxy
 import GHC.Stack
 import Data.IORef
-import Concordium.GlobalState.Bakers (Bakers)
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
+import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.Types (Account)
+import Concordium.Types (Account, Amount, BakerId)
 
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
@@ -219,6 +220,24 @@ class (MonadBlobStore m ref) => BlobStorable m ref a where
         case runGet (load (Proxy :: Proxy ref)) bs of
             Left e -> error (e ++ " :: " ++ show bs)
             Right !mv -> mv
+
+instance (MonadIO m, MonadBlobStore m BlobRef, BlobStorable m BlobRef a, BlobStorable m BlobRef b) => BlobStorable m BlobRef (a, b) where
+
+  storeUpdate p (a, b) = do
+    (pa, a') <- storeUpdate p a
+    (pb, b') <- storeUpdate p b
+    let pab = pa >> pb
+    return (pab, (a', b'))
+
+  store p v = fst <$> storeUpdate p v
+
+  load p = do
+    ma <- load p
+    mb <- load p
+    return $ do
+      a <- ma
+      b <- mb
+      return (a, b)
 
 newtype SerializeStorable v = SerStore v
     deriving newtype (Eq, Ord, Show, Serialize)
@@ -492,9 +511,12 @@ instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
 
 -- BlobStorable instances
 instance (MonadBlobStore m ref) => BlobStorable m ref IPS.IdentityProviders
+instance (MonadBlobStore m ref) => BlobStorable m ref ARS.AnonymityRevokers
 instance (MonadBlobStore m ref) => BlobStorable m ref Parameters.CryptographicParameters
-instance (MonadBlobStore m ref) => BlobStorable m ref Bakers
 -- FIXME: This uses serialization of accounts for storing them.
 -- This is potentially quite wasteful when only small changes are made.
 instance (MonadBlobStore m ref) => BlobStorable m ref Account
+instance (MonadBlobStore m ref) => BlobStorable m ref Amount
+instance (MonadBlobStore m ref) => BlobStorable m ref BakerId
+instance (MonadBlobStore m ref) => BlobStorable m ref BakerInfo
 instance (MonadBlobStore m ref) => BlobStorable m ref Word64
