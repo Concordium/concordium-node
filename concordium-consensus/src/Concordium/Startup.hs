@@ -19,19 +19,21 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers (bakersFromList)
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC, cdvRegId)
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 
-makeBakers :: Word -> [((BakerIdentity,BakerInfo), Account)]
+makeBakers :: Word -> [((BakerIdentity, FullBakerInfo), Account)]
 makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = ((BakerIdentity sk ek blssk, BakerInfo epk spk blspk stake accAddress), account):mbs gen''' (bid+1)
+        mbs gen bid = ((BakerIdentity sk ek blssk, FullBakerInfo (BakerInfo epk spk blspk accAddress) stake), account):mbs gen''' (bid+1)
             where
                 (ek@(VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = randomBlockKeyPair gen'
@@ -84,9 +86,10 @@ makeGenesisData ::
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> [IpInfo]   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
-    -> (GenesisData, [(BakerIdentity,BakerInfo)])
+    -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 makeGenesisData
         genesisTime
         nBakers
@@ -95,6 +98,7 @@ makeGenesisData
         genesisFinalizationParameters
         genesisCryptographicParameters
         genesisIdentityProviders
+        genesisAnonymityRevokers
         genesisControlAccounts
         genesisMaxBlockEnergy
     = (GenesisData{..}, bakers)

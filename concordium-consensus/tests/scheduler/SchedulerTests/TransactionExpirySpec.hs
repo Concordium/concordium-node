@@ -14,10 +14,10 @@ import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import Concordium.GlobalState.Bakers
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
@@ -36,7 +36,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount 2000000000 Acc.emptyAccounts
 
-baker :: (BakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
+baker :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
 
 -- A list of transactions all of which are valid unless they are expired.
@@ -47,10 +47,10 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                         , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
                         , keys = [(0, alesKP)]
                         }
-                 ,TJSON { payload = AddBaker (baker ^. _1 . bakerElectionVerifyKey)
+                 ,TJSON { payload = AddBaker (baker ^. _1 . bakerInfo . bakerElectionVerifyKey)
                                              (baker ^. _2)
-                                             (baker ^. _1 . bakerSignatureVerifyKey)
-                                             (baker ^. _1 . bakerAggregationVerifyKey)
+                                             (baker ^. _1 . bakerInfo . bakerSignatureVerifyKey)
+                                             (baker ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                              (baker ^. _4)
                                              (baker ^. _3)
                                              alesAccount

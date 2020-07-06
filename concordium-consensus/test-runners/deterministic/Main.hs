@@ -22,17 +22,22 @@ import Control.Monad.Reader.Class
 import qualified Data.PQueue.Min as MinPQ
 import qualified Data.Sequence as Seq
 import System.Random
+import System.IO
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import qualified Concordium.GlobalState.Basic.BlockState as BState
+import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
+import Concordium.GlobalState.Paired
+import qualified Concordium.GlobalState.TreeState as TS
 
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
@@ -54,14 +59,32 @@ import Concordium.Types.DummyData (mateuszAccount)
 newtype DummyTimer = DummyTimer Integer
     deriving (Num, Eq, Ord)
 
+
+-- |Construct the global state configuration.
+-- Can be customised if changing the configuration.
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+
+
+type TreeConfig = DiskTreeDiskBlockConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+
+{-
+type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
+makeGlobalStateConfig rp genData =
+   return $ PairGSConfig (MTMBConfig rp genData (genesisState genData), DTDBConfig rp genData (genesisState genData))
+-}
+
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
 -- or to enable/disable finalization buffering.
-type BakerConfig = SkovConfig DiskTreeDiskBlockConfig (BufferedFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig TreeConfig (BufferedFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
+
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
 
 -- |Construct genesis state.
 genesisState :: GenesisData -> BState.BlockState
@@ -73,10 +96,6 @@ genesisState GenesisData{..} = Example.initialState
                        2 -- Initial number of counter contracts
                        genesisControlAccounts
 
--- |Construct the global state configuration.
--- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO DiskTreeDiskBlockConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
 
 -- |Monad that provides a deterministic implementation of 'TimeMonad' -- i.e. that is
 -- not dependent on real time.
@@ -97,7 +116,7 @@ type LogBase = LoggerT (DeterministicTime IO)
 type MyHandlers = SkovHandlers DummyTimer BakerConfig (StateT SimState LogBase)
 
 -- |The monad for bakers to run in.
-type BakerM a = SkovT MyHandlers BakerConfig (StateT SimState LogBase) a
+type BakerM = SkovT MyHandlers BakerConfig (StateT SimState LogBase)
 
 -- |Events that trigger actions by bakers.
 data Event
@@ -140,7 +159,7 @@ instance Ord PEvent where
 -- |The state of a particular baker.
 data BakerState = BakerState {
     _bsIdentity :: !BakerIdentity,
-    _bsInfo :: !BakerInfo,
+    _bsInfo :: !FullBakerInfo,
     _bsContext :: !(SkovContext BakerConfig),
     _bsState :: !(SkovState BakerConfig)
 }
@@ -211,7 +230,7 @@ instance Events RandomisedEvents where
 
 -- |Maximal baker ID.
 maxBakerId :: (Integral a) => a
-maxBakerId = 9
+maxBakerId = 0 -- 9
 
 -- |List of all baker IDs.
 allBakers :: (Integral a) => [a]
@@ -244,9 +263,10 @@ initialState = do
                                 defaultFinalizationParameters
                                 dummyCryptographicParameters
                                 dummyIdentityProviders
+                                dummyArs
                                 [Example.createCustomAccount 1000000000000 mateuszKP mateuszAccount]
                                 (Energy maxBound)
-        mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, BakerInfo)) -> IO BakerState
+        mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
             let
@@ -262,7 +282,9 @@ initialState = do
 -- |Log an event for a particular baker.
 logFor :: (MonadIO m) => Int -> LogMethod m
 -- logFor _ _ _ _ = return ()
-logFor i src lvl msg = liftIO $ putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+logFor i src lvl msg = liftIO $ do
+    putStrLn $ "[" ++ show i ++ ":" ++ show src ++ ":" ++ show lvl ++ "] " ++ show msg
+    hFlush stdout
 
 -- |Run a baker action in the state monad.
 runBaker :: Integer -> Int -> BakerM a -> StateT SimState IO a
@@ -303,6 +325,10 @@ broadcastEvent curTime ev = ssEvents %= \e -> foldr addEvent e [PEvent curTime (
 displayBakerEvent :: (MonadIO m) => Int -> Event -> m ()
 displayBakerEvent i ev = liftIO $ putStrLn $ show i ++ "> " ++ show ev
 
+bpBlock :: TS.BlockPointerType BakerM -> Block
+-- bpBlock (PairBlockData (l, _)) = BS._bpBlock l
+bpBlock = BS._bpBlock
+
 -- |Run a step of the consensus. This takes the next event and
 -- executes that.
 stepConsensus :: StateT SimState IO ()
@@ -325,7 +351,7 @@ stepConsensus =
                         let doBake =
                                 bakeForSlot bakerIdentity sl
                         mb <- runBaker t i doBake
-                        forM_ (BS._bpBlock <$> mb) $ \case
+                        forM_ (bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()
                             NormalBlock b -> broadcastEvent t (EBlock b)
                         ssEvents %= addEvent (PEvent (t+1) (BakerEvent i (EBake (sl+1))))
