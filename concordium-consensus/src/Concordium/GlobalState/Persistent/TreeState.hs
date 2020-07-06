@@ -487,7 +487,7 @@ constructBlock (Just bytes) =
   where getTriple = do
           (_ :: FinalizationIndex) <- S.get -- TODO: This is ugly, but needed when loading from existing database.
           blockInfo <- S.get
-          newBlock <- getBlock (utcTimeToTransactionTime (_bpReceiveTime blockInfo))
+          newBlock <- getBlockV0 (utcTimeToTransactionTime (_bpReceiveTime blockInfo))
           state' <- getBlockState
           return (blockInfo, newBlock, state')
 
