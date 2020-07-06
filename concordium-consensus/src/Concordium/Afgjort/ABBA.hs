@@ -291,7 +291,7 @@ runABBA z i s = runRWST (runABBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
 --------------------------------------------------------------------------------
 -- Lifting CSS
 
--- |Run CSS with the stored state if possible and handle the resulting events.
+-- |Receive a CSS message for a given phase, handling the resulting events.
 liftCSSReceiveMessage :: (ABBAMonad sig m) => Phase -> Party -> CSSMessage -> sig -> m ()
 liftCSSReceiveMessage phase !src !msg !sig = do
         ABBAInstance{..} <- ask
