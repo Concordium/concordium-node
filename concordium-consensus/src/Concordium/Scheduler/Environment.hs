@@ -8,8 +8,10 @@
 
 module Concordium.Scheduler.Environment where
 
-import qualified Data.HashMap.Strict as Map
-import qualified Data.HashSet as Set
+import qualified Data.HashMap.Strict as HMap
+import qualified Data.HashSet as HSet
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
@@ -29,14 +31,14 @@ import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
 
-type SpecialBetaAccounts = Set.HashSet AccountAddress
+type SpecialBetaAccounts = HSet.HashSet AccountAddress
 
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
     deriving(Eq, Show)
 
 emptySpecialBetaAccounts :: SpecialBetaAccounts
-emptySpecialBetaAccounts = Set.empty
+emptySpecialBetaAccounts = HSet.empty
 
 -- |A class to convert to and from 'Energy' used by the scheduler.
 -- The function should satisfy
@@ -234,7 +236,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- * The account exists
   -- * The account has keys defined at the specified indicies
   -- * There are no duplicates amongst the indices.
-  updateAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] -> m ()
+  updateAccountKeys :: AccountAddress -> Map.Map ID.KeyIndex AccountVerificationKey -> m ()
 
   -- |Removes the account verification keys at the given indices from the
   -- account's keys.
@@ -243,7 +245,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- * The account has keys defined at the specified indicies
   -- * There are no duplicates amongst the indices.
   -- * The new threshold does not exceed the new total number of keys
-  removeAccountKeys :: AccountAddress -> [ID.KeyIndex] -> Maybe ID.SignatureThreshold -> m ()
+  removeAccountKeys :: AccountAddress -> Set.Set ID.KeyIndex -> Maybe ID.SignatureThreshold -> m ()
 
   -- |Adds the account verification keys to the account at the specified indicies.
   -- Does NOT check that these key indexes doesn't already have keys associated with
@@ -253,7 +255,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- * The account does not have keys defined at the specified indicies
   -- * There are no duplicates amongst the indices.
   -- * The new threshold does not exceed the new total number of keys
-  addAccountKeys :: AccountAddress -> [(ID.KeyIndex, AccountVerificationKey)] ->  Maybe ID.SignatureThreshold -> m ()
+  addAccountKeys :: AccountAddress -> Map.Map ID.KeyIndex AccountVerificationKey ->  Maybe ID.SignatureThreshold -> m ()
 
   -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
   -- Returns 'True' if the delegation was successful, and 'False' if the baker is
@@ -383,16 +385,16 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
     {_affectedTx :: !TransactionHash, -- transaction affected by this changeset
-     _accountUpdates :: !(Map.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
-    ,_instanceUpdates :: !(Map.HashMap ContractAddress (AmountDelta, Value)) -- ^Contracts whose states changed.
-    ,_linkedExprs :: !(Map.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps NoAnnot)) -- ^Newly linked expressions.
-    ,_linkedContracts :: !(Map.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
+     _accountUpdates :: !(HMap.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
+    ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Value)) -- ^Contracts whose states changed.
+    ,_linkedExprs :: !(HMap.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps NoAnnot)) -- ^Newly linked expressions.
+    ,_linkedContracts :: !(HMap.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash Map.empty Map.empty Map.empty Map.empty
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HMap.empty HMap.empty
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -639,7 +641,7 @@ instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
   getExprInModule mref n = liftLocal $
     getModuleInterfaces mref >>= \case
       Nothing -> return Nothing
-      Just (_, viface) -> return $ Map.lookup n (viDefs viface)
+      Just (_, viface) -> return $ HMap.lookup n (viDefs viface)
 
   tryGetLinkedExpr mref n = liftLocal (smTryGetLinkedExpr mref n)
 
@@ -726,7 +728,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
   linkContract mref cname unlinked = do
     lCache <- use (changeSet . linkedContracts)
-    case Map.lookup (mref, cname) lCache of
+    case HMap.lookup (mref, cname) lCache of
       Nothing ->
         liftLocal (smTryGetLinkedContract mref cname) >>= \case
           Nothing -> do
@@ -738,7 +740,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
                                      return Interfaces.ImplementsValue{..}
                                  ) (Interfaces.cvImplements unlinked)
             let linked = Interfaces.ContractValue{..}
-            changeSet . linkedContracts %= (Map.insert (mref, cname) linked)
+            changeSet . linkedContracts %= (HMap.insert (mref, cname) linked)
             return linked
           Just cv -> return cv
       Just cv -> return cv

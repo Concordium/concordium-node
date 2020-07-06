@@ -5,7 +5,7 @@ module Concordium.Scheduler.Runner where
 import GHC.Generics(Generic)
 
 import Data.Text(Text)
-import qualified Data.HashMap.Strict as Map
+import qualified Data.HashMap.Strict as HMap
 
 import Control.Monad.Except
 
@@ -21,6 +21,8 @@ import Concordium.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Acorn.Parser.Runner
 import qualified Acorn.Core as Core
@@ -43,7 +45,7 @@ transactionHelper t =
       (signTx keys meta . Types.encodePayload . Types.DeployModule) <$> getModule mnameText
     (TJSON meta (InitContract amnt mnameText cNameText paramExpr) keys) -> do
       (mref, _, tys) <- getModuleTmsTys mnameText
-      case Map.lookup cNameText tys of
+      case HMap.lookup cNameText tys of
         Just contName -> do
           params <- processTmInCtx mnameText paramExpr
           return $ signTx keys meta (Types.encodePayload (Types.InitContract amnt mref contName params))
@@ -179,14 +181,14 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      ubekPublicKey :: !VRF.PublicKey
                      }
                  | UpdateAccountKeys {
-                     uakUpdates :: ![(KeyIndex, AccountVerificationKey)]
+                     uakUpdates :: !(Map.Map KeyIndex AccountVerificationKey)
                      }
                  | RemoveAccountKeys {
-                     rakIndices :: ![KeyIndex],
+                     rakIndices :: !(Set.Set KeyIndex),
                      rakThreshold :: !(Maybe SignatureThreshold)
                      }
                  | AddAccountKeys {
-                     aakKeys :: ![(KeyIndex, AccountVerificationKey)],
+                     aakKeys :: !(Map.Map KeyIndex AccountVerificationKey),
                      aakThreshold :: !(Maybe SignatureThreshold)
                      }
                  deriving(Show, Generic)

@@ -63,7 +63,8 @@ import qualified Concordium.Scheduler.Cost as Cost
 import Control.Applicative
 import Control.Monad.Except
 import Control.Exception
-import qualified Data.HashMap.Strict as Map
+import qualified Data.HashMap.Strict as HMap
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe(fromJust, isJust)
 import Data.Ord
@@ -288,7 +289,7 @@ dispatch msg = do
                      handleAddAccountKeys (mkWTC TTAddAccountKeys) aakKeys aakThreshold
 
                    RemoveAccountKeys{..} ->
-                     handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndeces rakThreshold
+                     handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndices rakThreshold
 
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
@@ -318,7 +319,7 @@ handleDeployModule wtc psize mod =
       -- each dependency one after the other and then charging based on its size.
       -- TODO We currently first charge the full amount after each lookup, as we do not have the
       -- module sizes available before.
-      let imports = Map.elems $ Core.imImports imod
+      let imports = HMap.elems $ Core.imImports imod
       forM_ imports $ \ref -> do
         tickEnergy $ Cost.lookupBytesPre
         -- As the given module is not typechecked yet, it might contain imports of
@@ -404,7 +405,7 @@ handleInitContract wtc amount modref cname param paramSize =
             tickEnergy $ Cost.lookupModule $ iSize iface
 
             -- Then get the particular contract interface (in particular the type of the init method).
-            ciface <- pure (Map.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
+            ciface <- pure (HMap.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
             -- Now typecheck the parameter expression (whether it has the parameter type specified
             -- in the contract). The cost of type-checking is dependent on the size of the term.
             -- TODO Here we currently do not account for possible dependent modules looked up
@@ -416,7 +417,7 @@ handleInitContract wtc amount modref cname param paramSize =
             -- failing if running out of energy in the process.
             -- NB: The unsafe Map.! is safe here because if the contract is part of the interface 'iface'
             -- it must also be part of the 'ValueInterface' returned by 'getModuleInterfaces'.
-            linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
+            linkedContract <- linkContract (uniqueName iface) cname (viContracts viface HMap.! cname)
             let (initFun, _) = cvInitMethod linkedContract
 
             -- First compile the parameter expression, then link it, which ticks energy for the size of
@@ -1073,23 +1074,24 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
 handleUpdateAccountKeys ::
   SchedulerMonad m
     => WithDepositContext
-    -> [(ID.KeyIndex, AccountVerificationKey)]
+    -> Map.Map ID.KeyIndex AccountVerificationKey
     -> m (Maybe TransactionSummary)
 handleUpdateAccountKeys wtc keys =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
+    accountKeys = senderAccount ^. accountVerificationKeys
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.updateAccountKeys $ length keys
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      case checkKeysExist (senderAccount ^. accountVerificationKeys) (map fst keys) of
-        Nothing -> do
-          updateAccountKeys (senderAccount ^. accountAddress) keys
-          return (TxSuccess [AccountKeysUpdated (senderAccount ^. accountAddress) keys], energyCost, usedEnergy)
-        Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
+      if Set.isSubsetOf (Map.keysSet keys) (ID.getKeyIndices accountKeys) then do
+        updateAccountKeys (senderAccount ^. accountAddress) keys
+        return (TxSuccess [AccountKeysUpdated], energyCost, usedEnergy)
+      else
+        return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
 
 
 -- |Removes the account keys at the supplied indices and, optionally, updates
@@ -1100,13 +1102,14 @@ handleUpdateAccountKeys wtc keys =
 handleRemoveAccountKeys ::
   SchedulerMonad m
     => WithDepositContext
-    -> [ID.KeyIndex]
+    -> Set.Set ID.KeyIndex
     -> Maybe ID.SignatureThreshold
     -> m (Maybe TransactionSummary)
 handleRemoveAccountKeys wtc indices threshold =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
+    accountKeys = senderAccount ^. accountVerificationKeys
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.removeAccountKeys $ length indices
@@ -1115,25 +1118,21 @@ handleRemoveAccountKeys wtc indices threshold =
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      case checkKeysExist (senderAccount ^. accountVerificationKeys) indices of
-        Nothing ->
-          case threshold of
-            Just newThreshold ->
-              if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
-                removeAccountKeys (senderAccount ^. accountAddress) indices threshold
-                return (TxSuccess [AccountKeysRemoved (senderAccount ^. accountAddress) indices,
-                                   AccountKeysSignThresholdUpdated (senderAccount ^. accountAddress) newThreshold],
-                        energyCost,
-                        usedEnergy)
-              else
-                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-            Nothing -> do
-              if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
-                removeAccountKeys (senderAccount ^. accountAddress) indices threshold
-                return (TxSuccess [AccountKeysRemoved (senderAccount ^. accountAddress) indices], energyCost, usedEnergy)
-              else
-                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-        Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
+      if Set.isSubsetOf indices (ID.getKeyIndices accountKeys) then
+        case threshold of
+          Just newThreshold ->
+            if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+              removeAccountKeys (senderAccount ^. accountAddress) indices threshold
+              return (TxSuccess [AccountKeysRemoved, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+          Nothing -> do
+            if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+              removeAccountKeys (senderAccount ^. accountAddress) indices threshold
+              return (TxSuccess [AccountKeysRemoved], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+      else return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
 
 
 -- |Adds keys to the account at the supplied indices and, optionally, updates
@@ -1143,13 +1142,14 @@ handleRemoveAccountKeys wtc indices threshold =
 handleAddAccountKeys ::
   SchedulerMonad m
     => WithDepositContext
-    -> [(ID.KeyIndex, AccountVerificationKey)]
+    -> Map.Map ID.KeyIndex AccountVerificationKey
     -> Maybe ID.SignatureThreshold
     -> m (Maybe TransactionSummary)
 handleAddAccountKeys wtc keys threshold =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
+    accountKeys = senderAccount ^. accountVerificationKeys
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.addAccountKeys $ length keys
@@ -1157,53 +1157,20 @@ handleAddAccountKeys wtc keys threshold =
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      case checkKeysDontExist (senderAccount ^. accountVerificationKeys) (map fst keys) of
-        Nothing -> case threshold of
+      -- check if key indices are already in use
+      if Set.null (Set.difference (Map.keysSet keys) (ID.getKeyIndices accountKeys)) then
+        case threshold of
           Just newThreshold ->
             if newThreshold <= (fromIntegral (numOfKeys + (length keys))) then do
               addAccountKeys (senderAccount ^. accountAddress) keys threshold
-              return (TxSuccess [AccountKeysAdded (senderAccount ^. accountAddress) keys,
-                                 AccountKeysSignThresholdUpdated (senderAccount ^. accountAddress) newThreshold],
-                      energyCost,
-                      usedEnergy)
+              return (TxSuccess [AccountKeysAdded, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
             else
               return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
           Nothing -> do
             addAccountKeys (senderAccount ^. accountAddress) keys threshold
-            return (TxSuccess [AccountKeysAdded (senderAccount ^. accountAddress) keys], energyCost, usedEnergy)
-        Just rejectReason -> return (TxReject rejectReason, energyCost, usedEnergy)
-
-
--- Checks if a key in AccountKeys belongs to each index in the list of indices.
--- Returns Nothing if a key belongs to each index and no duplicates are encountered
--- in the list.
-checkKeysExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe RejectReason
-checkKeysExist accountKeys = f Set.empty
-  where
-    f _ [] = Nothing
-    f seen (idx : idxs) = case ID.getAccountKey idx accountKeys of
-      Just _ ->
-        if Set.member idx seen then
-          Just $ DuplicateKeyIndex idx
-        else
-          f (Set.insert idx seen) idxs
-      Nothing -> Just $ NonexistentAccountKey idx
-
-
--- Inverse of checkKeysExist.
--- Returns Nothing if a key does not belongs to each index and no duplicates are
--- encountered in the list.
-checkKeysDontExist :: ID.AccountKeys -> [ID.KeyIndex] -> Maybe RejectReason
-checkKeysDontExist accountKeys = f Set.empty
-  where
-    f _ [] = Nothing
-    f seen (idx : idxs) = case ID.getAccountKey idx accountKeys of
-      Just _ -> Just $ KeyIndexAlreadyInUse idx
-      Nothing ->
-        if Set.member idx seen then
-          Just $ DuplicateKeyIndex idx
-        else
-          f (Set.insert idx seen) idxs
+            return (TxSuccess [AccountKeysAdded], energyCost, usedEnergy)
+      else
+        return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
 
 
 -- * Exposed methods.
