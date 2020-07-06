@@ -34,7 +34,7 @@ import SchedulerTests.Helpers
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
-    (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    (Acc.putAccountWithRegIds (mkAccountNoCredentials [thomasVK] 1 thomasAccount 100000) Acc.emptyAccounts)
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
