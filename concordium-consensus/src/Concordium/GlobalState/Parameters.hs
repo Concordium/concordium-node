@@ -4,8 +4,7 @@
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
     module Concordium.GlobalState.Parameters,
-    BakerInfo,
-    BakerCreationInfo(..)
+    BakerInfo
 ) where
 
 import Prelude hiding (fail)
@@ -18,8 +17,10 @@ import Data.Word
 
 import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -87,6 +88,7 @@ data GenesisData = GenesisData {
     genesisFinalizationParameters :: !FinalizationParameters,
     genesisCryptographicParameters :: !CryptographicParameters,
     genesisIdentityProviders :: ![IpInfo],
+    genesisAnonymityRevokers :: !AnonymityRevokers,
     genesisMintPerSlot :: !Amount,
     genesisMaxBlockEnergy :: !Energy
 } deriving (Generic, Show, Eq)
@@ -100,8 +102,14 @@ genesisTotalGTU GenesisData{..} =
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
 
+readAnonymityRevokers :: BSL.ByteString -> Maybe AnonymityRevokers
+readAnonymityRevokers = AE.decode
+
 eitherReadIdentityProviders :: BSL.ByteString -> Either String [IpInfo]
 eitherReadIdentityProviders = AE.eitherDecode
+
+eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
+eitherReadAnonymityRevokers = AE.eitherDecode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readCryptographicParameters = AE.decode
@@ -164,6 +172,7 @@ data GenesisParameters = GenesisParameters {
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
+    gpAnonymityRevokers :: AnonymityRevokers,
     -- |Additional accounts (not baker accounts and not control accounts).
     -- They cannot delegate to any bakers in genesis.
     gpInitialAccounts :: [GenesisAccount],
@@ -176,23 +185,24 @@ data GenesisParameters = GenesisParameters {
 }
 
 instance FromJSON GenesisParameters where
-  parseJSON = withObject "GenesisParameters" $ \v -> do
-    gpGenesisTime <- v .: "genesisTime"
-    gpSlotDuration <- v .: "slotDuration"
-    gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
-    gpEpochLength <- Slot <$> v .: "epochLength"
-    when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
-    gpElectionDifficulty <- v .: "electionDifficulty"
-    gpFinalizationParameters <- v .: "finalizationParameters"
-    gpBakers <- v .: "bakers"
-    when (null gpBakers) $ fail "There should be at least one baker."
-    gpCryptographicParameters <- v .: "cryptographicParameters"
-    gpIdentityProviders <- v .:? "identityProviders" .!= []
-    gpInitialAccounts <- v .:? "initialAccounts" .!= []
-    gpControlAccounts <- v .:? "controlAccounts" .!= []
-    gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
-    gpMaxBlockEnergy <- v .: "maxBlockEnergy"
-    return GenesisParameters{..}
+    parseJSON = withObject "GenesisParameters" $ \v -> do
+        gpGenesisTime <- v .: "genesisTime"
+        gpSlotDuration <- v .: "slotDuration"
+        gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
+        gpEpochLength <- Slot <$> v .: "epochLength"
+        when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
+        gpElectionDifficulty <- v .: "electionDifficulty"
+        gpFinalizationParameters <- v .: "finalizationParameters"
+        gpBakers <- v .: "bakers"
+        when (null gpBakers) $ fail "There should be at least one baker."
+        gpCryptographicParameters <- v .: "cryptographicParameters"
+        gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
+        gpInitialAccounts <- v .:? "initialAccounts" .!= []
+        gpControlAccounts <- v .:? "controlAccounts" .!= []
+        gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+        gpMaxBlockEnergy <- v .: "maxBlockEnergy"
+        return GenesisParameters{..}
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -257,12 +267,13 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
         genesisElectionDifficulty = gpElectionDifficulty
-        mkBaker GenesisBaker{..} = BakerInfo
+        mkBaker GenesisBaker{..} = FullBakerInfo
+            (BakerInfo
                 gbElectionVerifyKey
                 gbSignatureVerifyKey
                 gbAggregationVerifyKey
-                (gaBalance gbAccount)
-                (gaAddress gbAccount)
+                (gaAddress gbAccount))
+            (gaBalance gbAccount)
 
         mkAccount GenesisAccount{..} =
           let cdv = ID.cdiValues gaCredential in
@@ -281,4 +292,5 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
+        genesisAnonymityRevokers = gpAnonymityRevokers
         genesisMaxBlockEnergy = gpMaxBlockEnergy

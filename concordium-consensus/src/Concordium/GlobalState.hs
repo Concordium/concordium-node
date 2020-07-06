@@ -15,7 +15,6 @@ import Control.Monad.Trans.Reader hiding (ask)
 import Data.IORef (newIORef,writeIORef)
 import Data.Proxy
 import Data.ByteString.Char8(ByteString)
-import Data.Serialize(runPut)
 import Data.Pool(destroyAllResources)
 import System.FilePath
 
@@ -81,7 +80,7 @@ import Concordium.Logger
 
 
 -- |A newtype wrapper for providing instances of the block state related monads:
--- 'BlockStateTypes', 'BlockStateQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
+-- 'BlockStateTypes', 'BlockStateQuery', 'BakerQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
 --
 -- For the monad @BlockStateM c r g s m@, the underlying monad @m@ should satisfy
 -- @MonadReader r m@ and @MonadState s m@.  The types @c@ and @s@ should be components
@@ -126,6 +125,10 @@ deriving via PureBlockStateMonad m
 
 deriving via PureBlockStateMonad m
     instance (MonadLogger m)
+             => BakerQuery (MemoryBlockStateM r g s m)
+
+deriving via PureBlockStateMonad m
+    instance (MonadLogger m)
              => BirkParametersOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
@@ -150,6 +153,15 @@ deriving via (PersistentBlockStateMonad
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BlockStateQuery (PersistentBlockStateM r g s m)
+
+deriving via (PersistentBlockStateMonad
+               PersistentBlockStateContext
+               (FocusGlobalStateM PersistentBlockStateContext g m))
+    instance (MonadIO m,
+              BakerQuery (PersistentBlockStateMonad
+                                PersistentBlockStateContext
+                                (FocusGlobalStateM PersistentBlockStateContext g m)))
+             => BakerQuery (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -190,7 +202,7 @@ deriving via (PersistentBlockStateMonad
 -- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, BakerQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
@@ -262,11 +274,15 @@ deriving via BlockStateM c r g s m
              => BlockStateQuery (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
+    instance (Monad m, BakerQuery (BlockStateM c r g s m))
+             => BakerQuery (GlobalStateM db c r g s m)
+
+deriving via BlockStateM c r g s m
     instance (Monad m, BirkParametersOperations (BlockStateM c r g s m))
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (BlockStateQuery (GlobalStateM db c r g s m),
+    instance (Monad m, BlockStateQuery (GlobalStateM db c r g s m),
               BlockStateOperations (BlockStateM c r g s m))
              => BlockStateOperations (GlobalStateM db c r g s m)
 
@@ -352,7 +368,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
         pbscModuleCache <- newIORef emptyModuleCache
         let pbsc = PersistentBlockStateContext{..}
         pbs <- makePersistent bs
-        _ <- runPut <$> runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        _ <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = liftIO $ do
         closeBlobStore pbscBlobStore
@@ -386,13 +402,14 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
              (pbscBlobStore,) <$> newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
                             `onException` (destroyBlobStore pbscBlobStore))
         return (pbsc, isd, NoLogContext)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) st _ = do
         closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
+        closeSkovPersistentData st
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
@@ -427,12 +444,13 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
             (pbscBlobStore,) <$> newIORef emptyModuleCache
         pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (putBlockState pbs)) pbsc
+        serBS <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
         let ati = defaultValue
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
                  `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore))
         return (pbsc, isd, PAAIConfig dbHandle)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ (PAAIConfig dbHandle) = do
+    shutdownGlobalState _ (PersistentBlockStateContext{..}) st (PAAIConfig dbHandle) = do
         closeBlobStore pbscBlobStore
         writeIORef pbscModuleCache Persistent.emptyModuleCache
         destroyAllResources dbHandle
+        closeSkovPersistentData st
