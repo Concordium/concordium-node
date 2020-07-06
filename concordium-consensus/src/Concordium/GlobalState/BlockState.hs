@@ -42,6 +42,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Word
 import qualified Data.Vector as Vec
 import qualified Data.Serialize as S
@@ -144,8 +145,8 @@ data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted 
                            | Empty                    -- ^Do nothing to the encrypted amount.
 
 data AccountKeysUpdate =
-    RemoveKeys ![ID.KeyIndex] -- Removes the keys at the specified indexes from the account
-  | SetKeys ![(ID.KeyIndex, AccountVerificationKey)] -- Sets keys at the specified indexes to the specified key
+    RemoveKeys !(Set.Set ID.KeyIndex) -- Removes the keys at the specified indexes from the account
+  | SetKeys !(Map.Map ID.KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -189,8 +190,8 @@ updateAccount !upd !acc =
          in ID.AccountKeys {
           akKeys = case upd ^. auKeysUpdate of
               Nothing -> akKeys
-              Just (RemoveKeys indices) -> foldl (\m k -> Map.delete k m) akKeys indices
-              Just (SetKeys keys) -> foldl (\m (idx, key) -> Map.insert idx key m) akKeys keys,
+              Just (RemoveKeys indices) -> Set.foldl' (\m k -> Map.delete k m) akKeys indices
+              Just (SetKeys keys) -> Map.foldlWithKey' (\m idx key -> Map.insert idx key m) akKeys keys,
           akThreshold = case upd ^. auSignThreshold of
               Nothing -> akThreshold
               Just threshold -> threshold
