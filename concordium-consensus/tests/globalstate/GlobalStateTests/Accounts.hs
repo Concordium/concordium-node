@@ -12,7 +12,6 @@ import Control.Monad hiding (fail)
 import Control.Monad.Fail
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Reader
-import Control.Exception
 import qualified Data.Set as Set
 import Data.Proxy
 import Data.Serialize as S

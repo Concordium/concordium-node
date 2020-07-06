@@ -25,7 +25,7 @@ import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
 
-import Concordium.Types (AccountAddress)
+import Concordium.Types (AccountAddress, BakerId(..))
 import Concordium.Utils
 import qualified Concordium.Types.Acorn.Core as Core (Name(..), ModuleRef(..))
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -50,6 +50,7 @@ deriving via Word32 instance FixedTrieKey Core.Name
 instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey Core.ModuleRef
 instance FixedTrieKey AccountAddress
+deriving via Word64 instance FixedTrieKey BakerId
 
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.

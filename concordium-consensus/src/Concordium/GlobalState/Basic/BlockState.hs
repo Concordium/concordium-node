@@ -11,21 +11,24 @@ import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
+import Control.Monad
 
 import GHC.Generics (Generic)
 
 import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
 import qualified Concordium.GlobalState.Types as GT
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Bakers
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
+import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 
@@ -50,6 +53,7 @@ data BlockState = BlockState {
     _blockModules :: !Modules.Modules,
     _blockBank :: !Rewards.BankStatus,
     _blockIdentityProviders :: !IPS.IdentityProviders,
+    _blockAnonymityRevokers :: !ARS.AnonymityRevokers,
     _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !CryptographicParameters,
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
@@ -67,6 +71,7 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
   , _blockModules = Modules.emptyModules
   , _blockBank = Rewards.emptyBankStatus
   , _blockIdentityProviders = IPS.emptyIdentityProviders
+  , _blockAnonymityRevokers = ARS.emptyAnonymityRevokers
   , _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
   ,..
   }
@@ -75,10 +80,13 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
 
+type instance GT.BlockStatePointer BlockState = ()
+
 instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = BlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
+    type Bakers (PureBlockStateMonad m) = Bakers
 
 instance ATITypes (PureBlockStateMonad m) where
   type ATIStorage (PureBlockStateMonad m) = ()
@@ -125,6 +133,18 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getSpecialOutcomes #-}
     getSpecialOutcomes bs =
         return $ bs ^. blockTransactionOutcomes . Transactions.outcomeSpecial
+
+instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
+
+  getBakerStake bs bid = return $ bs ^? bakerMap . ix bid . bakerStake
+
+  getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
+
+  getTotalBakerStake bs = return $ bs ^. bakerTotalStake
+
+  getBakerInfo bs bid = return $ bs ^? bakerMap . ix bid . bakerInfo
+  
+  getFullBakerInfos = return . _bakerMap        
 
 instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
@@ -235,7 +255,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
 
     bsoNotifyIdentityIssuerCredential bs idk =
-      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank ^. Rewards.identityIssuersRewards) in
+      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank . Rewards.identityIssuersRewards) in
       return $! bs & blockBank . Rewards.identityIssuersRewards .~ updatedRewards
 
     {-# INLINE bsoGetExecutionCost #-}
@@ -292,6 +312,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetIdentityProvider bs ipId =
       return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
 
+    {-# INLINE bsoGetAnonymityRevokers #-}
+    bsoGetAnonymityRevokers bs arIds = return $! 
+      let ars = bs ^. blockAnonymityRevokers . to ARS.arRevokers
+      in forM arIds (flip HashMap.lookup ars)
+
     {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
       return $! bs ^. blockCryptographicParameters
@@ -326,11 +351,11 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE archiveBlockState #-}
     archiveBlockState _ = return ()
 
-    {-# INLINE putBlockState #-}
-    putBlockState _ = return (return ())
+    {-# INLINE saveBlockState #-}
+    saveBlockState _ = return ()
 
-    {-# INLINE getBlockState #-}
-    getBlockState = fail "Basic block state cannot be deserialized"
+    {-# INLINE loadBlockState #-}
+    loadBlockState _ = error "Cannot load memory-based block state"
 
 
 -- |Initial block state.
@@ -338,9 +363,10 @@ initialState :: BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
              -> [IPS.IpInfo]
+             -> ARS.AnonymityRevokers
              -> Amount
              -> BlockState
-initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips mintPerSlot = BlockState{..}
+initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips _blockAnonymityRevokers mintPerSlot = BlockState{..}
   where
     _blockAccounts = List.foldl' (flip Account.putAccountWithRegIds) Account.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
