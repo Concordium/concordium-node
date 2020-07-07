@@ -21,7 +21,7 @@ import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 
 import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult)
@@ -116,7 +116,7 @@ doTrustedFinalize finRec =
         Just BlockDead -> return $ Left ResultInvalid
         Just BlockFinalized{} -> return $ Left ResultInvalid
         Just BlockPending{} -> return $ Left ResultUnverifiable
-        Nothing -> return $ Left ResultInvalid
+        Nothing -> return $ Left ResultUnverifiable
 
 -- |Process the finalization of a block.  The following are assumed:
 --

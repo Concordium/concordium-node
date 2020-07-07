@@ -15,6 +15,7 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Account as Acc
@@ -22,7 +23,6 @@ import Concordium.GlobalState.Basic.BlockState.Account as Acc
 import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.ID.Types(randomAccountAddress)
 
-import Concordium.GlobalState.Bakers
 import Concordium.Scheduler.Types hiding (accountAddress, Payload(..))
 
 import System.Random
@@ -79,7 +79,8 @@ addBaker m0 = do
         (bkrAcct, (kp, nonce)) <- elements (Map.toList $ _mAccounts m0)
         -- FIXME: Once we require proof of knowledge of this key the last secret aggregation key
         -- will be needed.
-        let (bkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
+        let (fbkr, electionSecretKey, signKey, aggregationKey) = mkFullBaker (m0 ^. mNextSeed) bkrAcct
+            bkr = fbkr ^. bakerInfo
         return (TJSON {
             payload = AddBaker
                       (bkr ^. bakerElectionVerifyKey)

@@ -55,8 +55,8 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.Bakers(bakerAccount)
-import qualified Concordium.GlobalState.Bakers as Bakers
+import Concordium.GlobalState.BakerInfo(BakerInfo(..))
+import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
 import qualified Concordium.Scheduler.Cost as Cost
 
@@ -64,6 +64,7 @@ import Control.Applicative
 import Control.Monad.Except
 import Control.Exception
 import qualified Data.HashMap.Strict as Map
+import qualified Data.Map.Strict as OrdMap
 import Data.Maybe(fromJust, isJust)
 import Data.Ord
 import Data.List hiding (group)
@@ -722,10 +723,10 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                         -- Moreover at this point we know the reward account exists and belongs
                         -- to the baker.
                         -- Thus we can create the baker, starting it off with 0 lottery power.
-                        mbid <- addBaker (BakerCreationInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
+                        mbid <- addBaker (BakerInfo abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount)
                         case mbid of
-                          Left Bakers.DuplicateSignKey -> return $ (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
-                          Left Bakers.DuplicateAggregationKey -> return $ (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
+                          Left BI.DuplicateSignKey -> return $ (TxReject (DuplicateSignKey abSignatureVerifyKey), energyCost, usedEnergy)
+                          Left BI.DuplicateAggregationKey -> return $ (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
                           Right bid -> return $ (TxSuccess [BakerAdded bid], energyCost, usedEnergy)
                       else return $ (TxReject InvalidProof, energyCost, usedEnergy)
 
@@ -747,11 +748,11 @@ handleRemoveBaker wtc rbId =
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
-          getBakerInfo rbId >>=
+          getBakerAccountAddress rbId >>=
               \case Nothing ->
                       return $ (TxReject (RemovingNonExistentBaker rbId), energyCost, usedEnergy)
-                    Just binfo ->
-                      if senderAccount ^. accountAddress == binfo ^. bakerAccount then do
+                    Just acc ->
+                      if senderAccount ^. accountAddress == acc then do
                         -- only the baker itself can remove themselves from the pool
                         removeBaker rbId
                         return $ (TxSuccess [BakerRemoved rbId], energyCost, usedEnergy)
@@ -783,11 +784,11 @@ handleUpdateBakerAccount wtc ubaId ubaAddress ubaProof =
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
-          getBakerInfo ubaId >>= \case
+          getBakerAccountAddress ubaId >>= \case
             Nothing ->
                 return $ (TxReject (UpdatingNonExistentBaker ubaId), energyCost, usedEnergy)
-            Just binfo ->
-              if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+            Just acc ->
+              if acc == senderAccount ^. accountAddress then
                   -- the transaction is coming from the current baker's account.
                   -- now check the account exists and the baker owns it
                   getAccount ubaAddress >>= \case
@@ -800,7 +801,7 @@ handleUpdateBakerAccount wtc ubaId ubaAddress ubaProof =
                         return $ (TxSuccess [BakerAccountUpdated ubaId ubaAddress], energyCost, usedEnergy)
                       else return $ (TxReject InvalidProof, energyCost, usedEnergy)
                 else
-                  return $ (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+                  return $ (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) acc), energyCost, usedEnergy)
 
 -- |Update the baker's public signature key. The transaction is considered valid if
 --
@@ -823,11 +824,11 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
-          getBakerInfo ubsId >>= \case
+          getBakerAccountAddress ubsId >>= \case
             Nothing ->
-              return (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
-            Just binfo ->
-              if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+              return $! (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
+            Just acc ->
+              if acc == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
                 -- now also check that they own the private key for the new signature key
                 let challenge = S.runPut (S.put ubsId <> S.put ubsKey)
@@ -839,7 +840,7 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
                      else return (TxReject (DuplicateSignKey ubsKey), energyCost, usedEnergy)
                    else return (TxReject InvalidProof, energyCost, usedEnergy)
               else
-                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) acc), energyCost, usedEnergy)
 
 -- |Update an account's stake delegate.
 handleDelegateStake ::
@@ -926,53 +927,56 @@ handleDeployCredential cdi cdiHash = do
       if not (isTimestampBefore (slotTime cm) expiry) then
         return $ Just (TxInvalid AccountCredentialInvalid)
       else if regIdEx then
-        return $ (Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv))))
+        return $ Just (TxInvalid (DuplicateAccountRegistrationID (ID.cdvRegId cdv)))
       else do
         -- We now look up the identity provider this credential is derived from.
         -- Of course if it does not exist we reject the transaction.
         let credentialIP = ID.cdvIpId cdv
         getIPInfo credentialIP >>= \case
-          Nothing -> return $! Just (TxInvalid (NonExistentIdentityProvider (ID.cdvIpId cdv)))
+          Nothing -> return $ Just (TxInvalid (NonExistentIdentityProvider (ID.cdvIpId cdv)))
           Just ipInfo -> do
-            cryptoParams <- getCrypoParams
-            -- we have two options. One is that we are deploying a credential on an existing account.
-            case ID.cdvAccount cdv of
-              ID.ExistingAccount aaddr ->
-                -- first check whether an account with the address exists in the global store
-                -- if it does not we cannot deploy the credential.
-                getAccount aaddr >>= \case
-                  Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
-                  Just account -> do
-                        -- otherwise we just try to add a credential to the account
-                        -- but only if the credential is from the same identity provider
-                        -- as the existing ones on the account.
-                        -- Since we always maintain this invariant it is sufficient to check
-                        -- for one credential only.
-                        let credentials = account ^. accountCredentials
-                        let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
-                        if sameIP && AH.verifyCredential cryptoParams ipInfo (Just (account ^. accountVerificationKeys)) cdiBytes then do
-                          addAccountCredential account cdv
-                          mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                        else
-                          return $ (Just (TxInvalid AccountCredentialInvalid))
-              ID.NewAccount keys threshold ->
-                -- account does not yet exist, so create it, but we need to be careful
-                if null keys || length keys > 255 then
-                  return $ Just (TxInvalid AccountCredentialInvalid)
-                else do
-                  let accountKeys = ID.makeAccountKeys keys threshold
-                  let aaddr = ID.addressFromRegId regId
-                  let account = newAccount accountKeys aaddr regId
-                  -- this check is extremely unlikely to fail (it would amount to a hash collision since
-                  -- we checked regIdEx above already).
-                  accExistsAlready <- isJust <$> getAccount aaddr
-                  let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
-                  if not accExistsAlready && check then do
-                    _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                               -- We know the address does not yet exist.
-                    addAccountCredential account cdv  -- and then add the credentials
-                    mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                  else return $ Just (TxInvalid AccountCredentialInvalid)
+            getArInfos (OrdMap.keys (ID.cdvArData cdv)) >>= \case
+              Nothing -> return $ Just (TxInvalid UnsupportedAnonymityRevokers)
+              Just arsInfos -> do
+                cryptoParams <- getCrypoParams
+                -- we have two options. One is that we are deploying a credential on an existing account.
+                case ID.cdvAccount cdv of
+                  ID.ExistingAccount aaddr ->
+                    -- first check whether an account with the address exists in the global store
+                    -- if it does not we cannot deploy the credential.
+                    getAccount aaddr >>= \case
+                      Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
+                      Just account -> do
+                            -- otherwise we just try to add a credential to the account
+                            -- but only if the credential is from the same identity provider
+                            -- as the existing ones on the account.
+                            -- Since we always maintain this invariant it is sufficient to check
+                            -- for one credential only.
+                            let credentials = account ^. accountCredentials
+                            let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
+                            if sameIP && AH.verifyCredential cryptoParams ipInfo arsInfos (Just (account ^. accountVerificationKeys)) cdiBytes then do
+                              addAccountCredential account cdv
+                              mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                            else
+                              return $ (Just (TxInvalid AccountCredentialInvalid))
+                  ID.NewAccount keys threshold ->
+                    -- account does not yet exist, so create it, but we need to be careful
+                    if null keys || length keys > 255 then
+                      return $ Just (TxInvalid AccountCredentialInvalid)
+                    else do
+                      let accountKeys = ID.makeAccountKeys keys threshold
+                      let aaddr = ID.addressFromRegId regId
+                      let account = newAccount accountKeys aaddr regId
+                      -- this check is extremely unlikely to fail (it would amount to a hash collision since
+                      -- we checked regIdEx above already).
+                      accExistsAlready <- isJust <$> getAccount aaddr
+                      let check = AH.verifyCredential cryptoParams ipInfo arsInfos Nothing cdiBytes
+                      if not accExistsAlready && check then do
+                        _ <- putNewAccount account -- first create new account, but only if credential was valid.
+                                                   -- We know the address does not yet exist.
+                        addAccountCredential account cdv  -- and then add the credentials
+                        mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
+                      else return $ Just (TxInvalid AccountCredentialInvalid)
 
 -- |Update the baker's public aggregation key. The transaction is considered valid if
 --
@@ -997,11 +1001,11 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
         k ls _ = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
-          getBakerInfo ubavkId >>= \case
+          getBakerAccountAddress ubavkId >>= \case
             Nothing ->
               return (TxReject (UpdatingNonExistentBaker ubavkId), energyCost, usedEnergy)
-            Just binfo ->
-              if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+            Just acc ->
+              if acc == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
                 -- now also check that they own the private key for the new aggregation key
                 let challenge = S.runPut (S.put ubavkId <> S.put ubavkKey)
@@ -1013,7 +1017,7 @@ handleUpdateBakerAggregationVerifyKey wtc ubavkId ubavkKey ubavkProof =
                      else return (TxReject (DuplicateAggregationKey ubavkKey), energyCost, usedEnergy)
                    else return (TxReject InvalidProof, energyCost, usedEnergy)
               else
-                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+                return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) acc), energyCost, usedEnergy)
 
 -- |Update the baker's VRF key.
 -- The transaction is valid if it proves knowledge of the secret key,
@@ -1037,13 +1041,13 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      getBakerInfo ubekId >>= \case
+      getBakerAccountAddress ubekId >>= \case
         Nothing ->
           return (TxReject (UpdatingNonExistentBaker ubekId), energyCost, usedEnergy)
-        Just binfo ->
+        Just acc ->
           -- The transaction to update the election key of the baker must come
           -- from the account of the baker
-          if binfo ^. bakerAccount == senderAccount ^. accountAddress then
+          if acc == senderAccount ^. accountAddress then
             -- check that the baker supplied a valid proof of knowledge of the election key
             let challenge = S.runPut (S.put ubekId <> S.put ubekKey)
                 keyProof = checkElectionKeyProof challenge ubekKey ubekProof
@@ -1052,7 +1056,7 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
               return (TxSuccess [BakerElectionKeyUpdated ubekId ubekKey], energyCost, usedEnergy)
             else return (TxReject InvalidProof, energyCost, usedEnergy)
           else
-            return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) (binfo ^. bakerAccount)), energyCost, usedEnergy)
+            return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) acc), energyCost, usedEnergy)
 
 
 -- * Exposed methods.

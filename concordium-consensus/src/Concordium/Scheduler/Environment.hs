@@ -21,7 +21,7 @@ import Acorn.Types(InterpreterEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate)
-import Concordium.GlobalState.Bakers(BakerError)
+import Concordium.GlobalState.BakerInfo(BakerError)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -194,14 +194,14 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Get the baker information, or 'Nothing' if a baker with the given baker id
   -- doesn't exist.
-  getBakerInfo :: BakerId -> m (Maybe BakerInfo)
+  getBakerAccountAddress :: BakerId -> m (Maybe AccountAddress)
 
   -- |Add a new baker with a fresh baker id.
   -- Moreover also update the next available baker id.
   -- If succesful, return the baker's ID
   -- If the baker's signature key or aggregation key is already in used it returns
   -- a baker error (either DuplicateSignKey or DuplicateAggregationKey)
-  addBaker :: BakerCreationInfo -> m (Either BakerError BakerId)
+  addBaker :: BakerInfo -> m (Either BakerError BakerId)
 
   -- |Remove a baker with the given id from the baker pool.
   removeBaker :: BakerId -> m ()
@@ -243,6 +243,9 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Retrieve the identity provider with given id, if possible.
   getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
+
+  -- |Retrieve the identity provider with given id, if possible.
+  getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
 
   -- |Get cryptographic parameters for the current state.
   getCrypoParams :: m CryptographicParameters
