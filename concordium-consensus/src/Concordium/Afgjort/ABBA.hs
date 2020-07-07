@@ -161,6 +161,11 @@ initialPhaseState = PhaseState {
     _botInputWeight = Just PS.empty
 }
 
+-- |The total weight and set of parties nominating a particular choice.
+inputWeight :: Choice -> Lens' (PhaseState sig) (Maybe PartySet)
+inputWeight True = topInputWeight
+inputWeight False = botInputWeight
+
 -- |The state of the ABBA protocol.
 --
 -- This includes the current phase, the state of all phases, the current grade,
@@ -196,11 +201,6 @@ initialABBAState = ABBAState {
     _botWeAreDone = PM.empty,
     _completed = False
 }
-
--- |Get the lottery identifier string for the given phase.
-lotteryId :: Phase -> SimpleGetter ABBAInstance BS.ByteString
-lotteryId phase = to $ \a ->
-        Ser.runPut $ Ser.put (baid a) >> Ser.put phase
 
 -- |Get the decision from an ABBAState.  Returns @Nothing@ if the protocol is not  yet completed.
 {-# INLINE abbaOutcome #-}
@@ -240,10 +240,10 @@ data ABBAInstance = ABBAInstance {
     privateKey :: !VRF.KeyPair
 }
 
--- |The total weight and set of parties nominating a particular choice.
-inputWeight :: Choice -> Lens' (PhaseState sig) (Maybe PartySet)
-inputWeight True = topInputWeight
-inputWeight False = botInputWeight
+-- |Get the lottery identifier string for the given phase.
+lotteryId :: Phase -> SimpleGetter ABBAInstance BS.ByteString
+lotteryId phase = to $ \a ->
+        Ser.runPut $ Ser.put (baid a) >> Ser.put phase
 
 --------------------------------------------------------------------------------
 -- Monad definition
@@ -291,7 +291,7 @@ runABBA z i s = runRWST (runABBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
 --------------------------------------------------------------------------------
 -- Lifting CSS
 
--- |Run CSS with the stored state if possible and handle the resulting events.
+-- |Receive a CSS message for a given phase, handling the resulting events.
 liftCSSReceiveMessage :: (ABBAMonad sig m) => Phase -> Party -> CSSMessage -> sig -> m ()
 liftCSSReceiveMessage phase !src !msg !sig = do
         ABBAInstance{..} <- ask
@@ -302,7 +302,7 @@ liftCSSReceiveMessage phase !src !msg !sig = do
                 phaseState phase . phaseCSSState .= Right cssstate'
                 handleCSSEvents phase evs
 
--- |Run CSS with the stored state if possible and handle the resulting events.
+-- |Justify a CSS input for a given phase, handling the resulting events.
 liftCSSJustifyChoice :: (ABBAMonad sig m) => Phase -> Choice -> m ()
 liftCSSJustifyChoice phase c = do
         ABBAInstance{..} <- ask
@@ -332,8 +332,6 @@ handleCSSEvents phase (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> 
         liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
 handleCSSEvents phase (SelectCoreSet cs : evs) = delayThen (phase+1) (HandleCoreSet phase cs) >> handleCSSEvents phase evs
 handleCSSEvents phase (WaitThenFinishReporting : evs) = delayThen (phase+1) (CSSFinishReporting phase) >> handleCSSEvents phase evs
-
-
 
 -- |Generate my lottery ticket for the given phase.
 makeTicket :: (ABBAMonad sig m) => Phase -> m TicketProof
