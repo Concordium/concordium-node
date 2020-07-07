@@ -15,10 +15,12 @@ import Concordium.Startup hiding (dummyCryptographicParameters)
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.AnonymityRevokers
 
 import Test.Hspec
 
@@ -32,6 +34,9 @@ dummyCryptographicParameters =
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
+
 -- type TreeConfig = DiskTreeDiskBlockConfig
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -39,7 +44,7 @@ makeGlobalStateConfig rt genData@GenesisData{..} = return $ MTMBConfig rt genDat
   where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters
         birkParams = BS.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
 
-genesis :: Word -> (GenesisData, [(BakerIdentity, BakerInfo)])
+genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
     makeGenesisData
     0
@@ -49,6 +54,7 @@ genesis nBakers =
     defaultFinalizationParameters
     dummyCryptographicParameters
     []
+    dummyArs
     []
     1234
 
@@ -63,13 +69,13 @@ setup nBakers = do
         inst
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        genesisBakers
+        (_bakerMap genesisBakers)
         (genesisTotalGTU genData)
   let initialPassiveState =
         initialPassiveFinalizationState
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        genesisBakers
+        (_bakerMap genesisBakers)
         (genesisTotalGTU genData)
   let finInstances = map (makeFinalizationInstance . fst) bakers
   (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))

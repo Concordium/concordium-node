@@ -11,8 +11,6 @@ use std::{
     },
 };
 
-use crossbeam_channel;
-
 use parking_lot::Condvar;
 
 use crate::{
@@ -193,7 +191,7 @@ impl ConsensusQueues {
 }
 
 lazy_static! {
-    pub static ref CALLBACK_QUEUE: ConsensusQueues = { ConsensusQueues::default() };
+    pub static ref CALLBACK_QUEUE: ConsensusQueues = ConsensusQueues::default();
 }
 
 /// If a consensus instance is
