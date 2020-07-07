@@ -621,6 +621,26 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn get_identity_providers(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetIdentityProviders", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_identity_providers(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_anonymity_revokers(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetAnonymityRevokers", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_anonymity_revokers(&req.get_ref().block_hash)
+        })
+    }
+
     async fn get_block_summary(
         &self,
         req: Request<BlockHash>,
