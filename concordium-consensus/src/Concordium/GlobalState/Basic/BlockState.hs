@@ -143,8 +143,8 @@ instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
   getBakerInfo bs bid = return $ bs ^? bakerMap . ix bid . bakerInfo
-  
-  getFullBakerInfos = return . _bakerMap        
+
+  getFullBakerInfos = return . _bakerMap
 
 instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
@@ -312,10 +312,17 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetIdentityProvider bs ipId =
       return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
 
+    {-# INLINE bsoGetAllIdentityProviders #-}
+    bsoGetAllIdentityProviders bs =
+      return $! bs ^. blockIdentityProviders . to (HashMap.elems . IPS.idProviders)
+
     {-# INLINE bsoGetAnonymityRevokers #-}
-    bsoGetAnonymityRevokers bs arIds = return $! 
+    bsoGetAnonymityRevokers bs arIds = return $!
       let ars = bs ^. blockAnonymityRevokers . to ARS.arRevokers
       in forM arIds (flip HashMap.lookup ars)
+
+    {-# INLINE bsoGetAllAnonymityRevokers #-}
+    bsoGetAllAnonymityRevokers bs = return $! bs ^. blockAnonymityRevokers . to (HashMap.elems . ARS.arRevokers)
 
     {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
