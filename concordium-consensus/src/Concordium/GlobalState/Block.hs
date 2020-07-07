@@ -260,10 +260,21 @@ instance BlockPendingData PendingBlock where
 instance HashableTo BlockHash PendingBlock where
     getHash = pbHash
 
+getVersionedBlock :: TransactionTime -> Get Block
+getVersionedBlock time = do
+    version <- get :: Get Version
+    a <- case version of
+      versionBlock -> getBlockV0 time
+      _ -> fail "Bad block version"
+    return a
+
+-- |Alias for getting a block with the current version
+getBlock = getBlockV0
+
 -- |Deserialize a block.
 -- NB: This does not check transaction signatures.
-getBlock :: TransactionTime -> Get Block
-getBlock arrivalTime = do
+getBlockV0 :: TransactionTime -> Get Block
+getBlockV0 arrivalTime = do
     sl <- get
     if sl == 0 then GenesisBlock <$> get
     else do
@@ -272,16 +283,9 @@ getBlock arrivalTime = do
         bfBlockProof <- get
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
-        bbTransactions <- getListOf (getBlockItem arrivalTime)
+        bbTransactions <- getListOf (getVersionedBlockItem arrivalTime)
         bbSignature <- get
         return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
-
--- |Deserialize a versioned block
-getBlockV0 :: TransactionTime -> Get Block
-getBlockV0 arrivalTime = do
-    version <- get
-    unless (version == versionBlock) $ fail "Invalid block version"
-    getBlock arrivalTime
 
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
 makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
@@ -304,16 +308,9 @@ signBlock key slot parent baker proof bnonce finData transactions
     where
         preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
 
-deserializePendingBlockV0 :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
-deserializePendingBlockV0 blockBS rectime =
-    case runGet (getBlockV0 (utcTimeToTransactionTime rectime)) blockBS of
-        Left err -> Left $ "Block deserialization failed: " ++ err
-        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
-        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
-
 deserializePendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializePendingBlock blockBS rectime =
-    case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
+    case runGet (getVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
         Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
