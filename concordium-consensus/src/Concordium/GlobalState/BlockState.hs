@@ -168,6 +168,10 @@ class BirkParametersOperations m => BlockStateQuery m where
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
 
+    getAllIdentityProviders :: BlockState m -> m [IpInfo]
+
+    getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
+
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
                            | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
                            | Empty                    -- ^Do nothing to the encrypted amount.
@@ -344,13 +348,9 @@ class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
   -- the identity provider with given ID does not exist.
   bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
-  bsoGetAllIdentityProviders :: UpdatableBlockState m -> m [IpInfo]
-
   -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
   -- anonymity revokers are not found.
   bsoGetAnonymityRevokers :: UpdatableBlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
-
-  bsoGetAllAnonymityRevokers :: UpdatableBlockState m -> m [ArInfo]
 
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
@@ -429,6 +429,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getTransactionOutcome s = lift . getTransactionOutcome s
   getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
+  getAllIdentityProviders s = lift $ getAllIdentityProviders s
+  getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -440,6 +442,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
+  {-# INLINE getAllIdentityProviders #-}
+  {-# INLINE getAllAnonymityRevokers #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
@@ -479,9 +483,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
   bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
-  bsoGetAllIdentityProviders s = lift $ bsoGetAllIdentityProviders s
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
-  bsoGetAllAnonymityRevokers s = lift $ bsoGetAllAnonymityRevokers s
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s

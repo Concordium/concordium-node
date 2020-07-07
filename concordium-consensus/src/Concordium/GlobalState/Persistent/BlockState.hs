@@ -771,6 +771,8 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     getTransactionOutcome = doGetTransactionOutcome
     getSpecialOutcomes = doGetSpecialOutcomes
     getOutcomes = doGetOutcomes
+    getAllIdentityProviders = doGetAllIdentityProvider
+    getAllAnonymityRevokers = doGetAllAnonymityRevokers
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -782,6 +784,8 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getTransactionOutcome #-}
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
+    {-# INLINE getAllIdentityProviders #-}
+    {-# INLINE getAllAnonymityRevokers #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentBlockStateMonad r m) where
 
@@ -827,9 +831,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoDecrementCentralBankGTU = doDecrementCentralBankGTU
     bsoDelegateStake = doDelegateStake
     bsoGetIdentityProvider = doGetIdentityProvider
-    bsoGetAllIdentityProviders = doGetAllIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
-    bsoGetAllAnonymityRevokers = doGetAllAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
@@ -860,9 +862,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoDecrementCentralBankGTU #-}
     {-# INLINE bsoDelegateStake #-}
     {-# INLINE bsoGetIdentityProvider #-}
-    {-# INLINE bsoGetAllIdentityProviders #-}
     {-# INLINE bsoGetAnonymityRevokers #-}
-    {-# INLINE bsoGetAllAnonymityRevokers #-}
     {-# INLINE bsoGetCryptoParams #-}
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
