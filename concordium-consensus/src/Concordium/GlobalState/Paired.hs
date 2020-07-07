@@ -392,9 +392,17 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetIdentityProvider bs1 ipid
         r2 <- coerceBSMR $ bsoGetIdentityProvider bs2 ipid
         assert (r1 == r2) $ return r1
+    bsoGetAllIdentityProviders (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetAllIdentityProviders bs1
+        r2 <- coerceBSMR $ bsoGetAllIdentityProviders bs2
+        assert (r1 == r2) $ return r1
     bsoGetAnonymityRevokers (bs1, bs2) arIds = do
         r1 <- coerceBSML $ bsoGetAnonymityRevokers bs1 arIds
         r2 <- coerceBSMR $ bsoGetAnonymityRevokers bs2 arIds
+        assert (r1 == r2) $ return r1
+    bsoGetAllAnonymityRevokers (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetAllAnonymityRevokers bs1
+        r2 <- coerceBSMR $ bsoGetAllAnonymityRevokers bs2
         assert (r1 == r2) $ return r1
     bsoGetCryptoParams (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetCryptoParams bs1

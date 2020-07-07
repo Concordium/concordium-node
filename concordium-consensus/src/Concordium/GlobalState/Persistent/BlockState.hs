@@ -647,12 +647,24 @@ doGetIdentityProvider pbs ipId = do
         ips <- loadBufferedRef (bspIdentityProviders bsp)
         return $! IPS.idProviders ips ^? ix ipId
 
+doGetAllIdentityProvider :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [IPS.IpInfo]
+doGetAllIdentityProvider pbs = do
+        bsp <- loadPBS pbs
+        ips <- loadBufferedRef (bspIdentityProviders bsp)
+        return $! HM.elems $ IPS.idProviders ips
+
 doGetAnonymityRevokers :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [ID.ArIdentity] -> m (Maybe [ARS.ArInfo])
 doGetAnonymityRevokers pbs arIds = do
         bsp <- loadPBS pbs
         ars <- loadBufferedRef (bspAnonymityRevokers bsp)
         return $! let arsMap = ARS.arRevokers ars
                   in forM arIds (flip HM.lookup arsMap)
+
+doGetAllAnonymityRevokers :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [ARS.ArInfo]
+doGetAllAnonymityRevokers pbs = do
+        bsp <- loadPBS pbs
+        ars <- loadBufferedRef (bspAnonymityRevokers bsp)
+        return $! HM.elems $ ARS.arRevokers ars
 
 doGetCryptoParams :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m CryptographicParameters
 doGetCryptoParams pbs = do
@@ -815,7 +827,9 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoDecrementCentralBankGTU = doDecrementCentralBankGTU
     bsoDelegateStake = doDelegateStake
     bsoGetIdentityProvider = doGetIdentityProvider
+    bsoGetAllIdentityProviders = doGetAllIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
+    bsoGetAllAnonymityRevokers = doGetAllAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
@@ -846,7 +860,9 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoDecrementCentralBankGTU #-}
     {-# INLINE bsoDelegateStake #-}
     {-# INLINE bsoGetIdentityProvider #-}
+    {-# INLINE bsoGetAllIdentityProviders #-}
     {-# INLINE bsoGetAnonymityRevokers #-}
+    {-# INLINE bsoGetAllAnonymityRevokers #-}
     {-# INLINE bsoGetCryptoParams #-}
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
@@ -884,5 +900,5 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         bs <- blobStore <$> ask
         liftIO $ flushBlobStore bs
         return ref
-    
+
     loadBlockState = liftIO . newIORef . BRBlobbed
