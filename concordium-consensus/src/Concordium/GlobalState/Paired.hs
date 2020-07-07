@@ -31,11 +31,11 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState
-import Concordium.Logger (MonadLogger)
+import Concordium.Logger (MonadLogger(..))
 
 -- |Monad for coercing reader and state types.
 newtype ReviseRSM r s m a = ReviseRSM (m a)
-    deriving (Functor, Applicative, Monad, MonadIO)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
 instance (MonadReader r' m, Coercible r' r) =>
         MonadReader r (ReviseRSM r s m) where
@@ -48,7 +48,6 @@ instance (MonadState s' m, Coercible s' s) =>
     get = ReviseRSM (fmap coerce (get :: m s'))
     put = ReviseRSM . put . coerce
     state f = ReviseRSM (state (coerce f))
-
 
 data PairGSContext lc rc = PairGSContext {
         _pairContextLeft :: !lc,
@@ -85,6 +84,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type BirkParameters (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (BirkParameters (BSML lc r lg s m),
                 BirkParameters (BSMR rc r rg s m))
+    type Bakers (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (Bakers (BSML lc r lg s m),
+                Bakers (BSMR rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -213,6 +215,33 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a2 <- coerceBSMR (getSpecialOutcomes rs)
         assert (a1 == a2) $ return a1
 
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
+        => BakerQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+  getBakerStake (bkrs1, bkrs2) bid = do
+    s1 <- coerceBSML (getBakerStake bkrs1 bid)
+    s2 <- coerceBSMR (getBakerStake bkrs2 bid)
+    assert (s1 == s2) $ return s1
+
+  getBakerFromKey (bkrs1, bkrs2) k = do
+    b1 <- coerceBSML (getBakerFromKey bkrs1 k)
+    b2 <- coerceBSMR (getBakerFromKey bkrs2 k)
+    assert (b1 == b2) $ return b1
+
+  getTotalBakerStake (bkrs1, bkrs2) = do
+    s1 <- coerceBSML (getTotalBakerStake bkrs1)
+    s2 <- coerceBSMR (getTotalBakerStake bkrs2)
+    assert (s1 == s2) $ return s1
+
+  getBakerInfo (bkrs1, bkrs2) bid = do
+    bi1 <- coerceBSML (getBakerInfo bkrs1 bid)
+    bi2 <- coerceBSMR (getBakerInfo bkrs2 bid)
+    assert (bi1 == bi2) $ return bi1
+
+  getFullBakerInfos (bkrs1, bkrs2) = do
+    bi1 <- coerceBSML (getFullBakerInfos bkrs1)
+    bi2 <- coerceBSMR (getFullBakerInfos bkrs2)
+    assert (bi1 == bi2) $ return bi1
+
 instance (Monad m,
           C.HasGlobalStateContext (PairGSContext lc rc) r,
           BirkParametersOperations (BSML lc r ls s m),
@@ -236,12 +265,16 @@ instance (Monad m,
   getCurrentBakers (bps1, bps2) = do
     cb1 <- coerceBSML (getCurrentBakers bps1)
     cb2 <- coerceBSMR (getCurrentBakers bps2)
-    assert (cb1 == cb2) $ return cb1
+    fbi1 <- coerceBSML (getFullBakerInfos cb1)
+    fbi2 <- coerceBSMR (getFullBakerInfos cb2)
+    assert (fbi1 == fbi2) $ return (cb1, cb2)
 
   getLotteryBakers (bps1, bps2) = do
     lb1 <- coerceBSML (getLotteryBakers bps1)
     lb2 <- coerceBSMR (getLotteryBakers bps2)
-    assert (lb1 == lb2) $ return lb1
+    fbi1 <- coerceBSML (getFullBakerInfos lb1)
+    fbi2 <- coerceBSMR (getFullBakerInfos lb2)
+    assert (fbi1 == fbi2) $ return (lb1, lb2)
 
   updateSeedState ss (bps1, bps2) = do
     bps1' <- coerceBSML (updateSeedState ss bps1)
@@ -359,6 +392,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetIdentityProvider bs1 ipid
         r2 <- coerceBSMR $ bsoGetIdentityProvider bs2 ipid
         assert (r1 == r2) $ return r1
+    bsoGetAnonymityRevokers (bs1, bs2) arIds = do
+        r1 <- coerceBSML $ bsoGetAnonymityRevokers bs1 arIds
+        r2 <- coerceBSMR $ bsoGetAnonymityRevokers bs2 arIds
+        assert (r1 == r2) $ return r1
     bsoGetCryptoParams (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetCryptoParams bs1
         r2 <- coerceBSMR $ bsoGetCryptoParams bs2
@@ -375,6 +412,8 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoUpdateBirkParameters bs1 bps1
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps2
         return (bs1', bs2')
+
+type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 
 instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
@@ -398,17 +437,14 @@ instance (MonadLogger m,
     archiveBlockState (bs1, bs2) = do
         coerceBSML $ archiveBlockState bs1
         coerceBSMR $ archiveBlockState bs2
-    putBlockState (bs1, bs2) = do
-        p1 <- coerceBSML $ putBlockState bs1
-        p2 <- coerceBSMR $ putBlockState bs2
-        return $ p1 >> p2
-    getBlockState = do
-        g1 <- getBlockState
-        g2 <- getBlockState
-        return $ do
-            bs1 <- coerceBSML g1
-            bs2 <- coerceBSMR g2
-            return (bs1, bs2)
+    saveBlockState (bs1, bs2) = do
+        p1 <- coerceBSML $ saveBlockState bs1
+        p2 <- coerceBSMR $ saveBlockState bs2
+        return $ (p1, p2)
+    loadBlockState (p1, p2) = do
+        bs1 <- coerceBSML $ loadBlockState p1
+        bs2 <- coerceBSMR $ loadBlockState p2
+        return (bs1, bs2)
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML lc r ls s m a -> TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m a

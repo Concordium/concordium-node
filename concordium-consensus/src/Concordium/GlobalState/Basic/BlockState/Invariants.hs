@@ -13,7 +13,8 @@ import Concordium.Utils
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Bakers
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.GlobalState.Basic.BlockState.Instances as Instances
