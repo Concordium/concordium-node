@@ -267,7 +267,7 @@ class (Eq (BlockPointerType m),
     --   * Every 'BlockItem' in the transaction table that is not included in a live
     --     or finalized block is referenced in the pending transaction table.  That is,
     --     for a basic transaction the '_pttWithSender' table contains an entry for
-    --     the sender where the nonceof the transaction falls within the range,
+    --     the sender where the nonce of the transaction falls within the range,
     --     and for a credential deployment the transaction hash is included in '_pttDeployCredential'.
     --
     --   * The low nonce for each entry in '_pttWithSender' is at least the last finalized
