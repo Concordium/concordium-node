@@ -3,7 +3,7 @@
 -- |This module simulates running multiple copies of consensus together in a
 -- deterministic fashion, without consideration for real time.  The goal is to
 -- have a faster and more reproducible way of testing/profiling/benchmarking
--- performance-related issues.  
+-- performance-related issues.
 --
 -- Note that it is expected that you will edit this file depending on what
 -- you wish to test.
@@ -36,7 +36,6 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
-import Concordium.GlobalState.Paired
 import qualified Concordium.GlobalState.TreeState as TS
 
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
@@ -193,7 +192,7 @@ data RandomisedEvents = RandomisedEvents {
     _reGen :: !StdGen
 }
 
--- |State of the simulation. 
+-- |State of the simulation.
 data SimState = SimState {
     _ssBakers :: !(Vec.Vector BakerState),
     _ssEvents :: !(MinPQ.MinQueue PEvent),
