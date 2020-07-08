@@ -130,7 +130,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                         = r
                 -- Purge the hash from the transaction table and pending
                 -- transaction table.
-                purgeDC (dc, trs) cdihash = case trs & at cdihash <%~ p of
+                purgeDC (dc, trs) cdihash = case trs & at' cdihash <%~ p of
                     -- The CDI is no longer in the transaction table, so delete it.
                     (Nothing, trs') -> (HS.delete cdihash dc, trs')
                     -- The CDI was kept, so do nothing.
