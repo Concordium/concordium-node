@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.PurgeTransactions where
 
+import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
@@ -64,30 +65,49 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         -- arrival time, or if its expiry time has passed.
         tooOld tx = biArrivalTime tx < oldestArrivalTime
                     || transactionExpired (thExpiry (btrHeader (wmdData tx))) currentTime
+        -- Determine if an entry in the transaction hash table indicates that a
+        -- transaction is eligible for removal.  This is the case if the recorded
+        -- slot preceeds the last finalized slot.
         removable (Just (_, Received{..})) = _tsSlot <= lastFinSlot
         removable (Just (_, Committed{..})) = _tsSlot <= lastFinSlot
+        -- This case should not occur, since it would mean that a transaction we
+        -- are trying to remove is either finalized or unknown.
         removable _ = False
+        -- Purge the set of pending transactions at a given nonce.  The state
+        -- tracks the maximum nonce (if any) for which there are still pending
+        -- transactions and the transaction hash table, from which transactions
+        -- are purged.  The return value is the updated set of transactions, or
+        -- @Nothing@ if all transactions at this nonce have been purged.
         purgeTxs :: Nonce -> Set.Set Transaction -> State (Maybe (Max Nonce), TransactionHashTable) (Maybe (Set.Set Transaction))
         purgeTxs n ts = do
             (mmnonce, tht) <- get
             let
-                purgeTx tx (tsacc, thtacc)
+                -- Remove a transaction if it is too old and removable.
+                -- Transactions that are not removed are accumulated.
+                purgeTx (tsacc, thtacc) tx
                     | tooOld tx
                     , removable (thtacc ^? ix (biHash tx))
                         = (tsacc, HM.delete (biHash tx) thtacc)
                     | otherwise
                         = (tx : tsacc, thtacc)
-                (tsl', tht') = foldr purgeTx ([], tht) (Set.toAscList ts)
-                ts' = Set.fromAscList tsl'
-                (mmnonce', mres)
+                (tsl', tht') = foldl' purgeTx ([], tht) (Set.toDescList ts)
+                -- Since we start with the set in descending order and foldl',
+                -- the result will be a list in ascending order.
+                ts' = Set.fromDistinctAscList tsl'
+                (!mmnonce', !mres)
+                    -- No transactions left, so remove the set and the max nonce doesn't change
                     | null tsl' = (mmnonce, Nothing)
+                    -- Some transactions left, so keep the updated set and update the max nonce.
                     | otherwise = (mmnonce <> Just (Max n), Just ts')
             put (mmnonce', tht')
             return mres
+        -- Purge the non-finalized transactions for a specific account.
         purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
             (ptt0, trs0) <- get
+            -- Purge the transactions from the transaction table.
             let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Nothing, trs0)
+            -- Update the pending transaction table.
             let updptt (Just (Max newHigh)) (Just (low, _))
                     | newHigh < low = Nothing
                     | otherwise = Just (low, newHigh)
@@ -95,10 +115,12 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
             put (ptt1, trs1)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
+        -- Purge the deploy credential transactions that are pending.
         purgeDeployCredentials = do
             dc0 <- use (_1 . pttDeployCredential)
             trs0 <- use _2
             let
+                -- Remove entry from the transaction table if eligible
                 p Nothing = Nothing
                 p r@(Just (bi, _))
                     | biArrivalTime bi < oldestArrivalTime
@@ -106,9 +128,14 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                         = Nothing
                     | otherwise
                         = r
+                -- Purge the hash from the transaction table and pending
+                -- transaction table.
                 purgeDC (dc, trs) cdihash = case trs & at cdihash <%~ p of
+                    -- The CDI is no longer in the transaction table, so delete it.
                     (Nothing, trs') -> (HS.delete cdihash dc, trs')
+                    -- The CDI was kept, so do nothing.
                     _ -> (dc, trs)
+                -- Fold over the set of credential deployments and purge them
                 (dc1, trs1) = HS.foldl' purgeDC (dc0, trs0) dc0
             _1 . pttDeployCredential .= dc1
             _2 .= trs1
