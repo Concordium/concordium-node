@@ -11,7 +11,7 @@ import Concordium.Types.Transactions
 -- |The transaction table stores transactions and their statuses.
 -- In the persistent tree state implementation, finalized transactions are not
 -- stored in this table, but can be looked up from a disk-backed database.
--- In the in-memory implmentation, finalization transactions are stored in this
+-- In the in-memory implementation, finalized transactions are stored in this
 -- table.
 --
 -- A transaction's status indicates which blocks it is included in and the slot
