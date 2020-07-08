@@ -260,16 +260,12 @@ instance BlockPendingData PendingBlock where
 instance HashableTo BlockHash PendingBlock where
     getHash = pbHash
 
-getVersionedBlock :: TransactionTime -> Get Block
-getVersionedBlock time = do
+getExactVersionedBlock :: TransactionTime -> Get Block
+getExactVersionedBlock time = do
     version <- get :: Get Version
-    a <- case version of
-      versionBlock -> getBlockV0 time
-      _ -> fail "Bad block version"
+    a <- if version == versionBlock then getBlockV0 time
+         else fail "Bad block version"
     return a
-
--- |Alias for getting a block with the current version
-getBlock = getBlockV0
 
 -- |Deserialize a block.
 -- NB: This does not check transaction signatures.
@@ -283,7 +279,7 @@ getBlockV0 arrivalTime = do
         bfBlockProof <- get
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
-        bbTransactions <- getListOf (getVersionedBlockItem arrivalTime)
+        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
         bbSignature <- get
         return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
@@ -310,7 +306,7 @@ signBlock key slot parent baker proof bnonce finData transactions
 
 deserializePendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializePendingBlock blockBS rectime =
-    case runGet (getVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
+    case runGet (getExactVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
         Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
