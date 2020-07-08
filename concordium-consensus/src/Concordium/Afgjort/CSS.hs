@@ -38,18 +38,17 @@ One of the inputs to CSS is a justification, to which we will refer as Jcssin.
 
 * Reporting Phase:
 
-    1. Once I receive @bj@ from @Pj@ where @(Pj, bj)@ is @Jtpl@ justified for me, add @(Pj, bj)@ to @iSaw@
+     - Once I receive @bj@ from @Pj@ where @(Pj, bj)@ is @Jtpl@ justified for me, add @(Pj, bj)@ to @iSaw@
        and send signed @(SEEN, Pi, (Pj, bj))@ to all parties.
-    2. Once I receive a @Jseen@-justified @(SEEN, Pk, (Pj, bj))@ from @n - t@ parties, add @(Pj, bj)@ to @manySaw@.
-    3. Once @manySaw@ has tuples @(Pj, .)@ for @n - t@ parties, wait for @delay@ and set @report@ to @Bottom@ and move
+     - Once I receive a @Jseen@-justified @(SEEN, Pk, (Pj, bj))@ from @n - t@ parties, add @(Pj, bj)@ to @manySaw@.
+     - Once @manySaw@ has tuples @(Pj, .)@ for @n - t@ parties, wait for @delay@ and set @report@ to @Bottom@ and move
        to the next phase.
 
 * Closing Down:
 
-    1. Send signed @(DONEREPORTING, Pi, iSaw)@ to all parties.
-    2. Once I receive @Jdone@-justified @(DONEREPORTING, Pj, iSaw_j)@ from @n - t@ parties, set @Core@ to all currently
-       @Jtpl@-justified @(Pj, bj)@.
-    3. Wait @delay@ and output @Core@.
+     - Send signed @(DONEREPORTING, Pi, iSaw)@ to all parties.
+     - Once I receive @Jdone@-justified @(DONEREPORTING, Pj, iSaw_j)@ from @n - t@ parties, set @Core@ to all currently
+       @Jtpl@-justified @(Pj, bj)@. Wait @delay@ and output @Core@.
 
 -}
 module Concordium.Afgjort.CSS(
@@ -374,9 +373,11 @@ receiveCSSMessage src (DoneReporting sawSet) sig = unlessComplete $ handleDoneRe
 
 -- |When receiving a `DoneReporting`, we process the information we have.
 --
--- For each tuple received, we check that we actually saw that input or else queue the `DoneReporting` message until further
--- justification. If we saw all the tuples, we can consider this message @Jdone@-justified and we compute the core and finish
--- the execution (__steps 2 and 3 of Closing Down__).
+-- For each tuple in the `DoneReporting` message, we check that we actually saw that input or else queue
+-- the message until further justification. If we saw all the tuples, we can consider this message @Jdone@-justified.
+-- If enough @Jdone@-justified messages have been received, we compute the core and finish
+-- the execution (__the last part of Closing Down__). Note that the delay before outputting the core set
+-- is not implemented here; the caller (namely ABBA) is responsible for observing the delay.
 {-# SPECIALIZE handleDoneReporting :: Party -> ([(Party, Choice)], DoneReportingDetails sig) -> CSS sig () #-}
 handleDoneReporting :: (CSSMonad sig m) => Party -> ([(Party, Choice)], DoneReportingDetails sig) -> m ()
 handleDoneReporting party ([], drd) = do

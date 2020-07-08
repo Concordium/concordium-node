@@ -16,7 +16,7 @@ There are three types of messages in Freeze and each one entails one type of jus
 * Proposal: a proposal message @(baid, PROPOSAL, p)@ from a remote party is considered Jprop-justified for us if
   it is signed by the remote party and the value @p@ is J-justified for us.
 * Vote: a vote message @(baid, VOTE, v)@ from a remote party is considered Jvote-justified for us if it is signed
-  by the remote parte and:
+  by the remote party and:
 
   - @v == bottom@ and we have received Jprop-justified messages for different values (from different parties).
   - we have received Jprop-justified messages for the same value @v@ from @n-2t@ parties.
@@ -59,7 +59,7 @@ C) Freeze:
 
         b) If votes on @bottom@ are received from strictly more than @t@ parties, output @(baid, FROZEN, bottom)@.
 
-    4. Keep collection votes until WMVBA is terminated. Each party stores all decisions that became Jdec-justified.
+    4. Keep collecting votes until WMVBA is terminated. Each party stores all decisions that became Jdec-justified.
 
 -}
 module Concordium.Afgjort.Freeze(

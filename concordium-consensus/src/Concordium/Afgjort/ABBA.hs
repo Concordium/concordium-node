@@ -5,7 +5,7 @@
     GeneralizedNewtypeDeriving,
     RankNTypes,
     OverloadedStrings #-}
-{- |Asynchronous Binary Byzantine Agreement algorithm
+{- |Another Binary Byzantine Agreement (ABBA) algorithm
 
 For more information, check the konsensus paper, section 5.6.4.
 
