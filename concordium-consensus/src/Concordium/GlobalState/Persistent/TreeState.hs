@@ -22,6 +22,7 @@ import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Statistics
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.PurgeTransactions
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -29,7 +30,6 @@ import Concordium.Types.Transactions as T
 import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
-import Data.HashMap.Strict hiding (toList, map, null)
 import qualified Data.HashMap.Strict as HM
 import Data.List as List hiding (map)
 import qualified Data.Map.Strict as Map
@@ -45,7 +45,6 @@ import System.Directory
 import System.IO.Error
 import System.FilePath
 import Concordium.GlobalState.SQL.AccountTransactionIndex
-import Data.Foldable as Fold (foldl')
 import Concordium.Logger
 import Control.Monad.Except
 
@@ -466,6 +465,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
       lf <- use lastFinalized
       lfr <- use lastFinalizationRecord
       return (lf, lfr)
+    getLastFinalizedSlot = blockSlot <$> use lastFinalized
+    getLastFinalizedHeight = bpHeight <$> use lastFinalized
     getNextFinalizationIndex = (+1) . finalizationIndex <$!> use lastFinalizationRecord
     addFinalization newFinBlock finRec = do
       writeFinalizationRecord finRec
@@ -683,72 +684,15 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
       RuntimeParameters{..} <- use runtimeParameters
       when (ignoreInsertions || purgeCount > rpInsertionsBeforeTransactionPurge) $ do
         transactionTablePurgeCounter .= 0
-        lastFinalizedSlot <- blockSlot <$> use lastFinalized
+        lastFinalizedSlot <- TS.getLastFinalizedSlot
         transactionTable' <- use transactionTable
         pendingTransactions' <- use pendingTransactions
-
-        txHighestNonces <- removeTransactions transactionTable' rpTransactionsKeepAliveTime lastFinalizedSlot
-        pendingTransactions .= rollbackNonces txHighestNonces pendingTransactions'
-     where
-       removeTransactions TransactionTable{..} keepAliveTime lastFinalizedSlot = do
-         let removeTxs :: [(Nonce, Set.Set T.Transaction)] -> Nonce -> ([T.Transaction], [(Nonce, Set.Set T.Transaction)], Nonce)
-             removeTxs [] h = ([], [], h) -- If we have no more transactions to process, return the same value as before.
-             removeTxs ((thisNonce, transactionsForThisNonce):setsOfTxsByNonce) highestNonce =
-               -- We can only remove transactions which are not committed to any blocks.
-               -- Otherwise we would break many invariants.
-               let removable t =
-                     case _ttHashMap ^? ix (biHash t) . _2 of
-                       -- we cannot remove a transaction that was received in a block that has not yet been purged
-                       -- if its received slot is >= last finalized then the transaction will be in a live block
-                       -- that might be processed at some point.
-                       Just Received{..} -> _tsSlot <= lastFinalizedSlot
-                       _ -> False
-                   (transactionsToDrop, transactionsToKeep) =
-                     Set.partition (\t -> biArrivalTime t + keepAliveTime < utcTimeToTransactionTime currentTime && removable t) transactionsForThisNonce in -- split in old and still valid transactions
-                 if Set.size transactionsToKeep == 0
-                 then
-                    -- If we don't keep any transactions for this nonce, because:
-                    -- - They all expired
-                    -- - They were not included in a block that was finalized or still live
-                    -- then we can assume that transactions with higher nonces should be dropped.
-                    (Set.elems transactionsToDrop ++ concatMap (Set.elems . snd) setsOfTxsByNonce, [], highestNonce)
-                 else
-                    -- else we continue purging the next transactions
-                    let (nextToDrop, nextToKeep, nextHighestNonce) = removeTxs setsOfTxsByNonce thisNonce in
-                     -- and then combine the transactions to drop and the transactions to keep that we already had with the ones from the next step
-                     (Set.elems transactionsToDrop ++ nextToDrop, (thisNonce, transactionsToKeep) : nextToKeep, nextHighestNonce)
-
-             -- Given an AccountNonFinalizedTransactions, generate:
-             -- 1. A list of transactions that should be removed
-             -- 2. A map of Nonce -> Set Transaction that will be the new anftMap, i.e. the transactions that will be kept for this account.
-             -- 3. The new last finalized nonce for this account.
-             purgeANFT :: (AccountAddress, AccountNonFinalizedTransactions) -> ([T.Transaction], (AccountAddress, AccountNonFinalizedTransactions), (AccountAddress, Nonce, Bool))
-             purgeANFT (acc, AccountNonFinalizedTransactions{..}) =
-               let (transactionsToRemove, transactionsToKeep, highestNonce) = removeTxs (Map.toAscList _anftMap) 0 in
-                 (transactionsToRemove, (acc, AccountNonFinalizedTransactions{_anftMap = Map.fromList transactionsToKeep, ..}), (acc, highestNonce, null transactionsToKeep))
-
-         let results = map purgeANFT (HM.toList _ttNonFinalizedTransactions)
-             allTransactionsToRemove = concatMap (^. _1) results
-             !newNFT = fromList $ map (^. _2) results
-             highestNonces = map (^. _3) results
-             -- remove all normal transactions that should be removed
-             !newTMap = Fold.foldl' (\h tx -> (HM.delete (biHash tx) h)) _ttHashMap allTransactionsToRemove
-             -- and finally remove all the credential deployments that are too old.
-             !finalTT = HM.filter (\case
-                                      (WithMetadata{wmdData=CredentialDeployment{},..}, Received{..}) ->
-                                          wmdArrivalTime + keepAliveTime >= utcTimeToTransactionTime currentTime && _tsSlot > lastFinalizedSlot
-                                      _ -> True
-                                  ) newTMap
-         transactionTable .= TransactionTable{_ttHashMap = finalTT, _ttNonFinalizedTransactions = newNFT}
-         return highestNonces
-
-       rollbackNonces :: [(AccountAddress, Nonce, Bool)] -> PendingTransactionTable -> PendingTransactionTable
-       rollbackNonces e PTT{..} = PTT {_pttWithSender =
-                                       let !v = Fold.foldl' (\pt (acc, n, remove) ->
-                                                               if remove then Data.HashMap.Strict.delete acc pt
-                                                               else
-                                                                 update (\(n1, n2) ->
-                                                                         if n2 > n && n >= n1 then Just (n1, n)
-                                                                         else if n2 > n then Nothing
-                                                                         else Just (n1, n2)) acc pt) _pttWithSender e in v,
-                                       ..}
+        let
+          currentTransactionTime = utcTimeToTransactionTime currentTime
+          oldestArrivalTime = if currentTransactionTime > rpTransactionsKeepAliveTime
+                                then currentTransactionTime - rpTransactionsKeepAliveTime
+                                else 0
+          currentTimestamp = utcTimeToTimestamp currentTime
+          (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+        transactionTable .= newTT
+        pendingTransactions .= newPT
