@@ -69,7 +69,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
             now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getBlock now) blockBS of
+                    case runGet (getExactVersionedBlock now) blockBS of
                         Right (NormalBlock !block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)

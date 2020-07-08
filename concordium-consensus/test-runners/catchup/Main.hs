@@ -112,7 +112,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're connected, relay the message as required
             if connected then case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getBlock now) blockBS of
+                    case runGet (getExactVersionedBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
@@ -142,7 +142,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're not connected, don't relay, but still send to the monitor channel
             else case msg of
                 MsgNewBlock blockBS ->
-                    case runGet (getBlock now) blockBS of
+                    case runGet (getExactVersionedBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)

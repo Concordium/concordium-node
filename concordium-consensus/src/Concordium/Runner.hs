@@ -367,7 +367,7 @@ makeAsyncRunner logm bkr config = do
                     msgLoop
                 MsgTransactionReceived transBS -> do
                     now <- getTransactionTime
-                    case runGet (getVersionedBlockItem now) transBS of
+                    case runGet (getExactVersionedBlockItem now) transBS of
                         Right !trans -> void $ syncReceiveTransaction sr trans
                         _ -> return ()
                     msgLoop
