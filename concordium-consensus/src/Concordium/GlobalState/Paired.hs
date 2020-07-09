@@ -669,7 +669,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     -- For runtime parameters, we will only use one side
     getRuntimeParameters = coerceGSML getRuntimeParameters
 
-    purgeTransactionTable = coerceGSML purgeTransactionTable
+    purgeTransactionTable t i = do
+      coerceGSML (purgeTransactionTable t i)
+      coerceGSMR (purgeTransactionTable t i)
 
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 
