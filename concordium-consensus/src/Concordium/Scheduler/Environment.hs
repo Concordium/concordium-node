@@ -244,6 +244,9 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- |Retrieve the identity provider with given id, if possible.
   getIPInfo :: IdentityProviderIdentity -> m (Maybe IpInfo)
 
+  -- |Retrieve the identity provider with given id, if possible.
+  getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
+
   -- |Get cryptographic parameters for the current state.
   getCrypoParams :: m CryptographicParameters
 

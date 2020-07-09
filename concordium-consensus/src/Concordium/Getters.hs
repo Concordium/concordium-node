@@ -413,3 +413,11 @@ checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    case fs ^. finCurrentRound of
      PassiveCurrentRound _ -> return False
      ActiveCurrentRound _ -> return True
+
+getAllIdentityProviders :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getAllIdentityProviders hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> toJSON <$> BS.getAllIdentityProviders st
+
+getAllAnonymityRevokers :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getAllAnonymityRevokers hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> toJSON <$> BS.getAllAnonymityRevokers st

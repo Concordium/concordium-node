@@ -404,6 +404,14 @@ extern "C" {
         consensus: *mut consensus_runner,
         account_address: *const u8,
     ) -> *const c_char;
+    pub fn getAllIdentityProviders(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getAllAnonymityRevokers(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
     pub fn importBlocks(
         consensus: *mut consensus_runner,
         import_file_path: *const u8,
@@ -711,6 +719,22 @@ impl ConsensusContainer {
         wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
             consensus,
             account_address.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_identity_providers(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getAllIdentityProviders(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_anonymity_revokers(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getAllAnonymityRevokers(
+            consensus,
+            block_hash.as_ptr() as *const u8
         ))
     }
 
