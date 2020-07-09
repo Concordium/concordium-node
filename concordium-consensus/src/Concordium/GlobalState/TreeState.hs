@@ -253,9 +253,42 @@ class (Eq (BlockPointerType m),
     -- Returns @True@ if and only if the transaction is purged.
     purgeTransaction :: BlockItem -> m Bool
 
-    -- |Try to purge expired items from the transaaction table.
-    -- Probably this will only be implemented in the Disk implementation.
-    purgeTransactionTable :: m ()
+    -- |Purge transactions from the transaction table and pending transactions.
+    -- Transactions are purged only if they are not included in a live block, and
+    -- have either expired or arrived longer ago than the transaction keep alive time.
+    --
+    -- If the first argument is @False@, the transaction table is only purged if
+    -- 'rpInsertionsBeforeTransactionPurged' transactions have been inserted since
+    -- the last purge.  If it is true, the table is purged regardless.
+    --
+    -- WARNING: This function violates the independence of the tree state components.
+    -- In particular, the following invariants are assumed and maintained:
+    --
+    --   * Every 'BlockItem' in the transaction table that is not included in a live
+    --     or finalized block is referenced in the pending transaction table.  That is,
+    --     for a basic transaction the '_pttWithSender' table contains an entry for
+    --     the sender where the nonce of the transaction falls within the range,
+    --     and for a credential deployment the transaction hash is included in '_pttDeployCredential'.
+    --
+    --   * The low nonce for each entry in '_pttWithSender' is at least the last finalized
+    --     nonce recorded in the account's non-finalized transactions in the transaction
+    --     table.
+    --
+    --   * The finalization list must reflect the current last finalized block.
+    --
+    --   * The pending transaction table only references transactions that are in the
+    --     transaction table.  That is, the high nonce in a range is a tight bound and
+    --     the deploy credential hashes correspond to transactions in the table.
+    --
+    --   * No non-finalized block is considered live or will become live if its slot
+    --     is less than or equal to the slot number of the last finalized block.
+    --
+    --   * If a transaction is known to be in any block that is not finalized or dead,
+    --     then 'commitTransaction' or 'addCommitTransaction' has been called with a
+    --     slot number at least as high as the slot number of the block.
+    purgeTransactionTable :: Bool -- ^ Whether to ignore the amount of insertions and forcedly perform a purge
+                          -> UTCTime -- ^ Current time
+                          -> m ()
 
     -- |Mark a transaction as no longer on a given block. This is used when a block is
     -- marked as dead.
@@ -311,7 +344,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getConsensusStatistics = lift getConsensusStatistics
     putConsensusStatistics = lift . putConsensusStatistics
     getRuntimeParameters = lift getRuntimeParameters
-    purgeTransactionTable = lift purgeTransactionTable
+    purgeTransactionTable tm = lift . (purgeTransactionTable tm)
     {-# INLINE makePendingBlock #-}
     {-# INLINE getBlockStatus #-}
     {-# INLINE makeLiveBlock #-}
