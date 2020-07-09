@@ -22,6 +22,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
+import Concordium.GlobalState.AnonymityRevokers
 
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
@@ -196,6 +197,8 @@ gsToString gs = intercalate "\\l" . map show $ keys
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
 
 genesisState :: GenesisData -> Basic.BlockState
 genesisState GenesisData{..} = Example.initialState
@@ -215,7 +218,7 @@ main :: IO ()
 main = do
     let n = 3
     now <- currentTimestamp
-    let (gen, bis) = makeGenesisData now n 100 0.5 defaultFinalizationParameters{finalizationMinimumSkip = 1} dummyCryptographicParameters dummyIdentityProviders [] (Energy maxBound)
+    let (gen, bis) = makeGenesisData now n 100 0.5 defaultFinalizationParameters{finalizationMinimumSkip = 1} dummyCryptographicParameters dummyIdentityProviders dummyArs [] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
@@ -249,11 +252,8 @@ main = do
         forkIO $ relay (Peer cin) cout sr connectedRef monitorChan cin cs'
     let loop =
             readChan monitorChan >>= \case
-                Left (bh, block, gs') -> do
+                Left (bh, block, _) -> do
                     let ts = blockTransactions block
-                    let stateStr = show gs' {-case gs' of
-                                    Nothing -> ""
-                                    Just gs -> gsToString gs -}
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker $ bbFields block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]\"];"
                     putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer $ bbFields block) ++ ";"
                     case (blockFinalizationData block) of

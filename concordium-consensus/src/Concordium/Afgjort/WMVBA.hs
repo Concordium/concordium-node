@@ -3,37 +3,99 @@
     ScopedTypeVariables,
     GeneralizedNewtypeDeriving #-}
 {-# OPTIONS_GHC -Wno-duplicate-exports #-}
+{- |
+WMVBA is the protocol used to generate agreement on the finalization layer.
+
+For more information, check the konsensus paper, section 5.6 and specifically 5.6.5.
+
+= Definitions
+
+* Input justified: A bit @b@ is @Jin@-justified for us if I have a @Jdec@-justified tuple @(baid, FROZEN, d)@ where @d@ is not @Bottom@.
+* Final justification: A decision @d@ is @Jfin@-justified for is if I have @t + 1@ signatures on the message @(baid, WEAREDONE, d)@.
+
+= Protocol
+
+== Input
+
+* @baid@: each invocation of WMVBA is identified by a unique identifier.
+* @J@: a justification.
+
+== Precondition
+
+* @p@ is @J@-justified.
+
+== Execution
+
+1. Run @Freeze(baid, J)@ with input @p@ (a block) to generate @d@ (either a block or @Bottom@) which is @Jdec@-justified.
+2. Run @ABBA(baid)@ with input @b@ where @b = Bottom@ if @d = Bottom@ and @b = T@ otherwise.
+3. If @b' = Bottom@ terminate and output @(b', W = Bottom)@ otherwise:
+
+    * Once we have @(baid, FROZEN, d)@ with @d \= Bottom@, send @(baid, WEAREDONE, d)@ to all parties.
+    * Once we receive @t+1@ signed @(baid, WEAREDONE, d)@ messages terminate and output @(d, W)@ where @W@ contains @baid@ and @t+1@ of these signatures.
+
+= Implementation:
+
+All the sent messages are modelled via 'WMVBAMessage'. The state of the WMVBA instance is managed in 'WMVBAState' that contains both a 'FreezeState' and a 'ABBAState'. The data used by the instance is managed
+by 'WMVBAInstance' that can be converted to the required instances `FreezeInstance` and `ABBAInstance`.
+
+The capabilites that need to be exposed in the WMVBA protocol are abstracted through the 'WMVBAMonad' that has the newtype 'WMVBA' as an instance. 'WMVBA' is essentially a 'RWST' monad that reads the
+'WMVBAInstance' values, writes to a list of 'WMVBAOutputEvent's and keeps a 'WMVBAState'. Computations on 'Freeze' and 'ABBA' monads can be lifted into computations in 'WMVBA'.
+
+For the agents that don't participate in the WMVBA protocol, a 'WMVBAPassiveState' is provided that just happens inside a 'MonadState' in order to gather justifications and finalize blocks
+locally.
+
+All the protocol implementations follow a common pattern that consists of:
+
+* A set of __Types__ that are specific to that protocol and are probably used by higher protocols.
+* A set of __Message types__ that are specific to that protocol and are forwarded by higher protocols.
+* A __Base monad__ typeclass definition that specifies the capabilities of the monad.
+* An __Instance__ that specifies the available data for the running monad.
+* A __State__ that specifies the state for the running monad.
+* A __Protocol__ set of functions that define the inputs and outputs of the protocol and guide its flow.
+* A __Summary__ definition and set of functions that allows the user to get summaries from the different stages of the protocols.
+-}
 module Concordium.Afgjort.WMVBA (
+    -- * Types
+    OutputWitnesses(..),
+    uncheckedOutputWitnesses,
+
+    -- * Messages
     WMVBAMessage(..),
     messageValues,
     messageParties,
+    putWMVBAMessageBody,
+    wmvbaWADBotMessage,
+    -- * Instance
+    WMVBAInstance(WMVBAInstance),
+    -- * State
     WMVBAState,
     initialWMVBAState,
-    WMVBAInstance(WMVBAInstance),
+    wmvbaWADBot,
+    getOutputWitnesses,
+    -- * Monad definition
     WMVBAMonad(..),
     DelayedABBAAction,
+    -- * Monad implementation
     WMVBAOutputEvent(..),
     WMVBA,
     runWMVBA,
+    -- * Protocol
+    startWMVBA,
     justifyWMVBAInput,
     isJustifiedWMVBAInput,
     receiveWMVBAMessage,
-    startWMVBA,
     triggerWMVBAAction,
-    putWMVBAMessageBody,
+    -- * Summary
     WMVBASummary(..),
     wmvbaSummary,
     putWMVBASummary,
     getWMVBASummary,
     processWMVBASummary,
     wmvbaFailedSummary,
-    wmvbaWADBot,
-    wmvbaWADBotMessage,
+
+
     witnessMessage,
     createAggregateSig,
-    OutputWitnesses(..),
-    getOutputWitnesses,
-    uncheckedOutputWitnesses,
     -- * Passive
     WMVBAPassiveState(..),
     initialWMVBAPassiveState,
@@ -71,6 +133,39 @@ import Concordium.Afgjort.PartyMap (PartyMap)
 import Concordium.Afgjort.PartySet (PartySet)
 import qualified Concordium.Afgjort.PartyMap as PM
 import qualified Concordium.Afgjort.PartySet as PS
+
+--------------------------------------------------------------------------------
+-- Types
+data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone Val deriving (Eq, Show)
+
+outcomeVal :: OutcomeState -> Maybe Val
+outcomeVal (OSFrozen v) = Just v
+outcomeVal (OSDone v) = Just v
+outcomeVal _ = Nothing
+
+-- |The collection of signatures gathered by finalization.
+--
+-- INVARIANT: `knownGoodSigs` and `unknownSigs` must be disjoint
+-- (in their domains), and both should also be disjoint from
+-- `knownBadSigs`.
+data OutputWitnesses = OutputWitnesses {
+    -- |The signatures that are known to be valid.
+    knownGoodSigs :: !(Map Party Bls.Signature),
+    -- |The signatures that have not been checked.
+    unknownSigs :: !(Map Party Bls.Signature),
+    -- |The parties that are known to have sent bad signatures.
+    knownBadSigs :: !BitSet.BitSet
+}
+
+uncheckedOutputWitnesses :: Map Party Bls.Signature -> OutputWitnesses
+uncheckedOutputWitnesses unknownSigs = OutputWitnesses{
+        knownGoodSigs = Map.empty,
+        knownBadSigs = BitSet.empty,
+        ..
+    }
+
+--------------------------------------------------------------------------------
+-- Messages
 
 data WMVBAMessage
     = WMVBAFreezeMessage !FreezeMessage
@@ -172,54 +267,17 @@ instance S.Serialize WMVBAMessage where
         13 -> WMVBAWitnessCreatorMessage <$> (getTwoOf getVal S.get)
         _ -> fail "Incorrect message type"
 
-data OutcomeState = OSAwaiting | OSFrozen Val | OSABBASuccess | OSDone Val deriving (Eq, Show)
+wmvbaWADBotMessage :: WMVBAMessage
+wmvbaWADBotMessage = WMVBAABBAMessage (WeAreDone False)
 
-outcomeVal :: OutcomeState -> Maybe Val
-outcomeVal (OSFrozen v) = Just v
-outcomeVal (OSDone v) = Just v
-outcomeVal _ = Nothing
+witnessMessage :: BS.ByteString -> Val -> BS.ByteString
+witnessMessage baid v = baid <> S.encode v
 
--- |The collection of signatures gathered by finalization.
---
--- INVARIANT: `knownGoodSigs` and `unknownSigs` must be disjoint
--- (in their domains), and both should also be disjoint from
--- `knownBadSigs`.
-data OutputWitnesses = OutputWitnesses {
-    -- |The signatures that are known to be valid.
-    knownGoodSigs :: !(Map Party Bls.Signature),
-    -- |The signatures that have not been checked.
-    unknownSigs :: !(Map Party Bls.Signature),
-    -- |The parties that are known to have sent bad signatures.
-    knownBadSigs :: !BitSet.BitSet
-}
+makeWMVBAWitnessCreatorMessage :: BS.ByteString -> Val -> Bls.SecretKey -> WMVBAMessage
+makeWMVBAWitnessCreatorMessage baid v privateBlsKey = WMVBAWitnessCreatorMessage (v, Bls.sign (witnessMessage baid v) privateBlsKey)
 
-uncheckedOutputWitnesses :: Map Party Bls.Signature -> OutputWitnesses
-uncheckedOutputWitnesses unknownSigs = OutputWitnesses{
-        knownGoodSigs = Map.empty,
-        knownBadSigs = BitSet.empty,
-        ..
-    }
-
-data WMVBAState sig = WMVBAState {
-    _freezeState :: FreezeState sig,
-    _abbaState :: ABBAState sig,
-    _justifiedDecision :: OutcomeState,
-    -- TODO: separate out: known good, known bad, and unchecked signatures.
-    -- Possibly, we just store justifications with a flag indicating whether
-    -- the BLS signature has been checked.
-    _justifications :: Map Val (PartyMap (sig, Bls.Signature)),
-    _badJustifications :: Map Val (PartySet)
-} deriving (Eq, Show)
-makeLenses ''WMVBAState
-
-initialWMVBAState :: WMVBAState sig
-initialWMVBAState = WMVBAState {
-    _freezeState = initialFreezeState,
-    _abbaState = initialABBAState,
-    _justifiedDecision = OSAwaiting,
-    _justifications = Map.empty,
-    _badJustifications = Map.empty
-}
+--------------------------------------------------------------------------------
+-- Instance
 
 data WMVBAInstance = WMVBAInstance {
     baid :: BS.ByteString,
@@ -247,10 +305,54 @@ toABBAInstance :: WMVBAInstance -> ABBAInstance
 toABBAInstance (WMVBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey _ _) =
   ABBAInstance baid totalWeight corruptWeight partyWeight maxParty pubKeys me privateKey
 
+--------------------------------------------------------------------------------
+-- State
+
+data WMVBAState sig = WMVBAState {
+    _freezeState :: FreezeState sig,
+    _abbaState :: ABBAState sig,
+    _justifiedDecision :: OutcomeState,
+    -- TODO: separate out: known good, known bad, and unchecked signatures.
+    -- Possibly, we just store justifications with a flag indicating whether
+    -- the BLS signature has been checked.
+    _justifications :: Map Val (PartyMap (sig, Bls.Signature)),
+    _badJustifications :: Map Val (PartySet)
+} deriving (Eq, Show)
+makeLenses ''WMVBAState
+
+initialWMVBAState :: WMVBAState sig
+initialWMVBAState = WMVBAState {
+    _freezeState = initialFreezeState,
+    _abbaState = initialABBAState,
+    _justifiedDecision = OSAwaiting,
+    _justifications = Map.empty,
+    _badJustifications = Map.empty
+}
+
+-- |Get the collection of signatures on @WeAreDone False@.
+wmvbaWADBot :: WMVBAState sig -> Map Party sig
+wmvbaWADBot = PM.partyMap . _botWeAreDone . _abbaState
+
+-- |Get the finalization witness signatures received.
+getOutputWitnesses :: Val -> WMVBAState sig -> OutputWitnesses
+getOutputWitnesses v WMVBAState{..} = OutputWitnesses{..}
+    where
+        justs = snd <$> Map.findWithDefault PM.empty v _justifications
+        badJusts = Map.findWithDefault PS.empty v _badJustifications
+        knownGoodSigs = Map.empty
+        unknownSigs = Map.filterWithKey (\p _ -> not (PS.member p badJusts)) (PM.partyMap justs)
+        knownBadSigs = PS.parties badJusts
+
+--------------------------------------------------------------------------------
+-- Monad definition
+
 class (MonadState (WMVBAState sig) m, MonadReader WMVBAInstance m, MonadIO m) => WMVBAMonad sig m where
     sendWMVBAMessage :: WMVBAMessage -> m ()
     wmvbaComplete :: Maybe (Val, ([Party], Bls.Signature)) -> m ()
     wmvbaDelay :: Word32 -> DelayedABBAAction -> m ()
+
+--------------------------------------------------------------------------------
+-- Monad implementation
 
 data WMVBAOutputEvent sig
     = SendWMVBAMessage WMVBAMessage
@@ -260,25 +362,18 @@ data WMVBAOutputEvent sig
 
 newtype WMVBA sig a = WMVBA {
     runWMVBA' :: RWST WMVBAInstance (Endo [WMVBAOutputEvent sig]) (WMVBAState sig) IO a
-} deriving (Functor, Applicative, Monad, MonadIO)
+} deriving (Functor, Applicative, Monad, MonadIO, MonadReader WMVBAInstance, MonadState (WMVBAState sig))
 
 runWMVBA :: WMVBA sig a -> WMVBAInstance -> WMVBAState sig -> IO (a, WMVBAState sig, [WMVBAOutputEvent sig])
 runWMVBA z i s = runRWST (runWMVBA' z) i s <&> _3 %~ (\(Endo f) -> f [])
-
-instance MonadReader WMVBAInstance (WMVBA sig) where
-    ask = WMVBA ask
-    reader = WMVBA . reader
-    local f = WMVBA . local f . runWMVBA'
-
-instance MonadState (WMVBAState sig) (WMVBA sig) where
-    get = WMVBA get
-    put = WMVBA . put
-    state = WMVBA . state
 
 instance WMVBAMonad sig (WMVBA sig) where
     sendWMVBAMessage = WMVBA . tell . Endo . (:) . SendWMVBAMessage
     wmvbaComplete = WMVBA . tell . Endo . (:) . WMVBAComplete
     wmvbaDelay delay action = WMVBA $ tell $ Endo (WMVBADelay delay action :)
+
+--------------------------------------------------------------------------------
+-- Lifting other protocols
 
 liftFreeze :: (WMVBAMonad sig m) => Freeze sig a -> m a
 liftFreeze a = do
@@ -337,13 +432,19 @@ liftABBA a = do
             wmvbaDelay ticks action
             handleEvents r
 
-witnessMessage :: BS.ByteString -> Val -> BS.ByteString
-witnessMessage baid v = baid <> S.encode v
+--------------------------------------------------------------------------------
+-- Protocol
 
-makeWMVBAWitnessCreatorMessage :: BS.ByteString -> Val -> Bls.SecretKey -> WMVBAMessage
-makeWMVBAWitnessCreatorMessage baid v privateBlsKey = WMVBAWitnessCreatorMessage (v, Bls.sign (witnessMessage baid v) privateBlsKey)
+-- |Start the WMVBA for us with a given input.  This should only be called once
+-- per instance, and the input should already be justified.
+--
+-- This implements __step 1 of Propose of Freeze__.
+startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
+startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
 
 -- |Record that an input is justified.
+--
+-- This could trigger the starting of Freeze
 justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
 justifyWMVBAInput val = liftFreeze $ justifyCandidate val
 
@@ -352,6 +453,8 @@ isJustifiedWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m Bool
 isJustifiedWMVBAInput val = liftFreeze $ isProposalJustified val
 
 -- |Handle an incoming 'WMVBAMessage'.
+--
+-- The message is dispatched to Freeze, ABBA or prepare for finishing WMVBA.
 receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()
 receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
@@ -425,14 +528,12 @@ findCulprits lst toSign keys = culprits lst1 <> culprits lst2
             | Bls.verifyAggregate toSign  (keys . fst <$> lst') (Bls.aggregateMany (snd <$> lst')) = []
             | otherwise = findCulprits lst' toSign keys
 
--- |Start the WMVBA for us with a given input.  This should only be called once
--- per instance, and the input should already be justified.
-startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
-startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
-
 -- |Trigger a delayed action.
 triggerWMVBAAction :: (WMVBAMonad sig m) => DelayedABBAAction -> m ()
 triggerWMVBAAction a = liftABBA (triggerABBAAction a)
+
+--------------------------------------------------------------------------------
+-- Summary
 
 data WMVBASummary sig = WMVBASummary {
     summaryFreeze :: Maybe (FreezeSummary sig),
@@ -527,22 +628,8 @@ processWMVBASummary WMVBASummary{..} checkSig = do
 wmvbaFailedSummary :: Map Party sig -> WMVBASummary sig
 wmvbaFailedSummary wadBotSigs = WMVBASummary Nothing (Just (ABBASummary [] Map.empty wadBotSigs)) Nothing
 
--- |Get the collection of signatures on @WeAreDone False@.
-wmvbaWADBot :: WMVBAState sig -> Map Party sig
-wmvbaWADBot = PM.partyMap . _botWeAreDone . _abbaState
-
-wmvbaWADBotMessage :: WMVBAMessage
-wmvbaWADBotMessage = WMVBAABBAMessage (WeAreDone False)
-
--- |Get the finalization witness signatures received. 
-getOutputWitnesses :: Val -> WMVBAState sig -> OutputWitnesses
-getOutputWitnesses v WMVBAState{..} = OutputWitnesses{..}
-    where
-        justs = snd <$> Map.findWithDefault PM.empty v _justifications
-        badJusts = Map.findWithDefault PS.empty v _badJustifications
-        knownGoodSigs = Map.empty
-        unknownSigs = Map.filterWithKey (\p _ -> not (PS.member p badJusts)) (PM.partyMap justs)
-        knownBadSigs = PS.parties badJusts
+--------------------------------------------------------------------------------
+-- Passive
 
 -- |The 'WMVBAPassiveState' collects WitnessCreator signatures for generating a
 -- finalization proof, without participating in the WMVBA protocol.
@@ -589,4 +676,3 @@ passiveGetOutputWitnesses v WMVBAPassiveState{..} = OutputWitnesses{..}
         knownGoodSigs = Map.empty
         unknownSigs = Map.filterWithKey (\p _ -> not (PS.member p badJusts)) (PM.partyMap justs)
         knownBadSigs = PS.parties badJusts
-

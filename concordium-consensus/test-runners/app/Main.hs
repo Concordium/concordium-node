@@ -24,6 +24,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
+import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
@@ -130,6 +131,9 @@ gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState)
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
+
 genesisState :: GenesisData -> Basic.BlockState
 genesisState GenesisData{..} = Example.initialState
                        (Basic.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState)
@@ -174,6 +178,7 @@ main = do
                      }
                      dummyCryptographicParameters
                      dummyIdentityProviders
+                     dummyArs
                      [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"

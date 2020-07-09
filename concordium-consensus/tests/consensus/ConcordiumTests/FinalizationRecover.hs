@@ -20,6 +20,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.AnonymityRevokers
 
 import Test.Hspec
 
@@ -32,6 +33,9 @@ dummyCryptographicParameters =
   case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
+
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
 
 -- type TreeConfig = DiskTreeDiskBlockConfig
 type TreeConfig = MemoryTreeMemoryBlockConfig
@@ -50,6 +54,7 @@ genesis nBakers =
     defaultFinalizationParameters
     dummyCryptographicParameters
     []
+    dummyArs
     []
     1234
 
