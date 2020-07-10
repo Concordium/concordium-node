@@ -391,6 +391,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const u8,
     ) -> *const c_char;
+    pub fn getBlocksAtHeight(consensus: *mut consensus_runner, block_height: u64) -> *const c_char;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
@@ -547,6 +548,13 @@ impl ConsensusContainer {
         wrap_c_call_string!(self, consensus, |consensus| getBlockInfo(
             consensus,
             c_str.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_blocks_at_height(&self, block_height: u64) -> String {
+        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(
+            consensus,
+            block_height
         ))
     }
 

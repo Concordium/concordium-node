@@ -62,15 +62,8 @@ doGetBlocksAtHeight h = do
                     Nothing -> return []
                     Just bs -> return bs
             LT -> do
-              par <- bpParent lastFin
-              parPar <- findFrom par
-              return [parPar] -- TODO: replace with more efficient search
-    where
-        findFrom bp
-            | bpHeight bp == h = return bp
-            | otherwise = do
-                par <- bpParent bp
-                findFrom par
+                mb <- getFinalizedAtHeight h
+                return (toList mb)
 
 doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
 {-# INLINE doBlockLastFinalizedIndex #-}
