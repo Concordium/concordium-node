@@ -391,10 +391,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const u8,
     ) -> *const c_char;
-    pub fn getBlocksAtHeight(
-        consensus: *mut consensus_runner,
-        block_height: u64,
-    ) -> *const c_char;
+    pub fn getBlocksAtHeight(consensus: *mut consensus_runner, block_height: u64) -> *const c_char;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
