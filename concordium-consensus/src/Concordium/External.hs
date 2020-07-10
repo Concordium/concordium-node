@@ -42,7 +42,7 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
@@ -947,7 +947,7 @@ getBlocksAtHeight cptr height = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLDebug "Received blocks at height request."
-    blocks <- runConsensusQuery c (Get.getBlocksAtHeight height)
+    blocks <- runConsensusQuery c Get.getBlocksAtHeight (fromIntegral height)
     logm External LLTrace $ "Replying with: " ++ show blocks
     jsonValueToCString blocks  
 
