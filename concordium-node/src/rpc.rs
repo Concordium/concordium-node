@@ -498,6 +498,16 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn get_blocks_at_height(
+        &self,
+        req: Request<BlockHeight>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBlocksAtHeight", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_blocks_at_height(req.get_ref().block_height)
+        })
+    }
+
     async fn get_account_list(
         &self,
         req: Request<BlockHash>,
