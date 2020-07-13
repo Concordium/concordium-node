@@ -27,6 +27,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.PurgeTransactions
 import Concordium.GlobalState.Statistics (ConsensusStatistics, initialConsensusStatistics)
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
@@ -60,7 +61,9 @@ data SkovData bs = SkovData {
     -- |Consensus statistics
     _statistics :: !ConsensusStatistics,
     -- |Runtime parameters
-    _runtimeParameters :: !RuntimeParameters
+    _runtimeParameters :: !RuntimeParameters,
+    -- |Transaction table purge counter
+    _transactionTablePurgeCounter :: !Int
 }
 makeLenses ''SkovData
 
@@ -87,7 +90,8 @@ initialSkovData rp gd genState =
             _pendingTransactions = emptyPendingTransactionTable,
             _transactionTable = emptyTransactionTable,
             _statistics = initialConsensusStatistics,
-            _runtimeParameters = rp
+            _runtimeParameters = rp,
+            _transactionTablePurgeCounter = 0
         }
   where gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
@@ -212,6 +216,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
+                  transactionTablePurgeCounter %= (+ 1)
                   let wmdtr = WithMetadata{wmdData=tr,..}
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
@@ -294,4 +299,20 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
     {-# INLINE getRuntimeParameters #-}
     getRuntimeParameters = use runtimeParameters
 
-    purgeTransactionTable = return ()
+    purgeTransactionTable ignoreInsertions currentTime = do
+      purgeCount <- use transactionTablePurgeCounter
+      RuntimeParameters{..} <- use runtimeParameters
+      when (ignoreInsertions || purgeCount > rpInsertionsBeforeTransactionPurge) $ do
+        transactionTablePurgeCounter .= 0
+        lastFinalizedSlot <- TS.getLastFinalizedSlot
+        transactionTable' <- use transactionTable
+        pendingTransactions' <- use pendingTransactions
+        let
+          currentTransactionTime = utcTimeToTransactionTime currentTime
+          oldestArrivalTime = if currentTransactionTime > rpTransactionsKeepAliveTime
+                                then currentTransactionTime - rpTransactionsKeepAliveTime
+                                else 0
+          currentTimestamp = utcTimeToTimestamp currentTime
+          (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
+        transactionTable .= newTT
+        pendingTransactions .= newPT

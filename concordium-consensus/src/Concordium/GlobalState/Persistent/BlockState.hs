@@ -647,12 +647,24 @@ doGetIdentityProvider pbs ipId = do
         ips <- loadBufferedRef (bspIdentityProviders bsp)
         return $! IPS.idProviders ips ^? ix ipId
 
+doGetAllIdentityProvider :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [IPS.IpInfo]
+doGetAllIdentityProvider pbs = do
+        bsp <- loadPBS pbs
+        ips <- loadBufferedRef (bspIdentityProviders bsp)
+        return $! HM.elems $ IPS.idProviders ips
+
 doGetAnonymityRevokers :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [ID.ArIdentity] -> m (Maybe [ARS.ArInfo])
 doGetAnonymityRevokers pbs arIds = do
         bsp <- loadPBS pbs
         ars <- loadBufferedRef (bspAnonymityRevokers bsp)
         return $! let arsMap = ARS.arRevokers ars
                   in forM arIds (flip HM.lookup arsMap)
+
+doGetAllAnonymityRevokers :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [ARS.ArInfo]
+doGetAllAnonymityRevokers pbs = do
+        bsp <- loadPBS pbs
+        ars <- loadBufferedRef (bspAnonymityRevokers bsp)
+        return $! HM.elems $ ARS.arRevokers ars
 
 doGetCryptoParams :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m CryptographicParameters
 doGetCryptoParams pbs = do
@@ -759,6 +771,8 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     getTransactionOutcome = doGetTransactionOutcome
     getSpecialOutcomes = doGetSpecialOutcomes
     getOutcomes = doGetOutcomes
+    getAllIdentityProviders = doGetAllIdentityProvider
+    getAllAnonymityRevokers = doGetAllAnonymityRevokers
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -770,6 +784,26 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getTransactionOutcome #-}
     {-# INLINE getOutcomes #-}
     {-# INLINE getSpecialOutcomes #-}
+    {-# INLINE getAllIdentityProviders #-}
+    {-# INLINE getAllAnonymityRevokers #-}
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentBlockStateMonad r m) where
+
+  getBakerStake bs bid = fmap snd <$> Trie.lookup bid (bs ^. bakerMap)
+
+  getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
+
+  getTotalBakerStake bs = return $ bs ^. bakerTotalStake
+
+  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerMap) >>= \case
+    Just (bInfoRef, _) -> Just <$> loadBufferedRef bInfoRef
+    Nothing -> return Nothing
+
+  getFullBakerInfos PersistentBakers{..} =
+    mapM getFullInfo =<< Trie.toMap _bakerMap
+    where getFullInfo (binfoRef, stake) = do
+            binfo <- loadBufferedRef binfoRef
+            return $ FullBakerInfo binfo stake
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentBlockStateMonad r m) where
 
@@ -884,5 +918,5 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
         bs <- blobStore <$> ask
         liftIO $ flushBlobStore bs
         return ref
-    
+
     loadBlockState = liftIO . newIORef . BRBlobbed
