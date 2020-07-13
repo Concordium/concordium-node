@@ -1098,7 +1098,7 @@ handleUpdateAccountKeys wtc keys =
 
 -- |Removes the account keys at the supplied indices and, optionally, updates
 -- the signature threshold.
--- Is valid when the indeces supplied are already in use, the new threshold
+-- Is valid when the indices supplied are already in use, the new threshold
 -- does not exceed the new total amount of keys, and there are no duplicates
 -- amongst the supplied indices.
 handleRemoveAccountKeys ::
@@ -1139,7 +1139,7 @@ handleRemoveAccountKeys wtc indices threshold =
 
 -- |Adds keys to the account at the supplied indices and, optionally, updates
 -- the signature threshold
--- Is valid when the indeces supplies are not already in use, there are no duplicates
+-- Is valid when the indices supplies are not already in use, there are no duplicates
 -- amongst the indices and the new threshold doesn’t exceed the new total amount of keys
 handleAddAccountKeys ::
   SchedulerMonad m
