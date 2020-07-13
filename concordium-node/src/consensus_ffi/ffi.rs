@@ -35,7 +35,7 @@ pub type Delta = u64;
 /// If `rts_flags` doesn't contain `--install-signal-handlers` we explicitly
 /// set this to `no` to avoid the runtime consuming the signals before the outer
 /// rust part embedding the runtime.
-#[cfg(all(not(windows), feature = "profiling"))]
+#[cfg(feature = "profiling")]
 pub fn start_haskell(
     heap: &str,
     stack: bool,
@@ -71,7 +71,7 @@ pub fn start_haskell(rts_flags: &[String]) {
     });
 }
 
-#[cfg(all(not(windows), feature = "profiling"))]
+#[cfg(feature = "profiling")]
 fn start_haskell_init(
     heap: &str,
     stack: bool,
@@ -181,7 +181,7 @@ fn start_haskell_init(
     }
 }
 
-#[cfg(all(not(windows), not(feature = "profiling")))]
+#[cfg(not(feature = "profiling"))]
 fn start_haskell_init(rts_flags: &[String]) {
     let program_name = std::env::args().take(1).next().unwrap();
     let mut args = vec![program_name];
@@ -216,18 +216,6 @@ fn start_haskell_init(rts_flags: &[String]) {
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
         hs_init_with_rtsopts(ptr_c_argc, ptr_c_argv as *const *const *const c_char);
-    }
-}
-
-#[cfg(windows)]
-fn start_haskell_init(_: bool, _: bool, _: bool) {
-    // GHC on Windows ignores hs_init arguments and uses GetCommandLineW instead
-    // See https://hackage.haskell.org/package/base-4.9.0.0/docs/src/GHC.Environment.html
-    let mut argv0 = *b"\0";
-    let mut argv = [argv0.as_mut_ptr() as *mut c_char, ptr::null_mut()];
-    let mut argc = 1;
-    unsafe {
-        hs_init(&mut argc, &mut argv.as_mut_ptr());
     }
 }
 
@@ -364,12 +352,6 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const u8,
         module_ref: *const u8,
-    ) -> *const u8;
-    pub fn getBlock(consensus: *mut consensus_runner, block_hash: *const u8) -> *const u8;
-    pub fn getBlockDelta(
-        consensus: *mut consensus_runner,
-        block_hash: *const u8,
-        delta: Delta,
     ) -> *const u8;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
@@ -638,18 +620,6 @@ impl ConsensusContainer {
             consensus,
             block_hash.as_ptr() as *const u8,
             module_ref.as_ptr() as *const u8
-        ))
-    }
-
-    pub fn get_block(&self, _block_hash: &[u8]) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getBlock(consensus, _block_hash.as_ptr()))
-    }
-
-    pub fn get_block_by_delta(&self, _block_hash: &[u8], delta: Delta) -> Vec<u8> {
-        wrap_c_call_bytes!(self, |consensus| getBlockDelta(
-            consensus,
-            _block_hash.as_ptr(),
-            delta
         ))
     }
 
