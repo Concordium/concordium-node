@@ -169,6 +169,10 @@ class BirkParametersOperations m => BlockStateQuery m where
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
 
+    getAllIdentityProviders :: BlockState m -> m [IpInfo]
+
+    getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
+
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
                            | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
                            | Empty                    -- ^Do nothing to the encrypted amount.
@@ -445,6 +449,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getTransactionOutcome s = lift . getTransactionOutcome s
   getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
+  getAllIdentityProviders s = lift $ getAllIdentityProviders s
+  getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -456,6 +462,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
+  {-# INLINE getAllIdentityProviders #-}
+  {-# INLINE getAllAnonymityRevokers #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs

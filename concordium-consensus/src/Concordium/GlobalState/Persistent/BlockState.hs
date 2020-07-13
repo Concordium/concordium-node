@@ -805,24 +805,6 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentB
             binfo <- loadBufferedRef binfoRef
             return $ FullBakerInfo binfo stake
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentBlockStateMonad r m) where
-
-  getBakerStake bs bid = fmap snd <$> Trie.lookup bid (bs ^. bakerMap)
-
-  getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
-
-  getTotalBakerStake bs = return $ bs ^. bakerTotalStake
-
-  getBakerInfo bs bid = Trie.lookup bid (bs ^. bakerMap) >>= \case
-    Just (bInfoRef, _) -> Just <$> loadBufferedRef bInfoRef
-    Nothing -> return Nothing
-
-  getFullBakerInfos PersistentBakers{..} =
-    mapM getFullInfo =<< Trie.toMap _bakerMap
-    where getFullInfo (binfoRef, stake) = do
-            binfo <- loadBufferedRef binfoRef
-            return $ FullBakerInfo binfo stake
-
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule
     bsoGetAccount = doGetAccount
