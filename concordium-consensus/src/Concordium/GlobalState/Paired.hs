@@ -250,33 +250,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (
     bi2 <- coerceBSMR (getFullBakerInfos bkrs2)
     assert (bi1 == bi2) $ return bi1
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
-        => BakerQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
-  getBakerStake (bkrs1, bkrs2) bid = do
-    s1 <- coerceBSML (getBakerStake bkrs1 bid)
-    s2 <- coerceBSMR (getBakerStake bkrs2 bid)
-    assert (s1 == s2) $ return s1
-
-  getBakerFromKey (bkrs1, bkrs2) k = do
-    b1 <- coerceBSML (getBakerFromKey bkrs1 k)
-    b2 <- coerceBSMR (getBakerFromKey bkrs2 k)
-    assert (b1 == b2) $ return b1
-
-  getTotalBakerStake (bkrs1, bkrs2) = do
-    s1 <- coerceBSML (getTotalBakerStake bkrs1)
-    s2 <- coerceBSMR (getTotalBakerStake bkrs2)
-    assert (s1 == s2) $ return s1
-
-  getBakerInfo (bkrs1, bkrs2) bid = do
-    bi1 <- coerceBSML (getBakerInfo bkrs1 bid)
-    bi2 <- coerceBSMR (getBakerInfo bkrs2 bid)
-    assert (bi1 == bi2) $ return bi1
-
-  getFullBakerInfos (bkrs1, bkrs2) = do
-    bi1 <- coerceBSML (getFullBakerInfos bkrs1)
-    bi2 <- coerceBSMR (getFullBakerInfos bkrs2)
-    assert (bi1 == bi2) $ return bi1
-
 instance (Monad m,
           C.HasGlobalStateContext (PairGSContext lc rc) r,
           BirkParametersOperations (BSML lc r ls s m),
