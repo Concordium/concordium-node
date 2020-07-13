@@ -1,4 +1,6 @@
 use std::path::Path;
+#[cfg(windows)]
+use std::{process::Command, str};
 
 fn main() {
     // Compile the Cap'n'Proto schema
@@ -24,6 +26,20 @@ fn main() {
     let proto = format!("{}/concordium_p2p_rpc.proto", proto_root_input);
 
     println!("cargo:rerun-if-changed={}", proto);
+
+    #[cfg(windows)]
+    {
+        let stack_library_dirs = str::from_utf8(
+            &Command::new("stack").args(&["path", "--extra-library-dirs"]).output().unwrap().stdout,
+        )
+        .unwrap()
+        .trim_end()
+        .to_string();
+        for dir in stack_library_dirs.split(", ") {
+            println!("cargo:rustc-link-search=native={}", dir);
+        }
+        println!(r"cargo:rustc-link-search=native=.\deps\internal\consensus\Concordium");
+    }
 
     tonic_build::configure()
         .build_server(true)
