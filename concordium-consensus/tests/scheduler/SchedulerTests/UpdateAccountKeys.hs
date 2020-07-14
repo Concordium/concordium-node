@@ -2,7 +2,6 @@
 module SchedulerTests.UpdateAccountKeys where
 
 import Control.Monad
-import Control.Monad.IO.Class
 import Lens.Micro.Platform
 import Test.Hspec
 import qualified Test.HUnit as HUnit
@@ -201,7 +200,7 @@ testCases =
   ]
     where
       -- Prompts the blockstate for ales account keys and checks that they match the expected ones.
-      checkKeys expectedKeys expectedThreshold = (\bs -> specify "Correct value in birk parameters" $
+      checkKeys expectedKeys expectedThreshold = (\bs -> specify "Correct account keys" $
         case getAccount alesAccount (bs ^. blockAccounts) of
           Nothing -> HUnit.assertFailure $ "Account with id '" ++ show alesAccount ++ "' not found"
           Just account -> checkAccountKeys expectedKeys expectedThreshold (account ^. accountVerificationKeys))

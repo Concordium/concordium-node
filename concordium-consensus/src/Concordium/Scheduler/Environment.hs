@@ -234,7 +234,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- with the ones specified by the map
   -- Preconditions:
   -- * The account exists
-  -- * The account has keys defined at the specified indicies
+  -- * The account has keys defined at the specified indices
   updateAccountKeys :: AccountAddress -> Map.Map ID.KeyIndex AccountVerificationKey -> m ()
 
   -- |Removes the account verification keys at the given indices from the
@@ -242,13 +242,11 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- Preconditions:
   -- * The account exists
   -- * The account has keys defined at the specified indicies
-  -- * The new total amount of keys is less than the (potentially new) signature threshold
+  -- * The new total amount of keys is at least the (potentially new) signature threshold
   removeAccountKeys :: AccountAddress -> Set.Set ID.KeyIndex -> Maybe ID.SignatureThreshold -> m ()
 
   -- |Adds the account verification keys to the account at the indices specified
   -- by the map
-  -- Does NOT check that these key indexes doesn't already have keys associated with
-  -- them - this should be checked BEFORE calling.
   -- Preconditions:
   -- * The account exists
   -- * The account does not have keys defined at the indices specified by the map
