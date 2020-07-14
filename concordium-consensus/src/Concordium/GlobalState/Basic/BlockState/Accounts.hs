@@ -14,7 +14,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
-import qualified Data.PQueue.Prio.Max as Queue
+import Data.Foldable
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -69,7 +69,7 @@ putAccount !acct Accounts{..} =
 -- |Equivalent to calling putAccount and recordRegId in sequence.
 putAccountWithRegIds :: Account -> Accounts -> Accounts
 putAccountWithRegIds !acct accts =
-  Queue.foldlU (\accs currentAcc -> recordRegId (ID.cdvRegId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
+  foldl' (\accs currentAcc -> recordRegId (ID.cdvRegId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts -> Bool
@@ -85,22 +85,18 @@ getAccount addr Accounts{..} = case Map.lookup addr accountMap of
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
 updateAccount :: AccountUpdate -> Account -> Account
-updateAccount !upd !acc =
-  acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
-       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
-       _accountCredentials =
-          case upd ^. auCredential of
-            Nothing -> acc ^. accountCredentials
-            Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
-       _accountEncryptedAmount =
-          case upd ^. auEncrypted of
-            Empty -> acc ^. accountEncryptedAmount
-            Add ea -> ea:(acc ^. accountEncryptedAmount)
-            Replace ea -> [ea]
-    }
-
-  where setMaybe (Just x) _ = x
-        setMaybe Nothing y = y
+updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncryptedAmount
+  where
+    maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
+    maybeUpdate Nothing _ = id
+    maybeUpdate (Just x) f = f x
+    updateNonce = maybeUpdate (upd ^. auNonce) (accountNonce .~)
+    updateAmount = maybeUpdate (upd ^. auAmount) $ \d -> accountAmount %~ applyAmountDelta d
+    updateCredentials = maybeUpdate (upd ^. auCredential) addCredential
+    updateEncryptedAmount = case upd ^. auEncrypted of
+      Empty -> id
+      Add ea -> accountEncryptedAmount %~ (ea:)
+      Replace ea -> accountEncryptedAmount .~ [ea]
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.

@@ -14,14 +14,11 @@ import Control.Monad.Fail
 import Control.Monad.IO.Class
 import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans.Reader
-import Control.Exception
-import Data.Maybe
 import qualified Data.Set as Set
 import Data.Proxy
 import Data.Serialize as S
 import Data.Either
 import Lens.Micro.Platform
-import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.Map.Strict as OrdMap
 import System.IO.Temp
 import System.FilePath
@@ -34,7 +31,6 @@ import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
@@ -101,14 +97,11 @@ data AccountAction
 
 randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
 randomizeAccount _accountAddress _accountVerificationKeys = do
-        _accountNonce <- Nonce <$> arbitrary
-        _accountAmount <- Amount <$> arbitrary
-        let _accountEncryptedAmount = []
-        let _accountEncryptionKey = ID.makeEncryptionKey (dummyRegId _accountAddress)
-        let _accountCredentials = Queue.empty
-        let _accountStakeDelegate = Nothing
-        let _accountInstances = mempty
-        return Account{..}
+        let cred = dummyCredential _accountAddress dummyMaxValidTo dummyCreatedAt
+        let a0 = newAccount _accountVerificationKeys _accountAddress cred
+        nonce <- Nonce <$> arbitrary
+        amt <- Amount <$> arbitrary
+        return $ a0 & accountNonce .~ nonce & accountAmount .~ amt
 
 randomCredential :: Gen ID.CredentialRegistrationID
 randomCredential = ID.RegIdCred . FBS.pack <$> vectorOf 42 arbitrary
@@ -159,7 +152,7 @@ randomActions = sized (ra Set.empty Set.empty)
                     (_, addr) <- elements (Set.toList s)
                     newNonce <- Nonce <$> arbitrary
                     newAmount <- Amount <$> arbitrary
-                    let upd acc = if BA._accountAddress acc == addr
+                    let upd acc = if acc ^. BA.accountAddress == addr
                             then
                                 acc {_accountAmount = newAmount, _accountNonce = newNonce}
                             else
@@ -191,7 +184,7 @@ randomActions = sized (ra Set.empty Set.empty)
 
 makePureAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PA.PersistentAccount -> m Account
 makePureAccount PA.PersistentAccount{..} = do
-  PersistingAccountData{..} <- loadBufferedRef _persistingData
+  _accountPersisting <- loadBufferedRef _persistingData
   return Account{..}
 
 runAccountAction :: (MonadBlobStore m BlobRef, MonadReader r m, HasBlobStore r, MonadFail m, MonadIO m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
@@ -208,7 +201,7 @@ runAccountAction (Exists addr) (ba, pa) = do
 runAccountAction (GetAccount addr) (ba, pa) = do
         let bacct = B.getAccount addr ba
         pacct <- P.getAccount addr pa
-        let sameAcc (Just ba) (Just pa) = PA.sameAccount ba pa
+        let sameAcc (Just bac) (Just pac) = PA.sameAccount bac pac
             sameAcc Nothing Nothing = return True
             sameAcc _ _ = return False
         checkBinaryM sameAcc bacct pacct "==" "account in basic" "account in persistent"

@@ -63,12 +63,8 @@ import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
-import Concordium.ID.Types (CredentialDeploymentValues)
-import Concordium.ID.Types (CredentialValidTo)
-import Data.PQueue.Prio.Max (MaxPQueue)
+import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Data.Set (Set)
-import Concordium.ID.Types (AccountKeys)
-import Concordium.ID.Types (CredentialRegistrationID)
 
 type ModuleIndex = Word64
 
@@ -116,12 +112,12 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce
 
-  -- |For now the only operation we need with a credential is to check whether
-  -- there are any credentials that are valid, and validity only depends on expiry.
-  -- A Max priority queue allows us to efficiently check for existence of such credentials,
-  -- as well as listing of all valid credentials, and efficient insertion of new credentials.
-  -- The priority is the expiry time of the credential.
-  getAccountCredentials :: Account m -> m (MaxPQueue CredentialValidTo CredentialDeploymentValues)
+  -- |Get the list of credentials deployed on the account, ordered from most
+  -- recently deployed.  The list should be non-empty.
+  getAccountCredentials :: Account m -> m [CredentialDeploymentValues]
+
+  -- |Get the last expiry time of a credential on the account.
+  getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
 
   -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountKeys
@@ -138,8 +134,8 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- changes.
   getAccountInstances :: Account m -> m (Set ContractAddress)
 
-  -- |Create an empty account with the given public key.
-  createNewAccount :: AccountKeys -> AccountAddress -> CredentialRegistrationID -> m (Account m)
+  -- |Create an empty account with the given public key, address and credential.
+  createNewAccount :: AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
 
   -- |Update the public account balance
   updateAccountAmount :: Account m -> Amount -> m (Account m)
@@ -251,6 +247,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Try to add a new account to the state. If an account with the address already exists
   -- return @False@, and if the account was successfully added return @True@.
+  -- Any credentials on the account are added to the known credentials. (It is not checked
+  -- if the credentials are duplicates.)  If the account delegates, the bakers are updated.
+  -- (It is not checked that the delegation is valid.)
+  -- A new account must not have any associated instances.
   bsoPutNewAccount :: UpdatableBlockState m -> Account m -> m (Bool, UpdatableBlockState m)
   -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
@@ -473,6 +473,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountAmount = lift. getAccountAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials
+  getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountStakeDelegate = lift . getAccountStakeDelegate
@@ -482,6 +483,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountCredentials #-}
+  {-# INLINE getAccountMaxCredentialValidTo #-}
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}

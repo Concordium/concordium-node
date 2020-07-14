@@ -12,12 +12,12 @@ import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Trans
 import Control.Monad
+import Control.Exception
 import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Data.Set as Set
 import Data.Maybe
 import qualified Data.Vector as Vec
-import qualified Data.PQueue.Prio.Max as Queue
 
 import GHC.Generics (Generic)
 
@@ -505,8 +505,22 @@ doRegIdExists pbs regid = do
 doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentAccount -> m (Bool, PersistentBlockState)
 doPutNewAccount pbs acct = do
         bsp <- loadPBS pbs
-        (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
-        (res,) <$> storePBS pbs (bsp {bspAccounts = accts'})
+        -- Add the account
+        (res, accts1) <- Account.putNewAccount acct (bspAccounts bsp)
+        if res then (True,) <$> do
+            PersistingAccountData{..} <- acct ^^. id
+            -- Record the RegIds of any credentials
+            accts2 <- foldM (flip Account.recordRegId) accts1 (ID.cdvRegId <$> _accountCredentials)
+            case _accountStakeDelegate of
+                Nothing -> storePBS pbs (bsp {bspAccounts = accts2})
+                target@(Just _) -> assert (null _accountInstances) $ do
+                    newCurrBakers <- addStake target (acct ^. accountAmount) (bspBirkParameters bsp ^. birkCurrentBakers)
+                    storePBS pbs (bsp {
+                            bspAccounts = accts2,
+                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
+                        })
+        else
+            return (False, pbs)
 
 doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
@@ -795,6 +809,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => AccountOperations (Pers
 
   getAccountCredentials acc = acc ^^. accountCredentials
 
+  getAccountMaxCredentialValidTo acc = acc ^^. accountMaxCredentialValidTo
+
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
@@ -803,10 +819,11 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => AccountOperations (Pers
 
   getAccountInstances acc = acc ^^. accountInstances
   
-  createNewAccount _accountVerificationKeys _accountAddress regId = do
+  createNewAccount _accountVerificationKeys _accountAddress cdv = do
       let pData = PersistingAccountData {
-                    _accountEncryptionKey = ID.makeEncryptionKey regId,
-                    _accountCredentials = Queue.empty,
+                    _accountEncryptionKey = ID.makeEncryptionKey (ID.cdvRegId cdv),
+                    _accountCredentials = [cdv],
+                    _accountMaxCredentialValidTo = ID.pValidTo (ID.cdvPolicy cdv),
                     _accountStakeDelegate = Nothing,
                     _accountInstances = Set.empty,
                     ..
