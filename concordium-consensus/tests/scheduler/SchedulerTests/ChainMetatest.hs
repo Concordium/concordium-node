@@ -48,7 +48,7 @@ transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ChainMetaTest"
            , metadata = makeDummyHeader alesAccount 1 1000000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            }
     ,TJSON { payload = InitContract {amount = 123
                                     ,contractName = "Simple"
@@ -56,7 +56,7 @@ transactionsInput =
                                     ,parameter = "Unit.Unit"
                                     }
            , metadata = makeDummyHeader alesAccount 2 1000000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            }
     ]
 

@@ -92,7 +92,7 @@ addBaker m0 = do
                       bkrAcct
                       kp,
             metadata = makeDummyHeader bkrAcct nonce energy,
-            keypair = kp
+            keys = [(0, kp)]
         }, m0
             & mAccounts . ix bkrAcct . _2 %~ (+1)
             & mBakers %~ (_mNextBaker m0 :)
@@ -114,7 +114,7 @@ removeBaker m0 = do
         return (TJSON {
             payload = RemoveBaker bkr,
             metadata = makeDummyHeader address srcN energy,
-            keypair = srcKp
+            keys = [(0, srcKp)]
         }, m0
             & mAccounts . ix address . _2 %~ (+1)
             & mBakers .~ bkrs'
@@ -127,7 +127,7 @@ delegateStake m0 = do
         return (TJSON {
             payload = DelegateStake bkr,
             metadata = makeDummyHeader srcAcct srcN energy,
-            keypair = srcKp
+            keys = [(0, srcKp)]
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
 undelegateStake :: Model -> Gen (TransactionJSON, Model)
@@ -136,7 +136,7 @@ undelegateStake m0 = do
         return (TJSON {
             payload = UndelegateStake,
             metadata = makeDummyHeader srcAcct srcN energy,
-            keypair = srcKp
+            keys = [(0, srcKp)]
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
 simpleTransfer :: Model -> Gen (TransactionJSON, Model)
@@ -147,7 +147,7 @@ simpleTransfer m0 = do
         return (TJSON {
             payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
             metadata = makeDummyHeader srcAcct srcN energy,
-            keypair = srcKp
+            keys = [(0, srcKp)]
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
 makeTransactions :: Gen [TransactionJSON]

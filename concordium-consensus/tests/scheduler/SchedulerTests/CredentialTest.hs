@@ -34,25 +34,25 @@ import SchedulerTests.Helpers
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
-    (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    (Acc.putAccountWithRegIds (mkAccountNoCredentials [thomasVK] 1 thomasAccount 100000) Acc.emptyAccounts)
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 0 }
          , metadata = makeDummyHeader alesAccount 1 1000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
    -- The next one should fail because the recepient account is not valid.
    -- The transaction should be in a block, but rejected.
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
          , metadata = makeDummyHeader alesAccount 2 1000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
    -- The next transaction should not be part of a block since it is being sent by an account
    -- without a credential
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
          , metadata = makeDummyHeader thomasAccount 1 1000
-         , keypair = thomasKP
+         , keys = [(0, thomasKP)]
          }
   ]
 
@@ -61,7 +61,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [Types.Transaction])
 
 testCredentialCheck :: PR.Context Core.UA IO TestResult
-       
+
 testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
