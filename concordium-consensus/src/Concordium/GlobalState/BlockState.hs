@@ -45,6 +45,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Ratio
 import Data.Word
+import Data.Maybe
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 
@@ -219,18 +220,16 @@ updateAccount !upd !acc =
             Add ea -> ea:(acc ^. accountEncryptedAmount)
             Replace ea -> [ea],
        _accountVerificationKeys =
-         let ID.AccountKeys{..} =  acc ^. accountVerificationKeys
+         let origKeys = ID.akKeys (acc ^. accountVerificationKeys)
+             origThreshold = ID.akThreshold (acc ^. accountVerificationKeys)
          in ID.AccountKeys {
-          akKeys = case upd ^. auKeysUpdate of
-              Nothing -> akKeys
-              Just (RemoveKeys indices) -> Set.foldl' (\m k -> Map.delete k m) akKeys indices
-              Just (SetKeys keys) -> Map.foldlWithKey' (\m idx key -> Map.insert idx key m) akKeys keys,
-          akThreshold = case upd ^. auSignThreshold of
-              Nothing -> akThreshold
-              Just threshold -> threshold
+          akKeys =
+              let update (RemoveKeys indices) = Set.foldl' (\m k -> Map.delete k m) origKeys indices
+                  update (SetKeys keys) = Map.foldlWithKey' (\m idx key -> Map.insert idx key m) origKeys keys
+              in maybe origKeys update (upd ^. auKeysUpdate),
+          akThreshold = fromMaybe origThreshold (upd ^. auSignThreshold)
        }
     }
-
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
