@@ -210,10 +210,12 @@ updateBakerElectionKey = 90
 
 -- |Cost to update existing account keys. Parametrised by amount of keys to update
 updateAccountKeys :: Int -> Energy
-updateAccountKeys n = 0
+updateAccountKeys _n = 0
 
+-- |Cost to add a given number of account keys.
 addAccountKeys :: Int -> Energy
-addAccountKeys n = 0
+addAccountKeys _n = 0
 
+-- |Cost to remove the given number of account keys.
 removeAccountKeys :: Int -> Energy
-removeAccountKeys n = 0
+removeAccountKeys _n = 0
