@@ -138,7 +138,6 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getAllIdentityProviders bs =
       return $! bs ^. blockIdentityProviders . to (HashMap.elems . IPS.idProviders)
 
-
     {-# INLINE getAllAnonymityRevokers #-}
     getAllAnonymityRevokers bs = return $! bs ^. blockAnonymityRevokers . to (HashMap.elems . ARS.arRevokers)
 

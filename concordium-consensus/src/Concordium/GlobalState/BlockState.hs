@@ -42,8 +42,10 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Ratio
 import Data.Word
+import Data.Maybe
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 
@@ -176,6 +178,10 @@ data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted 
                            | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
                            | Empty                    -- ^Do nothing to the encrypted amount.
 
+data AccountKeysUpdate =
+    RemoveKeys !(Set.Set ID.KeyIndex) -- Removes the keys at the specified indexes from the account
+  | SetKeys !(Map.Map ID.KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
+
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
   -- |Address of the affected account.
@@ -188,11 +194,15 @@ data AccountUpdate = AccountUpdate {
   ,_auEncrypted :: !EncryptedAmountUpdate
   -- |Optionally a new credential.
   ,_auCredential :: !(Maybe ID.CredentialDeploymentValues)
-  }
+  -- |Optionally an update to the account keys
+  ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
+  -- |Optionally update the signature threshold
+  ,_auSignThreshold :: !(Maybe ID.SignatureThreshold)
+}
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing Nothing Nothing
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
@@ -208,9 +218,18 @@ updateAccount !upd !acc =
           case upd ^. auEncrypted of
             Empty -> acc ^. accountEncryptedAmount
             Add ea -> ea:(acc ^. accountEncryptedAmount)
-            Replace ea -> [ea]
+            Replace ea -> [ea],
+       _accountVerificationKeys =
+         let origKeys = ID.akKeys (acc ^. accountVerificationKeys)
+             origThreshold = ID.akThreshold (acc ^. accountVerificationKeys)
+         in ID.AccountKeys {
+          akKeys =
+              let update (RemoveKeys indices) = Set.foldl' (\m k -> Map.delete k m) origKeys indices
+                  update (SetKeys keys) = Map.foldlWithKey' (\m idx key -> Map.insert idx key m) origKeys keys
+              in maybe origKeys update (upd ^. auKeysUpdate),
+          akThreshold = fromMaybe origThreshold (upd ^. auSignThreshold)
+       }
     }
-
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
