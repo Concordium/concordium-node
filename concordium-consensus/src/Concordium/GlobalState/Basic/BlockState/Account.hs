@@ -9,10 +9,12 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wall #-}
 
-module Concordium.GlobalState.Basic.BlockState.Account where
+module Concordium.GlobalState.Basic.BlockState.Account(
+  module Concordium.GlobalState.Account,
+  module Concordium.GlobalState.Basic.BlockState.Account
+) where
 
 import qualified Data.Set as Set
-import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.Serialize as S
 import Lens.Micro.Platform
 
@@ -25,54 +27,44 @@ import Concordium.Types
 
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data Account = Account {
-  _accountAddress :: !AccountAddress
+  _accountPersisting :: !PersistingAccountData
   ,_accountNonce :: !Nonce
   ,_accountAmount :: !Amount
   ,_accountEncryptedAmount :: ![EncryptedAmount]
-  ,_accountEncryptionKey :: !AccountEncryptionKey
-  ,_accountVerificationKeys :: !AccountKeys
-  ,_accountCredentials :: !(Queue.MaxPQueue CredentialValidTo CredentialDeploymentValues)
-  ,_accountStakeDelegate :: !(Maybe BakerId)
-  ,_accountInstances :: !(Set.Set ContractAddress)
   } deriving(Show, Eq)
 
 makeLenses ''Account
 
+instance HasPersistingAccountData Account where
+  persistingAccountData = accountPersisting
+
 instance S.Serialize Account where
-  put Account{..} = S.put _accountAddress <>
+  put Account{..} = S.put _accountPersisting <>
                     S.put _accountNonce <>
                     S.put _accountAmount <>
-                    S.put _accountEncryptedAmount <>
-                    S.put _accountEncryptionKey <>
-                    S.put _accountVerificationKeys <>
-                    S.put (Queue.elemsU _accountCredentials) <> -- we do not care whether the output is ordered or not
-                    S.put _accountStakeDelegate <>
-                    S.put (Set.toAscList _accountInstances)
+                    S.put _accountEncryptedAmount
   get = do
-    _accountAddress <- S.get
+    _accountPersisting <- S.get
     _accountNonce <- S.get
     _accountAmount <- S.get
     _accountEncryptedAmount <- S.get
-    _accountEncryptionKey <- S.get
-    _accountVerificationKeys <- S.get
-    preAccountCredentials <- Queue.fromList . map (\cdv -> (pValidTo (cdvPolicy cdv), cdv)) <$> S.get
-    let _accountCredentials = Queue.seqSpine preAccountCredentials preAccountCredentials
-    _accountStakeDelegate <- S.get
-    _accountInstances <- Set.fromList <$> S.get
     return Account{..}
 
 instance HashableTo Hash.Hash Account where
-  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount PersistingAccountData{..}
+  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
 
--- |Create an empty account with the given public key.
-newAccount :: AccountKeys -> AccountAddress -> CredentialRegistrationID -> Account
-newAccount _accountVerificationKeys _accountAddress regId = Account {
-        _accountNonce = minNonce,
-        _accountAmount = 0,
-        _accountEncryptedAmount = [],
-        _accountEncryptionKey = makeEncryptionKey regId,
-        _accountCredentials = Queue.empty,
+-- |Create an empty account with the given public key, address and credential.
+newAccount :: AccountKeys -> AccountAddress -> CredentialDeploymentValues -> Account
+newAccount _accountVerificationKeys _accountAddress credential = Account {
+        _accountPersisting = PersistingAccountData {
+        _accountEncryptionKey = makeEncryptionKey (cdvRegId credential),
+        _accountCredentials = [credential],
+        _accountMaxCredentialValidTo = pValidTo (cdvPolicy credential),
         _accountStakeDelegate = Nothing,
         _accountInstances = Set.empty,
         ..
+        },
+        _accountNonce = minNonce,
+        _accountAmount = 0,
+        _accountEncryptedAmount = []
     }

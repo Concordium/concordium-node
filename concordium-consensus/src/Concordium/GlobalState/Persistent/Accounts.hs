@@ -11,7 +11,6 @@ import GHC.Generics
 import Data.Maybe
 import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
-import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Types
 import Concordium.GlobalState.BlockState (AccountUpdate(..), EncryptedAmountUpdate(..), auNonce, auAmount, auCredential, auEncrypted)
@@ -228,7 +227,7 @@ updateAccount !upd !acc = do
   case upd ^. auCredential of
        Nothing -> return $ newAccWithoutHash & hashUpdate pData
        Just c -> do
-         let newPData = pData & accountCredentials %~ Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c
+         let newPData = addCredential c pData
          newPDataRef <- makeBufferedRef newPData
          return $ newAccWithoutHash & persistingData .~ newPDataRef
                                     & hashUpdate newPData

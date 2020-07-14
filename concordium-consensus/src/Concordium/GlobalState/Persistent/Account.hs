@@ -62,15 +62,14 @@ instance HashableTo Hash.Hash PersistentAccount where
 
 makePersistentAccount :: MonadIO m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
-  let pdata = PersistingAccountData{..}
-      _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pdata
-  _persistingData <- makeBufferedRef pdata
+  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
+  _persistingData <- makeBufferedRef _accountPersisting
   return PersistentAccount {..}
 
 -- |Checks whether the two arguments represent the same account
 sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
-  PersistingAccountData{..} <- loadBufferedRef _persistingData
+  _accountPersisting <- loadBufferedRef _persistingData
   return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
 
 -- |Checks whether the two arguments represent the same account by comparing the account hashes

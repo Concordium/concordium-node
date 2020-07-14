@@ -142,6 +142,8 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountCredentials acc = return $ acc ^. accountCredentials
 
+  getAccountMaxCredentialValidTo acc = return $ acc ^. accountMaxCredentialValidTo
+
   getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
@@ -208,7 +210,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         if Account.exists addr accounts then
           (False, bs)
         else
-          (True, bs & blockAccounts .~ Account.putAccount acc accounts & bakerUpdate)
+          (True, bs & blockAccounts .~ Account.putAccount acc (foldr Account.recordRegId accounts (cdvRegId <$> acc ^. accountCredentials))
+                    & bakerUpdate)
         where
             accounts = bs ^. blockAccounts
             addr = acc ^. accountAddress

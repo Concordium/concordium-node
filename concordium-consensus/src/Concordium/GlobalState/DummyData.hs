@@ -3,7 +3,6 @@
 module Concordium.GlobalState.DummyData where
 
 import qualified Data.HashMap.Strict as HM
-import qualified Data.PQueue.Prio.Max as Queue
 import Lens.Micro.Platform
 import qualified Acorn.Utils.Init as Acorn
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -84,8 +83,8 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 spk = Sig.verifyKey sk
                 (blssk, gen''') = randomBlsSecretKey gen''
                 blspk = Bls.derivePublicKey blssk
-                accAddress = _accountAddress account
-                stake = _accountAmount account
+                accAddress = account ^. accountAddress
+                stake = account ^. accountAmount
                 account = makeFakeBakerAccount bid
 
 -- |Make a baker deterministically from a given seed and with the given reward account.
@@ -175,31 +174,32 @@ blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 
--- This generates an account without any credentials
--- late expiry date, but is otherwise not well-formed.
-{-# WARNING mkAccountNoCredentials "Do not use in production." #-}
-mkAccountNoCredentials :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
-mkAccountNoCredentials key addr amnt =
-  newAccount (makeSingletonAC key) addr (dummyRegId addr) & (accountAmount .~ amnt)
-
 -- This generates an account with a single credential and single keypair, which has sufficiently
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
 mkAccount :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
-mkAccount key addr amnt = mkAccountNoCredentials key addr amnt &
-                           (accountCredentials .~ (Queue.singleton dummyMaxValidTo (dummyCredential addr dummyMaxValidTo dummyCreatedAt)))
+mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+  where
+    cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
+
+-- This generates an account with a single credential and single keypair, where
+-- the credential shoul already be considered expired.
+{-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
+mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
+mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+  where
+    cred = dummyCredential addr dummyLowValidTo dummyCreatedAt
+
 
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
 makeFakeBakerAccount :: BakerId -> Account
 makeFakeBakerAccount bid =
-    acct {_accountAmount = 1000000000000,
-          _accountStakeDelegate = Just bid,
-          _accountCredentials = credentialList}
+    acct & accountAmount .~ 1000000000000
+      & accountStakeDelegate ?~ bid
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
-    credentialList = Queue.singleton dummyMaxValidTo credential
-    acct = newAccount (makeSingletonAC vfKey) address (cdvRegId credential)
+    acct = newAccount (makeSingletonAC vfKey) address credential
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)

@@ -3,8 +3,8 @@
 
 module Concordium.GlobalState.Account where
 
+import Control.Monad
 import qualified Data.Set as Set
-import qualified Data.PQueue.Prio.Max as Queue
 import Data.Serialize
 import Lens.Micro.Platform
 
@@ -17,26 +17,29 @@ data PersistingAccountData = PersistingAccountData {
   _accountAddress :: !AccountAddress
   ,_accountEncryptionKey :: !AccountEncryptionKey
   ,_accountVerificationKeys :: !AccountKeys
-  ,_accountCredentials :: !(Queue.MaxPQueue CredentialValidTo CredentialDeploymentValues)
+  ,_accountCredentials :: ![CredentialDeploymentValues]
+  -- ^Credentials; most recent first
+  ,_accountMaxCredentialValidTo :: !CredentialValidTo
   ,_accountStakeDelegate :: !(Maybe BakerId)
   ,_accountInstances :: !(Set.Set ContractAddress)
 } deriving (Show, Eq)
 
-makeLenses ''PersistingAccountData
+makeClassy ''PersistingAccountData
 
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
                                   put _accountEncryptionKey <>
                                   put _accountVerificationKeys <>
-                                  put (Queue.elemsU _accountCredentials) <> -- we do not care whether the output is ordered or not
+                                  put _accountCredentials <> -- The order is significant for hash computation
                                   put _accountStakeDelegate <>
                                   put (Set.toAscList _accountInstances)
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
     _accountVerificationKeys <- get
-    preAccountCredentials <- Queue.fromList . map (\cdv -> (pValidTo (cdvPolicy cdv), cdv)) <$> get
-    let _accountCredentials = Queue.seqSpine preAccountCredentials preAccountCredentials
+    _accountCredentials <- get
+    when (null _accountCredentials) $ fail "Account has no credentials"
+    let _accountMaxCredentialValidTo = maximum (pValidTo . cdvPolicy <$> _accountCredentials)
     _accountStakeDelegate <- get
     _accountInstances <- Set.fromList <$> get
     return PersistingAccountData{..}
@@ -46,3 +49,8 @@ instance Serialize PersistingAccountData where
 makeAccountHash :: Nonce -> Amount -> [EncryptedAmount] -> PersistingAccountData -> Hash.Hash
 makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put pd
+
+{-# INLINE addCredential #-}
+addCredential :: HasPersistingAccountData d => CredentialDeploymentValues -> d -> d
+addCredential cdv = (accountCredentials %~ (cdv:))
+  . (accountMaxCredentialValidTo %~ max (pValidTo (cdvPolicy cdv)))

@@ -14,6 +14,7 @@ import Control.Monad.Fail
 import Control.Monad hiding (fail)
 import Data.Ratio
 import Data.Word
+import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -24,7 +25,6 @@ import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.GlobalState.SeedState as SeedState
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Data.PQueue.Prio.Max as Queue
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
@@ -268,15 +268,13 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
 
         mkAccount GenesisAccount{..} =
           let cdv = ID.cdiValues gaCredential in
-          (newAccount gaVerifyKeys gaAddress (ID.cdvRegId cdv))
-                {_accountAmount = gaBalance,
-                 _accountCredentials = Queue.singleton (ID.pValidTo (ID.cdvPolicy cdv)) cdv
-                }
+          newAccount gaVerifyKeys gaAddress cdv
+                & accountAmount .~ gaBalance
         -- special accounts will have some special privileges during beta.
         genesisControlAccounts = map mkAccount gpControlAccounts
         -- Baker accounts will have no special privileges.
         -- We ignore any specified delegation target.
-        genesisAccounts = [(mkAccount gbAccount) {_accountStakeDelegate = Just bid }
+        genesisAccounts = [mkAccount gbAccount & accountPersisting . accountStakeDelegate ?~ bid
                           | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
                           -- and add any other initial accounts.
                           ++ map mkAccount gpInitialAccounts
