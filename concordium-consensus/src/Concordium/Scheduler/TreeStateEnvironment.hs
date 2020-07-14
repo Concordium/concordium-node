@@ -163,7 +163,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state
     bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
-    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisControlAccounts <$> getGenesisData
+    genBetaAccounts <- HashSet.fromList . map (^. accountAddress) . genesisControlAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _specialBetaAccounts = genBetaAccounts,
@@ -234,8 +234,8 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     -- Order the accounts by the arrival time of the earliest transaction.
-    let orderedTxs = fst . unzip $ List.sortOn snd txs
-    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisControlAccounts <$> getGenesisData
+    let orderedTxs = map fst $ List.sortOn snd txs
+    genBetaAccounts <- HashSet.fromList . map (^. accountAddress) . genesisControlAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _specialBetaAccounts = genBetaAccounts,

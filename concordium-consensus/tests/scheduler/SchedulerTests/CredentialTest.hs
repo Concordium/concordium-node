@@ -28,13 +28,13 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
--- Test that sending to and from an account without credentials fails.
+-- Test that sending to and from an account without valid credentials fails.
 
--- Create initial state where alesAccount has a credential, but thomasAccount does not.
+-- Create initial state where alesAccount has a valid credential, but thomasAccount does not.
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
-    (Acc.putAccountWithRegIds (mkAccountNoCredentials thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 100000) Acc.emptyAccounts)
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =

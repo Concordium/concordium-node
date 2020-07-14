@@ -1,9 +1,7 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wall #-}
 
 {-|
 The scheduler executes transactions (including credential deployment), updating the current block state.
@@ -71,7 +69,6 @@ import Data.Ord
 import Data.List hiding (group)
 import qualified Data.Set as Set
 import qualified Data.HashSet as HashSet
-import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -84,15 +81,11 @@ import Prelude hiding (exp, mod)
 -- metadata.
 existsValidCredential :: AccountOperations m => ChainMetadata -> Account m -> m Bool
 existsValidCredential cm acc = do
-  credentials <- getAccountCredentials acc
   -- check that the sender has at least one still valid credential.
-  return $ case Queue.getMax credentials of
-    Nothing -> False
-    -- Note that the below relies on the invariant that the key is
-    -- the same as the expiry date of the credential.
-    -- If the credential is still valid at the beginning of this slot then
-    -- we consider it valid. Otherwise we fail the transaction.
-    Just (expiry, _) -> isTimestampBefore (slotTime cm) expiry
+  expiry <- getAccountMaxCredentialValidTo acc
+  -- If the credential is still valid at the beginning of this slot then
+  -- we consider it valid. Otherwise we fail the transaction.
+  return $ isTimestampBefore (slotTime cm) expiry
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -965,7 +958,9 @@ handleDeployCredential cdi cdiHash = do
                         -- for one credential only.
                         credentials <- getAccountCredentials account
                         keys <- getAccountVerificationKeys account
-                        let sameIP = maybe True (\(_, cred) -> ID.cdvIpId cred == credentialIP) (Queue.getMax credentials)
+                        let sameIP = case credentials of
+                                [] -> True
+                                (cred:_) -> ID.cdvIpId cred == credentialIP
                         if sameIP && AH.verifyCredential cryptoParams ipInfo (Just keys) cdiBytes then do
                           addAccountCredential account cdv
                           mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
@@ -978,15 +973,16 @@ handleDeployCredential cdi cdiHash = do
                 else do
                   let accountKeys = ID.makeAccountKeys keys threshold
                   let aaddr = ID.addressFromRegId regId
-                  account <- createNewAccount accountKeys aaddr regId
+                  -- Create the account with the credential, but don't yet add it to the state
+                  account <- createNewAccount accountKeys aaddr cdv
                   -- this check is extremely unlikely to fail (it would amount to a hash collision since
                   -- we checked regIdEx above already).
                   accExistsAlready <- isJust <$> getAccount aaddr
                   let check = AH.verifyCredential cryptoParams ipInfo Nothing cdiBytes
                   if not accExistsAlready && check then do
-                    _ <- putNewAccount account -- first create new account, but only if credential was valid.
-                                               -- We know the address does not yet exist.
-                    addAccountCredential account cdv  -- and then add the credentials
+                    -- Add the account to the state, but only if the credential was valid and the account does not exist
+                    _ <- putNewAccount account
+                    
                     mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                   else return $ Just (TxInvalid AccountCredentialInvalid)
 

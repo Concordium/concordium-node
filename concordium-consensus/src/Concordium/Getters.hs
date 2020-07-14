@@ -212,8 +212,8 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               instances <- BS.getAccountInstances acc
               return $ object ["accountNonce" .= nonce
                                         ,"accountAmount" .= toInteger amount
-                                        -- credentials in descending order
-                                        ,"accountCredentials" .= Queue.elems creds
+                                        -- credentials, most recent first
+                                        ,"accountCredentials" .= creds
                                         ,"accountDelegation" .= delegate
                                         ,"accountInstances" .= S.toList instances
                                         ]
