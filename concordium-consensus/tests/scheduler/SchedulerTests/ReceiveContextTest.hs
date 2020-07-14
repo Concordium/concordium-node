@@ -53,7 +53,7 @@ transactionsInput :: [TransactionJSON]
 transactionsInput =
     [TJSON { payload = DeployModule "ReceiveContextTest"
            , metadata = makeDummyHeader alesAccount 1 1000000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            }
     ,TJSON { payload = InitContract {amount = initialAmount
                                     ,contractName = "Simple"
@@ -61,7 +61,7 @@ transactionsInput =
                                     ,parameter = "<13,18>"
                                     }
            , metadata = makeDummyHeader alesAccount 2 1000000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            }
     ,TJSON { payload = Update {amount = 108
                               ,address = Types.ContractAddress 0 0
@@ -69,7 +69,7 @@ transactionsInput =
                               ,message = "Unit.Unit"
                               }
            , metadata = makeDummyHeader thomasAccount 1 10000
-           , keypair = thomasKP
+           , keys = [(0, thomasKP)]
            }
     ]
 
@@ -117,7 +117,7 @@ checkReceiveContextResult (suc, fails, instances) = do
                               Types.VLiteral (Core.AmountLiteral amount) Seq.:<| Seq.Empty) -> do
             assertEqual "Origin address is correct." thomasAccount originAddr
             -- because it is the first and only smart contract in the given state
-            assertEqual "Self address is 0,0" (Types.ContractAddress 0 0) selfAddress 
+            assertEqual "Self address is 0,0" (Types.ContractAddress 0 0) selfAddress
             assertEqual "Self balance is the initial amount." initialAmount amount
         v -> assertFailure $ "Instance model not of the correct shape: " ++ show v
 
