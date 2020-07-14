@@ -4,6 +4,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# OPTIONS_GHC -Wall #-}
 
 module Concordium.Scheduler.Environment where
@@ -21,6 +23,7 @@ import Acorn.Types(InterpreterEnergy)
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
+import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
@@ -609,6 +612,10 @@ defaultSuccess wtc = \ls events -> do
 liftLocal :: Monad m => m a -> LocalT r m a
 liftLocal m = LocalT (ContT (\k -> RWST (\r s -> m >>= \f -> runRWST (k f) r s)))
 
+instance MonadTrans (LocalT r) where
+  {-# INLINE lift #-}
+  lift = liftLocal
+
 instance StaticEnvironmentMonad Core.UA m => StaticEnvironmentMonad Core.UA (LocalT r m) where
   {-# INLINE getChainMetadata #-}
   getChainMetadata = liftLocal getChainMetadata
@@ -627,17 +634,7 @@ instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
 
   putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
 
-instance AccountOperations m => AccountOperations (LocalT r m) where
-  getAccountAmount = liftLocal . getAccountAmount
-  getAccountAddress = liftLocal . getAccountAddress
-  getAccountNonce = liftLocal . getAccountNonce
-  getAccountCredentials = liftLocal . getAccountCredentials
-  getAccountVerificationKeys = liftLocal . getAccountVerificationKeys
-  getAccountEncryptedAmount = liftLocal . getAccountEncryptedAmount
-  getAccountStakeDelegate = liftLocal . getAccountStakeDelegate
-  getAccountInstances = liftLocal . getAccountInstances
-  createNewAccount keys addr = liftLocal . createNewAccount keys addr
-  updateAccountAmount acc = liftLocal . updateAccountAmount acc
+deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 
 instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withInstanceState #-}
