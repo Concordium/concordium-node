@@ -7,7 +7,6 @@ module Concordium.GlobalState.Block(
     module Concordium.GlobalState.Block
 ) where
 
-import Control.Monad
 import Data.Kind
 import Data.Time
 import Data.Serialize
