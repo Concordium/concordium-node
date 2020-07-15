@@ -212,7 +212,7 @@ updateBakerElectionKey = 90
 -- The cost of this transaction is the cost of deserializing Ed25519 verification keys
 -- which means checking that it decodes to a point on the curve.
 updateAccountKeys :: Int -> Energy
-updateAccountKeys _n = 5 * n
+updateAccountKeys n = 5 * n
 
 -- |Cost to add a given number of account keys.
 -- The cost of this transaction is the cost of deserializing Ed25519 verification keys
