@@ -1,3 +1,4 @@
+{-# LANGUAGE DerivingVia, OverloadedStrings #-}
 module Concordium.GlobalState.IdentityProviders(
   module Concordium.GlobalState.IdentityProviders,
   IpInfo, ipIdentity
@@ -6,6 +7,8 @@ module Concordium.GlobalState.IdentityProviders(
 import Data.HashMap.Strict(HashMap)
 import qualified Data.HashMap.Strict as HM
 import qualified Data.Serialize as S
+import Data.Aeson(FromJSON, ToJSON)
+import Data.Aeson hiding (encode, decode)
 
 import Concordium.ID.Types
 import Concordium.ID.IdentityProvider
@@ -15,6 +18,14 @@ import Concordium.ID.IdentityProvider
 newtype IdentityProviders = IdentityProviders {
   idProviders :: HashMap IdentityProviderIdentity IpInfo
   }
+  deriving(Eq)
+  deriving(ToJSON, FromJSON) via (HashMap IdentityProviderIdentity IpInfo)
+
+--  -- NOT COMPATIBLE WITH FromJSON
+-- instance FromJSON IdentityProviders where
+--   parseJSON = withObject "IdentityProviders" $ \v -> do
+--     idProviders <- v .: "idps"
+--     return IdentityProviders{..}
 
 instance Show IdentityProviders where
     show (IdentityProviders m) = "IdentityProviders {\n" ++ concatMap f (HM.elems m) ++ "}"

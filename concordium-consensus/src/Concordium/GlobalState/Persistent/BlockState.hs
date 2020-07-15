@@ -269,7 +269,7 @@ makePersistent Basic.BlockState{..} = do
 initialPersistentState :: MonadIO m => Basic.BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [IPS.IpInfo]
+             -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> Amount
              -> m PersistentBlockState

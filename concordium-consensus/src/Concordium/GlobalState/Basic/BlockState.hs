@@ -370,7 +370,7 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
 initialState :: BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [IPS.IpInfo]
+             -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> Amount
              -> BlockState
@@ -380,7 +380,7 @@ initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts 
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.fromModuleList (Acorn.moduleList (let (_, _, pm) = Acorn.baseState in pm))
     _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot
-    _blockIdentityProviders = IPS.IdentityProviders (HashMap.fromList (map (\r -> (IPS.ipIdentity r, r)) ips))
+    _blockIdentityProviders = ips
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
 
     -- initial amount in the central bank is the amount on all genesis accounts combined

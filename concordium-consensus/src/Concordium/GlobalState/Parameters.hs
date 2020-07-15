@@ -87,7 +87,7 @@ data GenesisData = GenesisData {
     genesisControlAccounts :: ![Account],
     genesisFinalizationParameters :: !FinalizationParameters,
     genesisCryptographicParameters :: !CryptographicParameters,
-    genesisIdentityProviders :: ![IpInfo],
+    genesisIdentityProviders :: !IdentityProviders,
     genesisAnonymityRevokers :: !AnonymityRevokers,
     genesisMintPerSlot :: !Amount,
     genesisMaxBlockEnergy :: !Energy
@@ -171,7 +171,7 @@ data GenesisParameters = GenesisParameters {
     gpFinalizationParameters :: FinalizationParameters,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
-    gpIdentityProviders :: [IpInfo],
+    gpIdentityProviders :: IdentityProviders,
     gpAnonymityRevokers :: AnonymityRevokers,
     -- |Additional accounts (not baker accounts and not control accounts).
     -- They cannot delegate to any bakers in genesis.
@@ -196,13 +196,19 @@ instance FromJSON GenesisParameters where
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
-        gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpIdentityProviders <- v .:? "identityProviders" .!= emptyIdentityProviders
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
         gpControlAccounts <- v .:? "controlAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
+
+unversionGpIdps :: AE.Value -> AE.Value
+unversionGpIdps v = v
+
+
+
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.

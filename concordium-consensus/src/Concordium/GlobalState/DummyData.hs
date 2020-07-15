@@ -122,7 +122,7 @@ makeTestingGenesisData ::
     -> BlockHeight -- ^Minimum finalization interval - 1
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
-    -> [IpInfo]   -- ^List of initial identity providers.
+    -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
