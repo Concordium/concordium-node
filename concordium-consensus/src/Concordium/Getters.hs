@@ -9,7 +9,7 @@ module Concordium.Getters where
 import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
-import Concordium.Skov
+import Concordium.Skov as Skov
 import qualified Data.HashMap.Strict as HM
 
 import Control.Monad.State.Class
@@ -343,6 +343,11 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "transactionEnergyCost" .= toInteger (bpTransactionsEnergyCost bp),
                             "transactionsSize" .= toInteger (bpTransactionsSize bp)
                             ]
+
+getBlocksAtHeight :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m))
+    => z -> BlockHeight -> IO Value
+getBlocksAtHeight sfsRef height = runStateQuery sfsRef $
+    toJSONList . map hsh <$> Skov.getBlocksAtHeight height
 
 getAncestors :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m))
              => z -> String -> BlockHeight -> IO Value
