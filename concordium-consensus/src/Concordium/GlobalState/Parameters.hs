@@ -113,9 +113,6 @@ eitherReadIdentityProviders = AE.eitherDecode
 eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
 eitherReadAnonymityRevokers = AE.eitherDecode
 
-readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
-readCryptographicParameters = readVersionedCryptographicParameters
-
 readVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readVersionedCryptographicParameters bs = case AE.decode bs of
   Just (v :: (Versioned CryptographicParameters)) -> do
