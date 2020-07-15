@@ -5,7 +5,6 @@
     MonoLocalBinds,
     ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
-{-# LANGUAGE UndecidableInstances #-}
 module GlobalStateTests.Accounts where
 
 import Prelude hiding (fail)
