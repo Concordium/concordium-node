@@ -4,7 +4,6 @@ module Concordium.GlobalState.DummyData where
 
 import qualified Data.HashMap.Strict as HM
 import Lens.Micro.Platform
-import qualified Acorn.Utils.Init as Acorn
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -179,7 +178,6 @@ createBlockState accounts =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters &
       (blockAccounts .~ accounts) .
       (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
-      (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
       (blockIdentityProviders .~ dummyIdentityProviders) .
       (blockAnonymityRevokers .~ dummyArs)
 

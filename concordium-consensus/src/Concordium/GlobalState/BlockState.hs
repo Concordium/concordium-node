@@ -49,10 +49,10 @@ import Data.Serialize(Serialize)
 
 import Concordium.Types
 import Concordium.Types.Execution
+import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Classes
-import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.Types.Acorn.Interfaces
 import Concordium.GlobalState.Account
+
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import Concordium.GlobalState.Parameters
@@ -71,10 +71,8 @@ import Data.Set (Set)
 type ModuleIndex = Word64
 
 data Module = Module {
-    moduleInterface :: Interface Core.UA,
-    moduleValueInterface :: UnlinkedValueInterface Core.NoAnnot,
-    moduleIndex :: !ModuleIndex,
-    moduleSource :: Core.Module Core.UA
+    moduleInterface :: Wasm.ModuleInterface,
+    moduleIndex :: !ModuleIndex
 }
 
 class (BlockStateTypes m,  Monad m) => BakerQuery m where
@@ -219,7 +217,7 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
 -- support different implementations, from pure ones to stateful ones.
 class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
-  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
+  bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
   -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (Account m))
   -- |Get the contract state from the contract table of the state instance.
@@ -240,33 +238,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m
-                  -> ModuleRef
-                  -> Interface Core.UA
-                  -> UnlinkedValueInterface Core.NoAnnot
-                  -> Core.Module Core.UA
-                  -> m (Bool, UpdatableBlockState m)
-
-  -- |Consult the linked expression cache for whether this definitionn is already linked.
-  bsoTryGetLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps Core.NoAnnot))
-
-  -- |Put a new linked expression to the cache.
-  -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
-  bsoPutLinkedExpr :: UpdatableBlockState m -> Core.ModuleRef -> Core.Name -> LinkedExprWithDeps Core.NoAnnot -> m (UpdatableBlockState m)
-
-  -- |Try to get linked contract code from the cache.
-  bsoTryGetLinkedContract :: UpdatableBlockState m
-                          -> Core.ModuleRef
-                          -> Core.TyName
-                          -> m (Maybe (LinkedContractValue Core.NoAnnot))
-
-  -- |Store the linked contract code in the linked code cache.
-  -- This method may assume that the module with given reference is already in the state (i.e., putNewModule was called before).
-  bsoPutLinkedContract :: UpdatableBlockState m
-                       -> Core.ModuleRef
-                       -> Core.TyName
-                       -> LinkedContractValue Core.NoAnnot
-                       -> m (UpdatableBlockState m)
+  bsoPutNewModule :: UpdatableBlockState m -> Wasm.ModuleInterface -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.
@@ -278,7 +250,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> Value Core.NoAnnot
+                    -> ContractState
                     -> m (UpdatableBlockState m)
 
   -- |Notify the block state that the given amount was spent on execution.
@@ -491,11 +463,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoRegIdExists s = lift . bsoRegIdExists s
   bsoPutNewAccount s = lift . bsoPutNewAccount s
   bsoPutNewInstance s = lift . bsoPutNewInstance s
-  bsoPutNewModule s mref iface viface source = lift (bsoPutNewModule s mref iface viface source)
-  bsoTryGetLinkedExpr s mref n = lift (bsoTryGetLinkedExpr s mref n)
-  bsoPutLinkedExpr s mref n linked = lift (bsoPutLinkedExpr s mref n linked)
-  bsoTryGetLinkedContract s mref n = lift (bsoTryGetLinkedContract s mref n)
-  bsoPutLinkedContract s mref n linked = lift (bsoPutLinkedContract s mref n linked)
+  bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
@@ -523,10 +491,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewAccount #-}
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
-  {-# INLINE bsoTryGetLinkedExpr #-}
-  {-# INLINE bsoPutLinkedExpr #-}
-  {-# INLINE bsoTryGetLinkedContract #-}
-  {-# INLINE bsoPutLinkedContract #-}
   {-# INLINE bsoModifyAccount #-}
   {-# INLINE bsoModifyInstance #-}
   {-# INLINE bsoNotifyExecutionCost #-}

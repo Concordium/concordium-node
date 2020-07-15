@@ -1,15 +1,33 @@
 module Concordium.GlobalState.Instance where
 
 import Data.Serialize
-import Data.HashMap.Strict(HashMap)
+import qualified Data.Set as Set
+import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
-import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.Types.Acorn.Interfaces
-import Concordium.GlobalState.Information (InstanceInfo(InstanceInfo))
+import qualified Concordium.Wasm as Wasm
 
+-- |State of a smart contract. In general we don't know anything other than
+-- it is a sequence of bytes.
+-- FIXME: In the future this should be more structured allowing for more sharing.
+newtype ContractState = ContractState {contractState :: BS.ByteString }
+    deriving(Eq, Show)
+
+-- The serialize instance uses Word32 for length. This should be reasonable since
+-- no instance should ever be able to produce a state bigger than 4GB.
+instance Serialize ContractState where
+  put ContractState{..} = do
+    putWord32be (fromIntegral (BS.length contractState))
+    putByteString contractState
+
+  get = do
+    len <- fromIntegral <$> getWord32be
+    ContractState <$> getByteString len
+
+instance HashableTo H.Hash ContractState where
+  getHash cs = H.hash (encode cs)
 
 -- |The fixed parameters associated with a smart contract instance
 data InstanceParameters = InstanceParameters {
@@ -18,27 +36,20 @@ data InstanceParameters = InstanceParameters {
     -- |Address of this contract instance owner, i.e., the creator account.
     instanceOwner :: !AccountAddress,
     -- |The module that the contract is defined in
-    instanceContractModule :: !Core.ModuleRef,
-    -- |The name of the contract
-    instanceContract :: !Core.TyName,
-    -- |The contract's receive function
-    instanceReceiveFun :: !(LinkedExpr Core.NoAnnot),
+    instanceContractModule :: !ModuleRef,
+    -- |The name of the init method which created this contract.
+    instanceInitName :: !Wasm.InitName,
+    -- |The receive functions supported by this instance. Always a subset of
+    -- receive methods of the module.
+    instanceReceiveFuns :: !(Set.Set Wasm.ReceiveName),
     -- |The interface of 'instanceContractModule'
-    instanceModuleInterface :: !(Interface Core.UA),
-    -- |The value interface of 'instanceContractModule'
-    instanceModuleValueInterface :: !(UnlinkedValueInterface Core.NoAnnot),
-    -- |The type of messages the contract receive function supports
-    instanceMessageType :: !(Core.Type Core.UA Core.ModuleRef),
-    -- |Implementation of the given class sender method. This can also be looked
-    -- up through the contract, and we should probably do that, but having it here
-    -- simplifies things.
-    instanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (LinkedImplementsValue Core.NoAnnot)),
+    instanceModuleInterface :: !Wasm.ModuleInterface,
     -- |Hash of the fixed parameters
     instanceParameterHash :: !H.Hash
 }
 
 instance Show InstanceParameters where
-    show InstanceParameters{..} = show instanceAddress ++ " :: " ++ show instanceContractModule ++ "." ++ show instanceContract
+    show InstanceParameters{..} = show instanceAddress ++ " :: " ++ show instanceContractModule ++ "." ++ show instanceInitName
 
 instance HashableTo H.Hash InstanceParameters where
     getHash = instanceParameterHash
@@ -48,7 +59,7 @@ data Instance = Instance {
     -- |The fixed parameters of the instance
     instanceParameters :: !InstanceParameters,
     -- |The current local state of the instance
-    instanceModel :: !(Value Core.NoAnnot),
+    instanceModel :: !ContractState,
     -- |The current amount of GTU owned by the instance
     instanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -61,44 +72,36 @@ instance Show Instance where
 instance HashableTo H.Hash Instance where
     getHash = instanceHash
 
-makeInstanceParameterHash :: ContractAddress -> AccountAddress -> Core.ModuleRef -> Core.TyName -> H.Hash
+makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put ca
         put aa
         put modRef
         put conName
 
-makeInstanceHash' :: H.Hash -> Value Core.NoAnnot -> Amount -> H.Hash
-makeInstanceHash' paramHash v a = H.hashLazy $ runPutLazy $ do
+makeInstanceHash' :: H.Hash -> ContractState -> Amount -> H.Hash
+makeInstanceHash' paramHash conState a = H.hashLazy $ runPutLazy $ do
         put paramHash
-        putStorable v
+        putByteString (H.hashToByteString (getHash conState))
         put a
 
-makeInstanceHash :: InstanceParameters -> Value Core.NoAnnot -> Amount -> H.Hash
+makeInstanceHash :: InstanceParameters -> ContractState -> Amount -> H.Hash
 makeInstanceHash params = makeInstanceHash' (instanceParameterHash params)
 
--- |Get the 'InstanceInfo' summary of an 'Instance'.
-instanceInfo :: Instance -> InstanceInfo
-instanceInfo Instance{..} = InstanceInfo (instanceMessageType instanceParameters) instanceModel instanceAmount
-
 makeInstance ::
-    Core.ModuleRef     -- ^Module of the contract
-    -> Core.TyName     -- ^Contract name
-    -> LinkedContractValue Core.NoAnnot  -- ^The contract value
-    -> Core.Type Core.UA Core.ModuleRef     -- ^Message type
-    -> Interface Core.UA          -- ^Module interface
-    -> UnlinkedValueInterface Core.NoAnnot  -- ^Module value interface
-    -> Value Core.NoAnnot                   -- ^Initial state
-    -> Amount                       -- ^Initial balance
+    ModuleRef     -- ^Module of the contract.
+    -> Wasm.InitName     -- ^Name of the init method used to initialize the contract.
+    -> Set.Set Wasm.ReceiveName -- ^Receive functions suitable for this instance.
+    -> Wasm.ModuleInterface        -- ^Module interface
+    -> ContractState  -- ^Initial state
+    -> Amount       -- ^Initial balance
     -> AccountAddress               -- ^Owner/creator of the instance.
     -> ContractAddress              -- ^Address for the instance
     -> Instance
-makeInstance instanceContractModule instanceContract conVal instanceMessageType instanceModuleInterface instanceModuleValueInterface instanceModel instanceAmount instanceOwner instanceAddress
+makeInstance instanceContractModule instanceInitName instanceReceiveFuns instanceModuleInterface instanceModel instanceAmount instanceOwner instanceAddress
         = Instance {..}
     where
-        instanceReceiveFun = fst (cvReceiveMethod conVal)
-        instanceImplements = cvImplements conVal
-        instanceParameterHash = makeInstanceParameterHash instanceAddress instanceOwner instanceContractModule instanceContract
+        instanceParameterHash = makeInstanceParameterHash instanceAddress instanceOwner instanceContractModule instanceInitName
         instanceParameters = InstanceParameters {..}
         instanceHash = makeInstanceHash instanceParameters instanceModel instanceAmount
 
@@ -106,31 +109,14 @@ makeInstance instanceContractModule instanceContract conVal instanceMessageType 
 iaddress :: Instance -> ContractAddress
 iaddress = instanceAddress . instanceParameters
 
--- |The receive method of a smart contract instance.
-ireceiveFun :: Instance -> LinkedExpr Core.NoAnnot
-ireceiveFun = instanceReceiveFun . instanceParameters
-
--- |The message type of a smart contract instance.
-imsgTy :: Instance -> Core.Type Core.UA Core.ModuleRef
-imsgTy = instanceMessageType . instanceParameters
-
--- |The module interfaces of a smart contract instance.
-iModuleIface :: Instance -> (Interface Core.UA, UnlinkedValueInterface Core.NoAnnot)
-iModuleIface i = (instanceModuleInterface, instanceModuleValueInterface)
-    where
-        InstanceParameters{..} = instanceParameters i
-
 -- |Update a given smart contract instance.
-updateInstance :: AmountDelta -> Value Core.NoAnnot -> Instance -> Instance
-updateInstance delta val i =  i {
-                                instanceModel = val,
-                                instanceAmount = amnt,
-                                instanceHash = makeInstanceHash (instanceParameters i) val amnt
-                            }
+-- FIXME: Updates to the state should be done better in the future, we should not just replace it.
+updateInstance :: AmountDelta -> ContractState -> Instance -> Instance
+updateInstance delta val i =  updateInstance' amnt val i
   where amnt = applyAmountDelta delta (instanceAmount i)
 
--- |Update a given smart contract instance.
-updateInstance' :: Amount -> Value Core.NoAnnot -> Instance -> Instance
+-- |Update a given smart contract instance with exactly the given amount and state.
+updateInstance' :: Amount -> ContractState -> Instance -> Instance
 updateInstance' amnt val i =  i {
                                 instanceModel = val,
                                 instanceAmount = amnt,
