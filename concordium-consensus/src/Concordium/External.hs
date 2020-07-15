@@ -45,7 +45,7 @@ import Concordium.Birk.Bake as Baker
 
 import Concordium.Afgjort.Finalize
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
@@ -951,6 +951,16 @@ getBlockSummary cptr bhcstr = do
     logm External LLTrace $ "Replying with: " ++ show summary
     jsonValueToCString summary
 
+-- |Get the list of live blocks at a given height.
+-- Returns a NUL-terminated string encoding a JSON list.
+getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
+getBlocksAtHeight cptr height = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received blocks at height request."
+    blocks <- runConsensusQuery c Get.getBlocksAtHeight (fromIntegral height)
+    logm External LLTrace $ "Replying with: " ++ show blocks
+    jsonValueToCString blocks  
 
 getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr = do
@@ -1114,6 +1124,7 @@ foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner ->
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
 foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 

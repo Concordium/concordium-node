@@ -207,7 +207,7 @@ dispatch msg = do
           -- exists on the account with 'checkHeader'.
           payment <- energyToGtu checkHeaderCost
           chargeExecutionCost (transactionHash msg) senderAccount payment
-          return $! Just $! TxValid $! TransactionSummary{
+          return $ Just $ TxValid $ TransactionSummary{
             tsEnergyCost = checkHeaderCost,
             tsCost = payment,
             tsSender = Just (senderAccount ^. accountAddress),
@@ -280,10 +280,20 @@ dispatch msg = do
 
                    UpdateBakerElectionKey{..} ->
                      handleUpdateBakerElectionKey (mkWTC TTUpdateBakerElectionKey) ubekId ubekKey ubekProof
+
+                   UpdateAccountKeys{..} ->
+                     handleUpdateAccountKeys (mkWTC TTUpdateAccountKeys) uakKeys
+
+                   AddAccountKeys{..} ->
+                     handleAddAccountKeys (mkWTC TTAddAccountKeys) aakKeys aakThreshold
+
+                   RemoveAccountKeys{..} ->
+                     handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndices rakThreshold
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
-            Just summary -> return $! Just $! TxValid summary
+            Just summary -> return $ Just $ TxValid summary
 
 -- | Handle the deployment of a module.
 handleDeployModule ::
@@ -329,14 +339,14 @@ handleDeployModule wtc psize mod =
       -- Add the module to the global state (module interface, value interface and module itself).
       b <- commitModule mhash iface viface mod
       if b then
-        return $! (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
+        return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
           else
         -- FIXME: Check whether the module exists already at the beginning of this handler.
         -- Doing it before typechecking will often save effort in the failure case, e.g. in case
         -- typechecking results in module lookups anyway.
         -- With checking the transaction type even before fully deserializing the payload,
         -- this check can be done even earlier, since the module hash is the hash of module serialization.
-        return $! (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
+        return (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
 
 -- | Tick energy for storing the given 'Value'.
 -- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
@@ -440,7 +450,7 @@ handleInitContract wtc amount modref cname param paramSize =
             -- 'putNewInstance' does.
             let ins = makeInstance modref cname linkedContract msgty iface viface model initamount (thSender meta)
             addr <- putNewInstance ins
-            return $! (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=initamount}], energyCost, usedEnergy)
+            return (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=initamount}], energyCost, usedEnergy)
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -711,7 +721,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
           chargeExecutionCost txHash senderAccount energyCost
 
           getAccount abAccount >>=
-              \case Nothing -> return $! (TxReject (NonExistentRewardAccount abAccount), energyCost, usedEnergy)
+              \case Nothing -> return (TxReject (NonExistentRewardAccount abAccount), energyCost, usedEnergy)
                     Just Account{..} ->
                       let challenge = S.runPut (S.put abElectionVerifyKey <> S.put abSignatureVerifyKey <> S.put abAggregationVerifyKey <> S.put abAccount)
                           electionP = checkElectionKeyProof challenge abElectionVerifyKey abProofElection
@@ -826,7 +836,7 @@ handleUpdateBakerSignKey wtc ubsId ubsKey ubsProof =
           chargeExecutionCost txHash senderAccount energyCost
           getBakerAccountAddress ubsId >>= \case
             Nothing ->
-              return $! (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
+              return (TxReject (UpdatingNonExistentBaker ubsId), energyCost, usedEnergy)
             Just acc ->
               if acc == senderAccount ^. accountAddress then
                 -- only the baker itself can update its own keys
@@ -945,7 +955,7 @@ handleDeployCredential cdi cdiHash = do
                     -- first check whether an account with the address exists in the global store
                     -- if it does not we cannot deploy the credential.
                     getAccount aaddr >>= \case
-                      Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
+                      Nothing -> return $ Just (TxInvalid (NonExistentAccount aaddr))
                       Just account -> do
                             -- otherwise we just try to add a credential to the account
                             -- but only if the credential is from the same identity provider
@@ -1057,6 +1067,112 @@ handleUpdateBakerElectionKey wtc ubekId ubekKey ubekProof =
             else return (TxReject InvalidProof, energyCost, usedEnergy)
           else
             return (TxReject (NotFromBakerAccount (senderAccount ^. accountAddress) acc), energyCost, usedEnergy)
+
+
+-- |Updates the the account keys. For each (index, key) pair, updates the key at
+-- the specified index to the specified key. Is valid when the indices all point
+-- to a key and no duplicates appear amongst them.
+handleUpdateAccountKeys ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> OrdMap.Map ID.KeyIndex AccountVerificationKey
+    -> m (Maybe TransactionSummary)
+handleUpdateAccountKeys wtc keys =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    accountKeys = senderAccount ^. accountVerificationKeys
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.updateAccountKeys $ length keys
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      if Set.isSubsetOf (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then do
+        updateAccountKeys (senderAccount ^. accountAddress) keys
+        return (TxSuccess [AccountKeysUpdated], energyCost, usedEnergy)
+      else
+        return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
+
+
+-- |Removes the account keys at the supplied indices and, optionally, updates
+-- the signature threshold.
+-- Is valid when the indices supplied are already in use, the new threshold
+-- does not exceed the new total amount of keys, and there are no duplicates
+-- amongst the supplied indices.
+handleRemoveAccountKeys ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> Set.Set ID.KeyIndex
+    -> Maybe ID.SignatureThreshold
+    -> m (Maybe TransactionSummary)
+handleRemoveAccountKeys wtc indices threshold =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    accountKeys = senderAccount ^. accountVerificationKeys
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.removeAccountKeys $ length indices
+    numOfKeys = length (ID.akKeys $ senderAccount ^. accountVerificationKeys)
+    currentThreshold = ID.akThreshold $ senderAccount ^. accountVerificationKeys
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      if Set.isSubsetOf indices (ID.getKeyIndices accountKeys) then
+        case threshold of
+          Just newThreshold ->
+            -- the subtraction is safe here because we have checked that indices is a subset of keys.
+            if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+              removeAccountKeys (senderAccount ^. accountAddress) indices threshold
+              return (TxSuccess [AccountKeysRemoved, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+          Nothing -> do
+            if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+              removeAccountKeys (senderAccount ^. accountAddress) indices Nothing
+              return (TxSuccess [AccountKeysRemoved], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+      else return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
+
+
+-- |Adds keys to the account at the supplied indices and, optionally, updates
+-- the signature threshold
+-- Is valid when the indices supplies are not already in use, there are no duplicates
+-- amongst the indices and the new threshold doesn’t exceed the new total amount of keys
+handleAddAccountKeys ::
+  SchedulerMonad m
+    => WithDepositContext
+    -> OrdMap.Map ID.KeyIndex AccountVerificationKey
+    -> Maybe ID.SignatureThreshold
+    -> m (Maybe TransactionSummary)
+handleAddAccountKeys wtc keys threshold =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    accountKeys = senderAccount ^. accountVerificationKeys
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.addAccountKeys $ length keys
+    numOfKeys = length (ID.akKeys $ senderAccount ^. accountVerificationKeys)
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      -- all the keys must be new.
+      if Set.disjoint (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then
+        case threshold of
+          Just newThreshold ->
+            if newThreshold <= fromIntegral (numOfKeys + (length keys)) then do
+              addAccountKeys (senderAccount ^. accountAddress) keys threshold
+              return (TxSuccess [AccountKeysAdded, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+          Nothing -> do
+            addAccountKeys (senderAccount ^. accountAddress) keys Nothing
+            return (TxSuccess [AccountKeysAdded], energyCost, usedEnergy)
+      else
+        return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
 
 
 -- * Exposed methods.

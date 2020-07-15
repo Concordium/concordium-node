@@ -39,7 +39,7 @@ testCases =
     , tcTransactions =
       [ ( TJSON { payload = DeployModule "SimpleCounter"
                 , metadata = makeDummyHeader alesAccount 1 100000
-                , keypair = alesKP
+                , keys = [(0, alesKP)]
                 }
         , (Success emptyExpect, emptySpec)
         )
@@ -49,14 +49,14 @@ testCases =
                                          , parameter = "0"
                                          }
                 , metadata = makeDummyHeader alesAccount 2 100000
-                , keypair = alesKP
+                , keys = [(0, alesKP)]
                 }
         , (Success emptyExpect, emptySpec)
         )
       , ( TJSON { payload = Transfer { toaddress = Types.AddressContract (Types.ContractAddress 0 0)
                                      , amount = 10 }
                 , metadata = makeDummyHeader alesAccount 3 70000
-                , keypair = alesKP
+                , keys = [(0, alesKP)]
                 }
         , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
                                    , euInstigator = Types.AddressAccount alesAccount
@@ -67,7 +67,7 @@ testCases =
       -- SimpleTransfer to non-existing address
       , ( TJSON { payload = Transfer { toaddress = Types.AddressContract (Types.ContractAddress 1 0), amount = 10 }
                 , metadata = makeDummyHeader alesAccount 4 70000
-                , keypair = alesKP
+                , keys = [(0, alesKP)]
                 }
         , (Reject $ Types.InvalidContractAddress (Types.ContractAddress 1 0), emptySpec)
         )

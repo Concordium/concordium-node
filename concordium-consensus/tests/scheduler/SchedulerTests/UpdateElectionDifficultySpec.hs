@@ -46,7 +46,7 @@ testCases =
           zip nonces legalElectionDifficulties <&> \(n, d) ->
           ( TJSON { payload = UpdateElectionDifficulty d
                   , metadata = makeDummyHeader alesAccount n 10000
-                  , keypair = alesKP
+                  , keys = [(0, alesKP)]
                   }
           , ( SuccessE [Types.ElectionDifficultyUpdated d]
             , \bs -> specify "Correct value in birk parameters" $
@@ -69,19 +69,19 @@ testCases =
             mkBodies = illegalElectionDifficulties <&> \d n ->
                            ( TJSON { payload = UpdateElectionDifficulty d
                                    , metadata = makeDummyHeader alesAccount n 10000
-                                   , keypair = alesKP
+                                   , keys = [(0, alesKP)]
                                    }
                            , (Reject Types.SerializationFailure, electionDifficultyNotChanged)
                            )
-            lastTransactionResultPair = 
+            lastTransactionResultPair =
                 (TJSON { payload = UpdateElectionDifficulty legalElectionDifficulty
                       , metadata = makeDummyHeader thomasAccount 1 10000
-                      , keypair = thomasKP
+                      , keys = [(0, thomasKP)]
                       }
                 , (Reject Types.NotFromSpecialAccount, electionDifficultyNotChanged)
                 )
         in zipWith ($) mkBodies nonces ++ [lastTransactionResultPair]
-          
+
     }
   ]
 
