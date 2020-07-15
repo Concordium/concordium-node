@@ -183,7 +183,8 @@ mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAm
     cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
 
 -- This generates an account with a single credential and single keypair, where
--- the credential shoul already be considered expired.
+-- the credential should already be considered expired. (Its valid-to date will be
+-- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
 mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
 mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt

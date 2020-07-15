@@ -1,5 +1,4 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# OPTIONS_GHC -Wall #-}
 {-# LANGUAGE MonoLocalBinds #-}
 
 module Concordium.GlobalState.Persistent.Account where
@@ -25,7 +24,7 @@ data PersistentAccount = PersistentAccount {
   ,_accountEncryptedAmount :: ![EncryptedAmount]
   -- |A pointer to account data that changes rarely
   ,_persistingData :: !(BufferedRef PersistingAccountData)
-  -- A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
+  -- |A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
   -- the persisting account data is stored behind a pointer
   ,_accountHash :: !Hash.Hash
   } deriving Show
@@ -60,19 +59,21 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
 instance HashableTo Hash.Hash PersistentAccount where
   getHash = _accountHash
 
+-- |Make a 'PersistentAccount' from an 'Transient.Account'.
 makePersistentAccount :: MonadIO m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
   let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
   _persistingData <- makeBufferedRef _accountPersisting
   return PersistentAccount {..}
 
--- |Checks whether the two arguments represent the same account
+-- |Checks whether the two arguments represent the same account. (Used for testing.)
 sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
 
--- |Checks whether the two arguments represent the same account by comparing the account hashes
+-- |Checks whether the two arguments represent the same account by comparing the account hashes.
+-- (Used for testing.)
 sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
 sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 

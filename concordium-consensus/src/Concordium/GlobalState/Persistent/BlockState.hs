@@ -39,7 +39,7 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.Rewards as Rewards
-import qualified Concordium.GlobalState.Persistent.Accounts as Account
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
@@ -56,7 +56,7 @@ import Concordium.Logger (MonadLogger)
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
 data BlockStatePointers = BlockStatePointers {
-    bspAccounts :: !Account.Accounts,
+    bspAccounts :: !Accounts.Accounts,
     bspInstances ::  !Instances.Instances,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
@@ -248,7 +248,7 @@ makePersistent Basic.BlockState{..} = do
         modules <- makeBufferedRef $! persistentMods
         identityProviders <- makeBufferedRef $! _blockIdentityProviders
         cryptographicParameters <- makeBufferedRef $! _blockCryptographicParameters
-        blockAccounts <- Account.makePersistent _blockAccounts
+        blockAccounts <- Accounts.makePersistent _blockAccounts
         bsp <- makeBufferedRef $ BlockStatePointers {
             bspAccounts = blockAccounts
             , bspInstances = persistentBlockInstances
@@ -295,7 +295,7 @@ emptyBlockState bspBirkParameters cryptParams = liftIO $ do
     identityProviders <- makeBufferedRef $! IPS.emptyIdentityProviders
     cryptographicParameters <- makeBufferedRef $! cryptParams
     bsp <- makeBufferedRef $ BlockStatePointers {
-        bspAccounts = Account.emptyAccounts
+        bspAccounts = Accounts.emptyAccounts
         , bspInstances = Instances.emptyInstances
         , bspModules = modules
         , bspBank = Rewards.emptyBankStatus
@@ -490,27 +490,28 @@ doDecrementCentralBankGTU pbs amount = do
 doGetAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> m (Maybe PersistentAccount)
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
-        Account.getAccount addr (bspAccounts bsp)
+        Accounts.getAccount addr (bspAccounts bsp)
 
 doAccountList :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [AccountAddress]
 doAccountList pbs = do
         bsp <- loadPBS pbs
-        Account.accountAddresses (bspAccounts bsp)
+        Accounts.accountAddresses (bspAccounts bsp)
 
 doRegIdExists :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
-        fst <$> Account.regIdExists regid (bspAccounts bsp)
+        fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
 doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentAccount -> m (Bool, PersistentBlockState)
 doPutNewAccount pbs acct = do
         bsp <- loadPBS pbs
         -- Add the account
-        (res, accts1) <- Account.putNewAccount acct (bspAccounts bsp)
+        (res, accts1) <- Accounts.putNewAccount acct (bspAccounts bsp)
         if res then (True,) <$> do
             PersistingAccountData{..} <- acct ^^. id
             -- Record the RegIds of any credentials
-            accts2 <- foldM (flip Account.recordRegId) accts1 (ID.cdvRegId <$> _accountCredentials)
+            accts2 <- foldM (flip Accounts.recordRegId) accts1 (ID.cdvRegId <$> _accountCredentials)
+            -- Update the delegation if necessary
             case _accountStakeDelegate of
                 Nothing -> storePBS pbs (bsp {bspAccounts = accts2})
                 target@(Just _) -> assert (null _accountInstances) $ do
@@ -526,10 +527,10 @@ doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
         -- Do the update to the account
-        (mbalinfo, accts1) <- Account.updateAccounts upd _auAddress (bspAccounts bsp)
+        (mbalinfo, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
         accts2 <- case _auCredential of
-            Just cdi -> Account.recordRegId (ID.cdvRegId cdi) accts1
+            Just cdi -> Accounts.recordRegId (ID.cdvRegId cdi) accts1
             Nothing -> return accts1
         -- If the amount is changed update the delegate stake
         birkParams1 <- case (_auAmount, mbalinfo) of
@@ -541,7 +542,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
     where
         upd oldAccount = do
           delegate <- oldAccount ^^. accountStakeDelegate
-          newAcc <- Account.updateAccount aUpd oldAccount
+          newAcc <- Accounts.updateAccount aUpd oldAccount
           return (delegate, newAcc)
 
 doGetInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> ContractAddress -> m (Maybe Instance)
@@ -567,7 +568,7 @@ doPutNewInstance pbs fnew = do
               delegate <- oldAccount ^^. accountStakeDelegate
               newAccount <- oldAccount & accountInstances %~~ Set.insert ca
               return (delegate, newAccount)
-        (mdelegate, accts) <- Account.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
+        (mdelegate, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
         -- Update the stake delegate
         case mdelegate of
             Nothing -> error "Invalid contract owner"
@@ -611,7 +612,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
                 storePBS pbs bsp{bspInstances = insts}
             Just (Just owner, insts) ->
                 -- Lookup the owner account and update its stake delegate
-                Account.getAccount owner (bspAccounts bsp) >>= \case
+                Accounts.getAccount owner (bspAccounts bsp) >>= \case
                     Nothing -> error "Invalid contract owner"
                     Just acct -> do
                         delegate <- acct ^^. accountStakeDelegate
@@ -644,7 +645,7 @@ doDelegateStake pbs aaddr target = do
                   newAccount <- acct & accountStakeDelegate .~~ target
                   instances <- acct ^^. accountInstances
                   return ((delegate, acct ^. accountAmount, Set.toList instances), newAccount)
-            Account.updateAccounts updAcc aaddr (bspAccounts bsp) >>= \case
+            Accounts.updateAccounts updAcc aaddr (bspAccounts bsp) >>= \case
                 (Nothing, _) -> error "Invalid account address"
                 (Just (acctOldTarget, acctBal, acctInsts), accts) -> do
                     instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") pinstanceAmount <$> Instances.lookupContractInstance caddr (bspInstances bsp)
