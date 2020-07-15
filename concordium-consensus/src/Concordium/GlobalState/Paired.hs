@@ -175,7 +175,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
-        assert (((==) `on` (fmap moduleSource)) m1 m2) $ return m1
+        assert (((==) `on` (fmap moduleInterface)) m1 m2) $ return m1
     getAccount (ls, rs) addr = do
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
@@ -366,7 +366,7 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
         r2 <- coerceBSMR $ bsoGetModule bs2 mref
-        assert (((==) `on` (fmap moduleSource)) r1 r2) $ return r1
+        assert (r1 == r2) $ return r1
     bsoGetAccount (bs1, bs2) aref = do
         r1 <- coerceBSML $ bsoGetAccount bs1 aref
         r2 <- coerceBSMR $ bsoGetAccount bs2 aref
@@ -400,30 +400,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 f
         (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 f
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoPutNewModule (bs1, bs2) mref iface uvi modul = do
-        (r1, bs1') <- coerceBSML $ bsoPutNewModule bs1 mref iface uvi modul
-        (r2, bs2') <- coerceBSMR $ bsoPutNewModule bs2 mref iface uvi modul
+    bsoPutNewModule (bs1, bs2) iface = do
+        (r1, bs1') <- coerceBSML $ bsoPutNewModule bs1 iface
+        (r2, bs2') <- coerceBSMR $ bsoPutNewModule bs2 iface
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoTryGetLinkedExpr (bs1, bs2) modref name = do
-        r1 <- coerceBSML $ bsoTryGetLinkedExpr bs1 modref name
-        r2 <- coerceBSMR $ bsoTryGetLinkedExpr bs2 modref name
-        case (r1, r2) of
-            (Just le1, Just le2) -> assert (le1 == le2) $ return r1
-            _ -> return r1
-    bsoPutLinkedExpr (bs1, bs2) modref name le = do
-        bs1' <- coerceBSML $ bsoPutLinkedExpr bs1 modref name le
-        bs2' <- coerceBSMR $ bsoPutLinkedExpr bs2 modref name le
-        return (bs1', bs2')
-    bsoTryGetLinkedContract (bs1, bs2) modref name = do
-        r1 <- coerceBSML $ bsoTryGetLinkedContract bs1 modref name
-        r2 <- coerceBSMR $ bsoTryGetLinkedContract bs2 modref name
-        case (r1, r2) of
-            (Just le1, Just le2) -> assert (le1 == le2) $ return r1
-            _ -> return r1
-    bsoPutLinkedContract (bs1, bs2) modref name lc = do
-        bs1' <- coerceBSML $ bsoPutLinkedContract bs1 modref name lc
-        bs2' <- coerceBSMR $ bsoPutLinkedContract bs2 modref name lc
-        return (bs1', bs2')
     bsoModifyAccount (bs1, bs2) upd = do
         bs1' <- coerceBSML $ bsoModifyAccount bs1 upd
         bs2' <- coerceBSMR $ bsoModifyAccount bs2 upd

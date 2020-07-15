@@ -2,6 +2,8 @@
 module GlobalStateTests.Instances where
 
 import Data.Word
+import qualified Data.Text as Text
+import qualified Data.Set as Set
 import Control.Monad
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
@@ -10,13 +12,14 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
+import qualified Concordium.Wasm as Wasm
 import Concordium.Types.HashableTo
-import Concordium.Types.Acorn.Interfaces
-import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 import Concordium.GlobalState.Basic.BlockState.Instances
+import Concordium.GlobalState.Instance
 
 import qualified Data.FixedByteString as FBS
+import qualified Data.ByteString as BS
 
 import Test.QuickCheck
 import Test.Hspec
@@ -49,37 +52,46 @@ invariantInstanceTable (Tree c0 t) = do
 invariantInstances :: Instances -> Either String ()
 invariantInstances = invariantInstanceTable . _instances
 
-dummyExpr :: (Expr linked annot, TermSize linked)
-dummyExpr = (UnCast, 1)
+genReceiveNames :: Gen (Set.Set Wasm.ReceiveName)
+genReceiveNames = do
+  n <- choose (1,10)
+  ns <- fmap (Wasm.ReceiveName . Text.pack) <$> vector n
+  return $ Set.fromList ns
+
+genContractState :: Gen ContractState
+genContractState = do
+  n <- choose (1,1000)
+  ContractState . BS.pack <$> vector n
 
 makeArbitraryInstance :: Gen (ContractAddress -> Instance)
 makeArbitraryInstance = do
         let
-            modRef = Core.ModuleRef (H.hash "module")
-            tyname = 0
-            contract = ContractValue dummyExpr dummyExpr HM.empty
-            messageType = Core.TBase Core.TInt32
-        model <- VLiteral . Core.Int32 <$> arbitrary
+            modRef = ModuleRef (H.hash "module")
+        initName <- Wasm.InitName . Text.pack <$> arbitrary
+        receiveNames <- genReceiveNames
+        contractState <- genContractState
+        n <- choose (0,1000)
+        iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.WasmModule 0 . BS.pack <$> vector n
         amount <- Amount <$> arbitrary
         owner <- AccountAddress . FBS.pack <$> (vector 21)
-        return $ makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount owner
+        return $ makeInstance modRef initName receiveNames iface contractState amount owner
 
 makeDummyInstance :: InstanceData -> ContractAddress -> Instance
 makeDummyInstance (InstanceData model amount) =
-        makeInstance modRef tyname contract messageType (emptyInterface modRef) emptyValueInterface model amount owner
+        makeInstance modRef initName receiveNames iface model amount owner
     where
-        modRef = Core.ModuleRef (H.hash "module")
-        tyname = 0
-        contract = ContractValue dummyExpr dummyExpr HM.empty
-        messageType = Core.TBase Core.TInt32
+        modRef = ModuleRef (H.hash "module")
+        initName = Wasm.InitName "init"
+        receiveNames = Set.singleton (Wasm.ReceiveName "receive")
+        iface = Wasm.ModuleInterface modRef Set.empty Set.empty (Wasm.WasmModule 0 "<empty>")
         owner = AccountAddress . FBS.pack . replicate 21 $ 0
 
-data InstanceData = InstanceData (Value Core.NoAnnot) Amount
+data InstanceData = InstanceData ContractState Amount
     deriving (Eq, Show)
 
 instance Arbitrary InstanceData where
     arbitrary = do
-        model <- VLiteral . Core.Int32 <$> arbitrary
+        model <- genContractState
         amount <- Amount <$> arbitrary
         return $ InstanceData model amount
 
@@ -104,7 +116,7 @@ modelGetInstanceData (ContractAddress ci csi) m = do
         guard $ csi == csi'
         return idata
 
-modelUpdateInstanceAt :: ContractAddress -> Amount -> Value Core.NoAnnot -> Model -> Model
+modelUpdateInstanceAt :: ContractAddress -> Amount -> ContractState -> Model -> Model
 modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = Map.adjust upd ci (modelInstances m)}
     where
         upd o@(csi', _)
