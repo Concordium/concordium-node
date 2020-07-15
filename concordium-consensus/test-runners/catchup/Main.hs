@@ -194,8 +194,8 @@ gsToString gs = intercalate "\\l" . map show $ keys
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 -}
 
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
+dummyIdentityProviders :: IdentityProviders
+dummyIdentityProviders = emptyIdentityProviders
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers

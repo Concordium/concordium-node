@@ -85,7 +85,7 @@ makeGenesisData ::
     -> ElectionDifficulty  -- ^Initial election difficulty.
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
-    -> [IpInfo]   -- ^List of initial identity providers.
+    -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block

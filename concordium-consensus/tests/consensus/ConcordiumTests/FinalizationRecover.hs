@@ -20,6 +20,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 
 import Test.Hspec
@@ -53,7 +54,7 @@ genesis nBakers =
     0.5
     defaultFinalizationParameters
     dummyCryptographicParameters
-    []
+    emptyIdentityProviders
     dummyArs
     []
     1234

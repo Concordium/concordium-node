@@ -19,6 +19,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.TreeState as TS
@@ -97,11 +98,11 @@ initialiseStatesDictator n = do
             bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders nAccounts (Amount (2 ^ (40 :: Int)))))
                                         (ActiveFinalization fininst)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
