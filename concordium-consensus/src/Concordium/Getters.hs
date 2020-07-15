@@ -31,7 +31,6 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
-import qualified Data.PQueue.Prio.Max as Queue
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types
