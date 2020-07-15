@@ -128,8 +128,8 @@ gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState)
         showBakers bs = show [ _bakerStake binfo | (_, binfo) <- Map.toList (_bakerMap bs)]
 -}
 
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
+dummyIdentityProviders :: IdentityProviders
+dummyIdentityProviders = emptyIdentityProviders
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers

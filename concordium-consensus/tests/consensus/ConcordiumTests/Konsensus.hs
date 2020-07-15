@@ -504,9 +504,6 @@ makeBaker bid initAmount = resize 0x20000000 $ do
         let (account, kp) = makeBakerAccountKP bid initAmount
         return (FullBakerInfo (BakerInfo epk spk blspk (_accountAddress account)) initAmount, BakerIdentity sk ek blssk, account, kp)
 
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
-
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
@@ -544,11 +541,11 @@ createInitStates bis maxFinComSize specialAccounts = do
             seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig
-                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts specialAccounts))
+                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders nAccounts specialAccounts))
                                                (ActiveFinalization fininst)
                                                NoHandler
                                        (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
