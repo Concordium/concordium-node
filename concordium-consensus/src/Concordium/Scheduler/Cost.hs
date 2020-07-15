@@ -209,13 +209,20 @@ updateBakerElectionKey :: Energy
 updateBakerElectionKey = 90
 
 -- |Cost to update existing account keys. Parametrised by amount of keys to update
+-- The cost of this transaction is the cost of deserializing Ed25519 verification keys
+-- which means checking that it decodes to a point on the curve.
 updateAccountKeys :: Int -> Energy
-updateAccountKeys _n = 0
+updateAccountKeys _n = 5 * n
 
 -- |Cost to add a given number of account keys.
+-- The cost of this transaction is the cost of deserializing Ed25519 verification keys
+-- which means checking that it decodes to a point on the curve.
+-- Same as for updateAccountKeys
 addAccountKeys :: Int -> Energy
-addAccountKeys _n = 0
+addAccountKeys = updateAccountKeys
 
 -- |Cost to remove the given number of account keys.
+-- There is no expensive operation related to this transaction, which is why it
+-- has no cost except for that of checking the header.
 removeAccountKeys :: Int -> Energy
 removeAccountKeys _n = 0
