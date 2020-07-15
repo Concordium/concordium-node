@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
@@ -15,6 +16,7 @@ import Control.Monad hiding (fail)
 import Data.Ratio
 import Data.Word
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.BakerInfo
@@ -112,7 +114,16 @@ eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
 eitherReadAnonymityRevokers = AE.eitherDecode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
-readCryptographicParameters = AE.decode
+readCryptographicParameters = readVersionedCryptographicParameters
+
+readVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
+readVersionedCryptographicParameters bs = case AE.decode bs of
+  Just (v :: (Versioned CryptographicParameters)) -> do
+    if ((vVersion v) /= versionGlobalParameters) then
+      Nothing
+    else
+      Just (vValue v)
+  _ -> Nothing
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a
