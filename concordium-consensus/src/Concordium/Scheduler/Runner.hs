@@ -5,7 +5,7 @@ module Concordium.Scheduler.Runner where
 import GHC.Generics(Generic)
 
 import Data.Text(Text)
-import qualified Data.HashMap.Strict as Map
+import qualified Data.HashMap.Strict as HMap
 
 import Control.Monad.Except
 
@@ -16,20 +16,26 @@ import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
 
+import Concordium.ID.Types
 import Concordium.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
 import Acorn.Parser.Runner
 import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
--- |Sign a transaction with a single keypair, assuming the account has only one
--- key, with index 0.
-signTx :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
-signTx kp TransactionHeader{..} encPayload = Types.signTransactionSingle kp header encPayload
+-- |Sign a transaction with with the given list of keys
+signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
+    where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
+
+signTxSingle :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle key header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
 transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
@@ -39,7 +45,7 @@ transactionHelper t =
       (signTx keys meta . Types.encodePayload . Types.DeployModule) <$> getModule mnameText
     (TJSON meta (InitContract amnt mnameText cNameText paramExpr) keys) -> do
       (mref, _, tys) <- getModuleTmsTys mnameText
-      case Map.lookup cNameText tys of
+      case HMap.lookup cNameText tys of
         Just contName -> do
           params <- processTmInCtx mnameText paramExpr
           return $ signTx keys meta (Types.encodePayload (Types.InitContract amnt mref contName params))
@@ -90,6 +96,12 @@ transactionHelper t =
       in do
         Just ubekProof <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair sk pk)
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerElectionKey bid pk ubekProof))
+    (TJSON meta (UpdateAccountKeys keyUpdates) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateAccountKeys keyUpdates))
+    (TJSON meta (RemoveAccountKeys keyIdxs threshold) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.RemoveAccountKeys keyIdxs threshold))
+    (TJSON meta (AddAccountKeys newKeys threshold) keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -168,6 +180,17 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      ubekSecretKey :: !VRF.SecretKey,
                      ubekPublicKey :: !VRF.PublicKey
                      }
+                 | UpdateAccountKeys {
+                     uakUpdates :: !(Map.Map KeyIndex AccountVerificationKey)
+                     }
+                 | RemoveAccountKeys {
+                     rakIndices :: !(Set.Set KeyIndex),
+                     rakThreshold :: !(Maybe SignatureThreshold)
+                     }
+                 | AddAccountKeys {
+                     aakKeys :: !(Map.Map KeyIndex AccountVerificationKey),
+                     aakThreshold :: !(Maybe SignatureThreshold)
+                     }
                  deriving(Show, Generic)
 
 data TransactionHeader = TransactionHeader {
@@ -183,6 +206,6 @@ data TransactionHeader = TransactionHeader {
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader
                              , payload :: PayloadJSON
-                             , keypair :: KeyPair
+                             , keys :: [(KeyIndex, KeyPair)]
                              }
   deriving(Show,Generic)

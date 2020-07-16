@@ -9,7 +9,7 @@ module Concordium.Getters where
 import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
-import Concordium.Skov
+import Concordium.Skov as Skov
 import qualified Data.HashMap.Strict as HM
 
 import Control.Monad.State.Class
@@ -348,6 +348,11 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "transactionsSize" .= toInteger (bpTransactionsSize bp)
                             ]
 
+getBlocksAtHeight :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m))
+    => z -> BlockHeight -> IO Value
+getBlocksAtHeight sfsRef height = runStateQuery sfsRef $
+    toJSONList . map hsh <$> Skov.getBlocksAtHeight height
+
 getAncestors :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m))
              => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
@@ -418,3 +423,11 @@ checkIsCurrentFinalizer sfsRef = runStateQuery sfsRef $ do
    case fs ^. finCurrentRound of
      PassiveCurrentRound _ -> return False
      ActiveCurrentRound _ -> return True
+
+getAllIdentityProviders :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getAllIdentityProviders hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> toJSON <$> BS.getAllIdentityProviders st
+
+getAllAnonymityRevokers :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
+getAllAnonymityRevokers hash sfsRef = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> toJSON <$> BS.getAllAnonymityRevokers st

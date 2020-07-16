@@ -33,6 +33,7 @@ import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
+import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
@@ -65,6 +66,9 @@ dummyCryptographicParameters =
     fromMaybe
         (error "Could not read cryptographic parameters.")
         (unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
+
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -304,7 +308,7 @@ createInitStates additionalFinMembers = do
         elDiff = 1
         bps = BS.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
         bakerAccounts = map (\(_, _, acc) -> acc) bis
-        gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters dummyCryptographicParameters [] 10 $ Energy maxBound
+        gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters dummyCryptographicParameters [] dummyArs 10 $ Energy maxBound
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
