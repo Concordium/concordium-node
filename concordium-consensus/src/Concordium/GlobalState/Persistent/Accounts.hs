@@ -13,7 +13,6 @@ import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
-import Concordium.GlobalState.BlockState (AccountUpdate(..), AccountKeysUpdate(..), EncryptedAmountUpdate(..), auNonce, auAmount, auCredential, auEncrypted, auKeysUpdate, auSignThreshold)
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.AccountTable as AT
 import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTable)
@@ -227,20 +226,16 @@ updateAccount !upd !acc = do
   case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         (mNewCred, mKeyUpd, mNewThreshold) -> do
-            let updateCredential = maybe id addCredential mNewCred
-                updateAccountKeys = accountVerificationKeys %~ \ID.AccountKeys{..} ->
-                    let update (RemoveKeys indices) = Set.foldl' (\m k -> Map.delete k m) akKeys indices
-                        update (SetKeys keys) = Map.foldlWithKey' (\m idx key -> Map.insert idx key m) akKeys keys
-                        !newKeys = maybe akKeys update mKeyUpd
-                        !newThreshold = fromMaybe akThreshold mNewThreshold
-                    in ID.AccountKeys {akKeys = newKeys, akThreshold = newThreshold}
-                newPData = updateCredential (updateAccountKeys pData)
+            let newPData = updateCredential mNewCred (updateAccountKeys mKeyUpd mNewThreshold pData)
             newPDataRef <- makeBufferedRef newPData
             return $ newAccWithoutHash & persistingData .~ newPDataRef
                                     & hashUpdate newPData
 
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
+        maybeUpdate :: PersistingAccountData -> Maybe a -> (a -> PersistingAccountData -> PersistingAccountData) -> (Bool, PersistingAccountData)
+        maybeUpdate pd Nothing _ = (False, pd)
+        maybeUpdate pd (Just c) f = (True, f c pd)
 
 -- |Get a list of all account addresses.
 accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]

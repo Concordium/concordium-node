@@ -53,6 +53,7 @@ import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
+import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import Concordium.GlobalState.Parameters
@@ -213,36 +214,6 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
-
-data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
-                           | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
-                           | Empty                    -- ^Do nothing to the encrypted amount.
-
-data AccountKeysUpdate =
-    RemoveKeys !(Set.Set ID.KeyIndex) -- Removes the keys at the specified indexes from the account
-  | SetKeys !(Map.Map ID.KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
-
--- |An update to an account state.
-data AccountUpdate = AccountUpdate {
-  -- |Address of the affected account.
-  _auAddress :: !AccountAddress
-  -- |Optionally a new account nonce.
-  ,_auNonce :: !(Maybe Nonce)
-  -- |Optionally an update to the account amount.
-  ,_auAmount :: !(Maybe AmountDelta)
-  -- |Optionally an update to the encrypted amounts.
-  ,_auEncrypted :: !EncryptedAmountUpdate
-  -- |Optionally a new credential.
-  ,_auCredential :: !(Maybe ID.CredentialDeploymentValues)
-  -- |Optionally an update to the account keys
-  ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
-  -- |Optionally update the signature threshold
-  ,_auSignThreshold :: !(Maybe ID.SignatureThreshold)
-}
-makeLenses ''AccountUpdate
-
-emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing Nothing Nothing
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
