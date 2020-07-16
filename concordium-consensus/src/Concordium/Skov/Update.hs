@@ -411,6 +411,7 @@ doStoreBlock pb@GB.PendingBlock{..} = do
                 blockArriveDead cbp
                 return ResultInvalid
               Just newTransactions -> do
+                purgeTransactionTable False =<< currentTime
                 let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
                 updateReceiveStatistics block1
                 addBlock block1
@@ -441,8 +442,11 @@ doStoreBakedBlock = \pb parent lastFin result -> do
 --   * 'ResultStale' which indicates that a transaction with the same sender
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
-doReceiveTransaction :: (TreeStateMonad m) => BlockItem -> Slot -> m UpdateResult
-doReceiveTransaction tr slot = snd <$> doReceiveTransactionInternal tr slot
+doReceiveTransaction :: (TreeStateMonad m, TimeMonad m) => BlockItem -> Slot -> m UpdateResult
+doReceiveTransaction tr slot = do
+  (_, ur) <- doReceiveTransactionInternal tr slot
+  when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+  return ur
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.

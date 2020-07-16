@@ -42,7 +42,7 @@ import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus)
+import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize (FinalizationInstance(..))
 import Concordium.Logger
@@ -224,6 +224,7 @@ genesisState GenesisData{..} = Basic.initialState
                        genesisCryptographicParameters
                        (genesisAccounts ++ genesisControlAccounts)
                        genesisIdentityProviders
+                       genesisAnonymityRevokers
                        genesisMintPerSlot
 
 type TreeConfig = DiskTreeDiskBlockConfig
@@ -939,6 +940,37 @@ getBlockSummary cptr bhcstr = do
     logm External LLTrace $ "Replying with: " ++ show summary
     jsonValueToCString summary
 
+-- |Get the list of live blocks at a given height.
+-- Returns a NUL-terminated string encoding a JSON list.
+getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
+getBlocksAtHeight cptr height = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received blocks at height request."
+    blocks <- runConsensusQuery c Get.getBlocksAtHeight (fromIntegral height)
+    logm External LLTrace $ "Replying with: " ++ show blocks
+    jsonValueToCString blocks  
+
+getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
+getAllIdentityProviders cptr blockcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received request for identity providers."
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      ips <- runConsensusQuery c (Get.getAllIdentityProviders hash)
+      logm External LLTrace $ "Replying with: " ++ show ips
+      jsonValueToCString ips
+
+getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
+getAllAnonymityRevokers cptr blockcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received request for anonymity revokers."
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      ars <- runConsensusQuery c (Get.getAllAnonymityRevokers hash)
+      logm External LLTrace $ "Replying with: " ++ show ars
+      jsonValueToCString ars
+
 freeCStr :: CString -> IO ()
 freeCStr = free
 
@@ -1081,6 +1113,9 @@ foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner ->
 foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
+foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64

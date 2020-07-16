@@ -65,7 +65,7 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 1 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      TJSON { payload = AddBaker (baker1 ^. _1 . bakerInfo . bakerElectionVerifyKey)
                                 (baker1 ^. _2)
@@ -76,7 +76,7 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 2 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      TJSON { payload = AddBaker (baker2 ^. _1 . bakerInfo . bakerElectionVerifyKey)
                                 (baker2 ^. _2)
@@ -87,7 +87,7 @@ transactionsInput =
                                 thomasAccount
                                 thomasKP
            , metadata = makeDummyHeader alesAccount 3 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      TJSON { payload = AddBaker (baker3 ^. _1 . bakerInfo . bakerElectionVerifyKey)
                                 (baker3 ^. _2)
@@ -98,20 +98,20 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 4 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      TJSON { payload = RemoveBaker 1
            , metadata = makeDummyHeader alesAccount 5 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      TJSON { payload = UpdateBakerAccount 2 alesAccount alesKP
            , metadata = makeDummyHeader thomasAccount 1 10000
-           , keypair = thomasKP
+           , keys = [(0, thomasKP)]
            -- baker 2's account is Thomas account, so only it can update it
            },
      TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 55)) (BlockSig.signKey (bakerSignKey 55))
            , metadata = makeDummyHeader alesAccount 6 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Readd baker1 (new bakerId will be 3), which shouldn't result in an error due to duplicated keys, since they
      -- were deleted
@@ -124,12 +124,12 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 7 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Update baker1 (id 3) signature key to be the same as baker 2's, SHOULD FAIL
      TJSON { payload = UpdateBakerSignKey 3 (baker2 ^. _1 . bakerInfo . bakerSignatureVerifyKey) (baker2 ^. _3)
            , metadata = makeDummyHeader alesAccount 8 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Add a baker with a duplicate signature key, SHOULD FAIL
      TJSON { payload = AddBaker (baker3 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -141,11 +141,11 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 9 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      TJSON { payload = UpdateBakerAggregationVerifyKey 0 (Bls.derivePublicKey $ bakerAggregationKey 42) (bakerAggregationKey 42)
            , metadata = makeDummyHeader alesAccount 10 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Add a baker with a duplicate aggregation key, SHOULD FAIL
      TJSON { payload = AddBaker (baker3 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -157,28 +157,28 @@ transactionsInput =
                                 alesAccount
                                 alesKP
            , metadata = makeDummyHeader alesAccount 11 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Update baker1 (id 3) aggregation key to be the same as the one baker0 just changed to, SHOULD FAIL
      TJSON { payload = UpdateBakerAggregationVerifyKey 3 (Bls.derivePublicKey $ bakerAggregationKey 42) (bakerAggregationKey 42)
            , metadata = makeDummyHeader alesAccount 12 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Update election key of baker1 at bakerId 3 to be that of baker3
      TJSON { payload = UpdateBakerElectionKey 3 (baker3 ^. _2) (VRF.pubKey $ baker3 ^. _2)
            , metadata = makeDummyHeader alesAccount 13 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            },
      -- Update election key of baker1 at bakerId 3 using the wrong account, SHOULD FAIL
      TJSON { payload = UpdateBakerElectionKey 3 (baker3 ^. _2) (VRF.pubKey $ baker3 ^. _2)
            , metadata = makeDummyHeader thomasAccount 2 10000
-           , keypair = thomasKP
+           , keys = [(0, thomasKP)]
            },
      -- Update election key of baker1 at bakerId 3 using the wrong secret key to create
      -- the proof of knowledge. SHOULD FAIL
      TJSON { payload = UpdateBakerElectionKey 3 (baker3 ^. _2) (VRF.pubKey $ baker2 ^. _2)
            , metadata = makeDummyHeader alesAccount 14 10000
-           , keypair = alesKP
+           , keys = [(0, alesKP)]
            }
     ]
 
@@ -307,7 +307,7 @@ tests = do
 
     specify "Update first baker's election key" $
       case (results !! 12, results !! 13) of
-        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], bps13)) ->
+        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], _bps13)) ->
             let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
                 b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
             in do

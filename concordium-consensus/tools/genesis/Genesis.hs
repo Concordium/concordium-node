@@ -15,11 +15,12 @@ import Text.Printf
 import Data.Time.Format
 import Lens.Micro.Platform
 
-import Data.Text
+import Data.Text(Text)
 import qualified Data.HashMap.Strict as Map
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SS
 import Concordium.ID.Types
@@ -29,6 +30,7 @@ data Genesis
     = GenerateGenesisData {gdSource :: FilePath,
                            gdOutput :: FilePath,
                            gdIdentity :: Maybe FilePath,
+                           gdArs :: Maybe FilePath,
                            gdCryptoParams :: Maybe FilePath,
                            gdAdditionalAccounts :: Maybe FilePath,
                            gdControlAccounts :: Maybe FilePath,
@@ -47,6 +49,12 @@ generateGenesisData = GenerateGenesisData {
                  opt (Nothing :: Maybe FilePath) &=
                  typFile &=
                  help "JSON file with identity providers.",
+    gdArs = def &=
+            explicit &=
+            name "anonymity-revokers" &=
+            opt (Nothing :: Maybe FilePath) &=
+            typFile &=
+            help "JSON file with anonymity revokers.",
     gdCryptoParams = def &=
                      explicit &=
                      name "crypto-params" &=
@@ -115,7 +123,8 @@ main = cmdArgsRun mode >>=
                     exitFailure
                 Right v -> do
                   vId <- maybeModifyValue gdIdentity "identityProviders" v
-                  vCP <- maybeModifyValue gdCryptoParams "cryptographicParameters" vId
+                  vAr <- maybeModifyValue gdArs "anonymityRevokers" vId
+                  vCP <- maybeModifyValue gdCryptoParams "cryptographicParameters" vAr
                   vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
                   vAcc <- maybeModifyValue gdControlAccounts "controlAccounts" vAdditionalAccs
                   value <- maybeModifyValue gdBakers "bakers" vAcc
@@ -174,6 +183,12 @@ main = cmdArgsRun mode >>=
 
               putStrLn ""
               putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
+
+              putStrLn ""
+              putStrLn $ "There are " ++ show (length genesisIdentityProviders) ++ " identity providers in genesis."
+
+              putStrLn ""
+              putStrLn $ "There are " ++ show (Map.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
 
               putStrLn $ "Genesis bakers:"
               putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
