@@ -8,6 +8,7 @@ import Data.Serialize
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Crypto.SignatureScheme
 import Concordium.ID.Types
 import Concordium.Types
 
@@ -53,3 +54,13 @@ makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
 addCredential :: HasPersistingAccountData d => CredentialDeploymentValues -> d -> d
 addCredential cdv = (accountCredentials %~ (cdv:))
   . (accountMaxCredentialValidTo %~ max (pValidTo (cdvPolicy cdv)))
+
+{-# INLINE setKey #-}
+-- |Set a at a given index to a given value. The value of 'Nothing' will remove the key.
+setKey :: HasPersistingAccountData d => KeyIndex -> Maybe VerifyKey -> d -> d
+setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at idx .~ key })
+
+{-# INLINE setThreshold #-}
+-- |Set the signature threshold.
+setThreshold :: HasPersistingAccountData d => SignatureThreshold -> d -> d
+setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })

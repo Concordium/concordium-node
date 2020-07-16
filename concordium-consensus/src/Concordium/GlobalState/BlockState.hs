@@ -42,6 +42,7 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Ratio
 import Data.Word
 import qualified Data.Vector as Vec
@@ -59,6 +60,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
@@ -77,7 +79,7 @@ data Module = Module {
 
 class (BlockStateTypes m,  Monad m) => BakerQuery m where
 
-  -- |If baker with given ID exists, get the stake delegated to that baker 
+  -- |If baker with given ID exists, get the stake delegated to that baker
   getBakerStake :: Bakers m -> BakerId -> m (Maybe Amount)
 
   -- |If baker with given signature verification key exists, get the baker's baker ID
@@ -208,9 +210,17 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
 
+    getAllIdentityProviders :: BlockState m -> m [IpInfo]
+
+    getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
+
 data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
                            | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
                            | Empty                    -- ^Do nothing to the encrypted amount.
+
+data AccountKeysUpdate =
+    RemoveKeys !(Set.Set ID.KeyIndex) -- Removes the keys at the specified indexes from the account
+  | SetKeys !(Map.Map ID.KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -224,11 +234,15 @@ data AccountUpdate = AccountUpdate {
   ,_auEncrypted :: !EncryptedAmountUpdate
   -- |Optionally a new credential.
   ,_auCredential :: !(Maybe ID.CredentialDeploymentValues)
-  }
+  -- |Optionally an update to the account keys
+  ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
+  -- |Optionally update the signature threshold
+  ,_auSignThreshold :: !(Maybe ID.SignatureThreshold)
+}
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing Nothing Nothing
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -367,6 +381,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- the identity provider with given ID does not exist.
   bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
 
+  -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
+  -- anonymity revokers are not found.
+  bsoGetAnonymityRevokers :: UpdatableBlockState m -> [ID.ArIdentity] -> m (Maybe [ArInfo])
+
   -- |Get the current cryptographic parameters. The idea is that these will be
   -- periodically updated and so they must be part of the block state.
   bsoGetCryptoParams :: UpdatableBlockState m -> m CryptographicParameters
@@ -444,6 +462,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getTransactionOutcome s = lift . getTransactionOutcome s
   getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
+  getAllIdentityProviders s = lift $ getAllIdentityProviders s
+  getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -455,6 +475,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
   {-# INLINE getSpecialOutcomes #-}
+  {-# INLINE getAllIdentityProviders #-}
+  {-# INLINE getAllAnonymityRevokers #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
@@ -518,6 +540,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
   bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
+  bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
@@ -548,6 +571,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoDecrementCentralBankGTU #-}
   {-# INLINE bsoDelegateStake #-}
   {-# INLINE bsoGetIdentityProvider #-}
+  {-# INLINE bsoGetAnonymityRevokers #-}
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}

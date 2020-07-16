@@ -85,7 +85,7 @@ getAccount addr Accounts{..} = case Map.lookup addr accountMap of
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
 updateAccount :: AccountUpdate -> Account -> Account
-updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncryptedAmount
+updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncryptedAmount . updateAccountKeys . updateThreshold
   where
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
@@ -97,6 +97,10 @@ updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncr
       Empty -> id
       Add ea -> accountEncryptedAmount %~ (ea:)
       Replace ea -> accountEncryptedAmount .~ [ea]
+    updateAccountKeys = maybeUpdate (upd ^. auKeysUpdate) $ \case
+      RemoveKeys indices -> \acc -> Set.foldl' (\acc' key -> setKey key Nothing acc') acc indices
+      SetKeys keys -> \acc -> Map.foldlWithKey' (\m idx key -> setKey idx (Just key) m) acc keys
+    updateThreshold = maybeUpdate (upd ^. auSignThreshold) setThreshold
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.

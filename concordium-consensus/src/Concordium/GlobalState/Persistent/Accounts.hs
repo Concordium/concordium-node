@@ -13,7 +13,7 @@ import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
-import Concordium.GlobalState.BlockState (AccountUpdate(..), EncryptedAmountUpdate(..), auNonce, auAmount, auCredential, auEncrypted)
+import Concordium.GlobalState.BlockState (AccountUpdate(..), EncryptedAmountUpdate(..), AccountKeysUpdate(..), auNonce, auAmount, auCredential, auEncrypted, auKeysUpdate, auSignThreshold)
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.AccountTable as AT
 import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTable)
@@ -224,16 +224,23 @@ updateAccount !upd !acc = do
                                                     & accountEncryptedAmount .~ newEncryptedAmount
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
   let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pdata
-  case upd ^. auCredential of
-       Nothing -> return $ newAccWithoutHash & hashUpdate pData
-       Just c -> do
-         let newPData = addCredential c pData
-         newPDataRef <- makeBufferedRef newPData
-         return $ newAccWithoutHash & persistingData .~ newPDataRef
-                                    & hashUpdate newPData
+  let (b1, pData1) = maybeUpdate pData (upd ^. auCredential) addCredential
+  let (b2, pData2) = maybeUpdate pData1 (upd ^. auKeysUpdate) $ \case
+        RemoveKeys indices -> flip (Set.foldl' (\acc' key -> setKey key Nothing acc')) indices
+        SetKeys keys -> \acc' -> Map.foldlWithKey' (\m idx key -> setKey idx (Just key) m) acc' keys
+  let (b3, pData3) = maybeUpdate pData2 (upd ^. auSignThreshold) setThreshold
+  if not b1 && not b2 && not b3 then
+    return $ newAccWithoutHash & hashUpdate pData
+  else do
+    newPDataRef <- makeBufferedRef pData3
+    return $ newAccWithoutHash & persistingData .~ newPDataRef
+                               & hashUpdate pData3
 
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
+        maybeUpdate :: PersistingAccountData -> Maybe a -> (a -> PersistingAccountData -> PersistingAccountData) -> (Bool, PersistingAccountData)
+        maybeUpdate pd Nothing _ = (False, pd)
+        maybeUpdate pd (Just c) f = (True, f c pd)
 
 -- |Get a list of all account addresses.
 accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]
