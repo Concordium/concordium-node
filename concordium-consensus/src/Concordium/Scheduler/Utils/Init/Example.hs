@@ -3,14 +3,13 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wall -Wno-deprecations #-}
 module Concordium.Scheduler.Utils.Init.Example
+    {-# WARNING "This module is for testing purposes and should not be used in production code" #-}
     (initialState, initialStateWithMateuszAccount, makeTransaction, makeTransferTransaction, createCustomAccount,
      mateuszAccount, dummyCredential) where
 
 import qualified Data.HashMap.Strict as Map
 
 import qualified Concordium.Crypto.SignatureScheme as Sig
-
-import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.ID.Types as ID
 
@@ -20,8 +19,9 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
 
+import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Acc
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import qualified Concordium.GlobalState.Modules as Mod
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import qualified Concordium.Scheduler.Runner as Runner
@@ -135,9 +135,8 @@ initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amoun
 
 createCustomAccount :: Amount -> Sig.KeyPair -> AccountAddress -> Account
 createCustomAccount amount kp address =
-    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address (ID.cdvRegId credential)
+    newAccount (ID.makeSingletonAC (Sig.correspondingVerifyKey kp)) address credential
         & (accountAmount .~ amount)
-        . (accountCredentials .~ Queue.singleton dummyMaxValidTo credential)
   where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
 
 -- |State with the given number of contract instances of the counter contract specified.

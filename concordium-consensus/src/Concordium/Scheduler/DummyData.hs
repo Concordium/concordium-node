@@ -3,7 +3,7 @@
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Concordium.Scheduler.DummyData where
 
-import Concordium.Types hiding (accountAddress)
+import Concordium.Types
 import Concordium.ID.Types
 
 import qualified Concordium.Scheduler.Runner as Runner

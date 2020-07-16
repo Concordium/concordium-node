@@ -7,7 +7,7 @@
 module Concordium.Startup {-# WARNING "This module should not be used in production code." #-} where
 
 import System.Random
-import qualified Data.PQueue.Prio.Max as Queue
+import Lens.Micro.Platform
 
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import System.IO.Unsafe
@@ -19,6 +19,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers (bakersFromList)
 import qualified Concordium.GlobalState.SeedState as SeedState
@@ -26,7 +27,7 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
-import Concordium.ID.Types(randomAccountAddress, makeSingletonAC, cdvRegId)
+import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 
@@ -40,22 +41,20 @@ makeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 spk = Sig.verifyKey sk
                 (blssk, gen''') = randomBlsSecretKey gen''
                 blspk = Bls.derivePublicKey blssk
-                accAddress = _accountAddress account
-                stake = _accountAmount account
+                accAddress = account ^. accountAddress
+                stake = account ^. accountAmount
                 account = makeBakerAccount bid (if bid `mod` 2 == 0 then 1200000000000 else 800000000000)
 
 -- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
 makeBakerAccountKP :: BakerId -> Amount -> (Account, SigScheme.KeyPair)
 makeBakerAccountKP bid amount =
-    (acct {_accountAmount = amount,
-           _accountStakeDelegate = Just bid,
-           _accountCredentials = credentialList},
-     kp)
+    (acct, kp)
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
-    credentialList = Queue.singleton dummyMaxValidTo credential
-    acct = newAccount (makeSingletonAC vfKey) address (cdvRegId credential)
+    acct = newAccount (makeSingletonAC vfKey) address credential
+                & accountAmount .~ amount
+                & accountStakeDelegate ?~ bid
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)

@@ -39,6 +39,7 @@ stages:
     policy: pull
   variables:
     TEST_LEVEL: 1
+  needs: ["stack:build"]
 
 .generic-rust-test:
   extends: .generic
@@ -72,6 +73,7 @@ stages:
   script:
     - ( cd consensus-rust && cargo fmt -- --color=always)
     - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+  needs: []
 
 "cargo:clippy":
   extends: .generic-rust-lint
