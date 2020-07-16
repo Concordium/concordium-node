@@ -15,6 +15,7 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
 import Data.Foldable
+import Data.Maybe
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -85,7 +86,7 @@ getAccount addr Accounts{..} = case Map.lookup addr accountMap of
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
 updateAccount :: AccountUpdate -> Account -> Account
-updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncryptedAmount
+updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncryptedAmount . updateAccountKeys
   where
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
@@ -97,6 +98,14 @@ updateAccount !upd = updateNonce . updateAmount . updateCredentials . updateEncr
       Empty -> id
       Add ea -> accountEncryptedAmount %~ (ea:)
       Replace ea -> accountEncryptedAmount .~ [ea]
+    updateAccountKeys = case (upd ^. auKeysUpdate, upd ^. auSignThreshold) of
+      (Nothing, Nothing) -> id
+      (mKeyUpd, mNewThreshold) -> accountVerificationKeys %~ \ID.AccountKeys{..} ->
+        let update (RemoveKeys indices) = Set.foldl' (\m k -> Map.delete k m) akKeys indices
+            update (SetKeys keys) = Map.foldlWithKey' (\m idx key -> Map.insert idx key m) akKeys keys
+            !newKeys = maybe akKeys update mKeyUpd
+            !newThreshold = fromMaybe akThreshold mNewThreshold
+        in ID.AccountKeys {akKeys = newKeys, akThreshold = newThreshold}
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.

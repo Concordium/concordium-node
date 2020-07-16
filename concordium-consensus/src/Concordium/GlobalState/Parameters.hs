@@ -22,6 +22,7 @@ import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -88,6 +89,7 @@ data GenesisData = GenesisData {
     genesisFinalizationParameters :: !FinalizationParameters,
     genesisCryptographicParameters :: !CryptographicParameters,
     genesisIdentityProviders :: ![IpInfo],
+    genesisAnonymityRevokers :: !AnonymityRevokers,
     genesisMintPerSlot :: !Amount,
     genesisMaxBlockEnergy :: !Energy
 } deriving (Generic, Show, Eq)
@@ -101,8 +103,14 @@ genesisTotalGTU GenesisData{..} =
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
 
+readAnonymityRevokers :: BSL.ByteString -> Maybe AnonymityRevokers
+readAnonymityRevokers = AE.decode
+
 eitherReadIdentityProviders :: BSL.ByteString -> Either String [IpInfo]
 eitherReadIdentityProviders = AE.eitherDecode
+
+eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
+eitherReadAnonymityRevokers = AE.eitherDecode
 
 readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 readCryptographicParameters = AE.decode
@@ -165,6 +173,7 @@ data GenesisParameters = GenesisParameters {
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: [IpInfo],
+    gpAnonymityRevokers :: AnonymityRevokers,
     -- |Additional accounts (not baker accounts and not control accounts).
     -- They cannot delegate to any bakers in genesis.
     gpInitialAccounts :: [GenesisAccount],
@@ -189,6 +198,7 @@ instance FromJSON GenesisParameters where
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
         gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
         gpControlAccounts <- v .:? "controlAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
@@ -281,4 +291,5 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
+        genesisAnonymityRevokers = gpAnonymityRevokers
         genesisMaxBlockEnergy = gpMaxBlockEnergy
