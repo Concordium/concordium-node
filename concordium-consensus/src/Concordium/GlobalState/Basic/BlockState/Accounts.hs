@@ -8,14 +8,12 @@ import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Concordium.Utils
 import Concordium.Types
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
 import Data.Foldable
-import Data.Maybe
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
