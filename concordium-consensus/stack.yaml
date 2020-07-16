@@ -36,7 +36,6 @@ resolver: lts-15.8
 packages:
 - Concordium
 - crypto
-- acorn
 - scheduler
 - globalstate-types
 - globalstate-mockup/globalstate
@@ -77,4 +76,3 @@ extra-lib-dirs:
 
 nix:
   shell-file: shell-stack.nix
-  
