@@ -77,7 +77,7 @@ data PersistentInstance = PersistentInstance {
     -- |The fixed parameters that might be cached
     pinstanceCachedParameters :: !(Nullable CacheableInstanceParameters),
     -- |The current local state of the instance
-    pinstanceModel :: !Transient.ContractState,
+    pinstanceModel :: !Wasm.ContractState,
     -- |The current amount of GTU owned by the instance
     pinstanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -119,7 +119,7 @@ makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put modRef
         put conName
 
-makeInstanceHash :: PersistentInstanceParameters -> Transient.ContractState -> Amount -> H.Hash
+makeInstanceHash :: PersistentInstanceParameters -> Wasm.ContractState -> Amount -> H.Hash
 makeInstanceHash params conState a = H.hashLazy $ runPutLazy $ do
         put (pinstanceParameterHash params)
         putByteString (H.hashToByteString (getHash conState))

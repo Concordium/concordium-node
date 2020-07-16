@@ -250,7 +250,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoModifyInstance :: UpdatableBlockState m
                     -> ContractAddress
                     -> AmountDelta
-                    -> ContractState
+                    -> Wasm.ContractState
                     -> m (UpdatableBlockState m)
 
   -- |Notify the block state that the given amount was spent on execution.
