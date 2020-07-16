@@ -36,6 +36,7 @@ initialBlockState = blockStateWithAlesAccount
     100000
     (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 100000) Acc.emptyAccounts)
 
+
 transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 0 }

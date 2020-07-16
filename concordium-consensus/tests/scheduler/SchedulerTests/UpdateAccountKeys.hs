@@ -24,12 +24,12 @@ import            SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = createBlockState $
-                    putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 100000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 100000000)
                     Acc.emptyAccounts
 
 initialBlockState2 :: BlockState
 initialBlockState2 = createBlockState $
-                    putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 100000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 100000000)
                     Acc.emptyAccounts
 
 -- Makes a random ED25519 keypair, using the integer to feed the randomization.
@@ -202,7 +202,7 @@ testCases =
     where
       -- Prompts the blockstate for ales account keys and checks that they match the expected ones.
       checkKeys expectedKeys expectedThreshold = (\bs -> specify "Correct account keys" $
-        case getAccount alesAccount (bs ^. blockAccounts) of
+        case Acc.getAccount alesAccount (bs ^. blockAccounts) of
           Nothing -> HUnit.assertFailure $ "Account with id '" ++ show alesAccount ++ "' not found"
           Just account -> checkAccountKeys expectedKeys expectedThreshold (account ^. accountVerificationKeys))
 
