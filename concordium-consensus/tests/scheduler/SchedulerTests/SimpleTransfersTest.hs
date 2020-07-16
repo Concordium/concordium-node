@@ -40,25 +40,25 @@ transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
          , metadata = makeDummyHeader alesAccount 1 1000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
          , metadata = makeDummyHeader alesAccount 2 1000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
          , metadata = makeDummyHeader alesAccount 3 1000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
          , metadata = makeDummyHeader thomasAccount 1 500
-         , keypair = thomasKP
+         , keys = [(0, thomasKP)]
          }
     -- the next transaction should fail because the balance on alesAccount is now 1282, which is
     -- less than 600 + 700
   ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
          , metadata = makeDummyHeader alesAccount 4 700
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ]
 

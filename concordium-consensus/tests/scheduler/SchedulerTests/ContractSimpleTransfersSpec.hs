@@ -39,7 +39,7 @@ transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "SimpleTransfers"
          , metadata = makeDummyHeader alesAccount 1 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   -- create three contracts with addresses 0, 1, 2
   ,TJSON { payload = InitContract {amount = 100
@@ -48,7 +48,7 @@ transactionsInput =
                                   ,parameter = "Unit.Unit"
                                   }
          , metadata = makeDummyHeader alesAccount 2 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Transfer"
@@ -56,7 +56,7 @@ transactionsInput =
                                   ,parameter = "Unit.Unit"
                                   }
          , metadata = makeDummyHeader alesAccount 3 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Transfer"
@@ -64,7 +64,7 @@ transactionsInput =
                                   ,parameter = "Unit.Unit"
                                   }
          , metadata = makeDummyHeader alesAccount 4 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   -- and then invoke the first to send a message to the last two,
   -- but make it two messages to contract 1, and one message to contract 2
@@ -76,7 +76,7 @@ transactionsInput =
                                         \consC <1,0> two"
                             }
          , metadata = makeDummyHeader alesAccount 5 1000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ]
 
