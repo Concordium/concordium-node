@@ -9,6 +9,7 @@ import System.Random
 
 import            Concordium.Crypto.DummyData
 import qualified  Concordium.Crypto.SignatureScheme as Sig
+import            Concordium.GlobalState.Account
 import            Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import            Concordium.GlobalState.Basic.BlockState
 import            Concordium.GlobalState.DummyData
