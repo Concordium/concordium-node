@@ -41,6 +41,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
@@ -507,6 +508,9 @@ makeBaker bid initAmount = resize 0x20000000 $ do
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []
 
+dummyArs :: AnonymityRevokers
+dummyArs = emptyAnonymityRevokers
+
 mateuszAmount :: Amount
 mateuszAmount = Amount (2 ^ (40 :: Int))
 
@@ -541,7 +545,7 @@ createInitStates bis maxFinComSize specialAccounts = do
             seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig

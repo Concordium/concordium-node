@@ -39,7 +39,7 @@ transactionsInput :: [TransactionJSON]
 transactionsInput =
   [TJSON { payload = DeployModule "CommCounter"
          , metadata = makeDummyHeader alesAccount 1 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Recorder"
@@ -47,7 +47,7 @@ transactionsInput =
                                   ,parameter = "Unit.Unit"
                                   }
          , metadata = makeDummyHeader alesAccount 2 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = InitContract {amount = 100
                                   ,contractName = "Counter"
@@ -55,7 +55,7 @@ transactionsInput =
                                   ,parameter = "let pair :: Int64 -> <address> -> Prod.Pair Int64 <address> = Prod.Pair [Int64, <address>] in pair 0 <0, 0>"
                                   }
          , metadata = makeDummyHeader alesAccount 3 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Update {amount = 101
                             ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
@@ -63,7 +63,7 @@ transactionsInput =
                             ,message = "Inc 100"
                             }
          , metadata = makeDummyHeader alesAccount 4 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
@@ -71,7 +71,7 @@ transactionsInput =
                             ,message = "Dec 50"
                             }
          , metadata = makeDummyHeader alesAccount 5 10000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
@@ -79,7 +79,7 @@ transactionsInput =
                             ,message = "Dec 50"
                             }
          , metadata = makeDummyHeader alesAccount 6 12000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ,TJSON { payload = Update {amount = 100
                             ,address = Types.ContractAddress {contractIndex = 1, contractSubindex = 0}
@@ -87,7 +87,7 @@ transactionsInput =
                             ,message = "Dec 1"
                             }
          , metadata = makeDummyHeader alesAccount 7 12000000
-         , keypair = alesKP
+         , keys = [(0, alesKP)]
          }
   ]
 

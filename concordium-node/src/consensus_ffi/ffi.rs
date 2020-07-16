@@ -391,6 +391,7 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const u8,
     ) -> *const c_char;
+    pub fn getBlocksAtHeight(consensus: *mut consensus_runner, block_height: u64) -> *const c_char;
     pub fn getTransactionStatus(
         consensus: *mut consensus_runner,
         transaction_hash: *const u8,
@@ -403,6 +404,14 @@ extern "C" {
     pub fn getNextAccountNonce(
         consensus: *mut consensus_runner,
         account_address: *const u8,
+    ) -> *const c_char;
+    pub fn getAllIdentityProviders(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
+    pub fn getAllAnonymityRevokers(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
     ) -> *const c_char;
     pub fn importBlocks(
         consensus: *mut consensus_runner,
@@ -539,6 +548,13 @@ impl ConsensusContainer {
         wrap_c_call_string!(self, consensus, |consensus| getBlockInfo(
             consensus,
             c_str.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_blocks_at_height(&self, block_height: u64) -> String {
+        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(
+            consensus,
+            block_height
         ))
     }
 
@@ -711,6 +727,22 @@ impl ConsensusContainer {
         wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
             consensus,
             account_address.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_identity_providers(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getAllIdentityProviders(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_anonymity_revokers(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getAllAnonymityRevokers(
+            consensus,
+            block_hash.as_ptr() as *const u8
         ))
     }
 

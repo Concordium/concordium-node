@@ -46,20 +46,20 @@ transactions :: [TransactionJSON]
 transactions = [-- valid transaction: energy not over max limit
                 TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 1 usedTransactionEnergy
-                      , keypair = alesKP
+                      , keys = [(0, alesKP)]
                       },
                 -- invalid transaction: although its used energy amount (plus the energy of the
                 -- previously valid transaction) is under the energy limit,
                 -- the stated energy is above the limit, so this transaction cannot be added to the block
                 TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 3 $ maxBlockEnergy + Types.Energy 1
-                      , keypair = alesKP
+                      , keys = [(0, alesKP)]
                       },
                 -- will be an unprocessed transaction because together with the first valid transaction,
                 -- its energy exceeds the limit
                 TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 4 $ usedTransactionEnergy + 1
-                      , keypair = alesKP
+                      , keys = [(0, alesKP)]
                       }
                ]
 
