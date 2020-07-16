@@ -1091,24 +1091,23 @@ handleUpdateAccountKeys ::
     => WithDepositContext m
     -> OrdMap.Map ID.KeyIndex AccountVerificationKey
     -> m (Maybe TransactionSummary)
-handleUpdateAccountKeys wtc keys = do
-  accountKeys <- getAccountVerificationKeys senderAccount
-  let k ls _ = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-        chargeExecutionCost txHash senderAccount energyCost
-        if Set.isSubsetOf (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then do
-          senderAddress <- getAccountAddress senderAccount
-          updateAccountKeys senderAddress keys
-          return (TxSuccess [AccountKeysUpdated], energyCost, usedEnergy)
-        else
-          return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
+handleUpdateAccountKeys wtc keys =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.updateAccountKeys $ length keys
-    
+    k ls _ = do
+      accountKeys <- getAccountVerificationKeys senderAccount
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      if Set.isSubsetOf (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then do
+        senderAddr <- getAccountAddress senderAccount
+        updateAccountKeys senderAddr keys
+        return (TxSuccess [AccountKeysUpdated], energyCost, usedEnergy)
+      else
+        return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
 
 
 -- |Removes the account keys at the supplied indices and, optionally, updates
@@ -1122,36 +1121,37 @@ handleRemoveAccountKeys ::
     -> Set.Set ID.KeyIndex
     -> Maybe ID.SignatureThreshold
     -> m (Maybe TransactionSummary)
-handleRemoveAccountKeys wtc indices threshold = do
-  accountKeys <- getAccountVerificationKeys senderAccount
-  senderAddress <- getAccountAddress senderAccount
-  let numOfKeys = length (ID.akKeys accountKeys)
-      currentThreshold = ID.akThreshold accountKeys
-      k ls _ = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-        chargeExecutionCost txHash senderAccount energyCost
-        if Set.isSubsetOf indices (ID.getKeyIndices accountKeys) then
-          case threshold of
-            Just newThreshold ->
-              -- the subtraction is safe here because we have checked that indices is a subset of keys.
-              if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
-                removeAccountKeys senderAddress indices threshold
-                return (TxSuccess [AccountKeysRemoved, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
-              else
-                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-            Nothing -> do
-              if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
-                removeAccountKeys senderAddress indices Nothing
-                return (TxSuccess [AccountKeysRemoved], energyCost, usedEnergy)
-              else
-                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-        else return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
+handleRemoveAccountKeys wtc indices threshold =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.removeAccountKeys $ length indices
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      accountKeys <- getAccountVerificationKeys senderAccount
+      let numOfKeys = length (ID.akKeys accountKeys)
+      let currentThreshold = ID.akThreshold accountKeys
+      if Set.isSubsetOf indices (ID.getKeyIndices accountKeys) then
+        case threshold of
+          Just newThreshold ->
+            -- the subtraction is safe here because we have checked that indices is a subset of keys.
+            if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+              senderAddr <- getAccountAddress senderAccount
+              removeAccountKeys senderAddr indices threshold
+              return (TxSuccess [AccountKeysRemoved, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+          Nothing -> do
+            if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
+              senderAddr <- getAccountAddress senderAccount
+              removeAccountKeys senderAddr indices Nothing
+              return (TxSuccess [AccountKeysRemoved], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+      else return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
 
 
 -- |Adds keys to the account at the supplied indices and, optionally, updates
@@ -1164,33 +1164,34 @@ handleAddAccountKeys ::
     -> OrdMap.Map ID.KeyIndex AccountVerificationKey
     -> Maybe ID.SignatureThreshold
     -> m (Maybe TransactionSummary)
-handleAddAccountKeys wtc keys threshold = do
-  accountKeys <- getAccountVerificationKeys senderAccount
-  senderAddress <- getAccountAddress senderAccount
-  let numOfKeys = length (ID.akKeys accountKeys)
-      k ls _ = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-        chargeExecutionCost txHash senderAccount energyCost
-        -- all the keys must be new.
-        if Set.disjoint (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then
-          case threshold of
-            Just newThreshold ->
-              if newThreshold <= fromIntegral (numOfKeys + (length keys)) then do
-                addAccountKeys senderAddress keys threshold
-                return (TxSuccess [AccountKeysAdded, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
-              else
-                return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-            Nothing -> do
-              addAccountKeys senderAddress keys Nothing
-              return (TxSuccess [AccountKeysAdded], energyCost, usedEnergy)
-        else
-          return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
+handleAddAccountKeys wtc keys threshold =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     cost = tickEnergy $ Cost.addAccountKeys $ length keys
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      -- all the keys must be new.
+      accountKeys <- getAccountVerificationKeys senderAccount
+      let numOfKeys = length (ID.akKeys accountKeys)
+      if Set.disjoint (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then
+        case threshold of
+          Just newThreshold ->
+            if newThreshold <= fromIntegral (numOfKeys + (length keys)) then do
+              senderAddr <- getAccountAddress senderAccount
+              addAccountKeys senderAddr keys threshold
+              return (TxSuccess [AccountKeysAdded, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
+            else
+              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
+          Nothing -> do
+            senderAddr <- getAccountAddress senderAccount
+            addAccountKeys senderAddr keys Nothing
+            return (TxSuccess [AccountKeysAdded], energyCost, usedEnergy)
+      else
+        return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
 
 
 -- * Exposed methods.
