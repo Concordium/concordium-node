@@ -230,12 +230,8 @@ updateAccount !upd !acc = do
             newPDataRef <- makeBufferedRef newPData
             return $ newAccWithoutHash & persistingData .~ newPDataRef
                                     & hashUpdate newPData
-
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
-        maybeUpdate :: PersistingAccountData -> Maybe a -> (a -> PersistingAccountData -> PersistingAccountData) -> (Bool, PersistingAccountData)
-        maybeUpdate pd Nothing _ = (False, pd)
-        maybeUpdate pd (Just c) f = (True, f c pd)
 
 -- |Get a list of all account addresses.
 accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]

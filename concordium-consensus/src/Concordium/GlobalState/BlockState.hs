@@ -42,7 +42,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Data.Ratio
 import Data.Word
 import qualified Data.Vector as Vec
