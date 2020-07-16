@@ -21,6 +21,7 @@ import Control.Monad.Trans.RWS.Strict hiding (ask, get, put, tell, censor, liste
 import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
+import Concordium.GlobalState.Account
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))

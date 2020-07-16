@@ -307,7 +307,7 @@ tests = do
 
     specify "Update first baker's election key" $
       case (results !! 12, results !! 13) of
-        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], _bps13)) ->
+        ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], bps13)) ->
             let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
                 b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
             in do

@@ -26,7 +26,8 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.BlockState(AccountUpdate(..), auAmount, emptyAccountUpdate, AccountOperations(..))
+import Concordium.GlobalState.Account (AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
