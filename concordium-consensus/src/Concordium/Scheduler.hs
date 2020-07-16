@@ -39,14 +39,10 @@ module Concordium.Scheduler
   ,FilteredTransactions(..)
   ) where
 
-import qualified Acorn.TypeCheck as TC
-import qualified Acorn.Interpreter as I
-import qualified Acorn.Core as Core
-import Acorn.Types(compile, InterpreterEnergy)
+import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 
-import Data.Word
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
 
@@ -63,7 +59,6 @@ import qualified Concordium.Scheduler.Cost as Cost
 import Control.Applicative
 import Control.Monad.Except
 import Control.Exception
-import qualified Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe(fromJust, isJust)
 import Data.Ord
@@ -236,22 +231,17 @@ dispatch msg = do
                    DeployModule mod ->
                      handleDeployModule (mkWTC TTDeployModule) psize mod
 
-                   InitContract amount modref cname param ->
-                     -- the payload size includes amount + address of module + name of
-                     -- contract + parameters, but since the first three fields are
-                     -- fixed size this is OK.
-                     let paramSize = fromIntegral (thPayloadSize meta)
-                     in handleInitContract (mkWTC TTInitContract) amount modref cname param paramSize
+                   InitContract{..} ->
+                     handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
                    -- FIXME: This is only temporary for now.
                    -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
                    Transfer toaddr amount ->
                      handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
 
-                   Update amount cref maybeMsg ->
+                   Update{..} ->
                      -- the payload size includes amount + address + message, but since the first two fields are
                      -- fixed size this is OK.
-                     let msgSize = fromIntegral (thPayloadSize meta)
-                     in handleUpdateContract (mkWTC TTUpdate) cref amount maybeMsg msgSize
+                     handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
 
                    AddBaker{..} ->
                      handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abAccount abProofSig abProofElection abProofAccount abProofAggregation
@@ -299,7 +289,7 @@ handleDeployModule ::
   SchedulerMonad m
   => WithDepositContext m
   -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
-  -> Module -- ^The module to deploy.
+  -> Wasm.WasmModule -- ^The module to deploy.
   -> m (Maybe TransactionSummary)
 handleDeployModule wtc psize mod =
   withDeposit wtc c k
@@ -310,33 +300,16 @@ handleDeployModule wtc psize mod =
 
     c = do
       tickEnergy (Cost.deployModule (fromIntegral psize))
-      let mhash = Core.moduleHash mod
-      imod <- pure (runExcept (Core.makeInternal mhash (fromIntegral psize) mod)) `rejectingWith'` (const MissingImports)
-      -- Before typechecking, we charge for loading the dependencies of the to-be-typechecked module
-      -- (as typechecking will load these if used). For now, we do so by loading the interface of
-      -- each dependency one after the other and then charging based on its size.
-      -- TODO We currently first charge the full amount after each lookup, as we do not have the
-      -- module sizes available before.
-      let imports = Map.elems $ Core.imImports imod
-      forM_ imports $ \ref -> do
-        tickEnergy $ Cost.lookupBytesPre
-        -- As the given module is not typechecked yet, it might contain imports of
-        -- non-existing modules.
-        iface <- getInterface ref `rejectingWith` ModuleNotWF
-        tickEnergy $ Cost.lookupModule (iSize iface)
+      case Wasm.processModule mod of
+        Nothing -> rejectTransaction ModuleNotWF
+        Just iface -> return iface
 
-      -- Typecheck the module, resulting in the module 'Interface'.
-      -- The cost of type-checking is dependent on the size of the module.
-      iface <- typeHidingErrors (TC.typeModule imod) `rejectingWith` ModuleNotWF
-      -- Create the 'ValueInterface' of the module (compiles all terms).
-      let viface = I.evalModule imod
-      return (mhash, iface, viface)
-
-    k ls (mhash, iface, viface) = do
+    k ls iface = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
-      b <- commitModule mhash iface viface mod
+      b <- commitModule iface
+      let mhash = Wasm.miModuleRef iface
       if b then
         return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
           else
@@ -352,12 +325,12 @@ handleDeployModule wtc psize mod =
 -- that cannot be paid for.
 tickEnergyValueStorage ::
   TransactionMonad m
-  => Value
+  => Wasm.ContractState
   -> m ()
-tickEnergyValueStorage val =
+tickEnergyValueStorage cs =
   -- Compute the size of the value and charge for storing based on this size.
   -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
-  withExternalPure_ $ storableSizeWithLimit @ ByteSize val
+  withExternalPure_ $ (Wasm.contractStateSize @ Wasm.ByteSize) cs
 
 -- | Tick energy for looking up a contract instance, then do the lookup.
 -- FIXME: Currently we do not know the size of the instance before looking it up.
@@ -371,7 +344,7 @@ getCurrentContractInstanceTicking cref = do
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
   -- Compute the size of the contract state value and charge for the lookup based on this size.
   -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
-  withExternalPure_ $ storableSizeWithLimit @ Cost.LookupByteSize (Ins.instanceModel inst)
+  withExternalPure_ $ Wasm.contractStateSize @ Cost.LookupByteSize (Ins.instanceModel inst)
   return inst
 
 -- | Handle the initialization of a contract instance.
@@ -380,11 +353,10 @@ handleInitContract ::
     => WithDepositContext m
     -> Amount   -- ^The amount to initialize the contract instance with.
     -> ModuleRef  -- ^The module to initialize a contract from.
-    -> Core.TyName  -- ^Name of the contract to initialize from the given module.
-    -> Core.Expr Core.UA Core.ModuleName  -- ^Parameter expression to initialize the contract with.
-    -> Word64 -- ^Serialized size of the parameter expression. Used for computing typechecking cost.
+    -> Wasm.InitName -- ^Name of the init method to invoke.
+    -> Wasm.Parameter  -- ^Parameter expression to initialize with.
     -> m (Maybe TransactionSummary)
-handleInitContract wtc amount modref cname param paramSize =
+handleInitContract wtc initAmount modref initName param =
   withDeposit wtc c k
     where senderAccount = wtc ^. wtcSenderAccount
           txHash = wtc ^. wtcTransactionHash
@@ -393,63 +365,49 @@ handleInitContract wtc amount modref cname param paramSize =
             -- Check whether the sender account's amount can cover the amount to initialize the contract
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAmount senderAccount
-            unless (senderAmount >= amount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) amount)
+            unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
             -- TODO We currently first charge the full amount after the lookup, as we do not have the
             -- size available before.
-            tickEnergy $ Cost.lookupBytesPre
-            (iface, viface) <- getModuleInterfaces modref `rejectingWith` InvalidModuleReference modref
-            tickEnergy $ Cost.lookupModule $ iSize iface
+            tickEnergy Cost.lookupBytesPre
+            iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
+            let iSize = Wasm.miSize iface
+            tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).
-            ciface <- pure (Map.lookup cname (exportedContracts iface)) `rejectingWith` InvalidContractReference modref cname
-            -- Now typecheck the parameter expression (whether it has the parameter type specified
-            -- in the contract). The cost of type-checking is dependent on the size of the term.
-            -- TODO Here we currently do not account for possible dependent modules looked up
-            -- when typechecking the term. We might want to tick energy on demand while typechecking.
-            tickEnergy (Cost.initParamsTypecheck paramSize)
-            qparamExp <- typeHidingErrors (TC.checkTyInCtx' iface param (paramTy ciface)) `rejectingWith` ParamsTypeError
-            -- Link the contract, i.e., its init and receive functions as well as the constraint
-            -- implementations. This ticks energy for the size of the linked expressions,
-            -- failing if running out of energy in the process.
-            -- NB: The unsafe Map.! is safe here because if the contract is part of the interface 'iface'
-            -- it must also be part of the 'ValueInterface' returned by 'getModuleInterfaces'.
-            linkedContract <- linkContract (uniqueName iface) cname (viContracts viface Map.! cname)
-            let (initFun, _) = cvInitMethod linkedContract
+            unless (Set.member initName (Wasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
 
-            -- First compile the parameter expression, then link it, which ticks energy for the size of
-            -- the linked expression, failing when running out of energy in the process.
-            params' <- linkExpr (uniqueName iface) (compile qparamExp)
-
-            cm <- getChainMetadata
+            cm <- liftLocal getChainMetadata
             -- Finally run the initialization function of the contract, resulting in an initial state
             -- of the contract. This ticks energy during execution, failing when running out of energy.
             -- NB: At this point the amount to initialize with has not yet been deducted from the
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            model <- runInterpreter (I.applyInitFun cm (InitContext (thSender meta)) initFun params' amount)
-
+            result <- runInterpreter (return . Wasm.applyInitFun iface cm (Wasm.InitContext (thSender meta)) initName param initAmount)
+                       `rejectingWith'` wasmRejectToRejectReason
+            
             -- Charge for storing the contract state.
-            tickEnergyValueStorage model
+            tickEnergyValueStorage (Wasm.newState result)
 
-            return (linkedContract, iface, viface, (msgTy ciface), model, amount)
+            return (iface, result)
 
-          k ls (linkedContract, iface, viface, msgty, model, initamount) = do
+          k ls (iface, result) = do
+            let model = Wasm.newState result
             (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
             chargeExecutionCost txHash senderAccount energyCost
 
             -- Withdraw the amount the contract is initialized with from the sender account.
             commitChanges =<< addAmountToCS senderAccount (amountDiff 0 initamount) (ls ^. changeSet)
 
-            -- Finally create the new instance. This stores the linked functions in the
-            -- global state (serialized).
-            -- 'ins' is an instance whose address will be determined when we store it; this is what
-            -- 'putNewInstance' does.
-            let ins = makeInstance modref cname linkedContract msgty iface viface model initamount (thSender meta)
+            -- FIXME: miExposedReceive should be replaced after we have some naming scheme.
+            let ins = makeInstance modref initName (Wasm.miExposedReceive iface) iface model initAmount (thSender meta)
             addr <- putNewInstance ins
-            return (TxSuccess [ContractInitialized{ecRef=modref,ecName=cname,ecAddress=addr,ecAmount=initamount}], energyCost, usedEnergy)
+            return (TxSuccess [ContractInitialized{ecRef=modref,
+                                                   ecAddress=addr,
+                                                   ecAmount=initAmount,
+                                                   ecEvents = Wasm.logs result}], energyCost, usedEnergy)
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -461,15 +419,15 @@ handleSimpleTransfer wtc toaddr amount =
   withDeposit wtc c (defaultSuccess wtc)
     where senderAccount = wtc ^. wtcSenderAccount
           c = case toaddr of
-                AddressContract cref -> do
-                  i <- getCurrentContractInstanceTicking cref
-                  -- Send a Nothing message to the contract with the amount to be transferred.
-                  let qmsgExpLinked = I.mkNothingE
-                  handleMessage senderAccount
-                                i
-                                (Right senderAccount)
-                                amount
-                                (ExprMessage qmsgExpLinked)
+                AddressContract _cref -> error "FIXME: Unimplemented."
+                  -- i <- getCurrentContractInstanceTicking cref
+                  -- -- Send a Nothing message to the contract with the amount to be transferred.
+                  -- let qmsgExpLinked = I.mkNothingE
+                  -- handleMessage senderAccount
+                  --               i
+                  --               (Right senderAccount)
+                  --               amount
+                  --               (ExprMessage qmsgExpLinked)
                 AddressAccount toAccAddr ->
                   handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
 
@@ -477,33 +435,24 @@ handleSimpleTransfer wtc toaddr amount =
 handleUpdateContract ::
   SchedulerMonad m
     => WithDepositContext m
-    -> ContractAddress -- ^Address of the contract to invoke.
     -> Amount -- ^Amount to invoke the contract's receive method with.
-    -> Core.Expr Core.UA Core.ModuleName -- ^Message to send to the receive method.
-    -> Word64  -- ^Serialized size of the message.
+    -> ContractAddress -- ^Address of the contract to invoke.
+    -> Wasm.ReceiveName -- ^Name of the receive method to invoke.
+    -> Wasm.Parameter -- ^Message to send to the receive method.
     -> m (Maybe TransactionSummary)
-handleUpdateContract wtc cref amount maybeMsg msgSize =
+handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
   withDeposit wtc c (defaultSuccess wtc)
   where senderAccount = wtc ^. wtcSenderAccount
         c = do
-          i <- getCurrentContractInstanceTicking cref
-          let msgType = Ins.imsgTy i
-              (iface, _) = Ins.iModuleIface i
-          -- TODO Here we currently do not account for possible dependent modules looked up
-          -- when typechecking the term. We might want to tick energy on demand while typechecking.
-          tickEnergy (Cost.updateMessageTypecheck msgSize)
-          -- Type check the message expression, as coming from a top-level transaction it can be
-          -- an arbitrary expression. The cost of type-checking is dependent on the size of the term.
-          qmsgExp <- typeHidingErrors (TC.checkTyInCtx' iface maybeMsg msgType) `rejectingWith` MessageTypeError
-          -- First compile the message expression, then link it, which ticks energy for the size of the
-          -- linked expression, failing when running out of energy in the process.
-          qmsgExpLinked <- linkExpr (uniqueName iface) (compile qmsgExp)
+          ins <- getCurrentContractInstanceTicking uAddress
           -- Now invoke the general handler for contract messages.
           handleMessage senderAccount
-                        i
+                        ins
                         (Right senderAccount)
-                        amount
-                        (ExprMessage (I.mkJustE qmsgExpLinked))
+                        uAmount
+                        uReceiveName
+                        uMessage
+                        
 
 -- | Process a message to a contract.
 -- This includes the transfer of an amount from the sending account or instance.
@@ -518,23 +467,25 @@ handleMessage ::
                                  -- top-level transaction, and in recursive calls the respective contract
                                  -- instance that produced the message.
   -> Amount -- ^The amount to be transferred from the sender of the message to the receiver.
-  -> MessageFormat -- ^Message sent to the contract. On the first invocation of this function this will
-                   -- be an Acorn expression, and in nested calls an Acorn value.
-  -> m [Event] -- The events resulting from processing the message and all recursively processed messages.
-handleMessage origin istance sender transferamount maybeMsg = do
-  let receivefun = ireceiveFun istance
-      model = instanceModel istance
+  -> Wasm.ReceiveName -- ^Name of the contract to invoke.
+  -> Wasm.Parameter -- ^Message to invoke the receive method with.
+  -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
+handleMessage origin istance sender transferAmount receiveName parameter = do
+  let model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
   -- TODO: For now there is no exception handling in smart contracts and contracts cannot check
   -- amounts on other instances or accounts. Possibly this will need to be changed.
   senderAddr <- mkSenderAddr sender
   senderamount <- getCurrentAmount sender
-  unless (senderamount >= transferamount) $ rejectTransaction (AmountTooLarge senderAddr transferamount)
+  unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
+  originAddr <- getAccountAddress origin
 
   let iParams = instanceParameters istance
   let cref = instanceAddress iParams
-
+  let receivefuns = instanceReceiveFuns . instanceParameters $ istance
+  unless (Set.member receiveName receivefuns) $ rejectTransaction $
+      InvalidReceiveMethod (Wasm.miModuleRef . instanceModuleInterface $ iParams) receiveName
   -- Now we also check that the owner account of the receiver instance has at least one valid credential
   -- and reject the transaction if not.
   let ownerAccountAddress = instanceOwner iParams
@@ -547,63 +498,53 @@ handleMessage origin istance sender transferamount maybeMsg = do
   -- We have established that the owner account of the receiver instance has at least one valid credential.
 
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
-  originAddr <- getAccountAddress origin
-  let receiveCtx = ReceiveContext { invoker = originAddr,
-                                    selfAddress = cref,
-                                    selfBalance = instanceAmount istance }
-  result <- case maybeMsg of
-              ValueMessage m -> runInterpreter (I.applyReceiveFunVal cm receiveCtx receivefun model senderAddr transferamount m)
-              ExprMessage m ->  runInterpreter (I.applyReceiveFun cm receiveCtx receivefun model senderAddr transferamount m)
-  case result of
-    -- The contract rejected the message. Thus reject the top-level transaction, i.e., no changes
-    -- are made to any account or contract state except for charging the sender of the top-level
-    -- transaction for the execution cost ticked so far.
-    Nothing -> rejectTransaction Rejected
-    -- The contract accepted the message and returned a new state as well as outgoing messages.
-    Just (newmodel, txout) -> do
-        -- Charge for eventually storing the new contract state (even if it might not be stored
-        -- in the end because the transaction fails).
-        -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
-        tickEnergyValueStorage newmodel
-        -- Process the generated messages in the new context (transferred amount, updated state) in
-        -- sequence from left to right, depth first.
-        withToContractAmount sender istance transferamount $
-          withInstanceState istance newmodel $
-            foldM (\res tx -> combineProcessing res $ do
-                        -- Charge a small amount just for the fact that a message was generated.
-                        tickEnergy Cost.interContractMessage
-                        -- NB: The sender of all the newly generated messages is the contract instance 'istance'.
-                        case tx of
-                          TSend cref' transferamount' message' -> do
-                            -- NB: Acorn only allows the creation of messages with addresses of existing
-                            -- instances. If the instance does however not exist, this rejects the
-                            -- transaction.
-                            cinstance <- getCurrentContractInstanceTicking cref'
-                            handleMessage origin
-                                          cinstance
-                                          (Left istance)
-                                          transferamount'
-                                          (ValueMessage (I.aJust message'))
-                          -- A transfer to a contract is defined to be an Acorn @Nothing@ message
-                          -- with the to be transferred amount.
-                          TSimpleTransfer (AddressContract cref') transferamount' -> do
-                            -- We can make a simple transfer without checking existence of a contract.
-                            -- The following rejects the transaction in case the instance does not exist.
-                            cinstance <- getCurrentContractInstanceTicking cref'
-                            handleMessage origin
-                                          cinstance
-                                          (Left istance)
-                                          transferamount'
-                                          (ValueMessage I.aNothing)
-                          TSimpleTransfer (AddressAccount acc) transferamount' ->
-                            -- FIXME: This is temporary until accounts have their own functions
-                            handleTransferAccount origin acc (Left istance) transferamount'
-                            )
-                  [Updated{euAddress=cref,euInstigator=senderAddr,euAmount=transferamount,euMessage=maybeMsg}] txout
-
--- | Combine two processing steps that each result in a list of events, concatenating the event lists.
-combineProcessing :: Monad m => [Event] -> m [Event] -> m [Event]
-combineProcessing x ma = (x ++) <$> ma
+  -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
+  let iface = instanceModuleInterface iParams
+  result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
+             `rejectingWith'` wasmRejectToRejectReason
+  -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
+  let newModel = Wasm.newState result
+      txOut = Wasm.messages result
+      -- Charge for eventually storing the new contract state (even if it might not be stored
+  -- in the end because the transaction fails).
+  -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+  tickEnergyValueStorage newModel
+  -- Process the generated messages in the new context (transferred amount, updated state) in
+  -- sequence from left to right, depth first.
+  withToContractAmount sender istance transferAmount $
+    withInstanceState istance newModel $ do
+      let initEvent = Updated{euAddress=cref,
+                              euInstigator=senderAddr,
+                              euAmount=transferAmount,
+                              euMessage=parameter,
+                              euEvents = Wasm.logs result }
+      foldEvents initEvent txOut $ \outEvent -> do 
+        -- Charge a small amount just for the fact that a message was generated.
+        tickEnergy Cost.interContractMessage
+        -- NB: The sender of all the newly generated messages is the contract instance 'istance'.
+        case outEvent of
+          Wasm.TSend{..} -> do
+            -- If the instance does not exist, this rejects the transaction.
+            cinstance <- getCurrentContractInstanceTicking erAddr
+            handleMessage origin
+                          cinstance
+                          (Left istance)
+                          erAmount
+                          erName
+                          erParameter
+          Wasm.TSimpleTransfer{..} ->
+            -- FIXME: This is temporary until accounts have their own functions
+            handleTransferAccount origin erTo (Left istance) erAmount
+      
+foldEvents :: TransactionMonad m => Event -> Wasm.ReceiveExecutionResult -> (Wasm.OutputEvent -> m [Event]) -> m [Event]
+foldEvents initEvent Wasm.Accept _  = return [initEvent]
+foldEvents initEvent (Wasm.EventsTree evs) f = go evs
+  where go (Wasm.Base x) = (initEvent:) <$> f x
+        go (Wasm.And l r) = do
+          resL <- go l
+          resR <- go r
+          return (initEvent : resL ++ resR)
+        go (Wasm.Or _l _r) = error "Unimplemented."
 
 mkSenderAddr :: AccountOperations m => Either Instance (Account m) -> m Address
 mkSenderAddr sender =
@@ -645,7 +586,7 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
-runInterpreter :: TransactionMonad m => (InterpreterEnergy -> m (Maybe (a, InterpreterEnergy))) -> m a
+runInterpreter :: TransactionMonad m => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
 runInterpreter f = withExternal $ \availableEnergy -> do
   f availableEnergy >>= \case
     Nothing -> return Nothing
