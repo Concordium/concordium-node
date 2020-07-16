@@ -5,7 +5,6 @@ module Concordium.Scheduler.Runner where
 import GHC.Generics(Generic)
 
 import Data.Text(Text)
-import qualified Data.HashMap.Strict as HMap
 
 import Control.Monad.Except
 
@@ -21,11 +20,9 @@ import Concordium.Types
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-
-import Acorn.Parser.Runner
-import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
@@ -38,21 +35,15 @@ signTxSingle :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTran
 signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle key header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
-transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
+transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> m Types.BareTransaction
 transactionHelper t =
   case t of
-    (TJSON meta (DeployModule mnameText) keys) ->
-      (signTx keys meta . Types.encodePayload . Types.DeployModule) <$> getModule mnameText
-    (TJSON meta (InitContract amnt mnameText cNameText paramExpr) keys) -> do
-      (mref, _, tys) <- getModuleTmsTys mnameText
-      case HMap.lookup cNameText tys of
-        Just contName -> do
-          params <- processTmInCtx mnameText paramExpr
-          return $ signTx keys meta (Types.encodePayload (Types.InitContract amnt mref contName params))
-        Nothing -> error (show cNameText)
-    (TJSON meta (Update mnameText amnt addr msgText) keys) -> do
-      msg <- processTmInCtx mnameText msgText
-      return $ signTx keys meta (Types.encodePayload (Types.Update amnt addr msg))
+    (TJSON meta (DeployModule mnameText) keys) -> liftIO $ do
+      decodeLazy <$> BSL.readFile mnameText >>= \case
+        Left err -> fail err
+        Right wasmMod -> return $ signTx keys meta . Types.encodePayload . Types.DeployModule $ wasmMod
+    (TJSON _meta (InitContract _amnt _mnameText _cNameText _paramExpr) _keys) -> error "TODO"
+    (TJSON _meta (Update _mnameText _amnt _addr _msgText) _keys) -> error "TODO"
     (TJSON meta (Transfer to amnt) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
     (TJSON meta AddBaker{..} keys) ->
@@ -103,33 +94,35 @@ transactionHelper t =
     (TJSON meta (AddAccountKeys newKeys threshold) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
 
-processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
+processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
 
 -- |For testing purposes: process transactions without grouping them by accounts
 -- (i.e. creating one "group" per transaction).
 -- Arrival time of transactions is taken to be 0.
-processUngroupedTransactions :: (MonadFail m, MonadIO m) =>
-                                [TransactionJSON] ->
-                                Context Core.UA m (Types.GroupedTransactions Types.Transaction)
+processUngroupedTransactions ::
+  (MonadFail m, MonadIO m) =>
+  [TransactionJSON] ->
+  m (Types.GroupedTransactions Types.Transaction)
 processUngroupedTransactions inpt = do
   txs <- processTransactions inpt
   return (Types.fromTransactions (map ((:[]) . Types.fromBareTransaction 0) txs))
 
 -- |For testing purposes: process transactions in the groups in which they came
 -- The arrival time of all transactions is taken to be 0.
-processGroupedTransactions :: (MonadFail m, MonadIO m) =>
-                              [[TransactionJSON]] ->
-                              Context Core.UA m (Types.GroupedTransactions Types.Transaction)
+processGroupedTransactions ::
+  (MonadFail m, MonadIO m) =>
+  [[TransactionJSON]] ->
+  m (Types.GroupedTransactions Types.Transaction)
 processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromBareTransaction 0)))
                              . mapM processTransactions
 
-data PayloadJSON = DeployModule { moduleName :: Text }
+data PayloadJSON = DeployModule { moduleName :: FilePath }
                  | InitContract { amount :: Amount
-                                , moduleName :: Text
+                                , moduleName :: FilePath
                                 , contractName :: Text
                                 , parameter :: Text}
-                 | Update { moduleName :: Text
+                 | Update { moduleName :: FilePath
                           , amount :: Amount
                           , address :: ContractAddress
                           , message :: Text
