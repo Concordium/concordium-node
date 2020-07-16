@@ -19,7 +19,6 @@ stages:
       - .stack
       - .stack-work
       - crypto/.stack-work
-      - acorn/.stack-work
       - Concordium/.stack-work
       - globalstate-mockup/globalstate/.stack-work
       - globalstate-types/.stack-work
@@ -88,12 +87,6 @@ stages:
   script:
     - echo "Running tests without extra features"
     - ( cd consensus-rust && cargo test --all --color=always )
-
-"stack:test:acorn":
-  extends: .generic-haskell-test
-  stage: test
-  script:
-    - "stack test acorn --bench --no-run-benchmarks"
 
 "stack:test:globalstate-types":
   extends: .generic-haskell-test
