@@ -225,6 +225,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getSpecialOutcomes ls)
         a2 <- coerceBSMR (getSpecialOutcomes rs)
         assert (a1 == a2) $ return a1
+    getAllIdentityProviders (bs1, bs2) = do
+        r1 <- coerceBSML $ getAllIdentityProviders bs1
+        r2 <- coerceBSMR $ getAllIdentityProviders bs2
+        assert (r1 == r2) $ return r1
+    getAllAnonymityRevokers (bs1, bs2) = do
+        r1 <- coerceBSML $ getAllAnonymityRevokers bs1
+        r2 <- coerceBSMR $ getAllAnonymityRevokers bs2
+        assert (r1 == r2) $ return r1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -471,6 +479,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoGetIdentityProvider (bs1, bs2) ipid = do
         r1 <- coerceBSML $ bsoGetIdentityProvider bs1 ipid
         r2 <- coerceBSMR $ bsoGetIdentityProvider bs2 ipid
+        assert (r1 == r2) $ return r1
+    bsoGetAnonymityRevokers (bs1, bs2) arIds = do
+        r1 <- coerceBSML $ bsoGetAnonymityRevokers bs1 arIds
+        r2 <- coerceBSMR $ bsoGetAnonymityRevokers bs2 arIds
         assert (r1 == r2) $ return r1
     bsoGetCryptoParams (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetCryptoParams bs1
@@ -739,7 +751,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     -- For runtime parameters, we will only use one side
     getRuntimeParameters = coerceGSML getRuntimeParameters
 
-    purgeTransactionTable = coerceGSML purgeTransactionTable
+    purgeTransactionTable t i = do
+      coerceGSML (purgeTransactionTable t i)
+      coerceGSMR (purgeTransactionTable t i)
 
 newtype PairGSConfig c1 c2 = PairGSConfig (c1, c2)
 

@@ -13,7 +13,7 @@ import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
-import Concordium.GlobalState.BlockState (AccountUpdate(..), EncryptedAmountUpdate(..), auNonce, auAmount, auCredential, auEncrypted)
+import Concordium.GlobalState.BlockState (AccountUpdate(..), AccountKeysUpdate(..), EncryptedAmountUpdate(..), auNonce, auAmount, auCredential, auEncrypted, auKeysUpdate, auSignThreshold)
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.AccountTable as AT
 import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTable)
@@ -224,12 +224,19 @@ updateAccount !upd !acc = do
                                                     & accountEncryptedAmount .~ newEncryptedAmount
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
   let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pdata
-  case upd ^. auCredential of
-       Nothing -> return $ newAccWithoutHash & hashUpdate pData
-       Just c -> do
-         let newPData = addCredential c pData
-         newPDataRef <- makeBufferedRef newPData
-         return $ newAccWithoutHash & persistingData .~ newPDataRef
+  case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
+        (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
+        (mNewCred, mKeyUpd, mNewThreshold) -> do
+            let updateCredential = maybe id addCredential mNewCred
+                updateAccountKeys = accountVerificationKeys %~ \ID.AccountKeys{..} ->
+                    let update (RemoveKeys indices) = Set.foldl' (\m k -> Map.delete k m) akKeys indices
+                        update (SetKeys keys) = Map.foldlWithKey' (\m idx key -> Map.insert idx key m) akKeys keys
+                        !newKeys = maybe akKeys update mKeyUpd
+                        !newThreshold = fromMaybe akThreshold mNewThreshold
+                    in ID.AccountKeys {akKeys = newKeys, akThreshold = newThreshold}
+                newPData = updateCredential (updateAccountKeys pData)
+            newPDataRef <- makeBufferedRef newPData
+            return $ newAccWithoutHash & persistingData .~ newPDataRef
                                     & hashUpdate newPData
 
   where setMaybe (Just x) _ = x
