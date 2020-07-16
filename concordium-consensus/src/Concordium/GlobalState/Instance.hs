@@ -2,32 +2,11 @@ module Concordium.GlobalState.Instance where
 
 import Data.Serialize
 import qualified Data.Set as Set
-import qualified Data.ByteString as BS
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
-
--- |State of a smart contract. In general we don't know anything other than
--- it is a sequence of bytes.
--- FIXME: In the future this should be more structured allowing for more sharing.
-newtype ContractState = ContractState {contractState :: BS.ByteString }
-    deriving(Eq, Show)
-
--- The serialize instance uses Word32 for length. This should be reasonable since
--- no instance should ever be able to produce a state bigger than 4GB.
-instance Serialize ContractState where
-  put ContractState{..} = do
-    putWord32be (fromIntegral (BS.length contractState))
-    putByteString contractState
-
-  get = do
-    len <- fromIntegral <$> getWord32be
-    ContractState <$> getByteString len
-
-instance HashableTo H.Hash ContractState where
-  getHash cs = H.hash (encode cs)
 
 -- |The fixed parameters associated with a smart contract instance
 data InstanceParameters = InstanceParameters {
@@ -59,7 +38,7 @@ data Instance = Instance {
     -- |The fixed parameters of the instance
     instanceParameters :: !InstanceParameters,
     -- |The current local state of the instance
-    instanceModel :: !ContractState,
+    instanceModel :: !Wasm.ContractState,
     -- |The current amount of GTU owned by the instance
     instanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -79,13 +58,13 @@ makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put modRef
         put conName
 
-makeInstanceHash' :: H.Hash -> ContractState -> Amount -> H.Hash
+makeInstanceHash' :: H.Hash -> Wasm.ContractState -> Amount -> H.Hash
 makeInstanceHash' paramHash conState a = H.hashLazy $ runPutLazy $ do
         put paramHash
         putByteString (H.hashToByteString (getHash conState))
         put a
 
-makeInstanceHash :: InstanceParameters -> ContractState -> Amount -> H.Hash
+makeInstanceHash :: InstanceParameters -> Wasm.ContractState -> Amount -> H.Hash
 makeInstanceHash params = makeInstanceHash' (instanceParameterHash params)
 
 makeInstance ::
@@ -93,7 +72,7 @@ makeInstance ::
     -> Wasm.InitName     -- ^Name of the init method used to initialize the contract.
     -> Set.Set Wasm.ReceiveName -- ^Receive functions suitable for this instance.
     -> Wasm.ModuleInterface        -- ^Module interface
-    -> ContractState  -- ^Initial state
+    -> Wasm.ContractState  -- ^Initial state
     -> Amount       -- ^Initial balance
     -> AccountAddress               -- ^Owner/creator of the instance.
     -> ContractAddress              -- ^Address for the instance
@@ -111,12 +90,12 @@ iaddress = instanceAddress . instanceParameters
 
 -- |Update a given smart contract instance.
 -- FIXME: Updates to the state should be done better in the future, we should not just replace it.
-updateInstance :: AmountDelta -> ContractState -> Instance -> Instance
+updateInstance :: AmountDelta -> Wasm.ContractState -> Instance -> Instance
 updateInstance delta val i =  updateInstance' amnt val i
   where amnt = applyAmountDelta delta (instanceAmount i)
 
 -- |Update a given smart contract instance with exactly the given amount and state.
-updateInstance' :: Amount -> ContractState -> Instance -> Instance
+updateInstance' :: Amount -> Wasm.ContractState -> Instance -> Instance
 updateInstance' amnt val i =  i {
                                 instanceModel = val,
                                 instanceAmount = amnt,

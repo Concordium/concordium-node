@@ -9,7 +9,6 @@ import Data.Serialize
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Control.Monad.Reader.Class
-import Control.Monad.Trans.Reader (ReaderT)
 import Control.Monad.Trans
 import Control.Monad
 import Control.Exception
@@ -44,7 +43,7 @@ import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
-import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash', ContractState)
+import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
@@ -516,7 +515,7 @@ doPutNewInstance pbs fnew = do
                 pinstanceHash = instanceHash
             })
 
-doModifyInstance :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> AmountDelta -> ContractState -> m PersistentBlockState
+doModifyInstance :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ContractAddress -> AmountDelta -> Wasm.ContractState -> m PersistentBlockState
 doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadPBS pbs
         -- Update the instance

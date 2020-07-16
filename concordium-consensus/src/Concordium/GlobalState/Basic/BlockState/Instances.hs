@@ -16,6 +16,7 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
 ) where
 
 import Concordium.Types
+import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 
@@ -32,12 +33,12 @@ getInstance addr (Instances iss) = iss ^? ix addr
 
 -- |Update the instance at the specified address with an amount delta and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt :: ContractAddress -> AmountDelta -> ContractState -> Instances -> Instances
+updateInstanceAt :: ContractAddress -> AmountDelta -> Wasm.ContractState -> Instances -> Instances
 updateInstanceAt ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance amt val)
 
 -- |Update the instance at the specified address with a __new amount__ and value.
 -- If there is no instance with the given address, this does nothing.
-updateInstanceAt' :: ContractAddress -> Amount -> ContractState -> Instances -> Instances
+updateInstanceAt' :: ContractAddress -> Amount -> Wasm.ContractState -> Instances -> Instances
 updateInstanceAt' ca amt val (Instances iss) = Instances (iss & ix ca %~ updateInstance' amt val)
 
 -- |Create a new smart contract instance.
