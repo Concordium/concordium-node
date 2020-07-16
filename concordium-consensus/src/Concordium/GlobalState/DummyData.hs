@@ -205,6 +205,14 @@ mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr
   where
     cred = dummyCredential addr dummyLowValidTo dummyCreatedAt
 
+{-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
+-- Make an account with multiple keys, with indices 0..len.
+-- The account has a single credential with a sufficiently late expiry date.
+mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
+mkAccountMultipleKeys keys threshold addr amnt = newAccount accKeys addr cred & accountAmount .~ amnt
+  where
+    cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
+    accKeys = makeAccountKeys keys threshold
 
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
 makeFakeBakerAccount :: BakerId -> Account
