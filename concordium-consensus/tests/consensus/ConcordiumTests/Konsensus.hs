@@ -27,6 +27,7 @@ import Concordium.Crypto.SHA256
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
@@ -502,7 +503,7 @@ makeBaker bid initAmount = resize 0x20000000 $ do
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
         let (account, kp) = makeBakerAccountKP bid initAmount
-        return (FullBakerInfo (BakerInfo epk spk blspk (_accountAddress account)) initAmount, BakerIdentity sk ek blssk, account, kp)
+        return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account, kp)
 
 dummyIdentityProviders :: [IpInfo]
 dummyIdentityProviders = []

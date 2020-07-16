@@ -10,7 +10,7 @@ import Test.Hspec
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Scheduler.Runner
 
-import Concordium.GlobalState.Basic.BlockState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 
 import Concordium.Scheduler.DummyData

@@ -21,11 +21,13 @@ import Control.Monad.Trans.RWS.Strict hiding (ask, get, put, tell, censor, liste
 import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
+import Concordium.GlobalState.Account
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))
 import Concordium.GlobalState.TreeState hiding (BlockState)
 import Concordium.GlobalState.Basic.BlockState.Bakers
+import qualified Concordium.GlobalState.Types as GS
 
 import qualified Acorn.Core as Core
 
@@ -88,7 +90,7 @@ instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
-          BlockStateOperations m
+          BS.BlockStateOperations m
           )
     => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState w state m) where
   {-# INLINE getChainMetadata #-}
@@ -104,7 +106,7 @@ instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
-          BlockStateOperations m,
+          BS.BlockStateOperations m,
           CanRecordFootprint w,
           CanExtend (ATIStorage m),
           Footprint (ATIStorage m) ~ w,
@@ -185,19 +187,17 @@ instance (MonadReader ContextState m,
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce acc = do
     s <- use schedulerBlockState
-    let nonce = acc ^. accountNonce
+    nonce <- getAccountNonce acc
+    addr <- getAccountAddress acc
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
     schedulerBlockState .= s'
-
-    where addr = acc ^. accountAddress
 
   {-# INLINE addAccountCredential #-}
   addAccountCredential !acc !cdi = do
     s <- use schedulerBlockState
+    addr <- getAccountAddress acc
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
     schedulerBlockState .= s'
-
-   where addr = acc ^. accountAddress
 
   {-# INLINE commitChanges #-}
   commitChanges !cs = do
@@ -334,6 +334,10 @@ instance (MonadReader ContextState m,
   {-# INLINE getCrypoParams #-}
   getCrypoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
 
+deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
+
+deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r w state m)
+
 -- Pure block state scheduler state
 type PBSSS = NoLogSchedulerState (PureBlockStateMonad Identity)
 type RWSTBS m a = RWST ContextState () PBSSS m a
@@ -341,8 +345,10 @@ type RWSTBS m a = RWST ContextState () PBSSS m a
 -- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWSTBS (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS)
-    deriving (StaticEnvironmentMonad Core.UA)
+    deriving (StaticEnvironmentMonad Core.UA, AccountOperations)
       via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity)))
+
+deriving via (PureBlockStateMonad Identity) instance GS.BlockStateTypes SchedulerImplementation
 
 deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity))) instance
   SchedulerMonad SchedulerImplementation
