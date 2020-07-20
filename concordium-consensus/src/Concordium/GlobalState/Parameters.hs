@@ -113,14 +113,12 @@ eitherReadIdentityProviders = AE.eitherDecode
 eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
 eitherReadAnonymityRevokers = AE.eitherDecode
 
-readVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
-readVersionedCryptographicParameters bs = case AE.decode bs of
-  Just (v :: (Versioned CryptographicParameters)) -> do
-    if ((vVersion v) /= versionGlobalParameters) then
-      Nothing
-    else
-      Just (vValue v)
-  _ -> Nothing
+getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
+getExactVersionedCryptographicParameters bs = do
+   v <- AE.decode bs
+   guard (vVersion v == versionGlobalParameters)
+   return (vValue v)
+
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a
@@ -211,10 +209,6 @@ instance FromJSON GenesisParameters where
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
-
-unversionGpIdps :: AE.Value -> AE.Value
-unversionGpIdps v = v
-
 
 
 

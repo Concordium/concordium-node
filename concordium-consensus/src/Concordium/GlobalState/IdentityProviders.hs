@@ -17,8 +17,7 @@ import Concordium.ID.IdentityProvider
 newtype IdentityProviders = IdentityProviders {
   idProviders :: HashMap IdentityProviderIdentity IpInfo
   }
-  deriving(Eq)
-  deriving(ToJSON, FromJSON) via (HashMap IdentityProviderIdentity IpInfo)
+  deriving(Eq, ToJSON, FromJSON)
 
 instance Show IdentityProviders where
     show (IdentityProviders m) = "IdentityProviders {\n" ++ concatMap f (HM.elems m) ++ "}"

@@ -74,7 +74,10 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     putBlock :: b -> Put
 
 putBlockV0 :: (BlockData b) => b -> Put
-putBlockV0 b = put versionBlock >> putBlock b
+putBlockV0 b = putBlock b
+
+putExactVersionedBlockV0 :: (BlockData b) => b -> Put
+putExactVersionedBlockV0 b = put versionBlock >> putBlock b
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
@@ -263,7 +266,7 @@ getExactVersionedBlock :: TransactionTime -> Get Block
 getExactVersionedBlock time = do
     version <- get :: Get Version
     a <- if version == versionBlock then getBlockV0 time
-         else fail "Bad block version"
+         else fail $ "Unsupported block version: " ++ (show version)
     return a
 
 -- |Deserialize a block.
