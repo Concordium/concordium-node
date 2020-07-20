@@ -15,7 +15,7 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -28,13 +28,14 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
--- Test that sending to and from an account without credentials fails.
+-- Test that sending to and from an account without valid credentials fails.
 
--- Create initial state where alesAccount has a credential, but thomasAccount does not.
+-- Create initial state where alesAccount has a valid credential, but thomasAccount does not.
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
     100000
-    (Acc.putAccountWithRegIds (mkAccountNoCredentials [thomasVK] 1 thomasAccount 100000) Acc.emptyAccounts)
+    (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 100000) Acc.emptyAccounts)
+
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =

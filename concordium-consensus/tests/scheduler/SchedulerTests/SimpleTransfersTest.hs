@@ -14,7 +14,8 @@ import Concordium.Scheduler.Runner
 import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
-import Concordium.GlobalState.Basic.BlockState.Account as Acc
+import Concordium.GlobalState.Basic.BlockState.Account
+import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 
@@ -82,8 +83,8 @@ testSimpleTransfer = do
         Right _ -> return ()
     return (getResults ftAdded,
             ftFailed,
-            gstate ^. blockAccounts . singular (ix alesAccount) . Types.accountAmount,
-            gstate ^. blockAccounts . singular (ix thomasAccount) . Types.accountAmount)
+            gstate ^. blockAccounts . singular (ix alesAccount) . accountAmount,
+            gstate ^. blockAccounts . singular (ix thomasAccount) . accountAmount)
 
 checkSimpleTransferResult :: TestResult -> Bool
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =

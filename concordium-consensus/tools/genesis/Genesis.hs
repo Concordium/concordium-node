@@ -19,6 +19,7 @@ import Data.Text(Text)
 import qualified Data.HashMap.Strict as Map
 import Concordium.Common.Version
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
@@ -168,11 +169,11 @@ main = cmdArgsRun mode >>=
                       putStrLn $ "Genesis time is set to: " ++ showTime (genesisTime genesisData)
                       putStrLn $ "There are the following " ++ show (Prelude.length (genesisAccounts genesisData)) ++ " initial accounts in genesis:"
                       forM_ (genesisAccounts genesisData) $ \account ->
-                        putStrLn $ "\tAccount: " ++ show (_accountAddress account) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
+                        putStrLn $ "\tAccount: " ++ show (account ^. accountAddress) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
 
                       putStrLn $ "\nIn addition there are the following " ++ show (Prelude.length (genesisControlAccounts genesisData)) ++ " control accounts:"
                       forM_ (genesisControlAccounts genesisData) $ \account ->
-                        putStrLn $ "\tAccount: " ++ show (_accountAddress account) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
+                        putStrLn $ "\tAccount: " ++ show (account ^. accountAddress) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
 
                       LBS.writeFile gdOutput (S.encodeLazy $ (Versioned versionGenesisData genesisData))
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
@@ -244,7 +245,7 @@ main = cmdArgsRun mode >>=
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
             printf "%d (= %.4f%%)" (toInteger balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
-        showAccount totalGTU Account{..} = do
+        showAccount totalGTU Account{_accountPersisting=PersistingAccountData{..}, ..} = do
           putStrLn $ "  - " ++ show _accountAddress
           putStrLn $ "     * balance: " ++ showBalance totalGTU _accountAmount
           putStrLn $ "     * threshold: " ++ show (akThreshold _accountVerificationKeys)
