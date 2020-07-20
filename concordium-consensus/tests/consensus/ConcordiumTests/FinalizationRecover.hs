@@ -31,7 +31,7 @@ import Test.Hspec
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (readVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
+  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 

@@ -65,7 +65,7 @@ dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
     fromMaybe
         (error "Could not read cryptographic parameters.")
-        (unsafePerformIO (readVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
+        (unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers

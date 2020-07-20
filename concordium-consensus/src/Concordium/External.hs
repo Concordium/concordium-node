@@ -195,7 +195,7 @@ broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putBlockV0 block
+            let blockbs = runPut $ putExactVersionedBlockV0 block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -538,7 +538,9 @@ receiveFinalization bptr cstr l = do
             logm External LLDebug "Deserialization of finalization message failed."
             return ResultSerializationFail
         Right (vFinMsg :: (Versioned FinalizationPseudoMessage)) -> 
-            if (vVersion vFinMsg) /= versionFinalizationMessage then
+            if (vVersion vFinMsg) /= versionFinalizationMessage then do
+              let warning = "Received finalization message with unsupported version: " ++ (show (vVersion vFinMsg))
+              logm External LLWarning warning
               return ResultSerializationFail
             else do
               logm External LLDebug "Finalization message deserialized."
