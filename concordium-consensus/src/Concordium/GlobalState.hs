@@ -80,7 +80,7 @@ import Concordium.Logger
 
 
 -- |A newtype wrapper for providing instances of the block state related monads:
--- 'BlockStateTypes', 'BlockStateQuery', 'BakerQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
+-- 'BlockStateTypes', 'BlockStateQuery', 'AccountOperations', 'BakerQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
 --
 -- For the monad @BlockStateM c r g s m@, the underlying monad @m@ should satisfy
 -- @MonadReader r m@ and @MonadState s m@.  The types @c@ and @s@ should be components
@@ -125,6 +125,10 @@ deriving via PureBlockStateMonad m
 
 deriving via PureBlockStateMonad m
     instance (MonadLogger m)
+             => AccountOperations (MemoryBlockStateM r g s m)
+
+deriving via PureBlockStateMonad m
+    instance (MonadLogger m)
              => BakerQuery (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
@@ -153,6 +157,15 @@ deriving via (PersistentBlockStateMonad
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BlockStateQuery (PersistentBlockStateM r g s m)
+
+deriving via (PersistentBlockStateMonad
+               PersistentBlockStateContext
+               (FocusGlobalStateM PersistentBlockStateContext g m))
+    instance (MonadIO m,
+              AccountOperations (PersistentBlockStateMonad
+                                  PersistentBlockStateContext
+                                  (FocusGlobalStateM PersistentBlockStateContext g m)))
+             => AccountOperations (PersistentBlockStateM r g s m)
 
 deriving via (PersistentBlockStateMonad
                PersistentBlockStateContext
@@ -202,7 +215,7 @@ deriving via (PersistentBlockStateMonad
 -- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, BakerQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BakerQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
@@ -274,6 +287,10 @@ deriving via BlockStateM c r g s m
              => BlockStateQuery (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
+    instance (Monad m, AccountOperations (BlockStateM c r g s m))
+             => AccountOperations (GlobalStateM db c r g s m)
+
+deriving via BlockStateM c r g s m
     instance (Monad m, BakerQuery (BlockStateM c r g s m))
              => BakerQuery (GlobalStateM db c r g s m)
 
@@ -282,7 +299,7 @@ deriving via BlockStateM c r g s m
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, BlockStateQuery (GlobalStateM db c r g s m),
+    instance (BlockStateQuery (GlobalStateM db c r g s m),
               BlockStateOperations (BlockStateM c r g s m))
              => BlockStateOperations (GlobalStateM db c r g s m)
 

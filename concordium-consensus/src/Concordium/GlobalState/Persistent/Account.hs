@@ -1,210 +1,125 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MonoLocalBinds #-}
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DeriveGeneric #-}
+
 module Concordium.GlobalState.Persistent.Account where
 
-import qualified Data.Set as Set
-import Lens.Micro.Platform
+import Control.Monad.IO.Class (MonadIO)
 import Data.Serialize
-import GHC.Generics
-import Data.Maybe
-import Control.Monad.IO.Class
-import qualified Data.Map.Strict as Map
+import Lens.Micro.Platform
 
-import Concordium.Types
-import qualified Concordium.GlobalState.Persistent.AccountTable as AT
-import Concordium.GlobalState.Persistent.AccountTable (AccountIndex, AccountTable)
-import qualified Concordium.ID.Types as ID
-import qualified Concordium.GlobalState.Persistent.Trie as Trie
-import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
+import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.Types
+import Concordium.GlobalState.Account
 
--- |Representation of the set of accounts on the chain.
--- Each account has an 'AccountIndex' which is the order
--- in which it was created.
---
--- The operations on 'Accounts', when used correctly, maintain the following invariants:
---
--- * Every @(address, index)@ pair in 'accountMap' has a corresponding account
---   in 'accountTable' with the given index and address.
--- * Every @(index, account)@ pair in 'accountTable' has a corresponding entry
---   in 'accountMap', which maps the account address to @index@.
--- * The 'accountMap' only ever increases: no accounts are removed, and account
---   indexes do not change.
--- * 'accountRegIds' is either @Null@ or a set that is equivalent to the set of
---   registration ids represented by 'accountRegIdHistory'.
--- * The set represented by 'accountRegIdHistory' only ever grows.
---
--- Note that the operations *do not* enforce a correspondence between 'accountRegIds'
--- and the credentials used by the accounts in 'accountTable'.
--- The data integrity of accounts is also not enforced by these operations.
---
--- This implementation uses disk-backed structures for implementation.
-data Accounts = Accounts {
-    -- |Unique index of accounts by 'AccountAddress'
-    accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
-    -- |Hashed Markel-tree of the accounts
-    accountTable :: !AccountTable,
-    -- |Optional cached set of used 'ID.CredentialRegistrationID's
-    accountRegIds :: !(Nullable (Set.Set ID.CredentialRegistrationID)),
-    -- |Persisted representation of the set of used 'ID.CredentialRegistrationID's
-    accountRegIdHistory :: !RegIdHistory
-}
+data PersistentAccount = PersistentAccount {
+  -- |Next available nonce for this account.
+  _accountNonce :: !Nonce
+  -- |Current public account balance.
+  ,_accountAmount :: !Amount
+  -- |List of encrypted amounts on the account.
+  -- TODO (MRA) create bufferedref list
+  ,_accountEncryptedAmount :: ![EncryptedAmount]
+  -- |A pointer to account data that changes rarely
+  ,_persistingData :: !(BufferedRef PersistingAccountData)
+  -- |A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
+  -- the persisting account data is stored behind a pointer
+  ,_accountHash :: !Hash.Hash
+  } deriving Show
 
--- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
--- The new object is not yet stored on disk.
-makePersistent :: MonadIO m => Transient.Accounts -> m Accounts
-makePersistent (Transient.Accounts amap atbl aregids) = do
-    accountTable <- AT.makePersistent atbl
-    accountMap <- Trie.fromList (Map.toList amap)
-    return Accounts {..}
-    where
-        accountRegIds = Some aregids
-        accountRegIdHistory = RegIdHistory (Set.toList aregids) Null
+makeLenses ''PersistentAccount
 
-instance Show Accounts where
-    show a = show (accountTable a)
-
--- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
--- to a further (committed) history.
-data RegIdHistory = RegIdHistory ![ID.CredentialRegistrationID] !(Nullable (BlobRef RegIdHistory))
-    deriving (Generic)
-
-instance Serialize RegIdHistory
-
--- This is probably not ideal, but some performance analysis is probably required to find a good
--- compromise.
-instance (MonadBlobStore m BlobRef) => BlobStorable m BlobRef RegIdHistory
-
--- |Load the registration ids.  If 'accountRegIds' is @Null@, then 'accountRegIdHistory'
--- is used (reading from disk as necessary) to determine it, in which case 'accountRegIds'
--- is updated with the determined value.
-loadRegIds :: forall m. (MonadBlobStore m BlobRef) => Accounts -> m (Set.Set ID.CredentialRegistrationID, Accounts)
-loadRegIds a@Accounts{accountRegIds = Some regids} = return (regids, a)
-loadRegIds a@Accounts{accountRegIds = Null, ..} = do
-        regids <- Set.fromList <$> loadRegIdHist accountRegIdHistory
-        return (regids, a {accountRegIds = Some regids})
-    where
-        loadRegIdHist :: RegIdHistory -> m [ID.CredentialRegistrationID]
-        loadRegIdHist (RegIdHistory l Null) = return l
-        loadRegIdHist (RegIdHistory l (Some ref)) = (l ++) <$> (loadRegIdHist =<< loadRef ref)
-
-instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Accounts where
-    storeUpdate p Accounts{..} = do
-        (pMap, accountMap') <- storeUpdate p accountMap
-        (pTable, accountTable') <- storeUpdate p accountTable
-        (pRIH, accountRegIdHistory') <- case accountRegIdHistory of
-            RegIdHistory [] r -> return (put r, accountRegIdHistory)
-            rih -> do
-                rRIH <- storeRef rih
-                return (put (Some rRIH), RegIdHistory [] (Some rRIH))
-        let newAccounts = Accounts{
-                accountMap = accountMap',
-                accountTable = accountTable',
-                accountRegIdHistory = accountRegIdHistory',
+instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef PersistentAccount where
+    storeUpdate p PersistentAccount{..} = do
+        (pAccData, accData) <- storeUpdate p _persistingData
+        let persistentAcc = PersistentAccount {
+                _persistingData = accData,
                 ..
             }
-        return (pMap >> pTable >> pRIH, newAccounts)
+        let putAccs = do
+                    put _accountNonce
+                    put _accountAmount
+                    put _accountEncryptedAmount
+                    pAccData
+        return (putAccs, persistentAcc)
     store p a = fst <$> storeUpdate p a
     load p = do
-        maccountMap <- load p
-        maccountTable <- load p
-        mrRIH <- load p
+        _accountNonce <- get
+        _accountAmount <- get
+        _accountEncryptedAmount <- get
+        mAccDataPtr <- load p
         return $ do
-            accountMap <- maccountMap
-            accountTable <- maccountTable
-            rRIH <- mrRIH
-            return $ Accounts {accountRegIds = Null, accountRegIdHistory = RegIdHistory [] rRIH, ..}
+          _persistingData <- mAccDataPtr
+          pData <- loadBufferedRef _persistingData
+          let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
+          return PersistentAccount {..}
 
--- |An 'Accounts' with no accounts.
-emptyAccounts :: Accounts
-emptyAccounts = Accounts Trie.empty AT.empty (Some Set.empty) (RegIdHistory [] Null)
+instance HashableTo Hash.Hash PersistentAccount where
+  getHash = _accountHash
 
--- |Add or modify a given account.
--- If an account matching the given account's address does not exist,
--- the account is created, giving it the next available account index
--- and recording it in 'accountMap'.
--- If an account with the address already exists, 'accountTable' is updated
--- to reflect the new state of the account.
-putAccount :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> Accounts -> m Accounts
-putAccount !acct accts0 = do
-        (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
-        newAccountTable <- case isFresh of
-            Nothing -> snd <$> AT.append acct (accountTable accts0)
-            Just ai -> AT.update (const (return ((), acct))) ai (accountTable accts0) <&> \case
-                Nothing -> error $ "Account table corruption: missing account at index " ++ show ai
-                Just ((), newAT) -> newAT
-        return $! accts0 {accountMap = newAccountMap, accountTable = newAccountTable}
-    where
-        addr = acct ^. accountAddress
-        acctIndex = AT.nextAccountIndex (accountTable accts0)
-        addToAM Nothing = return (Nothing, Trie.Insert acctIndex)
-        addToAM (Just v) = return (Just v, Trie.NoChange)
+-- |Make a 'PersistentAccount' from an 'Transient.Account'.
+makePersistentAccount :: MonadIO m => Transient.Account -> m PersistentAccount
+makePersistentAccount Transient.Account{..} = do
+  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
+  _persistingData <- makeBufferedRef _accountPersisting
+  return PersistentAccount {..}
 
--- |Add a new account. Returns @False@ and leaves the accounts unchanged if
--- there is already an account with the same address.
-putNewAccount :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> Accounts -> m (Bool, Accounts)
-putNewAccount !acct accts0 = do
-        (isFresh, newAccountMap) <- Trie.adjust addToAM addr (accountMap accts0)
-        if isFresh then do
-            (_, newAccountTable) <- AT.append acct (accountTable accts0)
-            return (True, accts0 {accountMap = newAccountMap, accountTable = newAccountTable})
-        else
-            return (False, accts0)
-    where
-        addr = acct ^. accountAddress
-        acctIndex = AT.nextAccountIndex (accountTable accts0)
-        addToAM Nothing = return (True, Trie.Insert acctIndex)
-        addToAM (Just _) = return (False, Trie.NoChange)
+-- |Checks whether the two arguments represent the same account. (Used for testing.)
+sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
+sameAccount bAcc pAcc@PersistentAccount{..} = do
+  _accountPersisting <- loadBufferedRef _persistingData
+  return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
 
--- |Determine if an account with the given address exists.
-exists :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m Bool
-exists addr Accounts{..} = isJust <$> Trie.lookup addr accountMap
+-- |Checks whether the two arguments represent the same account by comparing the account hashes.
+-- (Used for testing.)
+sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
+sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
--- |Retrieve an account with the given address.
--- Returns @Nothing@ if no such account exists.
-getAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m (Maybe Account)
-getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
-        Nothing -> return Nothing
-        Just ai -> AT.lookup ai accountTable
+-- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^. accountAddress@ returns the account's address.
+(^^.) :: (MonadIO m, MonadBlobStore m BlobRef)
+      => PersistentAccount
+      -> Getting b PersistingAccountData b
+      -> m b
+acc ^^. l = (^. l) <$> loadBufferedRef (acc ^. persistingData)
 
--- |Retrieve an account with the given address.
--- An account with the address is required to exist.
-unsafeGetAccount :: (MonadBlobStore m BlobRef) => AccountAddress -> Accounts -> m Account
-unsafeGetAccount addr accts = getAccount addr accts <&> \case
-        Just acct -> acct
-        Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
+{-# INLINE (^^.) #-}
+infixl 8 ^^.
 
--- |Check that an account registration ID is not already on the chain.
--- See the foundation (Section 4.2) for why this is necessary.
--- Return @True@ if the registration ID already exists in the set of known registration ids, and @False@ otherwise.
-regIdExists :: (MonadBlobStore m BlobRef) => ID.CredentialRegistrationID -> Accounts -> m (Bool, Accounts)
-regIdExists rid accts0 = do
-        (regids, accts) <- loadRegIds accts0
-        return (rid `Set.member` regids, accts)
+-- |Update a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
+-- Used to implement '.~~' and '%~~'.
+setPAD :: (MonadIO m, MonadBlobStore m BlobRef)
+          => (PersistingAccountData -> PersistingAccountData)
+          -> PersistentAccount
+          -> m PersistentAccount
+setPAD f acc@PersistentAccount{..} = do
+  pData <- loadBufferedRef (acc ^. persistingData)
+  newPData <- makeBufferedRef $ f pData
+  return $ acc & persistingData .~ newPData
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData 
 
--- |Record an account registration ID as used.
-recordRegId :: (MonadBlobStore m BlobRef) => ID.CredentialRegistrationID -> Accounts -> m Accounts
-recordRegId rid accts0 = do
-        (regids, accts1) <- loadRegIds accts0
-        let (RegIdHistory l r) = accountRegIdHistory accts1
-        return $! accts1 {
-                accountRegIds = Some (Set.insert rid regids),
-                accountRegIdHistory = RegIdHistory (rid:l) r
-                }
+-- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
+-- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
+-- account's stake delegate to 'Nothing'.
+(.~~) :: (MonadIO m, MonadBlobStore m BlobRef)
+      => ASetter PersistingAccountData PersistingAccountData a b
+      -> b
+      -> PersistentAccount
+      -> m PersistentAccount
+(.~~) l v = setPAD (l .~ v)
 
--- |Perform an update to an account with the given address.
--- Does nothing (returning @Nothing@) if the account does not exist.
--- This should not be used to alter the address of an account (which is
--- disallowed).
-updateAccount :: (MonadBlobStore m BlobRef, MonadIO m) => (Account -> m (a, Account)) -> AccountAddress -> Accounts -> m (Maybe a, Accounts)
-updateAccount fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
-        Nothing -> return (Nothing, a0)
-        Just ai -> AT.update fupd ai accountTable >>= \case
-            Nothing -> return (Nothing, a0)
-            Just (res, act') -> return (Just res, a0 {accountTable = act'})
+{-# INLINE (.~~) #-}
+infixr 4 .~~
 
--- |Get a list of all account addresses.
-accountAddresses :: (MonadBlobStore m BlobRef) => Accounts -> m [AccountAddress]
-accountAddresses = Trie.keys . accountMap
+-- |Modify a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
+-- E.g., @acc & accountInstances %~~ Set.insert i@ inserts an instance @i@ to the set of an account's instances.
+(%~~) :: (MonadIO m, MonadBlobStore m BlobRef)
+      => ASetter PersistingAccountData PersistingAccountData a b
+      -> (a -> b)
+      -> PersistentAccount
+      -> m PersistentAccount
+(%~~) l f = setPAD (l %~ f)
+
+{-# INLINE (%~~) #-}
+infixr 4 %~~

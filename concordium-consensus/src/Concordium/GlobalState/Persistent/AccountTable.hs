@@ -15,11 +15,11 @@ import Control.Exception
 import Data.Functor
 
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.Types
 import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 
 -- |Account indexes are 64-bit values.
@@ -28,7 +28,7 @@ type AccountIndex = Word64
 
 data ATF r
     = Branch !Word8 !Bool H.Hash !r !r
-    | Leaf H.Hash !Account
+    | Leaf H.Hash !PersistentAccount
     deriving (Show, Functor, Foldable, Traversable)
 
 instance HashableTo H.Hash (ATF r) where
@@ -39,7 +39,7 @@ showATFString :: ATF String -> String
 showATFString (Branch lvl _ _ l r) = "Branch(" ++ show lvl ++ ", " ++ l ++ ", " ++ r ++ ")"
 showATFString (Leaf _ a) = show a
 
-instance (BlobStorable m ref r) => BlobStorable m ref (ATF r) where
+instance (BlobStorable m BlobRef r, MonadIO m) => BlobStorable m BlobRef (ATF r) where
     storeUpdate p (Branch lvl fll hsh cl cr) = do
         (pcl, cl') <- storeUpdate p cl
         (pcr, cr') <- storeUpdate p cr
@@ -81,20 +81,20 @@ full :: ATF r -> Bool
 full (Branch _ f _ _ _) = f
 full (Leaf _ _) = True
 
-mkLeaf :: Account -> ATF r
+mkLeaf :: PersistentAccount -> ATF r
 mkLeaf acct = Leaf (getHash acct) acct
 {-# INLINE mkLeaf #-}
 
 branchHash :: H.Hash -> H.Hash -> H.Hash
 branchHash h1 h2 = H.hashShort $ H.hashToShortByteString h1 <> H.hashToShortByteString h2
 
-lookupF :: (MRecursive m t, Base t ~ ATF) => AccountIndex -> t -> m (Maybe Account)
+lookupF :: (MRecursive m t, Base t ~ ATF) => AccountIndex -> t -> m (Maybe PersistentAccount)
 lookupF x = mproject >=> \case
     (Leaf _ acct) -> return $! if x == 0 then Just acct else Nothing
     (Branch (fromIntegral -> branchBit) _ _ l r) ->
         if testBit x branchBit then lookupF (clearBit x branchBit) r else lookupF x l
 
-appendF :: (MRecursive m t, MCorecursive m t, Base t ~ ATF) => Account -> t -> m (AccountIndex, Word8, Bool, H.Hash, t)
+appendF :: (MRecursive m t, MCorecursive m t, Base t ~ ATF) => PersistentAccount -> t -> m (AccountIndex, Word8, Bool, H.Hash, t)
 appendF acct t = mproject t >>= \case
         (Leaf h _) -> do
             enewLeaf <- membed newLeaf
@@ -117,7 +117,7 @@ appendF acct t = mproject t >>= \case
         newHash = getHash acct
         newLeaf = Leaf newHash acct
 
-updateF :: forall m t a. (MRecursive m t, MCorecursive m t, Base t ~ ATF) => (Account -> m (a, Account)) -> AccountIndex -> t -> m (Maybe (a, H.Hash, t))
+updateF :: forall m t a. (MRecursive m t, MCorecursive m t, Base t ~ ATF) => (PersistentAccount -> m (a, PersistentAccount)) -> AccountIndex -> t -> m (Maybe (a, H.Hash, t))
 updateF upd x t = mproject t >>= \case
     (Leaf _ acct) -> if x == 0 then do
             (res, acct') <- upd acct
@@ -142,7 +142,7 @@ updateF upd x t = mproject t >>= \case
                     b <- membed (Branch lvl fll hsh' l' r)
                     return $ Just (res, hsh', b)
 
-mapReduceF :: (MRecursive m t, Base t ~ ATF, Monoid a) => (AccountIndex -> Account -> m a) -> t -> m a
+mapReduceF :: (MRecursive m t, Base t ~ ATF, Monoid a) => (AccountIndex -> PersistentAccount -> m a) -> t -> m a
 mapReduceF mfun = mr 0 <=< mproject
     where
         mr lowIndex (Leaf _ acct) = mfun lowIndex acct
@@ -188,11 +188,11 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Account
 empty :: AccountTable
 empty = Empty
 
-lookup :: (MonadBlobStore m BlobRef) => AccountIndex -> AccountTable -> m (Maybe Account)
+lookup :: (MonadBlobStore m BlobRef, MonadIO m) => AccountIndex -> AccountTable -> m (Maybe PersistentAccount)
 lookup _ Empty = return Nothing
 lookup x (Tree _ _ t) = lookupF x t
 
-append :: (MonadBlobStore m BlobRef, MonadIO m) => Account -> AccountTable -> m (AccountIndex, AccountTable)
+append :: (MonadBlobStore m BlobRef, MonadIO m) => PersistentAccount -> AccountTable -> m (AccountIndex, AccountTable)
 append acct Empty = (0,) . (Tree 1 (getHash leaf)) <$> membed leaf
     where
         leaf = mkLeaf acct
@@ -200,11 +200,11 @@ append acct (Tree nai _ t) = do
     (i, _, _, hsh, t') <- appendF acct t
     assert (i == nai) $ return (i, Tree (nai + 1) hsh t')
 
-update :: (MonadBlobStore m BlobRef, MonadIO m) => (Account -> m (a, Account)) -> AccountIndex -> AccountTable -> m (Maybe (a, AccountTable))
+update :: (MonadBlobStore m BlobRef, MonadIO m) => (PersistentAccount -> m (a, PersistentAccount)) -> AccountIndex -> AccountTable -> m (Maybe (a, AccountTable))
 update _ _ Empty = return Nothing
 update upd i (Tree nai _ t) = fmap (\(res, h, t') -> (res, Tree nai h t')) <$> updateF upd i t
 
-toList :: (MonadBlobStore m BlobRef) => AccountTable -> m [(AccountIndex, Account)]
+toList :: (MonadBlobStore m BlobRef, MonadIO m) => AccountTable -> m [(AccountIndex, PersistentAccount)]
 toList Empty = return []
 toList (Tree _ _ t) = mapReduceF (\ai acct -> return [(ai, acct)]) t
 
@@ -218,6 +218,7 @@ makePersistent (Transient.Tree t0) = tree <$> conv t0
             b <- makeBufferedBlobbed (Branch lvl fll hsh ((\(_, _, t) -> t) l') cr)
             return (nxtr + 2^lvl, hsh, b)
         conv (Transient.Leaf hsh acct) = do
-            b <- makeBufferedBlobbed (Leaf hsh acct)
+            pAcct <- makePersistentAccount acct
+            b <- makeBufferedBlobbed (Leaf hsh pAcct)
             return (1, hsh, b)
         tree (ai, hsh, t) = Tree ai hsh t

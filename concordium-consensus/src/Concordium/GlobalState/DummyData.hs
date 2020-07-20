@@ -9,10 +9,13 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
+import Concordium.Crypto.SignatureScheme as SigScheme
+import Concordium.ID.Types
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
+import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Modules as Modules
@@ -28,6 +31,7 @@ import qualified Data.ByteString.Lazy.Char8 as BSL
 import System.IO.Unsafe
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Crypto.DummyData
+import Concordium.ID.DummyData
 import Concordium.Types.DummyData
 
 {-# WARNING basicGenesisState "Do not use in production" #-}
@@ -90,8 +94,8 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
                 spk = Sig.verifyKey sk
                 (blssk, gen''') = randomBlsSecretKey gen''
                 blspk = Bls.derivePublicKey blssk
-                accAddress = _accountAddress account
-                stake = _accountAmount account
+                accAddress = account ^. accountAddress
+                stake = account ^. accountAmount
                 account = makeFakeBakerAccount bid
 
 -- |Make a baker deterministically from a given seed and with the given reward account.
@@ -183,3 +187,43 @@ createBlockState accounts =
 blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
+
+-- This generates an account with a single credential and single keypair, which has sufficiently
+-- late expiry date, but is otherwise not well-formed.
+{-# WARNING mkAccount "Do not use in production." #-}
+mkAccount :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
+mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+  where
+    cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
+
+-- This generates an account with a single credential and single keypair, where
+-- the credential should already be considered expired. (Its valid-to date will be
+-- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
+{-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
+mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
+mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+  where
+    cred = dummyCredential addr dummyLowValidTo dummyCreatedAt
+
+-- This generates an account with a single credential, the given list of keys and signature threshold,
+-- which has sufficiently late expiry date, but is otherwise not well-formed.
+-- The keys are indexed in ascending order starting from 0
+{-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
+mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
+mkAccountMultipleKeys keys threshold addr amount = newAccount (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
+  where
+    cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
+
+{-# WARNING makeFakeBakerAccount "Do not use in production." #-}
+makeFakeBakerAccount :: BakerId -> Account
+makeFakeBakerAccount bid =
+    acct & accountAmount .~ 1000000000000
+      & accountStakeDelegate ?~ bid
+  where
+    vfKey = SigScheme.correspondingVerifyKey kp
+    credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
+    acct = newAccount (makeSingletonAC vfKey) address credential
+    -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
+    seed = - (fromIntegral bid) - 1
+    (address, seed') = randomAccountAddress (mkStdGen seed)
+    kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
