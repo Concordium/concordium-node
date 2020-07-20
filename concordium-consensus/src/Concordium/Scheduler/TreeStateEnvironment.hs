@@ -13,6 +13,7 @@ import qualified Data.Kind as DK
 import Control.Monad
 
 import Concordium.Types
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
@@ -85,6 +86,11 @@ mkInitialSS _lssBlockState =
                     _lssNextIndex = 0,
                     ..}
 
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance BlockStateTypes (BlockStateMonad w state m)
+
+deriving via (MGSTrans (RWST ContextState w state) m)
+    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)
 
 deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (
@@ -126,10 +132,11 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
   case macc of
     Nothing -> error "Precondition violated. Baker account does not exist."
     Just acc -> do
+      addr <- getAccountAddress acc
       bshandle2 <- bsoModifyAccount bshandle1
-         (emptyAccountUpdate (acc ^. accountAddress) & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
+         (emptyAccountUpdate addr & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
       -- record the block reward transaction in the transaction outcomes for this block
-      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid (acc ^. accountAddress) (executionReward + bakingReward))
+      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid addr (executionReward + bakingReward))
 
 
 -- |Execute a block from a given starting state.
@@ -156,7 +163,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state
     bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
-    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisControlAccounts <$> getGenesisData
+    genBetaAccounts <- HashSet.fromList . map (^. accountAddress) . genesisControlAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _specialBetaAccounts = genBetaAccounts,
@@ -227,8 +234,8 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
 
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     -- Order the accounts by the arrival time of the earliest transaction.
-    let orderedTxs = fst . unzip $ List.sortOn snd txs
-    genBetaAccounts <- HashSet.fromList . map _accountAddress . genesisControlAccounts <$> getGenesisData
+    let orderedTxs = map fst $ List.sortOn snd txs
+    genBetaAccounts <- HashSet.fromList . map (^. accountAddress) . genesisControlAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _specialBetaAccounts = genBetaAccounts,

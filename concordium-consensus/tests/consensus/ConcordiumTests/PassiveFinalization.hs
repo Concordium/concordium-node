@@ -30,6 +30,7 @@ import Concordium.Crypto.SHA256
 import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
@@ -291,7 +292,7 @@ makeBaker initAmount bid = resize 0x20000000 $ do
         let spk     = Sig.verifyKey sk
         let blspk   = Bls.derivePublicKey blssk
         let account = makeBakerAccount bid initAmount
-        return (FullBakerInfo (BakerInfo epk spk blspk (_accountAddress account)) initAmount, BakerIdentity sk ek blssk, account)
+        return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account)
 
 -- Create initial states for two bakers, a finalization committee member, and a list of additional finalization committee members
 createInitStates :: Int -> IO (BakerState, BakerState, BakerState, [BakerState])
