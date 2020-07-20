@@ -114,9 +114,9 @@ maybeModifyValue (Just source) key obj = do
         Just v -> return v
 
 
-maybeModifyValueVersioned :: Version -> Text -> Maybe FilePath -> Text -> Value -> IO Value
-maybeModifyValueVersioned _ _ Nothing _ obj = return obj
-maybeModifyValueVersioned ver mkey (Just source) key obj = do
+maybeModifyValueVersioned :: Version -> Maybe FilePath -> Text -> Value -> IO Value
+maybeModifyValueVersioned _ Nothing _ obj = return obj
+maybeModifyValueVersioned ver (Just source) key obj = do
   inBS <- LBS.readFile source
   case eitherDecode inBS of
     Left e -> do
@@ -124,33 +124,19 @@ maybeModifyValueVersioned ver mkey (Just source) key obj = do
       exitFailure
     Right v' -> do
       if vVersion v' /= ver then do
-        putStrLn "Invalid version in JSON file"
+        putStrLn $ "Invalid version in JSON file, expected " ++ (show ver) ++ ", got " ++ (show (vVersion v'))
         exitFailure
       else do
-        unwrapped <- unwrapJsonSingleton mkey (vValue v')
-        case modifyValueWith key unwrapped obj of
+        let value = vValue v'
+        case modifyValueWith key value obj of
           Nothing -> do
-            putStrLn "Base value not an object."
+            putStrLn $ "Base value '" ++ (show key) ++ "' not an object."
             exitFailure
           Just v -> return v
 
-unwrapJsonSingleton :: Text -> Value -> IO Value
-unwrapJsonSingleton key (Object v) = do
-  v' <- case (Map.lookup key v) of
-    Just l -> return l
-    Nothing -> do
-      putStrLn "Could not unwrap json map, key not found"
-      exitFailure
-  return v'
-unwrapJsonSingleton _ _ = do
-  putStrLn "Could not unwrap json map, expected JSON object"
-  exitFailure
-
 unwrapVersionedGenesisParameters :: Version -> (Versioned Value) -> IO Value
 unwrapVersionedGenesisParameters ver v = 
-  if (vVersion v) /= ver then do
-      putStrLn "Could not unwrap json map, key not found"
-      exitFailure
+  if (vVersion v) /= ver then die $ "Unsupported genesis parameters version " ++ (show (vVersion v))
   else return (vValue v)
 
 
@@ -165,8 +151,8 @@ main = cmdArgsRun mode >>=
                     exitFailure
                 Right v -> do
                   g <- unwrapVersionedGenesisParameters versionGenesisParameters v
-                  vId <- maybeModifyValueVersioned versionIpInfos "idps" gdIdentity "identityProviders" g
-                  vAr <- maybeModifyValueVersioned versionArInfos "ars" gdArs "anonymityRevokers" vId
+                  vId <- maybeModifyValueVersioned versionIpInfos gdIdentity "identityProviders" g
+                  vAr <- maybeModifyValueVersioned versionArInfos gdArs "anonymityRevokers" vId
                   vCP <- maybeModifyValue gdCryptoParams "cryptographicParameters" vAr
                   vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
                   vAcc <- maybeModifyValue gdControlAccounts "controlAccounts" vAdditionalAccs
@@ -197,62 +183,63 @@ main = cmdArgsRun mode >>=
             Left err -> putStrLn $ "Cannot parse genesis data:" ++ err
             Right (verGenData :: Versioned GenesisData) -> do
               unless ((vVersion verGenData) == versionGenesisData) $ fail "Invalid genesis data version"
-              case (vValue) verGenData of
-                genData@GenesisData{..} -> do
-                  putStrLn "Genesis data."
-                  putStrLn $ "Genesis time is set to: " ++ showTime genesisTime
-                  putStrLn $ "Slot duration: " ++ show (durationToNominalDiffTime genesisSlotDuration)
-                  putStrLn $ "Genesis nonce: " ++ show (SS.currentSeed genesisSeedState)
-                  putStrLn $ "Epoch length in slots: " ++ show (SS.epochLength genesisSeedState)
-                  putStrLn $ "Election difficulty: " ++ show genesisElectionDifficulty
+              let genData = vValue verGenData
+              let GenesisData{..} = genData
 
-                  let totalGTU = genesisTotalGTU genData
+              putStrLn "Genesis data."
+              putStrLn $ "Genesis time is set to: " ++ showTime genesisTime
+              putStrLn $ "Slot duration: " ++ show (durationToNominalDiffTime genesisSlotDuration)
+              putStrLn $ "Genesis nonce: " ++ show (SS.currentSeed genesisSeedState)
+              putStrLn $ "Epoch length in slots: " ++ show (SS.epochLength genesisSeedState)
+              putStrLn $ "Election difficulty: " ++ show genesisElectionDifficulty
 
-                  putStrLn ""
-                  putStrLn $ "Mint per slot amount: " ++ show genesisMintPerSlot
-                  putStrLn $ "Genesis total GTU: " ++ show totalGTU
-                  putStrLn $ "Maximum block energy: " ++ show genesisMaxBlockEnergy
+              let totalGTU = genesisTotalGTU genData
 
-                  putStrLn ""
-                  putStrLn "Finalization parameters: "
-                  let FinalizationParameters{..} = genesisFinalizationParameters
-                  putStrLn $ "  - minimum skip: " ++ show finalizationMinimumSkip
-                  putStrLn $ "  - committee max size: " ++ show finalizationCommitteeMaxSize
-                  putStrLn $ "  - waiting time: " ++ show (durationToNominalDiffTime finalizationWaitingTime)
-                  putStrLn $ "  - ignore first wait: " ++ show finalizationIgnoreFirstWait
-                  putStrLn $ "  - old style skip: " ++ show finalizationOldStyleSkip
-                  putStrLn $ "  - skip shrink factor: " ++ show finalizationSkipShrinkFactor
-                  putStrLn $ "  - skip grow factor: " ++ show finalizationSkipGrowFactor
-                  putStrLn $ "  - delay shrink factor: " ++ show finalizationDelayShrinkFactor
-                  putStrLn $ "  - delay grow factor: " ++ show finalizationDelayGrowFactor
-                  putStrLn $ "  - allow zero delay: " ++ show finalizationAllowZeroDelay
+              putStrLn ""
+              putStrLn $ "Mint per slot amount: " ++ show genesisMintPerSlot
+              putStrLn $ "Genesis total GTU: " ++ show totalGTU
+              putStrLn $ "Maximum block energy: " ++ show genesisMaxBlockEnergy
 
-                  putStrLn ""
-                  putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
+              putStrLn ""
+              putStrLn "Finalization parameters: "
+              let FinalizationParameters{..} = genesisFinalizationParameters
+              putStrLn $ "  - minimum skip: " ++ show finalizationMinimumSkip
+              putStrLn $ "  - committee max size: " ++ show finalizationCommitteeMaxSize
+              putStrLn $ "  - waiting time: " ++ show (durationToNominalDiffTime finalizationWaitingTime)
+              putStrLn $ "  - ignore first wait: " ++ show finalizationIgnoreFirstWait
+              putStrLn $ "  - old style skip: " ++ show finalizationOldStyleSkip
+              putStrLn $ "  - skip shrink factor: " ++ show finalizationSkipShrinkFactor
+              putStrLn $ "  - skip grow factor: " ++ show finalizationSkipGrowFactor
+              putStrLn $ "  - delay shrink factor: " ++ show finalizationDelayShrinkFactor
+              putStrLn $ "  - delay grow factor: " ++ show finalizationDelayGrowFactor
+              putStrLn $ "  - allow zero delay: " ++ show finalizationAllowZeroDelay
 
-                  putStrLn ""
-                  putStrLn $ "There are " ++ show (Map.size (idProviders genesisIdentityProviders)) ++ " identity providers in genesis."
+              putStrLn ""
+              putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
 
-                  putStrLn ""
-                  putStrLn $ "There are " ++ show (Map.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
+              putStrLn ""
+              putStrLn $ "There are " ++ show (Map.size (idProviders genesisIdentityProviders)) ++ " identity providers in genesis."
 
-                  putStrLn $ "Genesis bakers:"
-                  putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
-                  forM_ (OrdMap.toAscList (genesisBakers ^. bakerMap)) $ \(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> do
-                    putStrLn $ "  - baker: " ++ show bid
-                    putStrLn $ "    * stake: " ++ showBalance (genesisBakers ^. bakerTotalStake) _bakerStake
-                    putStrLn $ "    * account: " ++ show _bakerAccount
-                    putStrLn $ "    * election key: " ++ show _bakerElectionVerifyKey
-                    putStrLn $ "    * signature key: " ++ show _bakerSignatureVerifyKey
-                    putStrLn $ "    * aggregation key: " ++ show _bakerAggregationVerifyKey
+              putStrLn ""
+              putStrLn $ "There are " ++ show (Map.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
 
-                  putStrLn ""
-                  putStrLn "Genesis normal accounts:"
-                  forM_ genesisAccounts (showAccount totalGTU)
+              putStrLn $ "Genesis bakers:"
+              putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
+              forM_ (OrdMap.toAscList (genesisBakers ^. bakerMap)) $ \(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> do
+                putStrLn $ "  - baker: " ++ show bid
+                putStrLn $ "    * stake: " ++ showBalance (genesisBakers ^. bakerTotalStake) _bakerStake
+                putStrLn $ "    * account: " ++ show _bakerAccount
+                putStrLn $ "    * election key: " ++ show _bakerElectionVerifyKey
+                putStrLn $ "    * signature key: " ++ show _bakerSignatureVerifyKey
+                putStrLn $ "    * aggregation key: " ++ show _bakerAggregationVerifyKey
 
-                  putStrLn ""
-                  putStrLn "Genesis control accounts:"
-                  forM_ genesisControlAccounts (showAccount totalGTU)
+              putStrLn ""
+              putStrLn "Genesis normal accounts:"
+              forM_ genesisAccounts (showAccount totalGTU)
+
+              putStrLn ""
+              putStrLn "Genesis control accounts:"
+              forM_ genesisControlAccounts (showAccount totalGTU)
 
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
