@@ -42,10 +42,8 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Data.Ratio
 import Data.Word
-import Data.Maybe
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 
@@ -54,6 +52,7 @@ import Concordium.Types.Execution
 import Concordium.GlobalState.Classes
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
+import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import Concordium.GlobalState.Parameters
@@ -64,9 +63,10 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
-import qualified Data.PQueue.Prio.Max as Queue
 
 import qualified Concordium.ID.Types as ID
+import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
+import Data.Set (Set)
 
 type ModuleIndex = Word64
 
@@ -101,6 +101,46 @@ bakerData bid bkrs = do
     bInfo <- MaybeT (getBakerInfo bkrs bid)
     stake <- MaybeT (getBakerStake bkrs bid)
     return (bInfo, stake % totalStake)
+
+
+class (BlockStateTypes m,  Monad m) => AccountOperations m where
+
+  -- | Get the address of the account
+  getAccountAddress :: Account m -> m AccountAddress
+
+  -- | Get the current public account balance
+  getAccountAmount :: Account m -> m Amount
+
+  -- |Get the next available nonce for this account
+  getAccountNonce :: Account m -> m Nonce
+
+  -- |Get the list of credentials deployed on the account, ordered from most
+  -- recently deployed.  The list should be non-empty.
+  getAccountCredentials :: Account m -> m [CredentialDeploymentValues]
+
+  -- |Get the last expiry time of a credential on the account.
+  getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
+
+  -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
+  getAccountVerificationKeys :: Account m -> m ID.AccountKeys
+
+  -- |Get the list of encrypted amounts on the account
+  getAccountEncryptedAmount :: Account m -> m [EncryptedAmount]
+
+  -- |Get the baker to which this account's stake is delegated (if any)
+  getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
+
+  -- |The set of instances belonging to this account
+  -- TODO: Revisit choice of datastructure. Additions and removals
+  -- are expected to be rare. The set is traversed when stake delegation
+  -- changes.
+  getAccountInstances :: Account m -> m (Set ContractAddress)
+
+  -- |Create an empty account with the given public key, address and credential.
+  createNewAccount :: AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
+
+  -- |Update the public account balance
+  updateAccountAmount :: Account m -> Amount -> m (Account m)
 
 class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
 
@@ -138,11 +178,11 @@ birkEpochBakerByKeys sigKey bps = do
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class BirkParametersOperations m => BlockStateQuery m where
+class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m where
     -- |Get the module from the module table of the state instance.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
     -- |Get the account state from the account table of the state instance.
-    getAccount :: BlockState m -> AccountAddress -> m (Maybe Account)
+    getAccount :: BlockState m -> AccountAddress -> m (Maybe (Account m))
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -174,74 +214,14 @@ class BirkParametersOperations m => BlockStateQuery m where
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
 
-data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
-                           | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
-                           | Empty                    -- ^Do nothing to the encrypted amount.
-
-data AccountKeysUpdate =
-    RemoveKeys !(Set.Set ID.KeyIndex) -- Removes the keys at the specified indexes from the account
-  | SetKeys !(Map.Map ID.KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
-
--- |An update to an account state.
-data AccountUpdate = AccountUpdate {
-  -- |Address of the affected account.
-  _auAddress :: !AccountAddress
-  -- |Optionally a new account nonce.
-  ,_auNonce :: !(Maybe Nonce)
-  -- |Optionally an update to the account amount.
-  ,_auAmount :: !(Maybe AmountDelta)
-  -- |Optionally an update to the encrypted amounts.
-  ,_auEncrypted :: !EncryptedAmountUpdate
-  -- |Optionally a new credential.
-  ,_auCredential :: !(Maybe ID.CredentialDeploymentValues)
-  -- |Optionally an update to the account keys
-  ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
-  -- |Optionally update the signature threshold
-  ,_auSignThreshold :: !(Maybe ID.SignatureThreshold)
-}
-makeLenses ''AccountUpdate
-
-emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing Nothing Nothing
-
--- |Apply account updates to an account. It is assumed that the address in
--- account updates and account are the same.
-updateAccount :: AccountUpdate -> Account -> Account
-updateAccount !upd !acc =
-  acc {_accountNonce = (acc ^. accountNonce) & setMaybe (upd ^. auNonce),
-       _accountAmount = fst (acc & accountAmount <%~ applyAmountDelta (upd ^. auAmount . non 0)),
-       _accountCredentials =
-          case upd ^. auCredential of
-            Nothing -> acc ^. accountCredentials
-            Just c -> Queue.insert (ID.pValidTo (ID.cdvPolicy c)) c (acc ^. accountCredentials),
-       _accountEncryptedAmount =
-          case upd ^. auEncrypted of
-            Empty -> acc ^. accountEncryptedAmount
-            Add ea -> ea:(acc ^. accountEncryptedAmount)
-            Replace ea -> [ea],
-       _accountVerificationKeys =
-         let origKeys = ID.akKeys (acc ^. accountVerificationKeys)
-             origThreshold = ID.akThreshold (acc ^. accountVerificationKeys)
-         in ID.AccountKeys {
-          akKeys =
-              let update (RemoveKeys indices) = Set.foldl' (\m k -> Map.delete k m) origKeys indices
-                  update (SetKeys keys) = Map.foldlWithKey' (\m idx key -> Map.insert idx key m) origKeys keys
-              in maybe origKeys update (upd ^. auKeysUpdate),
-          akThreshold = fromMaybe origThreshold (upd ^. auSignThreshold)
-       }
-    }
-  where setMaybe (Just x) _ = x
-        setMaybe Nothing y = y
-
-
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
 -- support different implementations, from pure ones to stateful ones.
-class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
+class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the module from the module table of the state instance.
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Module)
   -- |Get an account by its address.
-  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe Account)
+  bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (Account m))
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -251,7 +231,11 @@ class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
 
   -- |Try to add a new account to the state. If an account with the address already exists
   -- return @False@, and if the account was successfully added return @True@.
-  bsoPutNewAccount :: UpdatableBlockState m -> Account -> m (Bool, UpdatableBlockState m)
+  -- Any credentials on the account are added to the known credentials. (It is not checked
+  -- if the credentials are duplicates.)  If the account delegates, the bakers are updated.
+  -- (It is not checked that the delegation is valid.)
+  -- A new account must not have any associated instances.
+  bsoPutNewAccount :: UpdatableBlockState m -> Account m -> m (Bool, UpdatableBlockState m)
   -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
@@ -322,7 +306,7 @@ class (BakerQuery m, BlockStateQuery m) => BlockStateOperations m where
     fmap (_bakerAccount . fst) <$> birkBaker bid bps
 
   -- |Get the reward account of the given baker.
-  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe Account)
+  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe (Account m))
   bsoGetEpochBakerAccount s bid = do
     bps <- bsoGetBlockBirkParameters s
     account <- fmap (_bakerAccount . fst) <$> birkEpochBaker bid bps
@@ -476,6 +460,30 @@ instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) 
   {-# INLINE getBakerInfo #-}
   {-# INLINE getFullBakerInfos #-}
 
+instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
+  getAccountAddress = lift . getAccountAddress
+  getAccountAmount = lift. getAccountAmount
+  getAccountNonce = lift . getAccountNonce
+  getAccountCredentials = lift . getAccountCredentials
+  getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
+  getAccountVerificationKeys = lift . getAccountVerificationKeys
+  getAccountEncryptedAmount = lift . getAccountEncryptedAmount
+  getAccountStakeDelegate = lift . getAccountStakeDelegate
+  getAccountInstances = lift . getAccountInstances
+  createNewAccount ks addr = lift . createNewAccount ks addr
+  updateAccountAmount acc = lift . updateAccountAmount acc
+  {-# INLINE getAccountAddress #-}
+  {-# INLINE getAccountAmount #-}
+  {-# INLINE getAccountCredentials #-}
+  {-# INLINE getAccountMaxCredentialValidTo #-}
+  {-# INLINE getAccountNonce #-}
+  {-# INLINE getAccountVerificationKeys #-}
+  {-# INLINE getAccountEncryptedAmount #-}
+  {-# INLINE getAccountStakeDelegate #-}
+  {-# INLINE getAccountInstances #-}
+  {-# INLINE createNewAccount #-}
+  {-# INLINE updateAccountAmount #-}
+
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
@@ -557,12 +565,14 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
 
 deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BakerQuery m => BakerQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BakerQuery m => BakerQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)

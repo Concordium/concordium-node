@@ -12,6 +12,7 @@ import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader (ReaderT, runReaderT)
 import Control.Monad.Trans
 import Control.Monad
+import Control.Exception
 import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Data.Set as Set
@@ -35,16 +36,19 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
+import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
-import qualified Concordium.GlobalState.Persistent.Account as Account
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
 import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
+import Concordium.GlobalState.Persistent.Account
+import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 import Concordium.GlobalState.SeedState
@@ -53,7 +57,7 @@ import Concordium.Logger (MonadLogger)
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
 data BlockStatePointers = BlockStatePointers {
-    bspAccounts :: !Account.Accounts,
+    bspAccounts :: !Accounts.Accounts,
     bspInstances ::  !Instances.Instances,
     bspModules :: BufferedRef Modules,
     bspBank :: !Rewards.BankStatus,
@@ -252,7 +256,7 @@ makePersistent Basic.BlockState{..} = do
         identityProviders <- makeBufferedRef $! _blockIdentityProviders
         anonymityRevokers <- makeBufferedRef $! _blockAnonymityRevokers
         cryptographicParameters <- makeBufferedRef $! _blockCryptographicParameters
-        blockAccounts <- Account.makePersistent _blockAccounts
+        blockAccounts <- Accounts.makePersistent _blockAccounts
         bsp <- makeBufferedRef $ BlockStatePointers {
             bspAccounts = blockAccounts
             , bspInstances = persistentBlockInstances
@@ -268,7 +272,7 @@ makePersistent Basic.BlockState{..} = do
 
 initialPersistentState :: MonadIO m => Basic.BasicBirkParameters
              -> CryptographicParameters
-             -> [Account]
+             -> [TransientAccount.Account]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> Amount
@@ -302,7 +306,7 @@ emptyBlockState bspBirkParameters cryptParams = liftIO $ do
     anonymityRevokers <- makeBufferedRef $! ARS.emptyAnonymityRevokers
     cryptographicParameters <- makeBufferedRef $! cryptParams
     bsp <- makeBufferedRef $ BlockStatePointers {
-        bspAccounts = Account.emptyAccounts
+        bspAccounts = Accounts.emptyAccounts
         , bspInstances = Instances.emptyInstances
         , bspModules = modules
         , bspBank = Rewards.emptyBankStatus
@@ -495,35 +499,50 @@ doDecrementCentralBankGTU pbs amount = do
         let newBank = bspBank bsp & Rewards.centralBankGTU -~ amount
         (newBank ^. Rewards.centralBankGTU,) <$> storePBS pbs (bsp {bspBank = newBank})
 
-doGetAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> m (Maybe Account)
+doGetAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountAddress -> m (Maybe PersistentAccount)
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
-        Account.getAccount addr (bspAccounts bsp)
+        Accounts.getAccount addr (bspAccounts bsp)
 
 doAccountList :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m [AccountAddress]
 doAccountList pbs = do
         bsp <- loadPBS pbs
-        Account.accountAddresses (bspAccounts bsp)
+        Accounts.accountAddresses (bspAccounts bsp)
 
 doRegIdExists :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
-        fst <$> Account.regIdExists regid (bspAccounts bsp)
+        fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Account -> m (Bool, PersistentBlockState)
+doPutNewAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> PersistentAccount -> m (Bool, PersistentBlockState)
 doPutNewAccount pbs acct = do
         bsp <- loadPBS pbs
-        (res, accts') <- Account.putNewAccount acct (bspAccounts bsp)
-        (res,) <$> storePBS pbs (bsp {bspAccounts = accts'})
+        -- Add the account
+        (res, accts1) <- Accounts.putNewAccount acct (bspAccounts bsp)
+        if res then (True,) <$> do
+            PersistingAccountData{..} <- acct ^^. id
+            -- Record the RegIds of any credentials
+            accts2 <- foldM (flip Accounts.recordRegId) accts1 (ID.cdvRegId <$> _accountCredentials)
+            -- Update the delegation if necessary
+            case _accountStakeDelegate of
+                Nothing -> storePBS pbs (bsp {bspAccounts = accts2})
+                target@(Just _) -> assert (null _accountInstances) $ do
+                    newCurrBakers <- addStake target (acct ^. accountAmount) (bspBirkParameters bsp ^. birkCurrentBakers)
+                    storePBS pbs (bsp {
+                            bspAccounts = accts2,
+                            bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
+                        })
+        else
+            return (False, pbs)
 
 doModifyAccount :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
         -- Do the update to the account
-        (mbalinfo, accts1) <- Account.updateAccount upd _auAddress (bspAccounts bsp)
+        (mbalinfo, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
         accts2 <- case _auCredential of
-            Just cdi -> Account.recordRegId (ID.cdvRegId cdi) accts1
+            Just cdi -> Accounts.recordRegId (ID.cdvRegId cdi) accts1
             Nothing -> return accts1
         -- If the amount is changed update the delegate stake
         birkParams1 <- case (_auAmount, mbalinfo) of
@@ -533,7 +552,10 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                 _ -> return $ bspBirkParameters bsp
         storePBS pbs (bsp {bspAccounts = accts2, bspBirkParameters = birkParams1})
     where
-        upd oldAccount = return ((oldAccount ^. accountStakeDelegate), updateAccount aUpd oldAccount)
+        upd oldAccount = do
+          delegate <- oldAccount ^^. accountStakeDelegate
+          newAcc <- Accounts.updateAccount aUpd oldAccount
+          return (delegate, newAcc)
 
 doGetInstance :: (MonadBlobStore m BlobRef, MonadIO m, MonadReader r m, HasModuleCache r) => PersistentBlockState -> ContractAddress -> m (Maybe Instance)
 doGetInstance pbs caddr = do
@@ -554,8 +576,11 @@ doPutNewInstance pbs fnew = do
         (inst, insts) <- Instances.newContractInstance fnew' (bspInstances bsp)
         let ca = instanceAddress (instanceParameters inst)
         -- Update the owner account's set of instances
-        let updAcct oldAccount = return (oldAccount ^. accountStakeDelegate, oldAccount & accountInstances %~ Set.insert ca)
-        (mdelegate, accts) <- Account.updateAccount updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
+        let updAcct oldAccount = do
+              delegate <- oldAccount ^^. accountStakeDelegate
+              newAccount <- oldAccount & accountInstances %~~ Set.insert ca
+              return (delegate, newAccount)
+        (mdelegate, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
         -- Update the stake delegate
         case mdelegate of
             Nothing -> error "Invalid contract owner"
@@ -599,10 +624,11 @@ doModifyInstance pbs caddr deltaAmnt val = do
                 storePBS pbs bsp{bspInstances = insts}
             Just (Just owner, insts) ->
                 -- Lookup the owner account and update its stake delegate
-                Account.getAccount owner (bspAccounts bsp) >>= \case
+                Accounts.getAccount owner (bspAccounts bsp) >>= \case
                     Nothing -> error "Invalid contract owner"
                     Just acct -> do
-                        newCurrBakers <- modifyStake (_accountStakeDelegate acct) deltaAmnt (bspBirkParameters bsp ^. birkCurrentBakers)
+                        delegate <- acct ^^. accountStakeDelegate
+                        newCurrBakers <- modifyStake delegate deltaAmnt (bspBirkParameters bsp ^. birkCurrentBakers)
                         storePBS pbs bsp{
                             bspInstances = insts,
                             bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
@@ -626,9 +652,12 @@ doDelegateStake pbs aaddr target = do
                     bInfo <- Trie.lookup bid $ bspBirkParameters bsp ^. birkCurrentBakers . bakerMap
                     return $ isJust bInfo
         if targetValid then do
-            let updAcc acct = return ((acct ^. accountStakeDelegate, acct ^. accountAmount, Set.toList $ acct ^. accountInstances),
-                                acct & accountStakeDelegate .~ target)
-            Account.updateAccount updAcc aaddr (bspAccounts bsp) >>= \case
+            let updAcc acct = do
+                  delegate <- acct ^^. accountStakeDelegate
+                  newAccount <- acct & accountStakeDelegate .~~ target
+                  instances <- acct ^^. accountInstances
+                  return ((delegate, acct ^. accountAmount, Set.toList instances), newAccount)
+            Accounts.updateAccounts updAcc aaddr (bspAccounts bsp) >>= \case
                 (Nothing, _) -> error "Invalid account address"
                 (Just (acctOldTarget, acctBal, acctInsts), accts) -> do
                     instBals <- forM acctInsts $ \caddr -> maybe (error "Invalid contract instance") pinstanceAmount <$> Instances.lookupContractInstance caddr (bspInstances bsp)
@@ -737,6 +766,7 @@ instance BlockStateTypes (PersistentBlockStateMonad r m) where
     type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type BirkParameters (PersistentBlockStateMonad r m) = PersistentBirkParameters
     type Bakers (PersistentBlockStateMonad r m) = PersistentBakers
+    type Account (PersistentBlockStateMonad r m) = PersistentAccount
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperations (PersistentBlockStateMonad r m) where
 
@@ -804,6 +834,47 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentB
     where getFullInfo (binfoRef, stake) = do
             binfo <- loadBufferedRef binfoRef
             return $ FullBakerInfo binfo stake
+
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => AccountOperations (PersistentBlockStateMonad r m) where
+
+  getAccountAddress acc = acc ^^. accountAddress
+  
+  getAccountAmount acc = return $ acc ^. accountAmount
+
+  getAccountNonce acc = return $ acc ^. accountNonce
+
+  getAccountCredentials acc = acc ^^. accountCredentials
+
+  getAccountMaxCredentialValidTo acc = acc ^^. accountMaxCredentialValidTo
+
+  getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
+
+  getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
+
+  getAccountStakeDelegate acc = acc ^^. accountStakeDelegate
+
+  getAccountInstances acc = acc ^^. accountInstances
+  
+  createNewAccount _accountVerificationKeys _accountAddress cdv = do
+      let pData = PersistingAccountData {
+                    _accountEncryptionKey = ID.makeEncryptionKey (ID.cdvRegId cdv),
+                    _accountCredentials = [cdv],
+                    _accountMaxCredentialValidTo = ID.pValidTo (ID.cdvPolicy cdv),
+                    _accountStakeDelegate = Nothing,
+                    _accountInstances = Set.empty,
+                    ..
+                  }
+          _accountNonce = minNonce
+          _accountAmount = 0
+          _accountEncryptedAmount = []
+      _persistingData <- makeBufferedRef pData
+      let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
+      return $ PersistentAccount {..}
+
+  updateAccountAmount acc amnt = do
+    let newAcc@PersistentAccount{..} = acc & accountAmount .~ amnt
+    pData <- loadBufferedRef _persistingData
+    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt _accountEncryptedAmount pData 
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule = doGetModule

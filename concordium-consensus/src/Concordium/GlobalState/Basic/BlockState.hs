@@ -15,7 +15,6 @@ import Control.Monad
 
 import GHC.Generics (Generic)
 
-import Concordium.ID.Types(cdvRegId)
 import Concordium.Types
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
@@ -24,13 +23,15 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Modules as Modules
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Account
+import Concordium.GlobalState.Basic.BlockState.Account
+import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
+import Concordium.ID.Types (cdvRegId)
 
 import qualified Acorn.Utils.Init as Acorn
 
@@ -48,7 +49,7 @@ data BasicBirkParameters = BasicBirkParameters {
 } deriving (Eq, Generic, Show)
 
 data BlockState = BlockState {
-    _blockAccounts :: !Account.Accounts,
+    _blockAccounts :: !Accounts.Accounts,
     _blockInstances :: !Instances.Instances,
     _blockModules :: !Modules.Modules,
     _blockBank :: !Rewards.BankStatus,
@@ -66,7 +67,7 @@ makeLenses ''BlockState
 -- has hard-coded initial values for amount of gtu in existence.
 emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> BlockState
 emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState {
-  _blockAccounts = Account.emptyAccounts
+  _blockAccounts = Accounts.emptyAccounts
   , _blockInstances = Instances.emptyInstances
   , _blockModules = Modules.emptyModules
   , _blockBank = Rewards.emptyBankStatus
@@ -87,6 +88,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
     type BirkParameters (PureBlockStateMonad m) = BasicBirkParameters
     type Bakers (PureBlockStateMonad m) = Bakers
+    type Account (PureBlockStateMonad m) = Account
 
 instance ATITypes (PureBlockStateMonad m) where
   type ATIStorage (PureBlockStateMonad m) = ()
@@ -114,7 +116,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getAccountList #-}
     getAccountList bs =
-      return $ Map.keys (Account.accountMap (bs ^. blockAccounts))
+      return $ Map.keys (Accounts.accountMap (bs ^. blockAccounts))
 
     {-# INLINE getBlockBirkParameters #-}
     getBlockBirkParameters = return . _blockBirkParameters
@@ -140,6 +142,31 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getAllAnonymityRevokers #-}
     getAllAnonymityRevokers bs = return $! bs ^. blockAnonymityRevokers . to (HashMap.elems . ARS.arRevokers)
+
+
+instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
+
+  getAccountAddress acc = return $ acc ^. accountAddress
+
+  getAccountAmount acc = return $ acc ^. accountAmount
+
+  getAccountNonce acc = return $ acc ^. accountNonce
+
+  getAccountCredentials acc = return $ acc ^. accountCredentials
+
+  getAccountMaxCredentialValidTo acc = return $ acc ^. accountMaxCredentialValidTo
+
+  getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
+
+  getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
+
+  getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
+
+  getAccountInstances acc = return $ acc ^. accountInstances
+
+  createNewAccount keys addr regId = return $ newAccount keys addr regId
+
+  updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
 
 instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
 
@@ -188,14 +215,15 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return $ bs ^? blockAccounts . ix aaddr
 
     {-# INLINE bsoRegIdExists #-}
-    bsoRegIdExists bs regid = return (Account.regIdExists regid (bs ^. blockAccounts))
+    bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
 
     {-# INLINE bsoPutNewAccount #-}
     bsoPutNewAccount bs acc = return $
-        if Account.exists addr accounts then
+        if Accounts.exists addr accounts then
           (False, bs)
         else
-          (True, bs & blockAccounts .~ Account.putAccount acc accounts & bakerUpdate)
+          (True, bs & blockAccounts .~ Accounts.putAccount acc (foldr Accounts.recordRegId accounts (cdvRegId <$> acc ^. accountCredentials))
+                    & bakerUpdate)
         where
             accounts = bs ^. blockAccounts
             addr = acc ^. accountAddress
@@ -244,18 +272,18 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
-        (case accountUpdates ^. BS.auCredential of
-             Nothing -> bs & blockAccounts %~ Account.putAccount updatedAccount
+        (case accountUpdates ^. auCredential of
+             Nothing -> bs & blockAccounts %~ Accounts.putAccount updatedAccount
              Just cdi ->
-               bs & blockAccounts %~ Account.putAccount updatedAccount
-                                   . Account.recordRegId (cdvRegId cdi))
+               bs & blockAccounts %~ Accounts.putAccount updatedAccount
+                                   . Accounts.recordRegId (cdvRegId cdi))
         -- If we change the amount, update the delegate
         & (blockBirkParameters . birkCurrentBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
-                                   (accountUpdates ^. BS.auAmount . non 0))
+                                   (accountUpdates ^. auAmount . non 0))
         where
-            account = bs ^. blockAccounts . singular (ix (accountUpdates ^. BS.auAddress))
-            updatedAccount = BS.updateAccount accountUpdates account
+            account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
+            updatedAccount = Accounts.updateAccount accountUpdates account
 
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =
@@ -375,7 +403,7 @@ initialState :: BasicBirkParameters
              -> BlockState
 initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips _blockAnonymityRevokers mintPerSlot = BlockState{..}
   where
-    _blockAccounts = List.foldl' (flip Account.putAccountWithRegIds) Account.emptyAccounts genesisAccounts
+    _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.fromModuleList (Acorn.moduleList (let (_, _, pm) = Acorn.baseState in pm))
     _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot
