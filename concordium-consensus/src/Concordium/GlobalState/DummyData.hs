@@ -55,7 +55,7 @@ basicGenesisState genData = Basic.initialState
 {-# WARNING dummyCryptographicParameters "Do not use in production" #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (readVersionedCryptographicParameters <$> BSL.readFile "testdata/global.json") of
+  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
