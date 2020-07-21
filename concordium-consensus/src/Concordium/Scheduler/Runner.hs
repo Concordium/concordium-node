@@ -29,7 +29,7 @@ import qualified Acorn.Core as Core
 
 import Prelude hiding(mod, exp)
 
--- |Sign a transaction with with the given list of keys
+-- |Sign a transaction with the given list of keys.
 signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
 signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
