@@ -7,3 +7,6 @@
 [submodule "globalstate-types"]
 	path = globalstate-types
 	url = ../globalstate-types.git
+[submodule "smart-contracts"]
+	path = smart-contracts
+	url = "../../smart-contracts"
