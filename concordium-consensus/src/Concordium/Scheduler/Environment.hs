@@ -78,9 +78,6 @@ instance ResourceMeasure Cost.LookupByteSize where
 
 -- * Scheduler monad
 
--- |Information needed to execute transactions in the form that is easy to use.
-class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m, AccountOperations m) => SchedulerMonad m where
-
 class Monad m => StaticInformation m where
   -- |Get the chain information for the current block.
   getChainMetadata :: m ChainMetadata
@@ -92,7 +89,7 @@ class Monad m => StaticInformation m where
   getMaxBlockEnergy :: m Energy
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m))) => SchedulerMonad m where
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m) => SchedulerMonad m where
 
   tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
 

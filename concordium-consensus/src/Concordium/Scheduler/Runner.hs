@@ -56,7 +56,13 @@ transactionHelper t =
               ..
               }
         in return . signTx keys meta . Types.encodePayload $ payload
-    (TJSON _meta (Update _mnameText _amnt _addr _msgText) _keys) -> error "TODO"
+    (TJSON meta (Update uAmount uAddress rNameText paramExpr) keys) -> return $
+            let payload = Types.Update{
+                  uReceiveName = Wasm.ReceiveName rNameText,
+                  uMessage = Wasm.Parameter paramExpr,
+                  ..
+                  }
+            in signTx keys meta . Types.encodePayload $ payload
     (TJSON meta (Transfer to amnt) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
     (TJSON meta AddBaker{..} keys) ->
@@ -136,10 +142,10 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                                 , moduleName :: FilePath
                                 , contractName :: Text
                                 , parameter :: BSS.ShortByteString }
-                 | Update { moduleName :: FilePath
-                          , amount :: Amount
+                 | Update { amount :: Amount
                           , address :: ContractAddress
-                          , message :: Text
+                          , receiveName :: Text
+                          , message :: BSS.ShortByteString
                           }
                  | Transfer { toaddress :: Address
                             , amount :: Amount
