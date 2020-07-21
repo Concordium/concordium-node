@@ -40,6 +40,7 @@ module Concordium.Scheduler
   ) where
 
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.Scheduler.WasmIntegration as Wasm
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 

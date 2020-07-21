@@ -5,6 +5,7 @@ module Concordium.Scheduler.Runner where
 import GHC.Generics(Generic)
 
 import Data.Text(Text)
+import Data.Word
 
 import Control.Monad.Except
 
@@ -17,10 +18,13 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Wasm(WasmModule(..))
+import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.Types as Types
 
 import Data.Serialize
-import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -38,11 +42,20 @@ signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle 
 transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> m Types.BareTransaction
 transactionHelper t =
   case t of
-    (TJSON meta (DeployModule mnameText) keys) -> liftIO $ do
-      decodeLazy <$> BSL.readFile mnameText >>= \case
-        Left err -> fail err
-        Right wasmMod -> return $ signTx keys meta . Types.encodePayload . Types.DeployModule $ wasmMod
-    (TJSON _meta (InitContract _amnt _mnameText _cNameText _paramExpr) _keys) -> error "TODO"
+    (TJSON meta (DeployModule version mnameText) keys) -> liftIO $ do
+      BS.readFile mnameText >>= \wasmMod ->
+        let modl = WasmModule version wasmMod
+        in return $ signTx keys meta . Types.encodePayload . Types.DeployModule $ modl
+    (TJSON meta (InitContract icAmount version mnameText cNameText paramExpr) keys) -> liftIO $ do
+      BS.readFile mnameText >>= \wasmMod ->
+        let modl = WasmModule version wasmMod
+            payload = Types.InitContract{
+              icModRef = Wasm.getModuleRef modl,
+              icInitName = Wasm.InitName cNameText,
+              icParam = Wasm.Parameter paramExpr,
+              ..
+              }
+        in return . signTx keys meta . Types.encodePayload $ payload
     (TJSON _meta (Update _mnameText _amnt _addr _msgText) _keys) -> error "TODO"
     (TJSON meta (Transfer to amnt) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
@@ -117,11 +130,12 @@ processGroupedTransactions ::
 processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromBareTransaction 0)))
                              . mapM processTransactions
 
-data PayloadJSON = DeployModule { moduleName :: FilePath }
+data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                  | InitContract { amount :: Amount
+                                , version :: Word32
                                 , moduleName :: FilePath
                                 , contractName :: Text
-                                , parameter :: Text}
+                                , parameter :: BSS.ShortByteString }
                  | Update { moduleName :: FilePath
                           , amount :: Amount
                           , address :: ContractAddress
