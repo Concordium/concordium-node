@@ -318,7 +318,7 @@ type RWSTBS m a = RWST ContextState () PBSSS m a
 -- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWSTBS (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS)
-    deriving StaticInformation
+    deriving (StaticInformation, AccountOperations)
       via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity)))
 
 deriving via (PureBlockStateMonad Identity) instance GS.BlockStateTypes SchedulerImplementation

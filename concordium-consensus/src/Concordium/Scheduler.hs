@@ -400,7 +400,7 @@ handleInitContract wtc initAmount modref initName param =
             chargeExecutionCost txHash senderAccount energyCost
 
             -- Withdraw the amount the contract is initialized with from the sender account.
-            commitChanges =<< addAmountToCS senderAccount (amountDiff 0 initamount) (ls ^. changeSet)
+            commitChanges =<< addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             -- FIXME: miExposedReceive should be replaced after we have some naming scheme.
             let ins = makeInstance modref initName (Wasm.miExposedReceive iface) iface model initAmount (thSender meta)
@@ -460,7 +460,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
 handleMessage ::
-  (TransactionMonad m, InterpreterMonad NoAnnot m, AccountOperations m)
+  (TransactionMonad m, AccountOperations m)
   => Account m -- ^The account that sent the top-level transaction.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
   -> Either Instance (Account m) -- ^The sender of the message (contract instance or account).
@@ -497,7 +497,11 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   validCredExists <- existsValidCredential cm ownerAccount
   unless validCredExists $ rejectTransaction (ReceiverContractNoCredential cref)
   -- We have established that the owner account of the receiver instance has at least one valid credential.
-
+  let receiveCtx = Wasm.ReceiveContext {
+        invoker = originAddr,
+        selfAddress = cref,
+        selfBalance = instanceAmount istance,
+        sender = senderAddr}
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
   let iface = instanceModuleInterface iParams
