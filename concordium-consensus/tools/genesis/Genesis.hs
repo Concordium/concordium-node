@@ -1,7 +1,5 @@
 {-# OPTIONS_GHC -fno-cse #-}
-{-# LANGUAGE
-    DeriveDataTypeable,
-    OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE DeriveDataTypeable, OverloadedStrings, ScopedTypeVariables #-}
 module Main where
 
 import System.Exit
