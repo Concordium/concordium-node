@@ -9,4 +9,4 @@
 	url = ../globalstate-types.git
 [submodule "smart-contracts"]
 	path = smart-contracts
-	url = "../../smart-contracts"
+	url = ../../smart-contracts.git
