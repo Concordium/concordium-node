@@ -306,9 +306,16 @@ signBlock key slot parent baker proof bnonce finData transactions
     where
         preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
 
-deserializePendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
-deserializePendingBlock blockBS rectime =
+deserializeExactVersionedPendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializeExactVersionedPendingBlock blockBS rectime =
     case runGet (getExactVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
+        Left err -> Left $ "Block deserialization failed: " ++ err
+        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
+        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
+
+deserializePendingBlockV0 :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializePendingBlockV0 blockBS rectime =
+    case runGet (getBlockV0 (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
         Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
