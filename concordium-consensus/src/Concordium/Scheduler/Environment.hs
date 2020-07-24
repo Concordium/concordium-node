@@ -329,6 +329,11 @@ class StaticInformation m => TransactionMonad m where
   -- is set to 0.
   rejectTransaction :: RejectReason -> m a
 
+  -- |Try to run the first computation. If it leads to `reject` for a logic reason then
+  -- try the second computation. If the left computation fails with out of energy then the
+  -- entire computation is aborted.
+  orElse :: m a -> m a -> m a
+
   -- |Fail transaction processing because we would have exceeded maximum block energy limit.
   outOfBlockEnergy :: m a
 
@@ -723,6 +728,12 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE rejectTransaction #-}
   rejectTransaction OutOfEnergy = energyLeft .= 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
   rejectTransaction reason = LocalT (ContT (\_ -> return (Left (Just reason))))
+
+  {-# INLINE orElse #-}
+  orElse (LocalT l) (LocalT r) = LocalT $ ContT $ \k -> do
+     runContT l k >>= \case
+       Left (Just reason) | reason /= OutOfEnergy -> runContT r k
+       x -> return x
 
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
