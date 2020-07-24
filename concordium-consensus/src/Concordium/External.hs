@@ -511,7 +511,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case (deserializePendingBlock blockBS now) of
+        case (deserializeExactVersionedPendingBlock blockBS now) of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail

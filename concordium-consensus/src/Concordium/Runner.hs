@@ -20,6 +20,7 @@ import Data.Time.Clock
 import System.IO
 import System.IO.Error
 
+import Concordium.Common.Version
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
@@ -365,7 +366,7 @@ makeAsyncRunner logm bkr config = do
                 MsgShutdown -> stopSyncRunner sr
                 MsgBlockReceived src blockBS -> do
                     now <- currentTime
-                    case deserializePendingBlock blockBS now of
+                    case deserializeExactVersionedPendingBlock blockBS now of
                         Left err -> logm Runner LLWarning err
                         Right !block -> syncReceiveBlock sr block >>= handleResult src
                     msgLoop
@@ -434,6 +435,7 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
 syncImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
     h <- openBinaryFile filepath ReadMode
+    _ <- readHeader h logm
     now <- currentTime
     readBlocks h now logm syncReceiveBlock syncRunner
   where logm = syncLogMethod syncRunner
@@ -447,10 +449,35 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
 syncPassiveImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
     h <- openBinaryFile filepath ReadMode
+    _ <- readHeader h logm
     now <- currentTime
     readBlocks h now logm syncPassiveReceiveBlock syncRunner
   where
     logm = syncPLogMethod syncRunner
+
+readHeader :: Handle -> LogMethod IO -> IO UpdateResult
+readHeader file logm = do
+  lenS <- hGet file 8
+  if not $ BS.null lenS then
+    case runGet getWord64be lenS of
+      Left e -> do
+          logm External LLError $ "Invalid block header length: " ++ show e
+          return ResultSerializationFail
+      Right len -> do
+        h <- hGet file (fromIntegral len)
+        case runGet get h of
+          Left e -> do
+            logm External LLError $ "Error reading block header: " ++ show e
+            return ResultSerializationFail
+          Right (v :: Version) -> 
+            if (v == versionExportedBlocks) then
+                return ResultSuccess
+            else do
+                logm External LLError $ "Unsupported database version."
+                return ResultSerializationFail
+  else do
+    logm External LLError $ "Could not read header length."
+    return ResultSerializationFail
 
 readBlocks :: Handle
            -> UTCTime
@@ -490,7 +517,7 @@ importBlock :: ByteString
             -> t
             -> IO UpdateResult
 importBlock blockBS tm logm f syncRunner =
-  case deserializePendingBlock blockBS tm of
+  case deserializePendingBlockV0 blockBS tm of
     Left err -> do
       logm External LLError $ "Can't deserialize block: " ++ show err
       return ResultSerializationFail
