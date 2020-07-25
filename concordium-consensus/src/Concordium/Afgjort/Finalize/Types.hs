@@ -17,6 +17,7 @@ import Control.Monad
 import Data.ByteString(ByteString)
 import Data.Map.Strict (Map)
 
+import Concordium.Common.Version
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -261,6 +262,30 @@ instance S.Serialize FinalizationPseudoMessage where
             msgBody <- S.get
             msgSignature <- S.get
             return $ FPMMessage FinalizationMessage{..}
+
+-- |Read a finalization pseudo message according to the V0 format.
+getFPMV0 :: Get FinalizationPseudoMessage
+getFPMV0 = S.get
+
+-- |Serialize a finalization pseudo message according to the V0 format.
+putFPMV0 :: FinalizationPseudoMessage -> Put
+putFPMV0 = S.put
+
+-- |Deserialize a versioned finalization pseudo message.
+-- Read the version and decide how to parse the remaining data based on the
+-- version.
+--
+-- Currently only supports version 0
+getExactVersionedFPM :: Get FinalizationPseudoMessage
+getExactVersionedFPM =
+  S.get >>= \case
+     (0 :: Version) -> getFPMV0
+     n -> fail $ "Unsupported FinalizationPseudoMessage version: " ++ show n
+
+-- |Serialize a Finalization Pseudo Message with a version according to the V0 format.
+-- In contrast to 'putFPMV0' this function also prepends the version.
+putVersionedFPMV0 :: FinalizationPseudoMessage -> Put
+putVersionedFPMV0 fpm = S.put (0 :: Version) <> putFPMV0 fpm
 
 instance Show FinalizationPseudoMessage where
     show (FPMMessage msg) = show msg
