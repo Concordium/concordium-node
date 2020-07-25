@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Finalization where
 
 import Data.Serialize
@@ -7,8 +8,8 @@ import Control.Exception (assert)
 import Control.Monad
 import Data.Aeson(FromJSON, ToJSON)
 
+import Concordium.Common.Version
 import qualified Concordium.Crypto.BlsSignature as Bls
-
 import Concordium.Types
 
 newtype FinalizationIndex = FinalizationIndex {theFinalizationIndex :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, ToJSON, FromJSON)
@@ -68,6 +69,32 @@ instance Serialize FinalizationRecord where
         finalizationProof <- get
         finalizationDelay <- get
         return $ FinalizationRecord{..}
+
+
+-- |Read a finalization record according to the V0 format.
+getFinalizationRecordV0 :: Get FinalizationRecord
+getFinalizationRecordV0 = get
+
+-- |Serialize a finalization record according to the V0 format.
+putFinalizationRecordV0 :: FinalizationRecord -> Put
+putFinalizationRecordV0 = put
+
+-- |Deserialize a versioned finalization record.
+-- Read the version and decide how to parse the remaining data based on the
+-- version.
+--
+-- Currently only supports version 0
+getExactVersionedFinalizationRecord :: Get FinalizationRecord
+getExactVersionedFinalizationRecord =
+  get >>= \case
+     (0 :: Version) -> getFinalizationRecordV0
+     n -> fail $ "Unsupported FinalizationRecord version: " ++ show n
+
+-- |Serialize a Finalization Record with a version according to the V0 format.
+-- In contrast to 'putFinalizationRecordV0' this function also prepends the version.
+putVersionedFinalizationRecordV0 :: FinalizationRecord -> Put
+putVersionedFinalizationRecordV0 fpm = put (0 :: Version) <> putFinalizationRecordV0 fpm
+
 
 instance Show FinalizationRecord where
     show FinalizationRecord{..} = "FinalizationRecord{index=" ++ show (theFinalizationIndex finalizationIndex)  ++ ", block=" ++ show finalizationBlockPointer ++ "}"
