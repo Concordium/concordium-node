@@ -73,11 +73,17 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- to get the serialized version of the block that we want to write into the disk.
     putBlock :: b -> Put
 
+-- |Serialize a block according to the V0 format.
+--
+-- NB: This function does not record the version directly, use
+-- 'putVersionedBlockV0' if that is needed.
 putBlockV0 :: (BlockData b) => b -> Put
 putBlockV0 b = putBlock b
 
-putExactVersionedBlockV0 :: (BlockData b) => b -> Put
-putExactVersionedBlockV0 b = put versionBlock >> putBlock b
+-- |Serialize a block according to the V0 format, while also prepending the
+-- version.
+putVersionedBlockV0 :: (BlockData b) => b -> Put
+putVersionedBlockV0 b = put (0 :: Version) <> putBlockV0 b
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
@@ -262,14 +268,19 @@ instance BlockPendingData PendingBlock where
 instance HashableTo BlockHash PendingBlock where
     getHash = pbHash
 
+-- |Deserialize a versioned block. Read the version and decide how to parse the
+-- remaining data based on the version.
+--
+-- Currently only supports version 0
 getExactVersionedBlock :: TransactionTime -> Get Block
 getExactVersionedBlock time = do
     version <- get :: Get Version
-    a <- if version == versionBlock then getBlockV0 time
-         else fail $ "Unsupported block version: " ++ (show version)
-    return a
+    case version of
+      0 -> getBlockV0 time
+      n -> fail $ "Unsupported block version: " ++ (show n)
 
--- |Deserialize a block.
+-- |Deserialize a block according to the version 0 format.
+--
 -- NB: This does not check transaction signatures.
 getBlockV0 :: TransactionTime -> Get Block
 getBlockV0 arrivalTime = do

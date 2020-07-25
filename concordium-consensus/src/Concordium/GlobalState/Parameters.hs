@@ -117,9 +117,11 @@ eitherReadAnonymityRevokers = AE.eitherDecode
 getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 getExactVersionedCryptographicParameters bs = do
    v <- AE.decode bs
-   guard (vVersion v == versionGlobalParameters)
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+   guard (vVersion v == 0)
    return (vValue v)
-
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a
