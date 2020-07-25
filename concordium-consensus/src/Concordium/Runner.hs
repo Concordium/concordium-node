@@ -13,11 +13,11 @@ import Control.Concurrent
 import Control.Monad
 import Control.Exception
 import Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize
 import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
-import System.IO
 import System.IO.Error
 
 import Concordium.Common.Version
@@ -434,10 +434,9 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
                  -> IO UpdateResult
 syncImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    h <- openBinaryFile filepath ReadMode
-    _ <- readHeader h logm
-    now <- currentTime
-    readBlocks h now logm syncReceiveBlock syncRunner
+  lbs <- LBS.readFile filepath
+  now <- getCurrentTime
+  readBlocks lbs now logm syncReceiveBlock syncRunner
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -448,75 +447,67 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
                         -> IO UpdateResult
 syncPassiveImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    h <- openBinaryFile filepath ReadMode
-    _ <- readHeader h logm
-    now <- currentTime
-    readBlocks h now logm syncPassiveReceiveBlock syncRunner
+  lbs <- LBS.readFile filepath
+  now <- getCurrentTime
+  readBlocks lbs now logm syncPassiveReceiveBlock syncRunner
   where
     logm = syncPLogMethod syncRunner
 
-readHeader :: Handle -> LogMethod IO -> IO UpdateResult
-readHeader file logm = do
-  lenS <- hGet file 8
-  if not $ BS.null lenS then
-    case runGet getWord64be lenS of
-      Left e -> do
-          logm External LLError $ "Invalid block header length: " ++ show e
-          return ResultSerializationFail
-      Right len -> do
-        h <- hGet file (fromIntegral len)
-        case runGet get h of
-          Left e -> do
-            logm External LLError $ "Error reading block header: " ++ show e
-            return ResultSerializationFail
-          Right (v :: Version) -> 
-            if (v == versionExportedBlocks) then
-                return ResultSuccess
-            else do
-                logm External LLError $ "Unsupported database version."
-                return ResultSerializationFail
-  else do
-    logm External LLError $ "Could not read header length."
-    return ResultSerializationFail
+-- |Read the header of the export file.
+-- The header consists of
+--
+-- - version number that determines the format of all the subsequent blocks in the file.
+--
+-- The function returns, if successfull, the version, and the unconsumed input.
+readHeader :: LBS.ByteString -> Either String (Version, LBS.ByteString)
+readHeader = runGetLazyState get
 
-readBlocks :: Handle
+readBlocks :: LBS.ByteString
            -> UTCTime
            -> LogMethod IO
            -> (t -> PendingBlock -> IO UpdateResult)
            -> t
            -> IO UpdateResult
-readBlocks h tm logm f syncRunner = loop
-  where loop = do
-         lenS <- hGet h 8
-         if not $ BS.null lenS then
-           case runGet getInt64be lenS of
-             Left err -> do
-               -- this should not happen
-               logm External LLError $ "Error deserializing length: " ++ err
-               return ResultSerializationFail
-             Right len -> do
-               blockBS <- hGet h (fromIntegral len)
-               result <- importBlock blockBS tm logm f syncRunner
-               case result of
-                 ResultSuccess -> loop
-                 ResultPendingBlock -> do
-                   -- this shouldn't happen
-                   logm External LLWarning $ "Imported pending block."
-                   loop
-                 ResultDuplicate -> loop
-                 err -> do -- stop processing at first error that we encounter.
-                   logm External LLError $ "Error importing block: " ++ show err
-                   return err
-         else
-           return ResultSuccess
+readBlocks lbs tm logm f syncRunner = do
+  case readHeader lbs of
+      Left err -> do
+        logm External LLError $ "Error deserializing header: " ++ err
+        return ResultSerializationFail
+      Right (version, rest)
+          | version /= 0 -> do
+              logm External LLError $ "Unsupported version: " ++ show version
+              return ResultSerializationFail
+          | otherwise -> loopV0 rest
+  where loopV0 rest
+            | LBS.null rest = return ResultSuccess -- we've reached the end of the file
+            | otherwise =
+                case runGetLazyState blockGetter rest of
+                  Left err -> do
+                    logm External LLError $ "Error reading block bytes: " ++ err
+                    return ResultSerializationFail
+                  Right (blockBS, remainingBS) -> do
+                    result <- importBlockV0 blockBS tm logm f syncRunner
+                    case result of
+                      ResultSuccess -> loopV0 remainingBS
+                      ResultPendingBlock -> do
+                        -- this shouldn't happen
+                        logm External LLWarning $ "Imported pending block."
+                        loopV0 remainingBS
+                      ResultDuplicate -> loopV0 remainingBS
+                      err -> do -- stop processing at first error that we encounter.
+                        logm External LLError $ "Error importing block: " ++ show err
+                        return err
+        blockGetter = do
+          len <- getWord64be
+          getByteString (fromIntegral len)
 
-importBlock :: ByteString
-            -> UTCTime
-            -> LogMethod IO
-            -> (t -> PendingBlock -> IO UpdateResult)
-            -> t
-            -> IO UpdateResult
-importBlock blockBS tm logm f syncRunner =
+importBlockV0 :: ByteString
+              -> UTCTime
+              -> LogMethod IO
+              -> (t -> PendingBlock -> IO UpdateResult)
+              -> t
+              -> IO UpdateResult
+importBlockV0 blockBS tm logm f syncRunner =
   case deserializePendingBlockV0 blockBS tm of
     Left err -> do
       logm External LLError $ "Can't deserialize block: " ++ show err

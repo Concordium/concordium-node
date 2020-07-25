@@ -28,7 +28,6 @@ import Data.Aeson(Value(Null))
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
-import Concordium.Common.Version
 import Concordium.Types
 import Concordium.ID.Types
 import qualified Concordium.Types.Acorn.Core as Core
@@ -47,7 +46,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
-import Concordium.Afgjort.Finalize (FinalizationInstance(..))
+import Concordium.Afgjort.Finalize.Types(getExactVersionedFPM, putVersionedFPMV0)
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
@@ -195,15 +194,15 @@ broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putExactVersionedBlockV0 block
+            let blockbs = runPut $ putVersionedBlockV0 block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
-            let finbs = encode (Versioned versionFinalizationMessage finMsg)
+            let finbs = runPut (putVersionedFPMV0 finMsg)
             logM External LLDebug $ "Broadcasting finalization message [size=" ++ show (BS.length finbs) ++ "]: " ++ show finMsg
             callBroadcastCallback bcbk MTFinalization finbs
         handleB (SOMsgFinalizationRecord finRec) = do
-            let msgbs = encode (Versioned versionFinalizationRecord finRec)
+            let msgbs = runPut (putVersionedFinalizationRecordV0 finRec)
             logM External LLDebug $ "Broadcasting finalization record [size=" ++ show (BS.length msgbs) ++ "]: " ++ show finRec
             callBroadcastCallback bcbk MTFinalizationRecord msgbs
 
@@ -533,23 +532,17 @@ receiveFinalization bptr cstr l = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received finalization message size = " ++ show l ++ ".  Decoding ..."
     bs <- BS.packCStringLen (cstr, fromIntegral l)
-    toReceiveResult <$> case runGet get bs of
+    toReceiveResult <$> case runGet getExactVersionedFPM bs of
         Left _ -> do
             logm External LLDebug "Deserialization of finalization message failed."
             return ResultSerializationFail
-        Right (vFinMsg :: (Versioned FinalizationPseudoMessage)) -> 
-            if (vVersion vFinMsg) /= versionFinalizationMessage then do
-              let warning = "Received finalization message with unsupported version: " ++ (show (vVersion vFinMsg))
-              logm External LLWarning warning
-              return ResultSerializationFail
-            else do
-              logm External LLDebug "Finalization message deserialized."
-              let finMsg = vValue vFinMsg
-              case c of
-                  BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
-                  PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
-                  BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
-                  PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
+        Right finMsg -> do
+            logm External LLDebug "Finalization message deserialized."
+            case c of
+                BakerRunner{..} -> syncReceiveFinalizationMessage bakerSyncRunner finMsg
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunner finMsg
+                BakerRunnerWithLog{..} -> syncReceiveFinalizationMessage bakerSyncRunnerWithLog finMsg
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationMessage passiveSyncRunnerWithLog finMsg
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
@@ -562,21 +555,16 @@ receiveFinalizationRecord bptr cstr l = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received finalization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
-    toReceiveResult <$> case runGet get finRecBS of
+    toReceiveResult <$> case runGet getExactVersionedFinalizationRecord finRecBS of
         Left _ -> do
           logm External LLDebug "Deserialization of finalization record failed."
           return ResultSerializationFail
-        Right (vFinRec :: (Versioned FinalizationRecord)) -> do
-            if (vVersion vFinRec) /= versionFinalizationRecord then
-              return ResultSerializationFail
-            else do
-              logm External LLDebug "Finalization record deserialized."
-              let finRec = vValue vFinRec
-              case c of
-                  BakerRunner{..} -> syncReceiveFinalizationRecord bakerSyncRunner finRec
-                  PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
-                  BakerRunnerWithLog{..} -> syncReceiveFinalizationRecord bakerSyncRunnerWithLog finRec
-                  PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
+        Right finRec -> do
+            case c of
+                BakerRunner{..} -> syncReceiveFinalizationRecord bakerSyncRunner finRec
+                PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
+                BakerRunnerWithLog{..} -> syncReceiveFinalizationRecord bakerSyncRunnerWithLog finRec
+                PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
 
 -- |Handle receipt of a transaction.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
