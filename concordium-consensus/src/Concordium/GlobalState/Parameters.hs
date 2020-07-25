@@ -98,6 +98,33 @@ data GenesisData = GenesisData {
 
 instance Serialize GenesisData where
 
+
+
+-- |Read a finalization pseudo message according to the V0 format.
+getGenesisDataV0 :: Get GenesisData
+getGenesisDataV0 = get
+
+-- |Serialize a finalization pseudo message according to the V0 format.
+putGenesisDataV0 :: GenesisData -> Put
+putGenesisDataV0 = put
+
+-- |Deserialize a versioned finalization pseudo message.
+-- Read the version and decide how to parse the remaining data based on the
+-- version.
+--
+-- Currently only supports version 0
+getExactVersionedGenesisData :: Get GenesisData
+getExactVersionedGenesisData =
+  get >>= \case
+    (0 :: Version) -> getGenesisDataV0
+    n -> fail $ "Unsupported Genesis version: " ++ show n
+
+-- |Serialize the genesis data with a version according to the V0 format.
+-- In contrast to 'getGenesisDataV0' this function also prepends the version.
+putVersionedGenesisDataV0 :: GenesisData -> Put
+putVersionedGenesisDataV0 fpm = put (0 :: Version) <> putGenesisDataV0 fpm
+
+-- |Get the total amount of GTU in genesis data.
 genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
   sum (_accountAmount <$> (genesisAccounts ++ genesisControlAccounts))
