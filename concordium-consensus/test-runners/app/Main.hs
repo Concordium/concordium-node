@@ -55,7 +55,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
-        (writeChan chan (MsgTransactionReceived $ encode $ wmdData t))
+        writeChan chan (MsgTransactionReceived $ runPut (putVersionedBlockItemV0 t))
         -- r <- randomRIO (5000, 15000)
         threadDelay 200000
         sendTransactions bakerId chan ts
@@ -69,7 +69,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
             now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getBlock now) blockBS of
+                    case runGet (getExactVersionedBlock now) blockBS of
                         Right (NormalBlock !block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
@@ -128,8 +128,8 @@ gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState)
         showBakers bs = show [ _bakerStake binfo | (_, binfo) <- Map.toList (_bakerMap bs)]
 -}
 
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
+dummyIdentityProviders :: IdentityProviders
+dummyIdentityProviders = emptyIdentityProviders
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers

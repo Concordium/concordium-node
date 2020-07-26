@@ -18,7 +18,7 @@ import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler.Environment as Types
-
+import qualified Concordium.GlobalState.IdentityProviders as IPS
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -126,7 +126,7 @@ makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
 initialStateWithMateuszAccount :: BlockState.BasicBirkParameters
                                -> CryptographicParameters
                                -> [Account]
-                               -> [Types.IpInfo]
+                               -> IPS.IdentityProviders
                                -> Int
                                -> Amount
                                -> BlockState.BlockState
@@ -144,7 +144,7 @@ createCustomAccount amount kp address =
 initialState :: BlockState.BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [Types.IpInfo]
+             -> IPS.IdentityProviders
              -> Int
              -> [Account]
              -> BlockState.BlockState
@@ -160,7 +160,7 @@ initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
                             allAccounts
         initialAmount = sum (_accountAmount <$> allAccounts)
         gs = BlockState.emptyBlockState birkParams cryptoParams &
-               (BlockState.blockIdentityProviders .~ Types.IdentityProviders (Map.fromList (map (\r -> (Types.ipIdentity r, r)) ips))) .
+               (BlockState.blockIdentityProviders .~ ips) .
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
