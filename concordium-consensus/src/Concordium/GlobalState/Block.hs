@@ -83,7 +83,7 @@ putBlockV0 b = putBlock b
 -- |Serialize a block according to the V0 format, while also prepending the
 -- version.
 putVersionedBlockV0 :: (BlockData b) => b -> Put
-putVersionedBlockV0 b = put (0 :: Version) <> putBlockV0 b
+putVersionedBlockV0 b = putVersion 0 <> putBlockV0 b
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
