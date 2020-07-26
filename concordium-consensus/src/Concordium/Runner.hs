@@ -411,7 +411,7 @@ makeAsyncRunner logm bkr config = do
         _ <- forkIO (msgLoop `catch` \(e :: SomeException) -> (logm Runner LLError ("Message loop exited with exception: " ++ show e) >> Prelude.putStrLn ("// **** " ++ show e)))
         return (inChan, outChan, sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putVersionedBlockV0 block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ putVersionedFPMV0 finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ putVersionedFinalizationRecordV0 finRec
 
@@ -435,9 +435,11 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
                  -> IO UpdateResult
 syncImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-  lbs <- LBS.readFile filepath
-  now <- getCurrentTime
-  readBlocks lbs now logm syncReceiveBlock syncRunner
+    -- NB: It is very important to use lazy a bytestring here since we are
+    -- loading the whole file into it. We need to do that lazily.
+    lbs <- LBS.readFile filepath
+    now <- getCurrentTime
+    readBlocks lbs now logm syncReceiveBlock syncRunner
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -448,9 +450,11 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
                         -> IO UpdateResult
 syncPassiveImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-  lbs <- LBS.readFile filepath
-  now <- getCurrentTime
-  readBlocks lbs now logm syncPassiveReceiveBlock syncRunner
+    -- NB: It is very important to use lazy a bytestring here since we are
+    -- loading the whole file into it. We need to do that lazily.
+    lbs <- LBS.readFile filepath
+    now <- getCurrentTime
+    readBlocks lbs now logm syncPassiveReceiveBlock syncRunner
   where
     logm = syncPLogMethod syncRunner
 
