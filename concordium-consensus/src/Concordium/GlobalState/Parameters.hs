@@ -115,14 +115,14 @@ putGenesisDataV0 = put
 -- Currently only supports version 0
 getExactVersionedGenesisData :: Get GenesisData
 getExactVersionedGenesisData =
-  get >>= \case
-    (0 :: Version) -> getGenesisDataV0
+  getVersion >>= \case
+    0 -> getGenesisDataV0
     n -> fail $ "Unsupported Genesis version: " ++ show n
 
 -- |Serialize the genesis data with a version according to the V0 format.
 -- In contrast to 'getGenesisDataV0' this function also prepends the version.
 putVersionedGenesisDataV0 :: GenesisData -> Put
-putVersionedGenesisDataV0 fpm = put (0 :: Version) <> putGenesisDataV0 fpm
+putVersionedGenesisDataV0 fpm = putVersion 0 <> putGenesisDataV0 fpm
 
 -- |Get the total amount of GTU in genesis data.
 genesisTotalGTU :: GenesisData -> Amount

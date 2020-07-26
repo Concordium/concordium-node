@@ -86,14 +86,14 @@ putFinalizationRecordV0 = put
 -- Currently only supports version 0
 getExactVersionedFinalizationRecord :: Get FinalizationRecord
 getExactVersionedFinalizationRecord =
-  get >>= \case
-     (0 :: Version) -> getFinalizationRecordV0
+  getVersion >>= \case
+     0 -> getFinalizationRecordV0
      n -> fail $ "Unsupported FinalizationRecord version: " ++ show n
 
 -- |Serialize a Finalization Record with a version according to the V0 format.
 -- In contrast to 'putFinalizationRecordV0' this function also prepends the version.
 putVersionedFinalizationRecordV0 :: FinalizationRecord -> Put
-putVersionedFinalizationRecordV0 fpm = put (0 :: Version) <> putFinalizationRecordV0 fpm
+putVersionedFinalizationRecordV0 fpm = putVersion 0 <> putFinalizationRecordV0 fpm
 
 
 instance Show FinalizationRecord where
