@@ -59,7 +59,7 @@ basicGenesisState genData = Basic.initialState
 {-# WARNING dummyCryptographicParameters "Do not use in production" #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "testdata/global.json") of
+  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
@@ -126,7 +126,7 @@ makeTestingGenesisData ::
     -> BlockHeight -- ^Minimum finalization interval - 1
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
-    -> [IpInfo]   -- ^List of initial identity providers.
+    -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block

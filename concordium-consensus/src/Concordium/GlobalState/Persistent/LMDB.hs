@@ -71,12 +71,12 @@ data StoredBlock st = StoredBlock {
 instance S.Serialize st => S.Serialize (StoredBlock st) where
   put StoredBlock{..} = S.put sbFinalizationIndex <>
           S.put sbInfo <>
-          putBlock sbBlock <>
+          putBlockV0 sbBlock <>
           S.put sbState
   get = do
           sbFinalizationIndex <- S.get
           sbInfo <- S.get
-          sbBlock <- getBlock (T.utcTimeToTransactionTime (_bpReceiveTime sbInfo))
+          sbBlock <- getBlockV0 (T.utcTimeToTransactionTime (_bpReceiveTime sbInfo))
           sbState <- S.get
           return StoredBlock{..}
 

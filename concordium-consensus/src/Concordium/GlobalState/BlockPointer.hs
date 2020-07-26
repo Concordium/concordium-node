@@ -156,13 +156,13 @@ instance BlockData (BlockPointer ati p s) where
     blockTransactions = blockTransactions . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature key = verifyBlockSignature key . _bpBlock
-    putBlock = putBlock . _bpBlock
+    putBlockV0 = putBlockV0 . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
-    {-# INLINE putBlock #-}
+    {-# INLINE putBlockV0 #-}
 
 instance BlockPointerData (BlockPointer ati p s) where
     bpHash = _bpHash . _bpInfo

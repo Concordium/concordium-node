@@ -15,6 +15,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Persistent.LMDB
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.LMDB.Helpers
 
@@ -54,7 +55,7 @@ createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters dummyEmptyIdentityProviders emptyAnonymityRevokers [] maxBound
+    genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers [] maxBound
     state = basicGenesisState genesis
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis state
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config

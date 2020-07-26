@@ -12,6 +12,7 @@ import Data.Time
 import Data.Serialize
 import qualified Data.ByteString as ByteString
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
@@ -25,7 +26,9 @@ hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
 instance HashableTo BlockHash BakedBlock where
-    getHash b = Hash.hashLazy . runPutLazy $ blockBody b >> put (bbSignature b)
+    -- FIXME: Hash of a block should be independent of serialization version.
+    -- This will be fixed as part of block hashing revision.
+    getHash b = Hash.hashLazy . runPutLazy $ blockBodyV0 b >> put (bbSignature b)
 
 instance HashableTo BlockHash Block where
     getHash (GenesisBlock genData) = hashGenesisData genData
@@ -64,13 +67,17 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |Determine if the block is signed by the given key
     -- (always 'True' for genesis block)
     verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
-    -- |Provides a pure serialization of the block.
+    -- |Provides a pure serialization of the block according to V0 format.
     --
     -- This means that if some IO is needed for serializing the block (as
     -- in the case of the Persistent blocks), it will not be done and we
     -- would just serialize the hashes of the transactions. This is useful in order
     -- to get the serialized version of the block that we want to write into the disk.
-    putBlock :: b -> Put
+    -- 
+    -- FIXME: Having this method here is likely not what we want, but I'm keeping it
+    -- right now since it is most consistent for the moment and changing it will require
+    -- changing some other abstractions.
+    putBlockV0 :: b -> Put
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
@@ -142,8 +149,8 @@ instance BlockMetadata BakedBlock where
     blockFinalizationData = bfBlockFinalizationData . bbFields
     {-# INLINE blockFinalizationData #-}
 
-blockBody :: (BlockMetadata b, BlockData b) => b -> Put
-blockBody b = do
+blockBodyV0 :: (BlockMetadata b, BlockData b) => b -> Put
+blockBodyV0 b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
@@ -151,7 +158,7 @@ blockBody b = do
         put (blockNonce b)
         put (blockFinalizationData b)
         putWord64be (fromIntegral (length (blockTransactions b)))
-        mapM_ putBlockItem $ blockTransactions b
+        mapM_ putBlockItemV0 $ blockTransactions b
 
 instance BlockData BakedBlock where
     blockSlot = bbSlot
@@ -160,8 +167,18 @@ instance BlockData BakedBlock where
     {-# INLINE blockFields #-}
     blockTransactions = bbTransactions
     blockSignature = Just . bbSignature
-    verifyBlockSignature key b = Sig.verify key (runPut (blockBody b)) (bbSignature b)
-    putBlock b = blockBody b >> put (bbSignature b)
+    -- FIXME: Signature verification should be independent of serialization format
+    -- of blocks, this will be fixed as part of block hashing revision.
+    verifyBlockSignature key b = Sig.verify key (runPut (blockBodyV0 b)) (bbSignature b)
+    {-# INLINE putBlockV0 #-}
+    putBlockV0 = putBakedBlockV0
+
+-- |Serialize a normal (non-genesis) block according to the V0 format.
+--
+-- NB: This function does not record the version directly, use
+-- 'putVersionedBlockV0' if that is needed.
+putBakedBlockV0 :: BakedBlock -> Put
+putBakedBlockV0 b = blockBodyV0 b >> put (bbSignature b)
 
 -- |Representation of a block
 --
@@ -194,13 +211,16 @@ instance BlockData Block where
     verifyBlockSignature _ GenesisBlock{} = True
     verifyBlockSignature key (NormalBlock bb) = verifyBlockSignature key bb
 
-    putBlock (GenesisBlock gd) = put genesisSlot >> put gd
-    putBlock (NormalBlock bb) = putBlock bb
-
+    putBlockV0 (GenesisBlock gd) = put genesisSlot <> put gd
+    putBlockV0 (NormalBlock bb) = putBakedBlockV0 bb
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE putBlock #-}
+    {-# INLINE putBlockV0 #-}
+
+-- |Serialize a block according to V0 format, also prepending the version.
+putVersionedBlockV0 :: BlockData b => b -> Put
+putVersionedBlockV0 b = putVersion 0 <> putBlockV0 b
 
 -- |A baked block, pre-hashed with its arrival time.
 --
@@ -243,34 +263,45 @@ instance BlockData PendingBlock where
     blockTransactions = blockTransactions . pbBlock
     blockSignature = blockSignature . pbBlock
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
-    putBlock = putBlock . pbBlock
+    putBlockV0 = putBlockV0 . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE putBlock #-}
+    {-# INLINE putBlockV0 #-}
 
 instance BlockPendingData PendingBlock where
     blockReceiveTime = pbReceiveTime
 
 instance HashableTo BlockHash PendingBlock where
-  getHash = pbHash
+    getHash = pbHash
 
+-- |Deserialize a versioned block. Read the version and decide how to parse the
+-- remaining data based on the version.
+--
+-- Currently only supports version 0
+getExactVersionedBlock :: TransactionTime -> Get Block
+getExactVersionedBlock time = do
+    version <- get :: Get Version
+    case version of
+      0 -> getBlockV0 time
+      n -> fail $ "Unsupported block version: " ++ (show n)
 
--- |Deserialize a block.
+-- |Deserialize a block according to the version 0 format.
+--
 -- NB: This does not check transaction signatures.
-getBlock :: TransactionTime -> Get Block
-getBlock arrivalTime = do
-  sl <- get
-  if sl == 0 then GenesisBlock <$> get
-  else do
-    bfBlockPointer <- get
-    bfBlockBaker <- get
-    bfBlockProof <- get
-    bfBlockNonce <- get
-    bfBlockFinalizationData <- get
-    bbTransactions <- getListOf (getBlockItem arrivalTime)
-    bbSignature <- get
-    return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
+getBlockV0 :: TransactionTime -> Get Block
+getBlockV0 arrivalTime = do
+    sl <- get
+    if sl == 0 then GenesisBlock <$> get
+    else do
+        bfBlockPointer <- get
+        bfBlockBaker <- get
+        bfBlockProof <- get
+        bfBlockNonce <- get
+        bfBlockFinalizationData <- get
+        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
+        bbSignature <- get
+        return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
 makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
@@ -288,14 +319,23 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
 signBlock key slot parent baker proof bnonce finData transactions
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
-        let sig = Sig.sign key . runPut $ blockBody (preBlock undefined)
+        -- FIXME: Signature of a block should be independent of body format serialization.
+        -- This will be fixed as part of block hashing revision.
+        let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
         preBlock $! sig
     where
         preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
 
-deserializePendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
-deserializePendingBlock blockBS rectime =
-    case runGet (getBlock (utcTimeToTransactionTime rectime)) blockBS of
+deserializeExactVersionedPendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializeExactVersionedPendingBlock blockBS rectime =
+    case runGet (getExactVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
+        Left err -> Left $ "Block deserialization failed: " ++ err
+        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
+        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
+
+deserializePendingBlockV0 :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializePendingBlockV0 blockBS rectime =
+    case runGet (getBlockV0 (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
         Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime

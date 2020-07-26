@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
@@ -16,6 +17,7 @@ import Data.Ratio
 import Data.Word
 import Lens.Micro.Platform
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.ID.Parameters(GlobalContext)
@@ -88,7 +90,7 @@ data GenesisData = GenesisData {
     genesisControlAccounts :: ![Account],
     genesisFinalizationParameters :: !FinalizationParameters,
     genesisCryptographicParameters :: !CryptographicParameters,
-    genesisIdentityProviders :: ![IpInfo],
+    genesisIdentityProviders :: !IdentityProviders,
     genesisAnonymityRevokers :: !AnonymityRevokers,
     genesisMintPerSlot :: !Amount,
     genesisMaxBlockEnergy :: !Energy
@@ -96,6 +98,33 @@ data GenesisData = GenesisData {
 
 instance Serialize GenesisData where
 
+
+
+-- |Read a finalization pseudo message according to the V0 format.
+getGenesisDataV0 :: Get GenesisData
+getGenesisDataV0 = get
+
+-- |Serialize a finalization pseudo message according to the V0 format.
+putGenesisDataV0 :: GenesisData -> Put
+putGenesisDataV0 = put
+
+-- |Deserialize a versioned finalization pseudo message.
+-- Read the version and decide how to parse the remaining data based on the
+-- version.
+--
+-- Currently only supports version 0
+getExactVersionedGenesisData :: Get GenesisData
+getExactVersionedGenesisData =
+  getVersion >>= \case
+    0 -> getGenesisDataV0
+    n -> fail $ "Unsupported Genesis version: " ++ show n
+
+-- |Serialize the genesis data with a version according to the V0 format.
+-- In contrast to 'getGenesisDataV0' this function also prepends the version.
+putVersionedGenesisDataV0 :: GenesisData -> Put
+putVersionedGenesisDataV0 fpm = putVersion 0 <> putGenesisDataV0 fpm
+
+-- |Get the total amount of GTU in genesis data.
 genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
   sum (_accountAmount <$> (genesisAccounts ++ genesisControlAccounts))
@@ -112,8 +141,14 @@ eitherReadIdentityProviders = AE.eitherDecode
 eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
 eitherReadAnonymityRevokers = AE.eitherDecode
 
-readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
-readCryptographicParameters = AE.decode
+getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
+getExactVersionedCryptographicParameters bs = do
+   v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+   guard (vVersion v == 0)
+   return (vValue v)
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a
@@ -172,7 +207,7 @@ data GenesisParameters = GenesisParameters {
     gpFinalizationParameters :: FinalizationParameters,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
-    gpIdentityProviders :: [IpInfo],
+    gpIdentityProviders :: IdentityProviders,
     gpAnonymityRevokers :: AnonymityRevokers,
     -- |Additional accounts (not baker accounts and not control accounts).
     -- They cannot delegate to any bakers in genesis.
@@ -197,13 +232,15 @@ instance FromJSON GenesisParameters where
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
-        gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpIdentityProviders <- v .:? "identityProviders" .!= emptyIdentityProviders
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
         gpControlAccounts <- v .:? "controlAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
+
+
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
