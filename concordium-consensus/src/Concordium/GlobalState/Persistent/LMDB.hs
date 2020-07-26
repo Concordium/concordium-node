@@ -71,7 +71,7 @@ data StoredBlock st = StoredBlock {
 instance S.Serialize st => S.Serialize (StoredBlock st) where
   put StoredBlock{..} = S.put sbFinalizationIndex <>
           S.put sbInfo <>
-          putBlock sbBlock <>
+          putBlockV0 sbBlock <>
           S.put sbState
   get = do
           sbFinalizationIndex <- S.get
