@@ -1,7 +1,5 @@
 {-# OPTIONS_GHC -fno-cse #-}
-{-# LANGUAGE
-    DeriveDataTypeable,
-    OverloadedStrings #-}
+{-# LANGUAGE DeriveDataTypeable, OverloadedStrings, ScopedTypeVariables #-}
 module Main where
 
 import System.Exit
@@ -17,9 +15,11 @@ import Lens.Micro.Platform
 
 import Data.Text(Text)
 import qualified Data.HashMap.Strict as Map
+import Concordium.Common.Version
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SS
@@ -103,14 +103,41 @@ maybeModifyValue (Just source) key obj = do
   inBS <- LBS.readFile source
   case eitherDecode inBS of
     Left e -> do
-      putStrLn e
-      exitFailure
+      die $ "Could not decode JSON: " ++ e
     Right v' ->
       case modifyValueWith key v' obj of
         Nothing -> do
           putStrLn "Base value not an object."
           exitFailure
         Just v -> return v
+
+
+maybeModifyValueVersioned :: Version -> Maybe FilePath -> Text -> Value -> IO Value
+maybeModifyValueVersioned _ Nothing _ obj = return obj
+maybeModifyValueVersioned ver (Just source) key obj = do
+  inBS <- LBS.readFile source
+  case eitherDecode inBS of
+    Left e -> do
+      die $ "Could not decode JSON: " ++ e
+    Right v' -> do
+      if vVersion v' /= ver then do
+        die $ "Invalid version in JSON file, expected " ++ (show ver) ++ ", got " ++ (show (vVersion v'))
+      else do
+        let value = vValue v'
+        case modifyValueWith key value obj of
+          Nothing -> do
+            die $ "Base value '" ++ show key ++ "' not an object."
+          Just v -> return v
+
+unwrapVersionedGenesisParameters :: Version -> (Versioned Value) -> IO Value
+unwrapVersionedGenesisParameters ver v = 
+  if vVersion v /= ver then die $ "Unsupported genesis parameters version " ++ show (vVersion v)
+  else return (vValue v)
+
+expectedIpInfosVersion, expectedArInfosVersion, expectedGenesisParametersVersion :: Version
+expectedArInfosVersion = 0
+expectedIpInfosVersion = 0
+expectedGenesisParametersVersion = 0
 
 main :: IO ()
 main = cmdArgsRun mode >>=
@@ -122,16 +149,16 @@ main = cmdArgsRun mode >>=
                     putStrLn e
                     exitFailure
                 Right v -> do
-                  vId <- maybeModifyValue gdIdentity "identityProviders" v
-                  vAr <- maybeModifyValue gdArs "anonymityRevokers" vId
+                  g <- unwrapVersionedGenesisParameters expectedGenesisParametersVersion v
+                  vId <- maybeModifyValueVersioned expectedIpInfosVersion gdIdentity "identityProviders" g
+                  vAr <- maybeModifyValueVersioned expectedArInfosVersion gdArs "anonymityRevokers" vId
                   vCP <- maybeModifyValue gdCryptoParams "cryptographicParameters" vAr
                   vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
                   vAcc <- maybeModifyValue gdControlAccounts "controlAccounts" vAdditionalAccs
                   value <- maybeModifyValue gdBakers "bakers" vAcc
                   case fromJSON value of
                     Error err -> do
-                      putStrLn err
-                      exitFailure
+                      die $ "Could not decode genesis parameters: " ++ show err
                     Success params -> do
                       let genesisData = parametersToGenesisData params
                       let totalGTU = genesisTotalGTU genesisData
@@ -145,12 +172,12 @@ main = cmdArgsRun mode >>=
                       forM_ (genesisControlAccounts genesisData) $ \account ->
                         putStrLn $ "\tAccount: " ++ show (account ^. accountAddress) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
 
-                      LBS.writeFile gdOutput (S.encodeLazy $ genesisData)
+                      LBS.writeFile gdOutput (S.runPutLazy $ putVersionedGenesisDataV0 genesisData)
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
                       exitSuccess
         PrintGenesisData{..} -> do
           source <- LBS.readFile gdSource
-          case S.decodeLazy source of
+          case S.runGetLazy getExactVersionedGenesisData source of
             Left err -> putStrLn $ "Cannot parse genesis data:" ++ err
             Right genData@GenesisData{..} -> do
               putStrLn "Genesis data."
@@ -185,7 +212,7 @@ main = cmdArgsRun mode >>=
               putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
 
               putStrLn ""
-              putStrLn $ "There are " ++ show (length genesisIdentityProviders) ++ " identity providers in genesis."
+              putStrLn $ "There are " ++ show (Map.size (idProviders genesisIdentityProviders)) ++ " identity providers in genesis."
 
               putStrLn ""
               putStrLn $ "There are " ++ show (Map.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
