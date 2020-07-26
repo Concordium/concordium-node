@@ -579,7 +579,7 @@ receiveTransaction bptr tdata len = do
     now <- getTransactionTime
     toReceiveResult <$> case runGet (getExactVersionedBlockItem now) tbs of
         Left err -> do
-            logm External LLDebug $ "Could not decode transaction: " ++ (show err)
+            logm External LLDebug $ "Could not decode block item: " ++ err
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
