@@ -186,6 +186,8 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
+-- |Broadcast a consensus message. This can be either a block,, finalization record, or finalization (pseudo) message.
+-- All messages are serialized with a version.
 broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
                                                         (SkovConfig gs finconf hconf)
                                                         (LoggerT IO))))

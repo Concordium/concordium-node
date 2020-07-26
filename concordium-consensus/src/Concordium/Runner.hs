@@ -3,8 +3,8 @@
     BangPatterns,
     UndecidableInstances,
     ConstraintKinds,
-    TypeFamilies,
-    CPP #-}
+    TypeFamilies
+#-}
 module Concordium.Runner where
 
 import Control.Concurrent.Chan
@@ -35,6 +35,7 @@ import Concordium.Birk.Bake
 import Concordium.Kontrol
 import Concordium.Skov
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.Getters
 
@@ -377,14 +378,14 @@ makeAsyncRunner logm bkr config = do
                         _ -> return ()
                     msgLoop
                 MsgFinalizationReceived src bs -> do
-                    case runGet get bs of
+                    case runGet getExactVersionedFPM bs of
                         Right !finMsg -> do
                             res <- syncReceiveFinalizationMessage sr finMsg
                             handleResult src res
                         _ -> return ()
                     msgLoop
                 MsgFinalizationRecordReceived src finRecBS -> do
-                    case runGet get finRecBS of
+                    case runGet getExactVersionedFinalizationRecord finRecBS of
                         Right !finRec -> do
                             res <- syncReceiveFinalizationRecord sr finRec
                             handleResult src res
@@ -411,8 +412,8 @@ makeAsyncRunner logm bkr config = do
         return (inChan, outChan, sr)
     where
         simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putBlock block
-        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ put finMsg
-        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ put finRec
+        simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ putVersionedFPMV0 finMsg
+        simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ putVersionedFinalizationRecordV0 finRec
 
         catchUpLimit = 100
 
@@ -474,10 +475,10 @@ readBlocks lbs tm logm f syncRunner = do
         logm External LLError $ "Error deserializing header: " ++ err
         return ResultSerializationFail
       Right (version, rest)
-          | version /= 0 -> do
+          | version == 0 -> loopV0 rest
+          | otherwise -> do
               logm External LLError $ "Unsupported version: " ++ show version
               return ResultSerializationFail
-          | otherwise -> loopV0 rest
   where loopV0 rest
             | LBS.null rest = return ResultSuccess -- we've reached the end of the file
             | otherwise =

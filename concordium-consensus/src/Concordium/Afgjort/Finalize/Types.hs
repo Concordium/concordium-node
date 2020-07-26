@@ -278,8 +278,8 @@ putFPMV0 = S.put
 -- Currently only supports version 0
 getExactVersionedFPM :: Get FinalizationPseudoMessage
 getExactVersionedFPM =
-  S.get >>= \case
-     (0 :: Version) -> getFPMV0
+  getVersion >>= \case
+     0 -> getFPMV0
      n -> fail $ "Unsupported FinalizationPseudoMessage version: " ++ show n
 
 -- |Serialize a Finalization Pseudo Message with a version according to the V0 format.
