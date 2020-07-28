@@ -62,6 +62,7 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.SeedState
+import Concordium.GlobalState.Updates
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
@@ -143,17 +144,21 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   updateAccountAmount :: Account m -> Amount -> m (Account m)
 
 class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
-
+    -- |Get the 'SeedState', which is used to determine the leadership election nonce.
     getSeedState :: BirkParameters m -> m SeedState
-
+    -- |Update the Birk parameters for a new epoch:
+    --   * Update the 'SeedState' to the given value.
+    --   * New lottery bakers is old previous-epoch bakers.
+    --   * New previous-epoch bakers is old current bakers.
     updateBirkParametersForNewEpoch :: SeedState -> BirkParameters m -> m (BirkParameters m)
-
+    -- |Get the value of the election difficulty parameter.
     getElectionDifficulty :: BirkParameters m -> m ElectionDifficulty
-
+    -- |Get the 'Bakers' object representing the current bakers and stake distribution.
     getCurrentBakers :: BirkParameters m -> m (Bakers m)
-
+    -- |Get the 'Bakers' object representing the bakers and stake distribution at the
+    -- end of the epoch before last, as used for determining the baking committee.
     getLotteryBakers :: BirkParameters m -> m (Bakers m)
-
+    -- |Update the 'SeedState' by applying the specified function.
     updateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
 
 birkBaker :: (BakerQuery m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
@@ -213,6 +218,12 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
+
+{-
+    -- |Get the access structure for the given update type.
+    getCurrentAuthorization :: UpdateType -> BlockState m -> m AccessStructure
+    getCurrentAuthorization = undefined
+-}
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to

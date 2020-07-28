@@ -76,7 +76,7 @@ instance S.Serialize st => S.Serialize (StoredBlock st) where
   get = do
           sbFinalizationIndex <- S.get
           sbInfo <- S.get
-          sbBlock <- getBlock (T.utcTimeToTransactionTime (_bpReceiveTime sbInfo))
+          sbBlock <- getBlock (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
           sbState <- S.get
           return StoredBlock{..}
 
