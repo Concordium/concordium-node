@@ -69,7 +69,7 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |The transactions in a block in the variant they are currently stored in the block.
     blockTransactions :: b -> [BlockItem]
     -- |The hash of the TransactionOutcomes resulting from executing this block
-    blockTransactionOutcomeHash :: b -> TransactionOutcomeHash
+    blockTransactionOutcomesHash :: b -> TransactionOutcomesHash
     -- |The hash of the state after executing this block
     blockStateHash :: b -> StateHash
     blockSignature :: b -> Maybe BlockSignature
@@ -144,7 +144,7 @@ data BakedBlock = BakedBlock {
     -- |Block State Hash
     bbStateHash :: !StateHash,
     -- |Block TransactionOutcomes Hash
-    bbTransactionOutcomesHash :: !TransactionOutcomeHash,
+    bbTransactionOutcomesHash :: !TransactionOutcomesHash,
     -- |Block signature
     -- With the way the abstractions are currently set up it is
     -- necessary that this is a lazy field. Specifically signing
@@ -187,8 +187,8 @@ instance BlockData BakedBlock where
     {-# INLINE blockFields #-}
     blockStateHash = bbStateHash
     {-# INLINE blockStateHash #-}
-    blockTransactionOutcomeHash = bbTransactionOutcomesHash
-    {-# INLINE blockTransactionOutcomeHash #-}
+    blockTransactionOutcomesHash = bbTransactionOutcomesHash
+    {-# INLINE blockTransactionOutcomesHash #-}
     blockTransactions = bbTransactions
     blockSignature = Just . bbSignature
     -- FIXME: Signature verification should be independent of serialization format
@@ -229,11 +229,11 @@ instance BlockData Block where
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock bb) = blockTransactions bb
 
-    -- TODO: Put some actual hash here for genesis? Currently using a dummy hash so i can work past it for now.
-    blockTransactionOutcomeHash GenesisBlock{} = TransactionOutcomeHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
-    blockTransactionOutcomeHash (NormalBlock bb) = blockTransactionOutcomeHash bb
+    -- FIXME: move into gendata
+    blockTransactionOutcomesHash GenesisBlock{} = TransactionOutcomesHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
+    blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
-    -- TODO: Put some actual hash here for genesis?
+    -- FIXME: move into gendata 
     blockStateHash GenesisBlock{} = StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
     blockStateHash (NormalBlock bb) = blockStateHash bb
 
@@ -296,7 +296,7 @@ instance BlockData PendingBlock where
     blockFields = blockFields . pbBlock
     blockTransactions = blockTransactions . pbBlock
     blockStateHash = blockStateHash . pbBlock
-    blockTransactionOutcomeHash = blockTransactionOutcomeHash . pbBlock
+    blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
     blockSignature = blockSignature . pbBlock
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
     putBlockV0 = putBlockV0 . pbBlock
@@ -304,8 +304,7 @@ instance BlockData PendingBlock where
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE blockStateHash #-}
-    {-# INLINE blockTransactionOutcomeHash #-}
-    
+    {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE putBlockV0 #-}
 
 instance BlockPendingData PendingBlock where
@@ -358,8 +357,8 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> BlockNonce                 -- ^Block nonce
     -> BlockFinalizationData      -- ^Finalization data
     -> [BlockItem]                -- ^Payload of the block.
-    -> StateHash
-    -> TransactionOutcomeHash
+    -> StateHash                  -- ^Statehash of the block.
+    -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
     -> BakedBlock
 signBlock key slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
