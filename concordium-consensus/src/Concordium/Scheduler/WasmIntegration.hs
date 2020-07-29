@@ -13,7 +13,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString.Unsafe as BSU
 import System.IO.Unsafe
-import Control.Monad
 
 import Concordium.Crypto.FFIHelpers(rs_free_array_len)
 import Concordium.Types
@@ -92,10 +91,7 @@ processInterpreterResult result energy = case result of
       let decoder = do
             tag <- getWord8
             case tag of
-              0 -> do
-                len <- getWord32be
-                evs <- replicateM (fromIntegral len) get
-                return (Left (ContractReject evs))
+              0 -> return (Left ContractReject)
               1 -> Right <$> get
               _ -> fail $ "Invalid tag: " ++ show tag
       in
