@@ -103,6 +103,7 @@ newtype PairBlockMetadata l r = PairBlockMetadata (l, r)
 instance (BlockMetadata l, BlockMetadata r) => BlockMetadata (PairBlockMetadata l r) where
     blockPointer (PairBlockMetadata (l, r)) = assert (blockPointer l == blockPointer r) $ blockPointer l
     blockBaker (PairBlockMetadata (l, r)) = assert (blockBaker l == blockBaker r) $ blockBaker l
+    blockClaimedKey (PairBlockMetadata (l, r)) = assert (blockClaimedKey l == blockClaimedKey r) $ blockClaimedKey l
     blockProof (PairBlockMetadata (l, r)) = assert (blockProof l == blockProof r) $ blockProof l
     blockNonce (PairBlockMetadata (l, r)) = assert (blockNonce l == blockNonce r) $ blockNonce l
     blockFinalizationData (PairBlockMetadata (l, r)) = assert (blockFinalizationData l == blockFinalizationData r) $ blockFinalizationData l
@@ -122,6 +123,8 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
         _ -> error "blockFields do not match"
     blockTransactions (PairBlockData (l, r)) = assert (blockTransactions l == blockTransactions r) $
         blockTransactions l
+    blockTransactionOutcomesHash (PairBlockData (l, r)) = assert (blockTransactionOutcomesHash l == blockTransactionOutcomesHash r) $ blockTransactionOutcomesHash l
+    blockStateHash (PairBlockData (l, r)) = assert (blockStateHash l == blockStateHash r) $ blockStateHash l 
     verifyBlockSignature k (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature k r) $ vbsl
         where
             vbsl = verifyBlockSignature k l
@@ -579,9 +582,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         TreeStateMonad (GSMR rc r rs s m),
         ATIStorage (GSMR rc r rs s m) ~ ())
         => TreeStateMonad (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
-    makePendingBlock sk sl parent bid bp bn lf trs brtime = do
-      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs brtime
-      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs brtime
+    makePendingBlock sk sl parent bid ck bp bn lf trs sthash trouthash brtime = do
+      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid ck bp bn lf trs sthash trouthash brtime
+      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid ck bp bn lf trs sthash trouthash brtime
       assert (pb1 == pb2) $ return pb1
 
     getFinalizedAtHeight bHeight = do
