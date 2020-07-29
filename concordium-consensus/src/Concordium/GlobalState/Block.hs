@@ -22,16 +22,19 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.GlobalState.Finalization
 
+-- FIXME: temporary import to stub hashes for gensis
+import Data.FixedByteString as FBS
+
 hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
 instance HashableTo BlockHash BakedBlock where
     -- FIXME: Hash of a block should be independent of serialization version.
     -- This will be fixed as part of block hashing revision.
-    getHash b = Hash.hashLazy . runPutLazy $ blockBodyV0 b >> put (bbSignature b)
+    getHash b = BlockHashV0 . Hash.hashLazy . runPutLazy $ blockBodyV0 b >> put (bbSignature b)
 
 instance HashableTo BlockHash Block where
-    getHash (GenesisBlock genData) = hashGenesisData genData
+    getHash (GenesisBlock genData) = BlockHashV0 (hashGenesisData genData)
     getHash (NormalBlock bb) = getHash bb
 
 -- * Block type classes
@@ -42,6 +45,8 @@ class BlockMetadata d where
     blockPointer :: d -> BlockHash
     -- |The identifier of the block's baker
     blockBaker :: d -> BakerId
+    -- |The public Signing key the block claims it was signed with
+    blockClaimedKey :: d -> Sig.SignKey
     -- |The proof that the baker was entitled to bake this block
     blockProof :: d -> BlockProof
     -- |The block nonce
@@ -63,6 +68,10 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     blockFields :: b -> Maybe (BlockFieldType b)
     -- |The transactions in a block in the variant they are currently stored in the block.
     blockTransactions :: b -> [BlockItem]
+    -- |The hash of the TransactionOutcomes resulting from executing this block
+    blockTransactionOutcomeHash :: b -> TransactionOutcomeHash
+    -- |The hash of the state after executing this block
+    blockStateHash :: b -> StateHash
     blockSignature :: b -> Maybe BlockSignature
     -- |Determine if the block is signed by the given key
     -- (always 'True' for genesis block)
@@ -91,6 +100,8 @@ data BlockFields = BlockFields {
     bfBlockPointer :: !BlockHash,
     -- |The identity of the block baker
     bfBlockBaker :: !BakerId,
+    -- |The public Signing key the block claims it was signed with
+    bfBlockClaimedKey :: !Sig.SignKey,
     -- |The proof that the baker was entitled to bake this block
     bfBlockProof :: !BlockProof,
     -- |The block nonce
@@ -104,6 +115,8 @@ instance BlockMetadata BlockFields where
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker
     {-# INLINE blockBaker #-}
+    blockClaimedKey = bfBlockClaimedKey
+    {-# INLINE blockClaimedKey #-}
     blockProof = bfBlockProof
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce
@@ -142,6 +155,8 @@ instance BlockMetadata BakedBlock where
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker . bbFields
     {-# INLINE blockBaker #-}
+    blockClaimedKey = bfBlockClaimedKey . bbFields
+    {-# INLINE blockClaimedKey #-}
     blockProof = bfBlockProof . bbFields
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce . bbFields
@@ -154,6 +169,7 @@ blockBodyV0 b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
+        put (blockClaimedKey b)
         put (blockProof b)
         put (blockNonce b)
         put (blockFinalizationData b)
@@ -204,6 +220,14 @@ instance BlockData Block where
 
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock bb) = blockTransactions bb
+
+    -- TODO: Put some actual hash here for genesis? Currently using a dummy hash so i can work past it for now.
+    blockTransactionOutcomeHash GenesisBlock{} = TransactionOutcomeHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
+    blockTransactionOutcomeHash (NormalBlock bb) = blockTransactionOutcomeHash bb
+
+    -- TODO: Put some actual hash here for genesis?
+    blockStateHash GenesisBlock{} = StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
+    blockStateHash (NormalBlock bb) = blockStateHash bb
 
     blockSignature GenesisBlock{} = Nothing
     blockSignature (NormalBlock bb) = blockSignature bb
@@ -296,6 +320,7 @@ getBlockV0 arrivalTime = do
     else do
         bfBlockPointer <- get
         bfBlockBaker <- get
+        bfBlockClaimedKey <- get
         bfBlockProof <- get
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
@@ -311,12 +336,13 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> Slot                       -- ^Block slot (must be non-zero)
     -> BlockHash                  -- ^Hash of parent block
     -> BakerId                    -- ^Identifier of block baker
+    -> Sig.SignKey                -- ^Claimed Baker Signing Key
     -> BlockProof                 -- ^Block proof
     -> BlockNonce                 -- ^Block nonce
     -> BlockFinalizationData      -- ^Finalization data
     -> [BlockItem]                -- ^Payload of the block.
     -> BakedBlock
-signBlock key slot parent baker proof bnonce finData transactions
+signBlock key slot parent baker claimedKey proof bnonce finData transactions
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         -- FIXME: Signature of a block should be independent of body format serialization.
@@ -324,7 +350,7 @@ signBlock key slot parent baker proof bnonce finData transactions
         let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
         preBlock $! sig
     where
-        preBlock = BakedBlock slot (BlockFields parent baker proof bnonce finData) transactions
+        preBlock = BakedBlock slot (BlockFields parent baker claimedKey proof bnonce finData) transactions
 
 deserializeExactVersionedPendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializeExactVersionedPendingBlock blockBS rectime =
