@@ -141,6 +141,10 @@ data BakedBlock = BakedBlock {
     bbFields :: !BlockFields,
     -- |Block transactions
     bbTransactions :: ![BlockItem],
+    -- |Block State Hash
+    bbStateHash :: !StateHash,
+    -- |Block TransactionOutcomes Hash
+    bbTransactionOutcomesHash :: !TransactionOutcomeHash,
     -- |Block signature
     -- With the way the abstractions are currently set up it is
     -- necessary that this is a lazy field. Specifically signing
@@ -181,6 +185,10 @@ instance BlockData BakedBlock where
     {-# INLINE blockSlot #-}
     blockFields = Just . bbFields
     {-# INLINE blockFields #-}
+    blockStateHash = bbStateHash
+    {-# INLINE blockStateHash #-}
+    blockTransactionOutcomeHash = bbTransactionOutcomesHash
+    {-# INLINE blockTransactionOutcomeHash #-}
     blockTransactions = bbTransactions
     blockSignature = Just . bbSignature
     -- FIXME: Signature verification should be independent of serialization format
@@ -274,6 +282,8 @@ instance BlockMetadata PendingBlock where
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker . bbFields . pbBlock
     {-# INLINE blockBaker #-}
+    blockClaimedKey = bfBlockClaimedKey . bbFields . pbBlock
+    {-# INLINE blockClaimedKey #-}
     blockProof = bfBlockProof . bbFields . pbBlock
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce . bbFields . pbBlock
@@ -285,12 +295,17 @@ instance BlockData PendingBlock where
     blockSlot = blockSlot . pbBlock
     blockFields = blockFields . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    blockStateHash = blockStateHash . pbBlock
+    blockTransactionOutcomeHash = blockTransactionOutcomeHash . pbBlock
     blockSignature = blockSignature . pbBlock
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
     putBlockV0 = putBlockV0 . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
+    {-# INLINE blockStateHash #-}
+    {-# INLINE blockTransactionOutcomeHash #-}
+    
     {-# INLINE putBlockV0 #-}
 
 instance BlockPendingData PendingBlock where
@@ -325,6 +340,8 @@ getBlockV0 arrivalTime = do
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
         bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
+        bbStateHash <- get
+        bbTransactionOutcomesHash <- get
         bbSignature <- get
         return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
@@ -341,8 +358,10 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> BlockNonce                 -- ^Block nonce
     -> BlockFinalizationData      -- ^Finalization data
     -> [BlockItem]                -- ^Payload of the block.
+    -> StateHash
+    -> TransactionOutcomeHash
     -> BakedBlock
-signBlock key slot parent baker claimedKey proof bnonce finData transactions
+signBlock key slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         -- FIXME: Signature of a block should be independent of body format serialization.
@@ -350,7 +369,7 @@ signBlock key slot parent baker claimedKey proof bnonce finData transactions
         let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
         preBlock $! sig
     where
-        preBlock = BakedBlock slot (BlockFields parent baker claimedKey proof bnonce finData) transactions
+        preBlock = BakedBlock slot (BlockFields parent baker claimedKey proof bnonce finData) transactions stateHash transactionOutcomesHash
 
 deserializeExactVersionedPendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializeExactVersionedPendingBlock blockBS rectime =
