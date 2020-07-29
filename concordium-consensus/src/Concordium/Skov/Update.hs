@@ -338,6 +338,7 @@ addBlock block = do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock
                                 Right result -> do
+                                    -- TODOHASH: add check on outcomeshash and resultingstatehash here.
                                     -- Add the block to the tree
                                     blockP <- blockArrive block parentP lfBlockP result
                                     -- Notify of the block arrival (for finalization)
