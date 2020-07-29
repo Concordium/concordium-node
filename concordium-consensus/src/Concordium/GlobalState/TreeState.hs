@@ -83,7 +83,7 @@ class (Eq (BlockPointerType m),
         -> Slot             -- ^Block slot (must be non-zero)
         -> BlockHash        -- ^Hash of parent block
         -> BakerId          -- ^Identifier of block baker
-        -> Sig.SignKey      -- ^Claimed signing key in the block
+        -> BakerSignVerifyKey -- ^Claimed signing key in the block
         -> BlockProof       -- ^Block proof
         -> BlockNonce       -- ^Block nonce
         -> BlockFinalizationData

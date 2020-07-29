@@ -46,7 +46,7 @@ class BlockMetadata d where
     -- |The identifier of the block's baker
     blockBaker :: d -> BakerId
     -- |The public Signing key the block claims it was signed with
-    blockClaimedKey :: d -> Sig.SignKey
+    blockClaimedKey :: d -> BakerSignVerifyKey
     -- |The proof that the baker was entitled to bake this block
     blockProof :: d -> BlockProof
     -- |The block nonce
@@ -101,7 +101,7 @@ data BlockFields = BlockFields {
     -- |The identity of the block baker
     bfBlockBaker :: !BakerId,
     -- |The public Signing key the block claims it was signed with
-    bfBlockClaimedKey :: !Sig.SignKey,
+    bfBlockClaimedKey :: !BakerSignVerifyKey,
     -- |The proof that the baker was entitled to bake this block
     bfBlockProof :: !BlockProof,
     -- |The block nonce
@@ -352,7 +352,7 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> Slot                       -- ^Block slot (must be non-zero)
     -> BlockHash                  -- ^Hash of parent block
     -> BakerId                    -- ^Identifier of block baker
-    -> Sig.SignKey                -- ^Claimed Baker Signing Key
+    -> BakerSignVerifyKey         -- ^Claimed Baker public Key
     -> BlockProof                 -- ^Block proof
     -> BlockNonce                 -- ^Block nonce
     -> BlockFinalizationData      -- ^Finalization data
