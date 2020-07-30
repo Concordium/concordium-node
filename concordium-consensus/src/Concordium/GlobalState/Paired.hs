@@ -220,6 +220,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getTransactionOutcome ls th)
         a2 <- coerceBSMR (getTransactionOutcome rs th)
         assert (a1 == a2) $ return a1
+    getTransactionOutcomes (ls, rs) = do
+        a1 <- coerceBSML (getTransactionOutcomes ls)
+        a2 <- coerceBSMR (getTransactionOutcomes rs)
+        assert (a1 == a2) $ return a1
     getOutcomes (ls, rs) = do
         a1 <- coerceBSML (getOutcomes ls)
         a2 <- coerceBSMR (getOutcomes rs)
