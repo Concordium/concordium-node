@@ -198,9 +198,9 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     receiveTime <- currentTime
     -- FIXME: placeholder hashes 
     -- When Statehashing is done, we statehash is hash of (_finalstate results)
-    transactionOutcomes <- getTransactionOutcomes (_finalState result)
+    transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
     -- Transactionoutcomeshash should be gettable from result somehow?
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (getHash transactionOutcomes) receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) transactionOutcomesHash receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal

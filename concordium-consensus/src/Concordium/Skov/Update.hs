@@ -35,6 +35,10 @@ import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import Data.Maybe (fromMaybe)
 
+-- used for stubbing statehash
+import Data.FixedByteString as FBS
+import Concordium.Crypto.SHA256
+
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf :: BlockPointerMonad m => BlockPointerType m -> BlockPointerType m -> m Bool
@@ -327,6 +331,8 @@ addBlock block = do
                                     (blockSlot block)
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
+                        -- And check baker key matches claimed key (may not be redundant if multiple keys could verify same signature?)
+                        check (_bakerSignatureVerifyKey == blockClaimedKey block) $
                         -- And the block signature
                         check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                             let ts = blockTransactions block
@@ -338,25 +344,32 @@ addBlock block = do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock
                                 Right result -> do
-                                    -- TODOHASH: add check on outcomeshash and resultingstatehash here.
-                                    -- Add the block to the tree
-                                    blockP <- blockArrive block parentP lfBlockP result
-                                    -- Notify of the block arrival (for finalization)
-                                    finalizationBlockArrival blockP
-                                    onBlock blockP
-                                    -- Process finalization records
-                                    -- Handle any blocks that are waiting for this one
-                                    children <- takePendingChildren (getHash block)
-                                    forM_ children $ \childpb -> do
-                                        childStatus <- getBlockStatus (getHash childpb)
-                                        let
-                                            isPending Nothing = True
-                                            isPending (Just (BlockPending _)) = True
-                                            isPending _ = False
-                                        when (isPending childStatus) $ addBlock childpb >>= \case
-                                            ResultSuccess -> onPendingLive
-                                            _ -> return ()
-                                    return ResultSuccess
+                                    -- FIXME: add check on statehash here, when merged
+                                    -- stateHash <- getStateHash (_finalState result)
+                                    -- FIXME: Check that the statehash is correct, (CURRENTLY STUBBED OUT)
+                                    let stateHash = (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))))
+                                    check (stateHash == blockStateHash block) $ do
+                                        -- Check that the TransactionOutcomeHash is correct
+                                        tohash <- getTransactionOutcomesHash (_finalState result) 
+                                        check (tohash ==  blockTransactionOutcomesHash block) $ do
+                                            -- Add the block to the tree
+                                            blockP <- blockArrive block parentP lfBlockP result
+                                            -- Notify of the block arrival (for finalization)
+                                            finalizationBlockArrival blockP
+                                            onBlock blockP
+                                            -- Process finalization records
+                                            -- Handle any blocks that are waiting for this one
+                                            children <- takePendingChildren (getHash block)
+                                            forM_ children $ \childpb -> do
+                                                childStatus <- getBlockStatus (getHash childpb)
+                                                let
+                                                    isPending Nothing = True
+                                                    isPending (Just (BlockPending _)) = True
+                                                    isPending _ = False
+                                                when (isPending childStatus) $ addBlock childpb >>= \case
+                                                    ResultSuccess -> onPendingLive
+                                                    _ -> return ()
+                                            return ResultSuccess
 
 -- |Add a valid, live block to the tree.
 -- This is used by 'addBlock' and 'doStoreBakedBlock', and should not
