@@ -37,7 +37,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Skov
 import Concordium.Skov.Update (updateFocusBlockTo)
 
-import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult)
+import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..))
 import Concordium.Scheduler.Types(FilteredTransactions(..))
 
 import Concordium.Logger
@@ -198,8 +198,9 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     receiveTime <- currentTime
     -- FIXME: placeholder hashes 
     -- When Statehashing is done, we statehash is hash of (_finalstate results)
-    -- Transactionoutcomeshash is some form of hash of (_transactionLog results)
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (TransactionOutcomesHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) receiveTime
+    transactionOutcomes <- getTransactionOutcomes (_finalState result)
+    -- Transactionoutcomeshash should be gettable from result somehow?
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (getHash transactionOutcomes) receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
