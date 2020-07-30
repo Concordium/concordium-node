@@ -192,10 +192,13 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     bps <- updateSeedState (UEP.updateSeedState slot nonce) birkParams
+    -- Results = {_energyUsed, _finalState, _transactionLog}
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     -- FIXME: placeholder hashes 
+    -- When Statehashing is done, we statehash is hash of (_finalstate results)
+    -- Transactionoutcomeshash is some form of hash of (_transactionLog results)
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (TransactionOutcomesHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) receiveTime
     newbp <- storeBakedBlock pb
                          bb
