@@ -705,6 +705,9 @@ doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! (bspTransactionOutcomes bsp) ^? ix transHash
 
+doGetTransactionOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Transactions.TransactionOutcomes 
+doGetTransactionOutcomes pbs =  bspTransactionOutcomes <$> loadPBS pbs
+
 doSetTransactionOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [TransactionSummary] -> m PersistentBlockState
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
@@ -799,6 +802,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     getBlockBirkParameters = doGetBlockBirkParameters
     getRewardStatus = doGetRewardStatus
     getTransactionOutcome = doGetTransactionOutcome
+    getTransactionOutcomes = doGetTransactionOutcomes
     getSpecialOutcomes = doGetSpecialOutcomes
     getOutcomes = doGetOutcomes
     getAllIdentityProviders = doGetAllIdentityProvider
