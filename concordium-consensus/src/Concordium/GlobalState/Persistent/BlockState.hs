@@ -28,6 +28,7 @@ import Concordium.Types
 import Concordium.Types.Execution
 import qualified Concordium.ID.Types as ID
 import Acorn.Types (linkExprWithMaxSize)
+import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as BB
@@ -705,8 +706,10 @@ doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! (bspTransactionOutcomes bsp) ^? ix transHash
 
-doGetTransactionOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Transactions.TransactionOutcomes 
-doGetTransactionOutcomes pbs =  bspTransactionOutcomes <$> loadPBS pbs
+doGetTransactionOutcomesHash :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m TransactionOutcomesHash 
+doGetTransactionOutcomesHash pbs =  do
+    bsp <- loadPBS pbs
+    return $! getHash (bspTransactionOutcomes bsp)
 
 doSetTransactionOutcomes :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> [TransactionSummary] -> m PersistentBlockState
 doSetTransactionOutcomes pbs transList = do
@@ -802,7 +805,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     getBlockBirkParameters = doGetBlockBirkParameters
     getRewardStatus = doGetRewardStatus
     getTransactionOutcome = doGetTransactionOutcome
-    getTransactionOutcomes = doGetTransactionOutcomes
+    getTransactionOutcomesHash = doGetTransactionOutcomesHash
     getSpecialOutcomes = doGetSpecialOutcomes
     getOutcomes = doGetOutcomes
     getAllIdentityProviders = doGetAllIdentityProvider
