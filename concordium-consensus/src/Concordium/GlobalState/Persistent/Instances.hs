@@ -23,7 +23,9 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 
--- |FIXME: This needs to be reworked a bit so that we store instrumented code here.
+-- |The module interface will likely need to change so that
+-- it either stores the serialized or deserialized module.
+-- Hopefully (de)serialization should be very cheap.
 data CacheableInstanceParameters = CacheableInstanceParameters {
     -- |The interface of 'instanceContractModule'
     pinstanceModuleInterface :: !Wasm.ModuleInterface

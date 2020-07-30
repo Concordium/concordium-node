@@ -58,10 +58,10 @@ genReceiveNames = do
   ns <- fmap (Wasm.ReceiveName . Text.pack) <$> vector n
   return $ Set.fromList ns
 
-genContractState :: Gen ContractState
+genContractState :: Gen Wasm.ContractState
 genContractState = do
   n <- choose (1,1000)
-  ContractState . BS.pack <$> vector n
+  Wasm.ContractState . BS.pack <$> vector n
 
 makeArbitraryInstance :: Gen (ContractAddress -> Instance)
 makeArbitraryInstance = do
@@ -71,22 +71,22 @@ makeArbitraryInstance = do
         receiveNames <- genReceiveNames
         contractState <- genContractState
         n <- choose (0,1000)
-        iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.WasmModule 0 . BS.pack <$> vector n
+        iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.InstrumentedWasmModule 0 . BS.pack <$> vector n
         amount <- Amount <$> arbitrary
         owner <- AccountAddress . FBS.pack <$> (vector 21)
-        return $ makeInstance modRef initName receiveNames iface contractState amount owner
+        return $ makeInstance modRef initName receiveNames (iface (fromIntegral n)) contractState amount owner
 
 makeDummyInstance :: InstanceData -> ContractAddress -> Instance
 makeDummyInstance (InstanceData model amount) =
-        makeInstance modRef initName receiveNames iface model amount owner
+        makeInstance modRef initName receiveNames (iface 0) model amount owner
     where
         modRef = ModuleRef (H.hash "module")
         initName = Wasm.InitName "init"
         receiveNames = Set.singleton (Wasm.ReceiveName "receive")
-        iface = Wasm.ModuleInterface modRef Set.empty Set.empty (Wasm.WasmModule 0 "<empty>")
+        iface = Wasm.ModuleInterface modRef Set.empty Set.empty (Wasm.InstrumentedWasmModule 0 "<empty>")
         owner = AccountAddress . FBS.pack . replicate 21 $ 0
 
-data InstanceData = InstanceData ContractState Amount
+data InstanceData = InstanceData Wasm.ContractState Amount
     deriving (Eq, Show)
 
 instance Arbitrary InstanceData where
@@ -116,7 +116,7 @@ modelGetInstanceData (ContractAddress ci csi) m = do
         guard $ csi == csi'
         return idata
 
-modelUpdateInstanceAt :: ContractAddress -> Amount -> ContractState -> Model -> Model
+modelUpdateInstanceAt :: ContractAddress -> Amount -> Wasm.ContractState -> Model -> Model
 modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m {modelInstances = Map.adjust upd ci (modelInstances m)}
     where
         upd o@(csi', _)

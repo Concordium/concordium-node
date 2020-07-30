@@ -22,6 +22,8 @@ data InstanceParameters = InstanceParameters {
     -- receive methods of the module.
     instanceReceiveFuns :: !(Set.Set Wasm.ReceiveName),
     -- |The interface of 'instanceContractModule'
+    -- FIXME: This module interface should be shared when stored, since it is mostly
+    -- the same for all the contracts that are derived from the same Wasm module.
     instanceModuleInterface :: !Wasm.ModuleInterface,
     -- |Hash of the fixed parameters
     instanceParameterHash :: !H.Hash
