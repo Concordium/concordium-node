@@ -32,6 +32,7 @@ import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (cdvRegId)
+import Concordium.Types.HashableTo
 
 import qualified Acorn.Utils.Init as Acorn
 
@@ -128,8 +129,8 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getTransactionOutcome bs trh =
         return $ bs ^? blockTransactionOutcomes . ix trh
 
-    {-# INLINE getTransactionOutcomes #-}
-    getTransactionOutcomes = return . _blockTransactionOutcomes
+    {-# INLINE getTransactionOutcomesHash #-}
+    getTransactionOutcomesHash bs = return (getHash $ _blockTransactionOutcomes $ bs)
 
     {-# INLINE getOutcomes #-}
     getOutcomes bs =
