@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Concordium.Scheduler.WasmIntegration where
+module Concordium.Scheduler.WasmIntegration(applyInitFun, applyReceiveFun, processModule) where
 
 import Foreign.C.Types
 import Foreign.Ptr
 import Foreign.Marshal.Alloc
 import Foreign.Storable
 import Data.Word
+import qualified Data.Text as Text
+import qualified Data.Text.Lazy as LText
 import qualified Data.Text.Encoding as Text
 import Data.Serialize
 import qualified Data.Set as Set
@@ -13,10 +15,14 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.ByteString.Unsafe as BSU
 import System.IO.Unsafe
+import Control.Monad
 
 import Concordium.Crypto.FFIHelpers(rs_free_array_len)
 import Concordium.Types
 import Concordium.Wasm
+
+import qualified Language.Wasm as LW
+import qualified Language.Wasm.Structure as LW
 
 foreign import ccall unsafe "call_init"
    call_init :: Ptr Word8 -- ^Pointer to the Wasm module.
@@ -29,7 +35,7 @@ foreign import ccall unsafe "call_init"
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
-             -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null.
+             -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
 
 
 foreign import ccall unsafe "call_receive"
@@ -45,21 +51,21 @@ foreign import ccall unsafe "call_receive"
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
-             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null.
+             -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signaling out-of-energy.
 
-
--- |Apply an init function which is assumed to be part of the given module.
+-- |Apply an init function which is assumed to be a part of the module.
 applyInitFun
     :: ModuleInterface
-    -> ChainMetadata -- ^Metadata available to the contract.
-    -> InitContext
-    -> InitName  -- ^Which method to invoke.
-    -> Parameter -- ^Parameters available to the method.
-    -> Amount  -- ^Amount the contract is initialized with.
-    -> InterpreterEnergy  -- ^Amount of energy available for execution.
+    -> ChainMetadata -- ^Chain information available to the contracts.
+    -> InitContext -- ^Additional parameters supplied by the chain and
+                  -- available to the init method.
+    -> InitName -- ^Which method to invoke.
+    -> Parameter -- ^User-provided parameter to the init method.
+    -> Amount -- ^Amount the contract is going to be initialized with.
+    -> InterpreterEnergy -- ^Maximum amount of energy that can be used by the interpreter.
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ()), InterpreterEnergy)
-    -- ^Nothing if execution used up all the energy,
-    -- and otherwise the result of execution with remaining interpreter energy.
+    -- ^Nothing if execution ran out of energy.
+    -- Just (result, usedEnergy) otherwise, where @usedEnergy@ is the amount of energy that was used.
 applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResult result energy
   where result = unsafeDupablePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
@@ -99,19 +105,21 @@ processInterpreterResult result energy = case result of
         Right x -> Just (x, energy)
         Left err -> error $ "Invariant violation. Could not interpret output from interpreter: " ++ err
 
+
 -- |Apply a receive function which is assumed to be part of the given module.
 applyReceiveFun
     :: ModuleInterface
     -> ChainMetadata -- ^Metadata available to the contract.
-    -> ReceiveContext
+    -> ReceiveContext -- ^Additional parameter supplied by the chain and
+                     -- available to the receive method.
     -> ReceiveName  -- ^Which method to invoke.
     -> Parameter -- ^Parameters available to the method.
     -> Amount  -- ^Amount the contract is initialized with.
     -> ContractState -- ^State of the contract to start in.
     -> InterpreterEnergy  -- ^Amount of energy available for execution.
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
-    -- ^Nothing if execution used up all the energy,
-    -- and otherwise the result of execution with remaining interpreter energy.
+    -- ^Nothing if execution used up all the energy, and otherwise the result
+    -- of execution with the amount of energy that was used.
 applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpreterResult result energy
   where result = unsafeDupablePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
@@ -140,13 +148,38 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpr
         nameBytes = Text.encodeUtf8 (receiveName rName)
 
 
--- |Process a module as received and make a module interface.
--- This should check the module is well-formed, and has the right imports and exports.
+-- |Process a module as received and make a module interface. This should
+-- check the module is well-formed, and has the right imports and exports. It
+-- should also do any pre-processing of the module (such as partial
+-- compilation or instrumentation) that is needed to apply the exported
+-- functions from it in an efficient way.
 processModule :: WasmModule -> Maybe ModuleInterface
-processModule modl = Just ModuleInterface{..}
-  where miModuleRef = getModuleRef modl
-        miExposedInit = Set.singleton (InitName "init")
-        miExposedReceive = Set.singleton (ReceiveName "receive")
-        miSize = fromIntegral (BS.length (wasmSource modl))
-        miModule = InstrumentedWasmModule{ imWasmVersion = wasmVersion modl, imWasmSource = wasmSource modl }
-        
+processModule modl =
+  case LW.decode (wasmSource modl) of
+    Right modul -> case LW.validate modul of
+                    Right _ -> do
+                      let miSize = fromIntegral (BS.length (wasmSource modl))
+                          miModuleRef = getModuleRef modl
+                          miModule = InstrumentedWasmModule{ imWasmVersion = wasmVersion modl, imWasmSource = wasmSource modl }
+                      (miExposedInit, miExposedReceive) <- processExports modul
+                      return ModuleInterface{..}
+                    Left err -> error $ "Validation error: " ++ show err
+    Left err -> error $ "Module not well-formed: " ++ show err
+
+  where processExports modul = do
+          -- get the exported functions only, we don't care about globals and whatnot.
+          -- TODO: We will care about memory though, but that is not done right now.
+          let exports = [name | LW.Export{..} <- LW.exports modul, case desc of
+                                                                    LW.ExportFunc _ -> True
+                                                                    _ -> False ]
+          -- TODO: This does not do any groupings, and probably we want a
+          -- different naming convention.
+          foldM (\(i,r) name ->
+                   let name' = LText.toStrict name in
+                   -- TODO: We should also be checking here that there are no duplicates.
+                   if "init" `Text.isPrefixOf` name' then Just (Set.insert (InitName name') i, r)
+                   else if "receive" `Text.isPrefixOf` name' then Just (i, Set.insert (ReceiveName name') r)
+                   else Nothing)
+                (Set.empty, Set.empty)
+                exports
+          -- TODO: Validate import names as well. Only the module is validated by the validate function.
