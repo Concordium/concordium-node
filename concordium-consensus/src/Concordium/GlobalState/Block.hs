@@ -31,7 +31,25 @@ hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put ge
 instance HashableTo BlockHash BakedBlock where
     -- FIXME: Hash of a block should be independent of serialization version.
     -- This will be fixed as part of block hashing revision.
-    getHash b = BlockHashV0 . Hash.hashLazy . runPutLazy $ blockBodyV0 b >> put (bbSignature b)
+    getHash b = BlockHashV0 . Hash.hashLazy . runPutLazy $ blockBodyV0 b
+
+--WIP, structuring hashes. Currently having some issues with newtypes
+-- makeBlockHash :: BakedBlock -> BlockHash
+-- makeBlockHash bb = BlockHashV0 (Hash.hashOfHashes transactionOutcomes h1)
+--     where
+--         transactionOutcomes =  (blockTransactionOutcomesHash bb)
+--         h1 = Hash.hashOfHashes (blockStateHash bb) h2
+--         h2 = Hash.hashOfHashes h3 h4 
+--         h3 = Hash.hashLazy . runPutLazy $ put (blockFinalizationData b)
+--         h4 = Hash.hashLazy . runPutLazy $ do
+--             put (blockSlot bb)
+--             put (blockPointer bb)
+--             put (blockBaker bb)
+--             put (blockClaimedKey bb)
+--             put (blockProof bb)
+--             put (blockNonce bb)
+--             putWord64be (fromIntegral (length (blockTransactions bb)))
+--             mapM_ putBlockItemV0 $ blockTransactions bb
 
 instance HashableTo BlockHash Block where
     getHash (GenesisBlock genData) = BlockHashV0 (hashGenesisData genData)
@@ -177,6 +195,8 @@ blockBodyV0 b = do
         put (blockProof b)
         put (blockNonce b)
         put (blockFinalizationData b)
+        put (blockTransactionOutcomesHash b)
+        put (blockStateHash b)
         putWord64be (fromIntegral (length (blockTransactions b)))
         mapM_ putBlockItemV0 $ blockTransactions b
 
@@ -230,10 +250,10 @@ instance BlockData Block where
     blockTransactions (NormalBlock bb) = blockTransactions bb
 
     -- FIXME: move into gendata
-    blockTransactionOutcomesHash GenesisBlock{} = TransactionOutcomesHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
+    blockTransactionOutcomesHash GenesisBlock{} = getHash emptyTransactionOutcomes
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
-    -- FIXME: move into gendata 
+    -- FIXME: replace stub, and move into gendata 
     blockStateHash GenesisBlock{} = StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
     blockStateHash (NormalBlock bb) = blockStateHash bb
 
