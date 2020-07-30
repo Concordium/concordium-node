@@ -403,7 +403,9 @@ doStoreBlock pb@GB.PendingBlock{..} = do
         BakedBlock{..} = pbBlock
     oldBlock <- getBlockStatus cbp
     case oldBlock of
-        Nothing -> do
+        Nothing ->  
+            -- Check that the claimed key matches the signature/blockhash
+            checkClaimedSignature pb $ do
             -- The block is new, so we have some work to do.
             logEvent Skov LLDebug $ "Received block " ++ show pb
             txList <- sequence <$> forM (blockTransactions pb) (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
@@ -417,6 +419,11 @@ doStoreBlock pb@GB.PendingBlock{..} = do
                 updateReceiveStatistics block1
                 addBlock block1
         Just _ -> return ResultDuplicate
+    where
+        -- FIXME: what error value should be returned here? Maybe a new one?
+        checkClaimedSignature b a = if verifyBlockSignature (blockClaimedKey b) b then a else do
+            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key: " 
+            return ResultInvalid
 
 -- |Store a block that is baked by this node in the tree.  The block
 -- is presumed to be valid.

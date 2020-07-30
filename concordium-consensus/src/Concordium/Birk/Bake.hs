@@ -43,6 +43,10 @@ import Concordium.Scheduler.Types(FilteredTransactions(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 
+-- FIXME: temporary import for stubbing types
+import Data.FixedByteString as FBS
+import Concordium.Crypto.SHA256
+
 
 data BakerIdentity = BakerIdentity {
     bakerSignKey :: BakerSignPrivateKey,
@@ -191,7 +195,8 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) receiveTime
+    -- FIXME: placeholder hashes 
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (TransactionOutcomesHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
