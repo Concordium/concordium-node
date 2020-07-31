@@ -18,6 +18,7 @@ import System.Random
 import Control.Monad.Trans.State
 import Data.Functor.Identity
 import Data.Ratio
+import Data.Word
 
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe
@@ -52,7 +53,6 @@ import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Freeze
@@ -67,8 +67,9 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState
 
 import Concordium.Startup (makeBakerAccountKP, defaultFinalizationParameters)
 
-import Concordium.Crypto.DummyData
-import Concordium.Types.DummyData (mateuszAccount)
+import qualified Concordium.Types.DummyData as Dummy
+import qualified Concordium.GlobalState.DummyData as Dummy
+import qualified Concordium.Crypto.DummyData as Dummy
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -473,9 +474,8 @@ genTransactions :: Int -> Gen [BlockItem]
 genTransactions n = mapM gent (take n [minNonce..])
     where
         gent nnce = do
-            f <- arbitrary
-            g <- arbitrary
-            return $ Example.makeTransaction f (ContractAddress (fromIntegral $ g `mod` nAccounts) 0) nnce
+            amnt <- arbitrary :: Gen Word8
+            return $ Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) nnce
 
 -- Generate transactions that transfer between `minAmount` and `maxAmount` of GTU among accounts specified in
 -- `kpAccountPairs`.
@@ -489,7 +489,7 @@ genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromLi
           toAcc   <- elements kpAccountPairs `suchThat` (/= fromAcc)
           let fromAddress = snd fromAcc
               nonce = accToNonce Map.! fromAddress
-              t = Example.makeTransferTransaction fromAcc (snd toAcc) amount nonce
+              t = Dummy.makeTransferTransaction fromAcc (snd toAcc) amount nonce
           gtt (t : ts) (Map.insert fromAddress (nonce + 1) accToNonce) (m - 1)
 
 initialEvents :: States -> EventPool
@@ -498,8 +498,8 @@ initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 makeBaker :: BakerId -> Amount -> Gen (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair)
 makeBaker bid initAmount = resize 0x20000000 $ do
         ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- genBlockKeyPair
-        blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
+        sk                     <- Dummy.genBlockKeyPair
+        blssk                  <- fst . Dummy.randomBlsSecretKey . mkStdGen <$> arbitrary
         let spk = Sig.verifyKey sk
         let blspk = Bls.derivePublicKey blssk
         let (account, kp) = makeBakerAccountKP bid initAmount
@@ -519,7 +519,7 @@ initialiseStates :: Int -> FinalizationCommitteeSize -> PropertyM IO States
 initialiseStates n maxFinComSize = do
         let bns = [0..fromIntegral n - 1]
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i (mateuszAmount * 4))) bns
-        createInitStates bis maxFinComSize [Example.createCustomAccount mateuszAmount mateuszKP mateuszAccount]
+        createInitStates bis maxFinComSize [Dummy.createCustomAccount mateuszAmount Dummy.mateuszKP Dummy.mateuszAccount]
 
 -- Initial states for the test in which we want finalization-committee members to change.
 -- The `averageStake` amount is a stake such that
@@ -543,13 +543,12 @@ createInitStates bis maxFinComSize specialAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
             elDiff = 0.5
             seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts specialAccounts (finalizationParameters maxFinComSize) dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig
-                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] nAccounts specialAccounts))
+                                               (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
                                                (ActiveFinalization fininst)
                                                NoHandler
                                        (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
