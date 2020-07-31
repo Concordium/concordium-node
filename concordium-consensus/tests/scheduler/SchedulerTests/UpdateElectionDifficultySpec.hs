@@ -38,7 +38,6 @@ testCases =
   [ TestCase
     { tcName = "Successful updates"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState,tpSpecialAccounts=specialBetaAccounts}
-    , tcModules = []
     , tcTransactions =
         let nonces = [1..]
             legalElectionDifficulties = [0, 0.0001, 0.5, 0.99999]
@@ -56,7 +55,6 @@ testCases =
   , TestCase
     { tcName = "Rejected updates"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState,tpSpecialAccounts=specialBetaAccounts}
-    , tcModules = []
     , tcTransactions =
         let nonces = [1..]
             legalElectionDifficulty = 0.527583

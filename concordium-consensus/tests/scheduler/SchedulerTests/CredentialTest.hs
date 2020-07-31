@@ -10,16 +10,12 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-
-import qualified Acorn.Core as Core
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -61,8 +57,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [Types.Transaction])
 
-testCredentialCheck :: PR.Context Core.UA IO TestResult
-
+testCredentialCheck :: IO TestResult
 testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
@@ -104,4 +99,4 @@ tests :: Spec
 tests =
   describe "Credential check test:" $
     specify "one successful, one rejected, one failed transaction" $
-      PR.evalContext Init.initialContextData testCredentialCheck >>= checkCredentialCheckResult
+      testCredentialCheck >>= checkCredentialCheckResult
