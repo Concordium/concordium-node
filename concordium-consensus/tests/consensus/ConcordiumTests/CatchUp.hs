@@ -96,7 +96,6 @@ initialiseStatesDictator n = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             elDiff = 0.5
-            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
