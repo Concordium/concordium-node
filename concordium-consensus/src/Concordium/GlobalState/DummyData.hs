@@ -224,3 +224,9 @@ makeFakeBakerAccount bid =
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
+
+createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
+createCustomAccount amount kp address =
+    newAccount (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
+        & (accountAmount .~ amount)
+  where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
