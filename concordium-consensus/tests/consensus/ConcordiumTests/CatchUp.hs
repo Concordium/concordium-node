@@ -28,11 +28,9 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
-import Concordium.Types (Amount(..))
 import Concordium.Types.HashableTo
 
 import Concordium.Logger
-import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
@@ -41,6 +39,10 @@ import Concordium.Types (Energy(..))
 import Concordium.Startup (defaultFinalizationParameters)
 
 import ConcordiumTests.Konsensus hiding (tests)
+
+import qualified Concordium.Types.DummyData as Dummy
+import qualified Concordium.GlobalState.DummyData as Dummy
+import qualified Concordium.Crypto.DummyData as Dummy
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -97,11 +99,11 @@ initialiseStatesDictator n = do
             bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps dummyCryptographicParameters dummyIdentityProviders dummyArs 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts [] nAccounts (Amount (2 ^ (40 :: Int)))))
+                                        (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
                                         (ActiveFinalization fininst)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)

@@ -44,8 +44,6 @@ import qualified Concordium.GlobalState.SeedState as SeedState
 
 import Concordium.Logger
 
-import qualified Concordium.Scheduler.Utils.Init.Example as Example
-
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
@@ -53,6 +51,8 @@ import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+
+import qualified Concordium.GlobalState.DummyData as Dummy
 
 -- Test that Concordium.Afgjort.Finalize.newPassiveRound has an effect on finalization;
 -- specifically, that non-finalizers can successfully gather signatures from the pending-
@@ -312,7 +312,7 @@ createInitStates additionalFinMembers = do
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
-                                           (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts [] 2 []))
+                                           (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
                                            (ActiveFinalization fininst)
                                            NoHandler
                                    (initCtx, initState) <- runSilentLogger (initialiseSkov config)
