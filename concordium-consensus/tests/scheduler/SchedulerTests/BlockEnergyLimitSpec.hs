@@ -11,9 +11,6 @@ import Control.Monad.IO.Class
 
 import Lens.Micro.Platform
 
-import Acorn.Core
-import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -69,7 +66,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [Types.Transaction],
                    [Types.Transaction])
 
-testMaxBlockEnergy :: PR.Context UA IO TestResult
+testMaxBlockEnergy :: IO TestResult
 testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
@@ -114,4 +111,4 @@ tests :: Spec
 tests =
   describe "Maximum block energy limit test:" $
     specify "One valid, two invalid, one unprocessed transaction" $
-        PR.evalContext Init.initialContextData testMaxBlockEnergy >>= checkResult
+        testMaxBlockEnergy >>= checkResult

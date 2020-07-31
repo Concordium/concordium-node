@@ -10,9 +10,7 @@ import qualified Data.Map as Map
 import qualified Data.HashSet as Set
 
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
-import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.BakerInfo
@@ -161,7 +159,7 @@ makeTransactions = sized (mt initialModel)
             | otherwise = return []
 
 testTransactions :: Property
-testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.initialContextData . tt)
+testTransactions = forAll makeTransactions (ioProperty . tt)
     where
         tt tl = do
             transactions <- processUngroupedTransactions tl
