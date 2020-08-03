@@ -82,7 +82,7 @@ isActiveCurrentRound _ = False
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
+  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
@@ -504,9 +504,6 @@ makeBaker bid initAmount = resize 0x20000000 $ do
         let blspk = Bls.derivePublicKey blssk
         let (account, kp) = makeBakerAccountKP bid initAmount
         return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account, kp)
-
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers

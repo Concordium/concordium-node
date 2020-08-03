@@ -80,8 +80,8 @@ makeGlobalStateConfig rp genData =
 type BakerConfig = SkovConfig TreeConfig (BufferedFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
+dummyIdentityProviders :: IdentityProviders
+dummyIdentityProviders = emptyIdentityProviders
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers

@@ -31,6 +31,7 @@ import qualified Data.FixedByteString as FBS
 import Concordium.Types
 import Concordium.ID.Types
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
@@ -40,10 +41,11 @@ import Concordium.GlobalState.BlockMonads
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
+import Concordium.Afgjort.Finalize
 import Concordium.Runner
 import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
-import Concordium.Afgjort.Finalize (FinalizationInstance(..))
+import Concordium.Afgjort.Finalize.Types(getExactVersionedFPM, putVersionedFPMV0)
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TimerMonad (ThreadTimer)
@@ -183,6 +185,8 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
             MTFinalizationRecord -> 2
             MTCatchUpStatus -> 3
 
+-- |Broadcast a consensus message. This can be either a block,, finalization record, or finalization (pseudo) message.
+-- All messages are serialized with a version.
 broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
                                                         (SkovConfig gs finconf hconf)
                                                         (LoggerT IO))))
@@ -191,15 +195,15 @@ broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putBlock block
+            let blockbs = runPut $ putVersionedBlockV0 block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
-            let finbs = encode finMsg
+            let finbs = runPut (putVersionedFPMV0 finMsg)
             logM External LLDebug $ "Broadcasting finalization message [size=" ++ show (BS.length finbs) ++ "]: " ++ show finMsg
             callBroadcastCallback bcbk MTFinalization finbs
         handleB (SOMsgFinalizationRecord finRec) = do
-            let msgbs = encode finRec
+            let msgbs = runPut (putVersionedFinalizationRecordV0 finRec)
             logM External LLDebug $ "Broadcasting finalization record [size=" ++ show (BS.length msgbs) ++ "]: " ++ show finRec
             callBroadcastCallback bcbk MTFinalizationRecord msgbs
 
@@ -507,7 +511,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case (deserializePendingBlock blockBS now) of
+        case (deserializeExactVersionedPendingBlock blockBS now) of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail
@@ -529,7 +533,7 @@ receiveFinalization bptr cstr l = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received finalization message size = " ++ show l ++ ".  Decoding ..."
     bs <- BS.packCStringLen (cstr, fromIntegral l)
-    toReceiveResult <$> case runGet get bs of
+    toReceiveResult <$> case runGet getExactVersionedFPM bs of
         Left _ -> do
             logm External LLDebug "Deserialization of finalization message failed."
             return ResultSerializationFail
@@ -552,12 +556,11 @@ receiveFinalizationRecord bptr cstr l = do
     let logm = consensusLogMethod c
     logm External LLDebug $ "Received finalization record data size = " ++ show l ++ ". Decoding ..."
     finRecBS <- BS.packCStringLen (cstr, fromIntegral l)
-    toReceiveResult <$> case runGet get finRecBS of
+    toReceiveResult <$> case runGet getExactVersionedFinalizationRecord finRecBS of
         Left _ -> do
           logm External LLDebug "Deserialization of finalization record failed."
           return ResultSerializationFail
         Right finRec -> do
-            logm External LLDebug "Finalization record deserialized."
             case c of
                 BakerRunner{..} -> syncReceiveFinalizationRecord bakerSyncRunner finRec
                 PassiveRunner{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunner finRec
@@ -573,9 +576,9 @@ receiveTransaction bptr tdata len = do
     logm External LLDebug $ "Received transaction, data size=" ++ show len ++ ". Decoding ..."
     tbs <- BS.packCStringLen (tdata, fromIntegral len)
     now <- getTransactionTime
-    toReceiveResult <$> case runGet (getBlockItem now) tbs of
-        Left _ -> do
-            logm External LLDebug $ "Could not decode transaction."
+    toReceiveResult <$> case runGet (getExactVersionedBlockItem now) tbs of
+        Left err -> do
+            logm External LLDebug $ "Could not decode block item: " ++ err
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."

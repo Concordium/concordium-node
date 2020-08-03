@@ -17,6 +17,7 @@ import Control.Monad
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Block
 import Concordium.GlobalState.TreeState hiding (getGenesisData)
 import Concordium.Types
 
@@ -43,8 +44,8 @@ merge :: forall m . (BlockPointerData (BlockPointerType m))
       -> Seq.Seq (BlockPointerType m)
       -> [(MessageType, ByteString)]
 merge Proxy = go
-  where encodeBlock b = (MessageBlock, runPut (putBlock b))
-        encodeFinRec fr = (MessageFinalizationRecord, encode fr)
+  where encodeBlock b = (MessageBlock, runPut (putVersionedBlockV0 b))
+        encodeFinRec fr = (MessageFinalizationRecord, runPut (putVersionedFinalizationRecordV0 fr))
         -- Note: since the returned list can be truncated, we have to be careful about the
         -- order that finalization records are interleaved with blocks.
         -- Specifically, we send a finalization record as soon as possible after
@@ -54,11 +55,13 @@ merge Proxy = go
         go :: Int -> [(FinalizationRecord, BlockHeight)] -> Seq.Seq (BlockPointerType m) -> [(MessageType, ByteString)]
         go n _ _ | n == 0 = []
         go n [] bs = encodeBlock <$> (take n (toList bs))
-        go n fs Seq.Empty = encodeFinRec <$> (take n (toList fs))
+        go n fs Seq.Empty = encodeFinRec . fst <$> (take n (toList fs))
         go n fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
             | fh < bpHeight b = encodeFinRec f : go (n-1) fs1 bs0
             | otherwise = encodeBlock b : go (n-1) fs0 bs1
 
+-- |Produce a catchup response and a new catchup status for the peer.
+-- The list of messages (blocks or finalization records) is versioned
 doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadLogger m)
                 => CatchUpStatus
                 -> Int -- ^How many blocks + finalization records should be sent.

@@ -63,7 +63,7 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
 
 sendTransactions :: Chan (InMessage Peer) -> [BlockItem] -> IO ()
 sendTransactions chan (t : ts) = do
-        writeChan chan (MsgTransactionReceived $ encode $ wmdData t)
+        writeChan chan (MsgTransactionReceived $ runPut (putVersionedBlockItemV0 t))
         -- r <- randomRIO (5000, 15000)
         threadDelay 100000
         sendTransactions chan ts
@@ -112,7 +112,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're connected, relay the message as required
             if connected then case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getBlock now) blockBS of
+                    case runGet (getExactVersionedBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
@@ -142,7 +142,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're not connected, don't relay, but still send to the monitor channel
             else case msg of
                 MsgNewBlock blockBS ->
-                    case runGet (getBlock now) blockBS of
+                    case runGet (getExactVersionedBlock now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
@@ -194,8 +194,8 @@ gsToString gs = intercalate "\\l" . map show $ keys
         keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
 -}
 
-dummyIdentityProviders :: [IpInfo]
-dummyIdentityProviders = []
+dummyIdentityProviders :: IdentityProviders
+dummyIdentityProviders = emptyIdentityProviders
 
 emptyArs :: AnonymityRevokers
 emptyArs = emptyAnonymityRevokers
