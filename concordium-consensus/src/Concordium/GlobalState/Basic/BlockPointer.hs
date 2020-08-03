@@ -42,7 +42,7 @@ makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransact
     where
         bf = bbFields $ pbBlock pb
         (_bpTransactionCount, _bpTransactionsSize) =
-          List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.blockItemSize tx + csize)) (0, 0) (blockTransactions pb)
+          List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.blockItemSizeV0 tx + csize)) (0, 0) (blockTransactions pb)
         checkLastFin = case blockFinalizationData bf of
             NoFinalizationData -> lastFinalized == runIdentity (_bpLastFinalized parent)
             BlockFinalizationData r -> getHash lastFinalized == finalizationBlockPointer r
