@@ -229,7 +229,7 @@ instance (MonadReader ContextState m,
 
   -- FIXME: Make this variable based on block state
   {-# INLINE energyToGtu #-}
-  energyToGtu = return . fromIntegral
+  energyToGtu energy = return $ 100 * (fromIntegral energy)
 
   {-# INLINE notifyExecutionCost #-}
   notifyExecutionCost !amnt = do
