@@ -2,8 +2,11 @@
     (type (;0;) (func (param i32))) (;type of the get_init_ctx method;)
     (type (;1;) (func (param i64) (result i32))) (;type of the init method;)
     (type (;2;) (func (result i32))) (; type of the accept method ;)
+    (type (;3;) (func (param i32 i32 i32) (result i32))) (; type of the write_state function ;)
     (import "concordium" "get_init_ctx" (func (;0;) $get_init_ctx (type 0)))
     (import "concordium" "accept" (func (;1;) $accept (type 2)))
+    (import "concordium" "write_state" (func $write_state (type 3)))
+    (; check that slot is 111 ;)
     (func (;2;) $init_check_slot (type 1)
         (if (i32.eq (i32.const -1) (memory.grow (i32.const 1)))
             (then unreachable) 
@@ -15,6 +18,7 @@
         )
         unreachable
     )
+    (; check that block height is 222 ;)
     (func (;3;) $init_check_height (type 1)
         (if (i32.eq (i32.const -1) (memory.grow (i32.const 1)))
             (then unreachable) 
@@ -26,6 +30,7 @@
         )
         unreachable
     )
+    (; check that finalized height is 333 ;)
     (func (;4;) $init_check_finalized_height (type 1)
         (if (i32.eq (i32.const -1) (memory.grow (i32.const 1)))
             (then unreachable) 
@@ -38,6 +43,7 @@
         unreachable
     )
 
+    (; check that slot time is 444 ;)
     (func (;5;) $init_check_slot_time (type 1)
         (if (i32.eq (i32.const -1) (memory.grow (i32.const 1)))
             (then unreachable) 
@@ -49,10 +55,24 @@
         )
         unreachable
     )
+     
+    (; write the init origin address to the contract's state ;)
+    (func (;6;) $init_origin (type 1)
+        (if (i32.eq (i32.const -1) (memory.grow (i32.const 1)))
+            (then unreachable) 
+            (else nop))
+        (call $get_init_ctx (i32.const 0))
+        (; write the address to contract's state ;)
+        (if (i32.ne (call $write_state (i32.const 32) (i32.const 32) (i32.const 0)) (i32.const 32))
+            (then (return (i32.const -1)))
+            (else nop))
+        (call $accept)
+    )
 
     (memory (;0;) 1)
     (export "init_check_slot" (func $init_check_slot))
     (export "init_check_height" (func $init_check_height))
     (export "init_check_finalized_height" (func $init_check_finalized_height))
     (export "init_check_slot_time" (func $init_check_slot_time))
+    (export "init_origin" (func $init_origin))
 )
