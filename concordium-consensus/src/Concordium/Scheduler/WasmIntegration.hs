@@ -141,7 +141,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr)
                             return (Just bs)
         wasmBytes = imWasmSource . miModule $ miface
-        initCtxBytes = encodeChainMeta cm <> encode receiveCtx
+        initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
         paramBytes = BSS.fromShort (parameter param)
