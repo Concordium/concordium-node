@@ -14,6 +14,7 @@ import qualified Data.HashMap.Strict as HM
 
 import Control.Monad.State.Class
 
+import Concordium.Common.Version
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
@@ -197,6 +198,14 @@ getInstances hash sfsRef = runStateQuery sfsRef $
   ilist <- BS.getContractInstanceList st
   return $ toJSON (map iaddress ilist)
 
+-- |Get the account information for the given account.
+-- Returns Null if account or block do not exist.
+-- Otherwise returns a list an object with
+--
+-- - accountAmount -- an integral non-negative value
+-- - accountCredentials -- a list of versioned credential values.
+-- - accountDelegation -- null or a baker id
+-- - accountInstances -- a list of contract instance addresses owned by this account.
 getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
 getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st ->
@@ -208,12 +217,13 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               creds <- BS.getAccountCredentials acc
               delegate <- BS.getAccountStakeDelegate acc
               instances <- BS.getAccountInstances acc
+              let verInstances = map (Versioned 0) $ S.toList instances
               return $ object ["accountNonce" .= nonce
                                         ,"accountAmount" .= toInteger amount
                                         -- credentials, most recent first
                                         ,"accountCredentials" .= creds
                                         ,"accountDelegation" .= delegate
-                                        ,"accountInstances" .= S.toList instances
+                                        ,"accountInstances" .= verInstances
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value

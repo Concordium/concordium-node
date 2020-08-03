@@ -19,6 +19,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.Basic.BlockState as BState
 import qualified Concordium.GlobalState.TreeState as TS
@@ -137,7 +138,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request 2000) c2 s2
         let
             formatMsg (MessageBlock, b) = show (hash b)
-            formatMsg (MessageFinalizationRecord, fr) = case decode fr of
+            formatMsg (MessageFinalizationRecord, fr) = case runGet getExactVersionedFinalizationRecord fr of
                     Left e -> error e
                     Right fr' -> "Proof(" ++ show (finalizationIndex fr') ++ ", " ++ show (finalizationBlockPointer fr') ++ ")"
         monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show (fmap (_1 %~ fmap formatMsg) response) ++ "\n"
@@ -165,7 +166,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBHs = [getHash bp | (MessageBlock, runGet (B.getBlock 0) -> Right bp) <- l]
+                    let recBHs = [getHash bp | (MessageBlock, runGet (B.getExactVersionedBlock 0) -> Right bp) <- l]
                     let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
@@ -173,10 +174,10 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     let respFin = Set.fromList $ finalizationBlockPointer . fst <$> toList (ssGSState s2 ^. BTS.finalizationList)
                     let
                         testList _ knownFin [] = checkBinary (==) knownFin respFin "==" "finalized blocks after catch-up" "respondent finalized blocks"
-                        testList knownBlocks knownFin ((MessageFinalizationRecord, decode -> Right finRec) : rs) = do
+                        testList knownBlocks knownFin ((MessageFinalizationRecord, runGet getExactVersionedFinalizationRecord -> Right finRec) : rs) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
-                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getBlock 0) -> Right (B.NormalBlock bp)) : rs) = do
+                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getExactVersionedBlock 0) -> Right (B.NormalBlock bp)) : rs) = do
                             checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
                             knownFin' <- case blockFinalizationData bp of
                                 NoFinalizationData -> return knownFin

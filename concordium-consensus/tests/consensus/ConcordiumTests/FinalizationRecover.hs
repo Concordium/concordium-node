@@ -20,6 +20,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 
 import Test.Hspec
@@ -30,7 +31,7 @@ import Test.Hspec
 {-# NOINLINE dummyCryptographicParameters #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
+  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
@@ -53,7 +54,7 @@ genesis nBakers =
     0.5
     defaultFinalizationParameters
     dummyCryptographicParameters
-    []
+    emptyIdentityProviders
     dummyArs
     []
     1234
