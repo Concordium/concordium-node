@@ -10,15 +10,21 @@ import Lens.Micro.Platform
 import Concordium.Types
 import Concordium.Types.Updates
 
-import Concordium.GlobalState.Updates
+import Concordium.GlobalState.Parameters
 
 data UpdateQueue e = UpdateQueue {
     -- |The next available sequence number for an update.
     _uqNextSequenceNumber :: !UpdateSequenceNumber,
     -- |Pending updates, in ascending order of timestamp.
     _uqQueue :: ![(Timestamp, e)]
-}
+} deriving (Show)
 makeLenses ''UpdateQueue
+
+emptyUpdateQueue :: UpdateQueue e
+emptyUpdateQueue = UpdateQueue {
+        _uqNextSequenceNumber = minUpdateSequenceNumber,
+        _uqQueue = []
+    }
 
 -- |Try to add an update event to an update queue. Fails if the sequence number
 -- is not correct.
@@ -26,7 +32,7 @@ checkEnqueue :: UpdateSequenceNumber -> Timestamp -> e -> UpdateQueue e -> Maybe
 checkEnqueue sn !t !e UpdateQueue{..}
     | sn == _uqNextSequenceNumber = Just (UpdateQueue {
             _uqNextSequenceNumber = sn + 1,
-            _uqQueue = let !r = dropWhile ((<= t) . fst) _uqQueue in (t, e) : r
+            _uqQueue = let !r = takeWhile ((< t) . fst) _uqQueue in r ++ [(t, e)]
         })
     | otherwise = Nothing
 
@@ -34,37 +40,26 @@ data PendingUpdates = PendingUpdates {
     _pAuthorizationQueue :: !(UpdateQueue Authorizations),
     _pProtocolQueue :: !(UpdateQueue ProtocolUpdate),
     _pParameterQueue :: !(UpdateQueue ParameterUpdate)
-}
+} deriving (Show)
 makeLenses ''PendingUpdates
 
-data ChainParameters = ChainParameters {
-    -- |Election difficulty parameter.
-    _cpElectionDifficulty :: !ElectionDifficulty,
-    -- |Euro:Energy rate.
-    _cpEuroPerEnergy :: !ExchangeRate,
-    -- |uGTU:Euro rate.
-    _cpMicroGTUPerEuro :: !ExchangeRate,
-    -- |uGTU:Energy rate.
-    -- This is derived, but will be computed when the other
-    -- rates are updated since it is more useful.
-    _cpEnergyRate :: !EnergyRate
-}
+emptyPendingUpdates :: PendingUpdates
+emptyPendingUpdates = PendingUpdates emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue
 
 data Updates = Updates {
     _currentAuthorizations :: !Authorizations,
     _currentProtocolUpdate :: !(Maybe ProtocolUpdate),
     _currentParameters :: !ChainParameters,
     _pendingUpdates :: !PendingUpdates
-}
+} deriving (Show)
 makeClassy ''Updates
 
-{-
-getUpdateAuthorization :: (HasUpdates u) => UpdateType -> u -> AccessStructure
-getUpdateAuthorization UpdateAuthorization u = u ^. currentAuthorizations . to asAuthorization
-getUpdateAuthorization UpdateProtocol u = u ^. currentAuthorizations . to asProtocol
-getUpdateAuthorization UpdateParameters u = u ^. currentAuthorizations . to asParameters
-getUpdateAuthorization UpdateExchangeRate u = u ^. currentAuthorizations . to asExchangeRate
--}
+initialUpdates :: Authorizations -> ChainParameters -> Updates
+initialUpdates _currentAuthorizations _currentParameters = Updates {
+        _currentProtocolUpdate = Nothing,
+        _pendingUpdates = emptyPendingUpdates,
+        ..
+    }
 
 processAuthorizationUpdates :: Timestamp -> Authorizations -> UpdateQueue Authorizations -> (Authorizations, UpdateQueue Authorizations)
 processAuthorizationUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), uq {_uqQueue = qr})
@@ -82,11 +77,10 @@ processParameterUpdates t cp0 uq = (cp', uq {_uqQueue = qr})
     where
         (ql, qr) = span ((<= t) . fst) (uq ^. uqQueue)
         cp' = foldl' applyPU cp0 (snd <$> ql)
-        applyPU cp@ChainParameters{..} ParameterUpdate{..} = cp {
-                _cpElectionDifficulty = fromMaybe _cpElectionDifficulty puElectionDifficulty,
-                _cpEuroPerEnergy = fromMaybe _cpEuroPerEnergy puEuroPerEnergy,
-                _cpEnergyRate = maybe _cpEnergyRate (computeEnergyRate _cpMicroGTUPerEuro) puEuroPerEnergy
-            }
+        applyPU ChainParameters{..} ParameterUpdate{..} = makeChainParameters
+                (fromMaybe _cpElectionDifficulty puElectionDifficulty)
+                (fromMaybe _cpEuroPerEnergy puEuroPerEnergy)
+                (fromMaybe _cpMicroGTUPerEuro puMicroGTUPerEuro)
 
 -- |Process the update queues to determine the current state of
 -- updates.
@@ -110,3 +104,11 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..},..} = Updates
         (newProtocolUpdate, newProtocolQueue) = processProtocolUpdates t _currentProtocolUpdate _pProtocolQueue
         (newParameters, newParameterQueue) = processParameterUpdates t _currentParameters _pParameterQueue
 
+futureElectionDifficulty :: Updates -> Timestamp -> ElectionDifficulty
+futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} = fed (_cpElectionDifficulty _currentParameters) eds
+    where
+        eds = [(ts, ed) | (ts, ParameterUpdate{puElectionDifficulty = Just ed}) <- _uqQueue _pParameterQueue]
+        fed ced [] _ = ced
+        fed ced ((ts', ed) : r) ts
+            | ts' <= ts = fed ed r ts
+            | otherwise = ced

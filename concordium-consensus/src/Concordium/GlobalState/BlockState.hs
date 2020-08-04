@@ -62,7 +62,6 @@ import Concordium.GlobalState.Types
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.SeedState
-import Concordium.GlobalState.Updates
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
@@ -151,8 +150,6 @@ class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
     --   * New lottery bakers is old previous-epoch bakers.
     --   * New previous-epoch bakers is old current bakers.
     updateBirkParametersForNewEpoch :: SeedState -> BirkParameters m -> m (BirkParameters m)
-    -- |Get the value of the election difficulty parameter.
-    getElectionDifficulty :: BirkParameters m -> m ElectionDifficulty
     -- |Get the 'Bakers' object representing the current bakers and stake distribution.
     getCurrentBakers :: BirkParameters m -> m (Bakers m)
     -- |Get the 'Bakers' object representing the bakers and stake distribution at the
@@ -218,6 +215,9 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
+
+    -- |Get the value of the election difficulty parameter.
+    getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
 
 {-
     -- |Get the access structure for the given update type.
@@ -379,9 +379,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Update the birk parameters of a block state
   bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters m -> m (UpdatableBlockState m)
 
-  -- |Directly set the election difficulty birk parameter of a block state.
-  bsoSetElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
-
 -- | Block state storage operations
 class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
@@ -420,13 +417,11 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
     getSeedState = lift . getSeedState
     updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
-    getElectionDifficulty = lift . getElectionDifficulty
     getCurrentBakers = lift . getCurrentBakers
     getLotteryBakers = lift . getLotteryBakers
     updateSeedState f = lift . updateSeedState f
     {-# INLINE getSeedState #-}
     {-# INLINE updateBirkParametersForNewEpoch #-}
-    {-# INLINE getElectionDifficulty #-}
     {-# INLINE getCurrentBakers #-}
     {-# INLINE getLotteryBakers #-}
     {-# INLINE updateSeedState #-}
@@ -445,6 +440,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getSpecialOutcomes = lift . getSpecialOutcomes
   getAllIdentityProviders s = lift $ getAllIdentityProviders s
   getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
+  getElectionDifficulty s = lift . getElectionDifficulty s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -458,6 +454,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getSpecialOutcomes #-}
   {-# INLINE getAllIdentityProviders #-}
   {-# INLINE getAllAnonymityRevokers #-}
+  {-# INLINE getElectionDifficulty #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
@@ -526,7 +523,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
-  bsoSetElectionDifficulty s d = lift $ bsoSetElectionDifficulty s d
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}

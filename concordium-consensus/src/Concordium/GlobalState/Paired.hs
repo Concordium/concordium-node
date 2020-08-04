@@ -125,7 +125,7 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
     verifyBlockSignature k (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature k r) $ vbsl
         where
             vbsl = verifyBlockSignature k l
-    putBlock (PairBlockData (l, _)) = putBlock l
+    putBlockV0 (PairBlockData (l, _)) = putBlockV0 l
 
 instance (HashableTo BlockHash l, HashableTo BlockHash r) => HashableTo BlockHash (PairBlockData l r) where
     getHash (PairBlockData (l, r)) = assert ((getHash l :: BlockHash) == getHash r) $ getHash l
@@ -233,6 +233,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         r1 <- coerceBSML $ getAllAnonymityRevokers bs1
         r2 <- coerceBSMR $ getAllAnonymityRevokers bs2
         assert (r1 == r2) $ return r1
+    getElectionDifficulty (bps1, bps2) ts = do
+        e1 <- coerceBSML (getElectionDifficulty bps1 ts)
+        e2 <- coerceBSMR (getElectionDifficulty bps2 ts)
+        assert (e1 == e2) $ return e1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -336,11 +340,6 @@ instance (Monad m,
     bps2' <- coerceBSMR (updateBirkParametersForNewEpoch ss bps2)
     return (bps1', bps2')
 
-  getElectionDifficulty (bps1, bps2) = do
-    e1 <- coerceBSML (getElectionDifficulty bps1)
-    e2 <- coerceBSMR (getElectionDifficulty bps2)
-    assert (e1 == e2) $ return e1
-
   getCurrentBakers (bps1, bps2) = do
     cb1 <- coerceBSML (getCurrentBakers bps1)
     cb2 <- coerceBSMR (getCurrentBakers bps2)
@@ -392,10 +391,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoPutNewAccount bs1 acct1
         (r2, bs2') <- coerceBSMR $ bsoPutNewAccount bs2 acct2
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoSetElectionDifficulty (bs1, bs2) diff = do
-        bs1' <- coerceBSML $ bsoSetElectionDifficulty bs1 diff
-        bs2' <- coerceBSMR $ bsoSetElectionDifficulty bs2 diff
-        return (bs1', bs2')
     bsoPutNewInstance (bs1, bs2) f = do
         (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 f
         (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 f

@@ -16,6 +16,7 @@ import Control.Monad
 import GHC.Generics (Generic)
 
 import Concordium.Types
+import Concordium.Types.Updates
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -29,6 +30,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
+import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (cdvRegId)
@@ -36,7 +38,6 @@ import Concordium.ID.Types (cdvRegId)
 import qualified Acorn.Utils.Init as Acorn
 
 data BasicBirkParameters = BasicBirkParameters {
-    _birkElectionDifficulty :: ElectionDifficulty,
     -- |The current stake of bakers. All updates should be to this state.
     _birkCurrentBakers :: !Bakers,
     -- |The state of bakers at the end of the previous epoch,
@@ -57,7 +58,8 @@ data BlockState = BlockState {
     _blockAnonymityRevokers :: !ARS.AnonymityRevokers,
     _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !CryptographicParameters,
-    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
+    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    _blockUpdates :: !Updates
 } deriving (Show)
 
 makeLenses ''BasicBirkParameters
@@ -65,8 +67,8 @@ makeLenses ''BlockState
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> BlockState
-emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState {
+emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> BlockState
+emptyBlockState _blockBirkParameters _blockCryptographicParameters auths chainParams = BlockState {
   _blockAccounts = Accounts.emptyAccounts
   , _blockInstances = Instances.emptyInstances
   , _blockModules = Modules.emptyModules
@@ -74,6 +76,7 @@ emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState 
   , _blockIdentityProviders = IPS.emptyIdentityProviders
   , _blockAnonymityRevokers = ARS.emptyAnonymityRevokers
   , _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+  , _blockUpdates = initialUpdates auths chainParams
   ,..
   }
 
@@ -143,6 +146,9 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getAllAnonymityRevokers #-}
     getAllAnonymityRevokers bs = return $! bs ^. blockAnonymityRevokers . to (HashMap.elems . ARS.arRevokers)
 
+    {-# INLINE getElectionDifficulty #-}
+    getElectionDifficulty bs ts = return (futureElectionDifficulty (_blockUpdates bs) ts)
+
 
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
@@ -185,8 +191,6 @@ instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
     getSeedState bps = return $ _birkSeedState bps
 
     updateBirkParametersForNewEpoch seedState = return . basicUpdateBirkParametersForNewEpoch seedState
-
-    getElectionDifficulty = return . _birkElectionDifficulty
 
     getCurrentBakers = return . _birkCurrentBakers
 
@@ -365,10 +369,6 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoUpdateBirkParameters #-}
     bsoUpdateBirkParameters bs bps = return $! bs & blockBirkParameters .~ bps
 
-    {-# INLINE bsoSetElectionDifficulty #-}
-    bsoSetElectionDifficulty bs d = return $!
-      bs & blockBirkParameters . birkElectionDifficulty .~ d
-
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
@@ -397,18 +397,21 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
 initialState :: BasicBirkParameters
              -> CryptographicParameters
              -> [Account]
-             -> [IPS.IpInfo]
+             -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> Amount
+             -> Authorizations
+             -> ChainParameters
              -> BlockState
-initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips _blockAnonymityRevokers mintPerSlot = BlockState{..}
+initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips _blockAnonymityRevokers mintPerSlot auths chainParams = BlockState{..}
   where
     _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.fromModuleList (Acorn.moduleList (let (_, _, pm) = Acorn.baseState in pm))
     _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot
-    _blockIdentityProviders = IPS.IdentityProviders (HashMap.fromList (map (\r -> (IPS.ipIdentity r, r)) ips))
+    _blockIdentityProviders = ips
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    _blockUpdates = initialUpdates auths chainParams
 
     -- initial amount in the central bank is the amount on all genesis accounts combined
     initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 $ genesisAccounts

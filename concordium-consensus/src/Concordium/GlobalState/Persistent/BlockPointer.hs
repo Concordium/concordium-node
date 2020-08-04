@@ -54,7 +54,7 @@ makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFina
  where (_bpTransactionCount, _bpTransactionsSize) =
          case (txcount, txsize) of
            (Just x, Just y) -> (x, y)
-           _ -> List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.blockItemSize tx + csize)) (0, 0) (blockTransactions b)
+           _ -> List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.biSize tx + csize)) (0, 0) (blockTransactions b)
 
 -- |Creates the genesis persistent block pointer that has empty references to parent and last finalized.
 --
