@@ -24,6 +24,7 @@ profiling = [ "consensus-rust/profiling" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
+genesis_tester = [ "tempdir" ]
 
 [profile.release]
 codegen-units = 1
@@ -90,6 +91,7 @@ serde_json = { version = "1", optional = true }
 num_cpus = { version = "1.10.0", optional = true }
 jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.8.0", default-features = false, features = ["gen", "push", "protobuf"], optional = true }
+tempdir = { version = "0.3.7", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 ipconfig = { version = "0.2" }
@@ -152,6 +154,11 @@ path = "src/bin/bootstrap_checker.rs"
 name = "database_emitter"
 path = "src/bin/database_emitter.rs"
 required-features = [ "database_emitter" ]
+
+[[bin]]
+name = "genesis_tester"
+path = "src/bin/genesis_tester.rs"
+required-features = [ "genesis_tester" ]
 
 [[bench]]
 name = "p2p_lib_benchmark"

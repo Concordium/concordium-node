@@ -30,6 +30,7 @@ This repository relies on git submodules for internal component dependencies, so
 * collector - enables the build of the node-collector and backend
 * staging_net - enables special staging network only features like client username/password validation
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
+* genesis_tester - a tool used by a CI to validate the genesis data
 * dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Setting up basic local build environment

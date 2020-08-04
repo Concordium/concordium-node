@@ -4,7 +4,11 @@
 set -e
 
 # Retrieve genesis data sha
-GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
+if [ -n "$1" ]; then
+    GENESIS_VERSION=$1
+else
+    GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
+fi
 
 echo "Downloading genesis data SHA $GENESIS_VERSION"
 
