@@ -20,6 +20,9 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
+import Concordium.Types
+
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
@@ -27,17 +30,17 @@ invariantBlockState :: BlockState -> Either String ()
 invariantBlockState bs = do
         (creds, amp, totalBalance, delegationMap, ninstances) <- foldM checkAccount (Set.empty, Map.empty, 0, Map.empty, 0) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
         checkBinary (==) ninstances (instanceCount $ bs ^. blockInstances) "==" "accounted for instances" "all instances"
-        totalStake <- foldM (checkBaker delegationMap) 0 (Map.toList $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap)
+        totalStake <- foldM (checkBaker delegationMap) 0 ([(i, x) | (i, Just x) <- zip [0 ..] $ L.toList $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap])
         checkBinary (==) totalStake (bs ^. blockBirkParameters . birkCurrentBakers . bakerTotalStake) "==" "total baker stake" "recorded amount"
         let untrackedRegIds = Set.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
         unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
         let
-            tenc = bs ^. blockBank . Rewards.totalEncryptedGTU
-            tcb = bs ^. blockBank . Rewards.centralBankGTU
-            txc = bs ^. blockBank . Rewards.executionCost
+            tenc = bs ^. blockBank . unhashed . Rewards.totalEncryptedGTU
+            tcb = bs ^. blockBank . unhashed . Rewards.centralBankGTU
+            txc = bs ^. blockBank . unhashed . Rewards.executionCost
         checkBinary (==)
             (totalBalance + tenc + tcb + txc)
-            (bs ^. blockBank . Rewards.totalGTU)
+            (bs ^. blockBank . unhashed . Rewards.totalGTU)
             "=="
             ("Total account balances (" ++ show totalBalance ++
                 ") + total encrypted (" ++ show tenc ++
@@ -56,7 +59,7 @@ invariantBlockState bs = do
         checkCred creds (ID.cdvRegId -> cred)
             | cred `Set.member` creds = Left $ "Duplicate credential: " ++ show cred
             | otherwise = return $ Set.insert cred creds
-        checkInst owner bal caddr  = case bs ^? blockInstances . ix caddr of
+        checkInst owner bal caddr = case bs ^? blockInstances . ix caddr of
             Nothing -> Left $ "Missing smart contract instance: " ++ show caddr
             Just inst -> do
                 checkBinary (==) owner (instanceOwner $ instanceParameters inst) "==" "account claiming contract ownership" "contract's indicated owner"

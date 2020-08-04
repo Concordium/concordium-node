@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Concordium.GlobalState.Persistent.Instances where
 
@@ -279,6 +280,10 @@ data Instances
 instance Show Instances where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
+
+instance (MonadIO m, MonadBlobStore m BlobRef) => MHashableTo m H.Hash Instances where
+  getHashM InstancesEmpty = return $ H.hash ""
+  getHashM (InstancesTree _ t) = getHash <$> mproject t
 
 instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Instances where
     store _ InstancesEmpty = return (putWord8 0)
