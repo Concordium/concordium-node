@@ -22,6 +22,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
+import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
 
 import Test.Hspec
 
@@ -42,8 +43,8 @@ dummyArs = emptyAnonymityRevokers
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData@GenesisData{..} = return $ MTMBConfig rt genData blockS
-  where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters
-        birkParams = BS.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
+  where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters dummyAuthorizations dummyChainParameters
+        birkParams = BS.BasicBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
@@ -51,13 +52,13 @@ genesis nBakers =
     0
     nBakers
     1000
-    0.5
     defaultFinalizationParameters
     dummyCryptographicParameters
     emptyIdentityProviders
     dummyArs
-    []
     1234
+    dummyAuthorizations
+    dummyChainParameters
 
 makeFinalizationInstance :: BakerIdentity -> FinalizationInstance
 makeFinalizationInstance (BakerIdentity k1 k2 k3) = FinalizationInstance k1 k2 k3

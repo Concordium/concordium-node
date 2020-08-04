@@ -31,10 +31,8 @@ import qualified Concordium.GlobalState.Types as GS
 
 import qualified Acorn.Core as Core
 
--- |Chain metadata together with a set of special accounts which have special
--- rights during the beta phase, as well as the maximum allowed block energy.
+-- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
-  _specialBetaAccounts :: !(Set.HashSet AccountAddress),
   _chainMetadata :: !ChainMetadata,
   _maxBlockEnergy :: !Energy
   }
@@ -130,9 +128,6 @@ instance (MonadReader ContextState m,
 
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = view maxBlockEnergy
-
-  {-# INLINE getSpecialBetaAccounts #-}
-  getSpecialBetaAccounts = view specialBetaAccounts
 
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
@@ -315,12 +310,6 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return r
 
-  {-# INLINE updateElectionDifficulty #-}
-  updateElectionDifficulty d = do
-    s <- use schedulerBlockState
-    s' <- lift (bsoSetElectionDifficulty s d)
-    schedulerBlockState .= s'
-
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do
     s <- use schedulerBlockState
@@ -356,22 +345,22 @@ deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState
 instance ATITypes SchedulerImplementation where
   type ATIStorage SchedulerImplementation = ()
 
-runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS)
-runSI sc gd cd energy gs =
+runSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS)
+runSI sc cd energy gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0)
+        runRWST (_runScheduler sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
   in (a, s)
 
-execSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> PBSSS
-execSI sc gd cd energy gs =
+execSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> PBSSS
+execSI sc cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0))
+       execRWST (_runScheduler sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
 
-evalSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> a
-evalSI sc gd cd energy gs =
+evalSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> a
+evalSI sc cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runScheduler sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0))
+       evalRWST (_runScheduler sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))

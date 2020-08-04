@@ -31,6 +31,7 @@ import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types (Amount(..))
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
 
 import Concordium.Logger
 import qualified Concordium.Scheduler.Utils.Init.Example as Example
@@ -94,15 +95,14 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            elDiff = 0.5
-            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
+            bps = BState.BasicBirkParameters genesisBakers genesisBakers genesisBakers seedState
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] fps dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState bakerAccounts fps dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders nAccounts (Amount (2 ^ (40 :: Int)))))
+                                        (MTMBConfig defaultRuntimeParameters gen (Example.initialStateWithMateuszAccount bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders nAccounts (Amount (2 ^ (40 :: Int))) dummyAuthorizations dummyChainParameters))
                                         (ActiveFinalization fininst)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)

@@ -66,7 +66,7 @@ transactionsInput =
   ]
 
 type TestResult = ([(Types.BlockItem, Types.ValidResult)],
-                   [(Types.WithMetadata Types.BareTransaction, Types.FailureKind)],
+                   [(Types.WithMetadata Types.AccountTransaction, Types.FailureKind)],
                    [(Types.ContractAddress, Types.Instance)])
 
 testFibonacci ::
@@ -79,7 +79,6 @@ testFibonacci = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-            dummySpecialBetaAccounts
             Types.dummyChainMeta
             maxBound
             initialBlockState

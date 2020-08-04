@@ -168,7 +168,6 @@ testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.ini
             let (Sch.FilteredTransactions{..}, finState) =
                   EI.runSI
                     (Sch.filterTransactions dummyBlockSize transactions)
-                    (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
                     maxBound
                     initialBlockState

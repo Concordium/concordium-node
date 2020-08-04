@@ -21,6 +21,7 @@ import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -309,7 +310,9 @@ addBlock block = do
                 bps <- getBirkParameters (blockSlot block) parentP
                 baker <- birkEpochBaker (blockBaker block) bps
                 nonce <- birkLeadershipElectionNonce bps
-                elDiff <- getElectionDifficulty bps
+                slotTime <- getSlotTimestamp (blockSlot block)
+                parentState <- blockState parentP
+                elDiff <- getElectionDifficulty parentState slotTime
                 case baker of
                     Nothing -> invalidBlock
                     Just (BakerInfo{..}, lotteryPower) ->
@@ -332,7 +335,6 @@ addBlock block = do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
                             bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
-                            slotTime <- getSlotTimestamp (blockSlot block)
                             executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                 Left err -> do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)

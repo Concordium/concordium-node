@@ -24,6 +24,7 @@ import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
 import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.Types as T
 import Concordium.GlobalState.Information(jsonStorable)
 import Concordium.GlobalState.BakerInfo
@@ -76,15 +77,15 @@ getTransactionStatus :: SkovStateQueryable z m => AT.TransactionHash -> z -> IO 
 getTransactionStatus hash sfsRef = runStateQuery sfsRef $
   queryTransactionStatus hash >>= \case
     Nothing -> return Null
-    Just AT.Received{} ->
+    Just TT.Received{} ->
       return $ object ["status" .= String "received"]
-    Just AT.Finalized{..} ->
+    Just TT.Finalized{..} ->
       withBlockStateJSON tsBlockHash $ \bs -> do
         outcome <- BS.getTransactionOutcome bs tsFinResult
         return $ object ["status" .= String "finalized",
                          "outcomes" .= object [fromString (show tsBlockHash) .= outcome]
                         ]
-    Just AT.Committed{..} -> do
+    Just TT.Committed{..} -> do
       outcomes <- forM (HM.toList tsResults) $ \(bh, idx) ->
         resolveBlock bh >>= \case
           Nothing -> return (T.pack (show bh) .= Null) -- should not happen
@@ -99,9 +100,9 @@ getTransactionStatusInBlock :: SkovStateQueryable z m => AT.TransactionHash -> B
 getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
   queryTransactionStatus txHash >>= \case
     Nothing -> return Null
-    Just AT.Received{} ->
+    Just TT.Received{} ->
       return $ object ["status" .= String "received"]
-    Just AT.Finalized{..} ->
+    Just TT.Finalized{..} ->
       if tsBlockHash == blockHash then
         withBlockStateJSON tsBlockHash $ \bs -> do
           outcome <- BS.getTransactionOutcome bs tsFinResult
@@ -110,7 +111,7 @@ getTransactionStatusInBlock txHash blockHash sfsRef = runStateQuery sfsRef $
                           ]
       else
         return Null
-    Just AT.Committed{..} ->
+    Just TT.Committed{..} ->
       case HM.lookup blockHash tsResults of
         Nothing -> return Null
         Just idx ->
@@ -252,13 +253,14 @@ getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   bps <- BS.getBlockBirkParameters st
-  elDiff <- BS.getElectionDifficulty bps
+  -- FIXME: reinstate election difficulty in query?
+  -- elDiff <- BS.getElectionDifficulty bps
   nonce <- BS.birkLeadershipElectionNonce bps
   lotteryBakers <- BS.getLotteryBakers bps
   fullBakerInfos <- BS.getFullBakerInfos lotteryBakers
   totalStake <- BS.getTotalBakerStake lotteryBakers
   return $ object [
-    "electionDifficulty" .= elDiff,
+    -- "electionDifficulty" .= elDiff,
     "electionNonce" .= nonce,
     "bakers" .= Array (fromList .
                        map (\(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> object ["bakerId" .= toInteger bid

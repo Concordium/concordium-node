@@ -36,14 +36,9 @@ import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
 
-type SpecialBetaAccounts = HSet.HashSet AccountAddress
-
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
     deriving(Eq, Show)
-
-emptySpecialBetaAccounts :: SpecialBetaAccounts
-emptySpecialBetaAccounts = HSet.empty
 
 -- |A class to convert to and from 'Energy' used by the scheduler.
 -- The function should satisfy
@@ -96,10 +91,6 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
-
-  -- |Get adddresses of special beta accounts which during the beta phase will
-  -- have special privileges.
-  getSpecialBetaAccounts :: m SpecialBetaAccounts
 
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe Instance)
@@ -265,9 +256,6 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- to in the past.
   -- Precondition: the account exists.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
-
-  -- |Update the election difficulty (birk parameter) in the global state.
-  updateElectionDifficulty :: ElectionDifficulty -> m ()
 
   -- *Other metadata.
 

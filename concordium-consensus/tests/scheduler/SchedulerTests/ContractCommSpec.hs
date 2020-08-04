@@ -102,7 +102,6 @@ testCommCounter = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
             Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-              dummySpecialBetaAccounts
               Types.dummyChainMeta
               maxBound
               initialBlockState

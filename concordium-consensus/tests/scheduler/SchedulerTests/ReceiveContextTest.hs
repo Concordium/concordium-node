@@ -86,7 +86,6 @@ testReceiveContext = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-            dummySpecialBetaAccounts
             chainMeta
             maxBound
             initialBlockState

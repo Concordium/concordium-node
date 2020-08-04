@@ -30,15 +30,15 @@ import qualified Acorn.Core as Core
 import Prelude hiding(mod, exp)
 
 -- |Sign a transaction with the given list of keys.
-signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
 signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
-signTxSingle :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
+signTxSingle :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
 signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle key header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
-transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.BareTransaction
+transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> Context Core.UA m Types.AccountTransaction
 transactionHelper t =
   case t of
     (TJSON meta (DeployModule mnameText) keys) ->
@@ -85,8 +85,6 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
     (TJSON meta UndelegateStake keys) ->
       return $ signTx keys meta (Types.encodePayload Types.UndelegateStake)
-    (TJSON meta UpdateElectionDifficulty{..} keys) ->
-      return $ signTx keys meta (Types.encodePayload Types.UpdateElectionDifficulty{..})
     (TJSON meta (UpdateBakerAggregationVerifyKey bid publicKey secretKey) keys) ->
       let challenge = runPut (put bid <> put publicKey)
           proof = Bls.proveKnowledgeOfSK challenge secretKey
@@ -103,7 +101,7 @@ transactionHelper t =
     (TJSON meta (AddAccountKeys newKeys threshold) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
 
-processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.BareTransaction]
+processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> Context Core.UA m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
 
 -- |For testing purposes: process transactions without grouping them by accounts
@@ -114,14 +112,14 @@ processUngroupedTransactions :: (MonadFail m, MonadIO m) =>
                                 Context Core.UA m (Types.GroupedTransactions Types.Transaction)
 processUngroupedTransactions inpt = do
   txs <- processTransactions inpt
-  return (Types.fromTransactions (map ((:[]) . Types.fromBareTransaction 0) txs))
+  return (Types.fromTransactions (map ((:[]) . Types.fromAccountTransaction 0) txs))
 
 -- |For testing purposes: process transactions in the groups in which they came
 -- The arrival time of all transactions is taken to be 0.
 processGroupedTransactions :: (MonadFail m, MonadIO m) =>
                               [[TransactionJSON]] ->
                               Context Core.UA m (Types.GroupedTransactions Types.Transaction)
-processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromBareTransaction 0)))
+processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromAccountTransaction 0)))
                              . mapM processTransactions
 
 data PayloadJSON = DeployModule { moduleName :: Text }
@@ -167,9 +165,6 @@ data PayloadJSON = DeployModule { moduleName :: Text }
                      dsID :: !BakerId
                      }
                  | UndelegateStake
-                 | UpdateElectionDifficulty {
-                     uedDifficulty :: !Double
-                     }
                  | UpdateBakerAggregationVerifyKey {
                      ubavkId :: !BakerId,
                      ubavkKey :: !BakerAggregationVerifyKey,

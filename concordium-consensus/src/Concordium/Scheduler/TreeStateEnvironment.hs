@@ -20,6 +20,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
@@ -163,10 +164,8 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state
     bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
-    genBetaAccounts <- HashSet.fromList . map (^. accountAddress) . genesisControlAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
-          _specialBetaAccounts = genBetaAccounts,
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
@@ -235,10 +234,8 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
     -- Order the accounts by the arrival time of the earliest transaction.
     let orderedTxs = map fst $ List.sortOn snd txs
-    genBetaAccounts <- HashSet.fromList . map (^. accountAddress) . genesisControlAccounts <$> getGenesisData
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
-          _specialBetaAccounts = genBetaAccounts,
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
