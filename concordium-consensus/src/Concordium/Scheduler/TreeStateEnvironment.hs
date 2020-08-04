@@ -183,7 +183,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
             -- and reward the baker and other parties.
             bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
-            finalbsHandle <- freezeBlockState bshandle4
+            (finalbsHandle, _) <- freezeBlockState bshandle4
             return (Right (ExecutionResult{_energyUsed = usedEnergy,
                                            _finalState = finalbsHandle,
                                            _transactionLog = finState ^. accountTransactionLog}))
@@ -254,7 +254,7 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
 
-    bshandleFinal <- freezeBlockState bshandle4
+    (bshandleFinal, _) <- freezeBlockState bshandle4
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
                                 _finalState = bshandleFinal,
                                 _transactionLog = finState ^. accountTransactionLog})
