@@ -23,6 +23,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TransactionTable
 import Concordium.Types.Transactions as Transactions
 import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics

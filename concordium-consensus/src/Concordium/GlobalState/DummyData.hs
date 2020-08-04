@@ -3,6 +3,8 @@
 module Concordium.GlobalState.DummyData where
 
 import qualified Data.HashMap.Strict as HM
+import qualified Data.Vector as Vec
+import qualified Data.Set as Set
 import Lens.Micro.Platform
 import qualified Acorn.Utils.Init as Acorn
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -21,6 +23,7 @@ import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
+import Concordium.Types.Updates
 
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
@@ -38,17 +41,18 @@ import Concordium.Types.DummyData
 basicGenesisState :: GenesisData -> Basic.BlockState
 basicGenesisState genData = Basic.initialState
                        (Basic.BasicBirkParameters {
-                            _birkElectionDifficulty = genesisElectionDifficulty genData,
                             _birkCurrentBakers = genesisBakers genData,
                             _birkPrevEpochBakers = genesisBakers genData,
                             _birkLotteryBakers = genesisBakers genData,
                             _birkSeedState = genesisSeedState genData
                         })
                        (genesisCryptographicParameters genData)
-                       (genesisAccounts genData ++ genesisControlAccounts genData)
+                       (genesisAccounts genData)
                        (genesisIdentityProviders genData)
                        (genesisAnonymityRevokers genData)
                        (genesisMintPerSlot genData)
+                       (genesisAuthorizations genData)
+                       (genesisChainParameters genData)
 
 -- kp :: Int -> Sig.KeyPair
 -- kp n = fst (Sig.randomKeyPair (mkStdGen n))
@@ -59,7 +63,7 @@ basicGenesisState genData = Basic.initialState
 {-# WARNING dummyCryptographicParameters "Do not use in production" #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (readCryptographicParameters <$> BSL.readFile "testdata/global.json") of
+  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "testdata/global.json") of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
@@ -82,6 +86,25 @@ dummyArs =
 
 dummyFinalizationCommitteeMaxSize :: FinalizationCommitteeSize
 dummyFinalizationCommitteeMaxSize = 1000
+
+{-# NOINLINE dummyAuthorizationKeyPair #-}
+dummyAuthorizationKeyPair :: SigScheme.KeyPair
+dummyAuthorizationKeyPair = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd25519KeyPair (mkStdGen 881856792)
+
+{-# NOINLINE dummyAuthorizations #-}
+{-# WARNING dummyAuthorizations "Do not use in production." #-}
+dummyAuthorizations :: Authorizations
+dummyAuthorizations = Authorizations {
+      asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
+      asEmergency = theOnly,
+      asAuthorization = theOnly,
+      asProtocol = theOnly,
+      asParamElectionDifficulty = theOnly,
+      asParamEuroPerEnergy = theOnly,
+      asParamMicroGTUPerEuro = theOnly
+    }
+  where
+    theOnly = AccessStructure (Set.singleton 0) 1
 
 {-# WARNING makeFakeBakers "Do not use in production" #-}
 makeFakeBakers :: Word -> [(FullBakerInfo, Account)]
@@ -122,33 +145,32 @@ makeTestingGenesisData ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
     -> Duration  -- ^Slot duration in seconds.
-    -> ElectionDifficulty  -- ^Initial election difficulty.
     -> BlockHeight -- ^Minimum finalization interval - 1
     -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
     -> CryptographicParameters -- ^Initial cryptographic parameters.
-    -> [IpInfo]   -- ^List of initial identity providers.
+    -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
-    -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
+    -> Authorizations -- ^Initial update authorizations
+    -> ChainParameters -- ^Initial chain parameters
     -> GenesisData
 makeTestingGenesisData
   genesisTime
   nBakers
   genesisSlotDuration
-  elecDiff
   finalizationMinimumSkip
   finalizationCommitteeMaxSize
   genesisCryptographicParameters
   genesisIdentityProviders
   genesisAnonymityRevokers
-  genesisControlAccounts
   genesisMaxBlockEnergy
+  genesisAuthorizations
+  genesisChainParameters
     = GenesisData{..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList bakers)
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
-        genesisElectionDifficulty = elecDiff
         genesisFinalizationParameters =
           FinalizationParameters{
            finalizationWaitingTime = 100,
@@ -166,17 +188,19 @@ makeTestingGenesisData
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
 emptyBirkParameters :: BasicBirkParameters
 emptyBirkParameters = BasicBirkParameters {
-  _birkElectionDifficulty = 0.5,
   _birkCurrentBakers = emptyBakers,
   _birkPrevEpochBakers = emptyBakers,
   _birkLotteryBakers = emptyBakers,
   _birkSeedState = SeedState.genesisSeedState (Hash.hash "NONCE") 360
   }
 
+dummyChainParameters :: ChainParameters
+dummyChainParameters = makeChainParameters 0.5 0.000001 1000000
+
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState
 createBlockState accounts =
-    emptyBlockState emptyBirkParameters dummyCryptographicParameters &
+    emptyBlockState emptyBirkParameters dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .

@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
@@ -16,6 +17,7 @@ import Data.Ratio
 import Data.Word
 import Lens.Micro.Platform
 
+import Concordium.Common.Version
 import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.ID.Parameters(GlobalContext)
@@ -29,9 +31,49 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
-import Concordium.Types.Transactions
+import Concordium.Types.Updates
 
 type CryptographicParameters = GlobalContext
+
+-- |Updatable chain parameters.
+data ChainParameters = ChainParameters {
+    -- |Election difficulty parameter.
+    _cpElectionDifficulty :: !ElectionDifficulty,
+    -- |Euro:Energy rate.
+    _cpEuroPerEnergy :: !ExchangeRate,
+    -- |uGTU:Euro rate.
+    _cpMicroGTUPerEuro :: !ExchangeRate,
+    -- |uGTU:Energy rate.
+    -- This is derived, but will be computed when the other
+    -- rates are updated since it is more useful.
+    _cpEnergyRate :: !EnergyRate
+} deriving (Eq, Show)
+
+makeChainParameters ::
+    ElectionDifficulty
+    -- ^Election difficulty
+    -> ExchangeRate
+    -- ^Euro:Energy rate
+    -> ExchangeRate
+    -- ^uGTU:Euro rate
+    -> ChainParameters
+makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro = ChainParameters{..}
+  where
+    _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
+
+instance Serialize ChainParameters where
+  put ChainParameters{..} = do
+    put _cpElectionDifficulty
+    put _cpEuroPerEnergy
+    put _cpMicroGTUPerEuro
+  get = makeChainParameters <$> get <*> get <*> get
+
+instance FromJSON ChainParameters where
+  parseJSON = withObject "ChainParameters" $ \v ->
+    makeChainParameters
+      <$> v .: "electionDifficulty"
+      <*> v .: "euroPerEnergy"
+      <*> v .: "microGTUPerEnergy"
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,
@@ -82,23 +124,49 @@ data GenesisData = GenesisData {
     genesisSlotDuration :: !Duration,
     genesisBakers :: !Bakers,
     genesisSeedState :: !SeedState.SeedState,
-    genesisElectionDifficulty :: !ElectionDifficulty,
     genesisAccounts :: ![Account],
-    -- |Special accounts that will have additional rights initially.
-    genesisControlAccounts :: ![Account],
     genesisFinalizationParameters :: !FinalizationParameters,
     genesisCryptographicParameters :: !CryptographicParameters,
-    genesisIdentityProviders :: ![IpInfo],
+    genesisIdentityProviders :: !IdentityProviders,
     genesisAnonymityRevokers :: !AnonymityRevokers,
     genesisMintPerSlot :: !Amount,
-    genesisMaxBlockEnergy :: !Energy
+    genesisMaxBlockEnergy :: !Energy,
+    genesisAuthorizations :: !Authorizations,
+    genesisChainParameters :: !ChainParameters
 } deriving (Generic, Show, Eq)
 
 instance Serialize GenesisData where
 
+
+
+-- |Read a finalization pseudo message according to the V0 format.
+getGenesisDataV0 :: Get GenesisData
+getGenesisDataV0 = get
+
+-- |Serialize a finalization pseudo message according to the V0 format.
+putGenesisDataV0 :: GenesisData -> Put
+putGenesisDataV0 = put
+
+-- |Deserialize a versioned finalization pseudo message.
+-- Read the version and decide how to parse the remaining data based on the
+-- version.
+--
+-- Currently only supports version 0
+getExactVersionedGenesisData :: Get GenesisData
+getExactVersionedGenesisData =
+  getVersion >>= \case
+    0 -> getGenesisDataV0
+    n -> fail $ "Unsupported Genesis version: " ++ show n
+
+-- |Serialize the genesis data with a version according to the V0 format.
+-- In contrast to 'getGenesisDataV0' this function also prepends the version.
+putVersionedGenesisDataV0 :: GenesisData -> Put
+putVersionedGenesisDataV0 fpm = putVersion 0 <> putGenesisDataV0 fpm
+
+-- |Get the total amount of GTU in genesis data.
 genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
-  sum (_accountAmount <$> (genesisAccounts ++ genesisControlAccounts))
+  sum (_accountAmount <$> genesisAccounts)
 
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
 readIdentityProviders = AE.decode
@@ -112,8 +180,14 @@ eitherReadIdentityProviders = AE.eitherDecode
 eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
 eitherReadAnonymityRevokers = AE.eitherDecode
 
-readCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
-readCryptographicParameters = AE.decode
+getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
+getExactVersionedCryptographicParameters bs = do
+   v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+   guard (vVersion v == 0)
+   return (vValue v)
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a
@@ -168,11 +242,10 @@ data GenesisParameters = GenesisParameters {
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
     gpEpochLength :: EpochLength,
-    gpElectionDifficulty :: ElectionDifficulty,
     gpFinalizationParameters :: FinalizationParameters,
     gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
-    gpIdentityProviders :: [IpInfo],
+    gpIdentityProviders :: IdentityProviders,
     gpAnonymityRevokers :: AnonymityRevokers,
     -- |Additional accounts (not baker accounts and not control accounts).
     -- They cannot delegate to any bakers in genesis.
@@ -182,7 +255,11 @@ data GenesisParameters = GenesisParameters {
     gpControlAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount,
     -- |Maximum total energy that can be consumed by the transactions in a block
-    gpMaxBlockEnergy :: Energy
+    gpMaxBlockEnergy :: Energy,
+    -- |The initial update authorizations
+    gpAuthorizations :: Authorizations,
+    -- |The initial (updatable) chain parameters
+    gpChainParameters :: ChainParameters
 }
 
 instance FromJSON GenesisParameters where
@@ -192,18 +269,21 @@ instance FromJSON GenesisParameters where
         gpLeadershipElectionNonce <- v .: "leadershipElectionNonce"
         gpEpochLength <- Slot <$> v .: "epochLength"
         when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
-        gpElectionDifficulty <- v .: "electionDifficulty"
         gpFinalizationParameters <- v .: "finalizationParameters"
         gpBakers <- v .: "bakers"
         when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
-        gpIdentityProviders <- v .:? "identityProviders" .!= []
+        gpIdentityProviders <- v .:? "identityProviders" .!= emptyIdentityProviders
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
         gpControlAccounts <- v .:? "controlAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
+        gpAuthorizations <- v .: "updateAuthorizations"
+        gpChainParameters <- v .: "chainParameters"
         return GenesisParameters{..}
+
+
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -267,7 +347,6 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisSlotDuration = gpSlotDuration
         genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
-        genesisElectionDifficulty = gpElectionDifficulty
         mkBaker GenesisBaker{..} = FullBakerInfo
             (BakerInfo
                 gbElectionVerifyKey
@@ -280,8 +359,6 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
           let cdv = ID.cdiValues gaCredential in
           newAccount gaVerifyKeys gaAddress cdv
                 & accountAmount .~ gaBalance
-        -- special accounts will have some special privileges during beta.
-        genesisControlAccounts = map mkAccount gpControlAccounts
         -- Baker accounts will have no special privileges.
         -- We ignore any specified delegation target.
         genesisAccounts = [mkAccount gbAccount & accountPersisting . accountStakeDelegate ?~ bid
@@ -293,3 +370,5 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
         genesisIdentityProviders = gpIdentityProviders
         genesisAnonymityRevokers = gpAnonymityRevokers
         genesisMaxBlockEnergy = gpMaxBlockEnergy
+        genesisAuthorizations = gpAuthorizations
+        genesisChainParameters = gpChainParameters
