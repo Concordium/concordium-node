@@ -2,6 +2,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Lens.Micro.Platform
@@ -33,29 +34,71 @@ import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (cdvRegId)
 
+import qualified Concordium.Crypto.SHA256 as H
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
+import Concordium.Types.HashableTo
+import Data.Serialize
+
 data BasicBirkParameters = BasicBirkParameters {
     _birkElectionDifficulty :: ElectionDifficulty,
     -- |The current stake of bakers. All updates should be to this state.
     _birkCurrentBakers :: !Bakers,
+    _birkCurrentBakersHash :: !(Maybe H.Hash),
     -- |The state of bakers at the end of the previous epoch,
     -- will be used as lottery bakers in next epoch.
-    _birkPrevEpochBakers :: !Bakers,
+    _birkPrevEpochBakers :: !(Hashed Bakers),
     -- |The state of the bakers fixed before previous epoch,
     -- the lottery power and reward account is used in leader election.
-    _birkLotteryBakers :: !Bakers,
+    _birkLotteryBakers :: !(Hashed Bakers),
     _birkSeedState :: !SeedState
 } deriving (Eq, Generic, Show)
+
+-- | Subhashes and the top level hash for the BlockState
+data BlockStateHashes
+  = BlockStateHashes
+      { -- | Hash of the hashes of BirkParameters, and CryptographicParameters
+        bsHash0 :: H.Hash,
+        -- | Hash of the hashes of IdentityProviders, and AnonymityRevokers
+        bsHash1 :: H.Hash,
+        -- | Hash of the hashes of the Modules, and BankStatus
+        bsHash2 :: H.Hash,
+        -- | Hash of the hashes of Accounts, and Instances
+        bsHash3 :: H.Hash,
+        -- | Hash of bsHash0, and bsHash1
+        bsHash10 :: H.Hash,
+        -- | Hash of bsHash2, and bsHash3
+        bsHash11 :: H.Hash,
+        -- | The top level hash of the BlockState. Hash of bsHash10 and bsHash11
+        bsHash :: StateHash
+      }
+  deriving (Show, Eq)
+
+instance HashableTo H.Hash BasicBirkParameters where
+    getHash BasicBirkParameters {..} = H.hashOfHashes bpH0 bpH2
+      where
+        bpH0 = H.hash $ "ElectDiff" <> encode _birkElectionDifficulty <> "SeedState" <> encode _birkSeedState
+        bpH1 = H.hashOfHashes (getHash _birkPrevEpochBakers) (getHash _birkLotteryBakers)
+        bpH2 = H.hashOfHashes (case _birkCurrentBakersHash of
+                                   Nothing -> getHash _birkCurrentBakers
+                                   Just h -> h) bpH1
+
+makeBirkParameters :: ElectionDifficulty -> Bakers -> Bakers -> Bakers -> SeedState -> BasicBirkParameters
+makeBirkParameters _birkElectionDifficulty _birkCurrentBakers prevEpochBakers lotteryBakers _birkSeedState = BasicBirkParameters {_birkCurrentBakersHash = Just (getHash _birkCurrentBakers), ..}
+  where
+    _birkPrevEpochBakers = makeHashed prevEpochBakers
+    _birkLotteryBakers = makeHashed lotteryBakers
 
 data BlockState = BlockState {
     _blockAccounts :: !Accounts.Accounts,
     _blockInstances :: !Instances.Instances,
     _blockModules :: !Modules.Modules,
-    _blockBank :: !Rewards.BankStatus,
-    _blockIdentityProviders :: !IPS.IdentityProviders,
-    _blockAnonymityRevokers :: !ARS.AnonymityRevokers,
+    _blockBank :: !(Hashed Rewards.BankStatus),
+    _blockIdentityProviders :: !(Hashed IPS.IdentityProviders),
+    _blockAnonymityRevokers :: !(Hashed ARS.AnonymityRevokers),
     _blockBirkParameters :: !BasicBirkParameters,
-    _blockCryptographicParameters :: !CryptographicParameters,
-    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
+    _blockCryptographicParameters :: !(Hashed CryptographicParameters),
+    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    _blockHashes :: BlockStateHashes
 } deriving (Show)
 
 makeLenses ''BasicBirkParameters
@@ -64,17 +107,40 @@ makeLenses ''BlockState
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
 emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> BlockState
-emptyBlockState _blockBirkParameters _blockCryptographicParameters = BlockState {
-  _blockAccounts = Accounts.emptyAccounts
-  , _blockInstances = Instances.emptyInstances
-  , _blockModules = Modules.emptyModules
-  , _blockBank = Rewards.emptyBankStatus
-  , _blockIdentityProviders = IPS.emptyIdentityProviders
-  , _blockAnonymityRevokers = ARS.emptyAnonymityRevokers
-  , _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-  ,..
-  }
+emptyBlockState _blockBirkParameters cryptographicParameters = block {_blockHashes = hashes}
+    where
+      _blockCryptographicParameters = makeHashed cryptographicParameters
+      _blockAccounts = Accounts.emptyAccounts
+      _blockInstances = Instances.emptyInstances
+      _blockModules = Modules.emptyModules
+      _blockBank = makeHashed Rewards.emptyBankStatus
+      _blockIdentityProviders = makeHashed IPS.emptyIdentityProviders
+      _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
+      block =
+        BlockState
+          { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
+            _blockHashes = undefined,
+            ..
+          }
+      hashes = makeBlockStateHashes block
 
+-- | Calculates the top level hash, and subhashes
+makeBlockStateHashes :: BlockState -> BlockStateHashes
+makeBlockStateHashes BlockState {..} = makeBlockStateHashes' (getHash _blockBirkParameters) (getHash _blockCryptographicParameters) (getHash _blockIdentityProviders) (getHash _blockAnonymityRevokers) (getHash _blockModules) (getHash _blockBank) (getHash _blockAccounts) (getHash _blockInstances)
+
+makeBlockStateHashes' :: H.Hash -> H.Hash -> H.Hash -> H.Hash -> H.Hash -> H.Hash -> H.Hash -> H.Hash -> BlockStateHashes
+makeBlockStateHashes' birkParameters cryptoParams ips ars mods bank accs instances = BlockStateHashes {..}
+    where
+      bsHash0 = H.hashOfHashes birkParameters cryptoParams
+      bsHash1 = H.hashOfHashes ips ars
+      bsHash2 = H.hashOfHashes mods bank
+      bsHash3 = H.hashOfHashes accs instances
+      bsHash10 = H.hashOfHashes bsHash0 bsHash1
+      bsHash11 = H.hashOfHashes bsHash2 bsHash3
+      bsHash = H.hashOfHashes bsHash10 bsHash11
+
+instance HashableTo H.Hash BlockState where
+    getHash BlockState {..} = bsHash _blockHashes
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
@@ -91,7 +157,7 @@ instance GT.BlockStateTypes (PureBlockStateMonad m) where
 instance ATITypes (PureBlockStateMonad m) where
   type ATIStorage (PureBlockStateMonad m) = ()
 
-instance Monad m => PerAccountDBOperations (PureBlockStateMonad m) where
+instance Monad m => PerAccountDBOperations (PureBlockStateMonad m)
   -- default implementation
 
 instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
@@ -120,7 +186,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getBlockBirkParameters = return . _blockBirkParameters
 
     {-# INLINE getRewardStatus #-}
-    getRewardStatus = return . _blockBank
+    getRewardStatus = return . _unhashed . _blockBank
 
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh =
@@ -136,11 +202,10 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getAllIdentityProviders #-}
     getAllIdentityProviders bs =
-      return $! bs ^. blockIdentityProviders . to (HashMap.elems . IPS.idProviders)
+      return $! bs ^. blockIdentityProviders . unhashed . to (Map.elems . IPS.idProviders)
 
     {-# INLINE getAllAnonymityRevokers #-}
-    getAllAnonymityRevokers bs = return $! bs ^. blockAnonymityRevokers . to (HashMap.elems . ARS.arRevokers)
-
+    getAllAnonymityRevokers bs = return $! bs ^. blockAnonymityRevokers . unhashed . to (Map.elems . ARS.arRevokers)
 
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
@@ -168,15 +233,15 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
 instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
 
-  getBakerStake bs bid = return $ bs ^? bakerMap . ix bid . bakerStake
+  getBakerStake bs (BakerId bid) = return (_bakerStake <$> join (L.lookup bid (bs ^. bakerMap)))
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs bid = return $ bs ^? bakerMap . ix bid . bakerInfo
+  getBakerInfo bs (BakerId bid) = return (_bakerInfo <$> join (L.lookup bid (bs ^. bakerMap)))
 
-  getFullBakerInfos = return . _bakerMap
+  getFullBakerInfos bks = return $ Map.fromAscList ([(i, v) | (i, Just v) <- zip [0 ..] $ L.toList $ _bakerMap bks])
 
 instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
@@ -188,7 +253,7 @@ instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
     getCurrentBakers = return . _birkCurrentBakers
 
-    getLotteryBakers = return . _birkLotteryBakers
+    getLotteryBakers = return . _unhashed . _birkLotteryBakers
 
     updateSeedState f bps = return $ bps & birkSeedState %~ f
 
@@ -198,7 +263,7 @@ basicUpdateBirkParametersForNewEpoch seedState bps = bps &
     -- use stake distribution saved from the former epoch for leader election
     birkLotteryBakers .~ (bps ^. birkPrevEpochBakers) &
     -- save the stake distribution from the end of the epoch
-    birkPrevEpochBakers .~ (bps ^. birkCurrentBakers)
+    birkPrevEpochBakers .~ makeHashed (bps ^. birkCurrentBakers)
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
@@ -253,7 +318,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             (bs ^? blockAccounts . ix instanceOwner)
         where
             inst = fromMaybe (error "Instance does not exist") $ bs ^? blockInstances . ix caddr
-            Instances.InstanceParameters{..} = Instances.instanceParameters inst
+            Instances.InstanceParameters {..} = Instances.instanceParameters inst
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
@@ -272,15 +337,15 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =
-      return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
+      return . snd $ bs & blockBank . unhashed . Rewards.executionCost <%~ (+ amnt)
 
     bsoNotifyIdentityIssuerCredential bs idk =
-      let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank . Rewards.identityIssuersRewards) in
-      return $! bs & blockBank . Rewards.identityIssuersRewards .~ updatedRewards
+      let updatedRewards = HashMap.alter (Just . maybe 1 (+ 1)) idk (bs ^. blockBank . unhashed . Rewards.identityIssuersRewards) in
+      return $! bs & blockBank . unhashed . Rewards.identityIssuersRewards .~ updatedRewards
 
     {-# INLINE bsoGetExecutionCost #-}
     bsoGetExecutionCost bs =
-      return $ bs ^. blockBank . Rewards.executionCost
+      return $ bs ^. blockBank . unhashed . Rewards.executionCost
 
     {-# INLINE bsoGetBlockBirkParameters #-}
     bsoGetBlockBirkParameters = return . _blockBirkParameters
@@ -303,43 +368,43 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         in (rv, bs & blockBirkParameters . birkCurrentBakers .~ bakers')
 
     bsoSetInflation bs amnt = return $
-        bs & blockBank . Rewards.mintedGTUPerSlot .~ amnt
+        bs & blockBank . unhashed . Rewards.mintedGTUPerSlot .~ amnt
 
     -- mint currency in the central bank, and also update the total gtu amount to maintain the invariant
     -- that the total gtu amount is indeed the total gtu amount
     bsoMint bs amount = return $
-        let updated = bs & ((blockBank . Rewards.totalGTU) +~ amount) .
-                           ((blockBank . Rewards.centralBankGTU) +~ amount)
-        in (updated ^. blockBank . Rewards.centralBankGTU, updated)
+        let updated = bs & ((blockBank . unhashed . Rewards.totalGTU) +~ amount) .
+                           ((blockBank . unhashed . Rewards.centralBankGTU) +~ amount)
+        in (updated ^. blockBank . unhashed . Rewards.centralBankGTU, updated)
 
     bsoDecrementCentralBankGTU bs amount = return $!
-        let updated = bs & ((blockBank . Rewards.centralBankGTU) -~ amount)
-        in (updated ^. blockBank . Rewards.centralBankGTU, updated)
+        let updated = bs & ((blockBank . unhashed . Rewards.centralBankGTU) -~ amount)
+        in (updated ^. blockBank . unhashed . Rewards.centralBankGTU, updated)
 
     bsoDelegateStake bs aaddr target = return $! if targetValid then (True, bs') else (False, bs)
         where
             targetValid = case target of
                 Nothing -> True
-                Just bid -> isJust $ bs ^. blockBirkParameters . birkCurrentBakers . bakerMap . at' bid
+                Just (BakerId bid) -> isJust $ join $ L.lookup bid (bs ^. blockBirkParameters . birkCurrentBakers . bakerMap)
             acct = fromMaybe (error "Invalid account address") $ bs ^? blockAccounts . ix aaddr
             stake = acct ^. accountAmount +
                 sum [Instances.instanceAmount inst |
                         Just inst <- Set.toList (acct ^. accountInstances) <&> flip Instances.getInstance (bs ^. blockInstances)]
             bs' = bs & blockBirkParameters . birkCurrentBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
-                    & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
+                     & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
 
     {-# INLINE bsoGetIdentityProvider #-}
     bsoGetIdentityProvider bs ipId =
-      return $! bs ^? blockIdentityProviders . to IPS.idProviders . ix ipId
+      return $! bs ^? blockIdentityProviders . unhashed . to IPS.idProviders . ix ipId
 
     {-# INLINE bsoGetAnonymityRevokers #-}
     bsoGetAnonymityRevokers bs arIds = return $!
-      let ars = bs ^. blockAnonymityRevokers . to ARS.arRevokers
-      in forM arIds (flip HashMap.lookup ars)
+      let ars = bs ^. blockAnonymityRevokers . unhashed . to ARS.arRevokers
+      in forM arIds (flip Map.lookup ars)
 
     {-# INLINE bsoGetCryptoParams #-}
     bsoGetCryptoParams bs =
-      return $! bs ^. blockCryptographicParameters
+      return $! bs ^. blockCryptographicParameters . unhashed
 
     bsoSetTransactionOutcomes bs l =
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
@@ -356,11 +421,18 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
-    thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .
-                                      (blockBank . Rewards.identityIssuersRewards .~ HashMap.empty)
+    thawBlockState bs = return $ bs & (blockBank . unhashed . Rewards.executionCost .~ 0) .
+                                      (blockBank . unhashed . Rewards.identityIssuersRewards .~ HashMap.empty)
 
     {-# INLINE freezeBlockState #-}
-    freezeBlockState = return
+    freezeBlockState bs = do
+      let bs' = bs & ((blockBirkParameters . birkCurrentBakersHash) ?~ getHash (bs ^. blockBirkParameters . birkCurrentBakers))
+          bs'' =
+            bs' & (blockBank %~ (makeHashed . _unhashed))
+                . (blockIdentityProviders %~ (makeHashed . _unhashed))
+                . (blockAnonymityRevokers %~ (makeHashed . _unhashed))
+          bs''' = bs'' & blockHashes .~ makeBlockStateHashes bs''
+      return (bs''', bsHash $ _blockHashes bs''')
 
     {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState _ = return ()
@@ -377,7 +449,6 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE loadBlockState #-}
     loadBlockState _ = error "Cannot load memory-based block state"
 
-
 -- |Initial block state.
 initialState :: BasicBirkParameters
              -> CryptographicParameters
@@ -386,14 +457,18 @@ initialState :: BasicBirkParameters
              -> ARS.AnonymityRevokers
              -> Amount
              -> BlockState
-initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts ips _blockAnonymityRevokers mintPerSlot = BlockState{..}
+initialState _blockBirkParameters cryptoParams genesisAccounts ips anonymityRevokers mintPerSlot = block {_blockHashes = hashes}
   where
+    _blockCryptographicParameters = makeHashed cryptoParams
     _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.emptyModules
-    _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot
-    _blockIdentityProviders = ips
+    _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount mintPerSlot
+    _blockIdentityProviders = makeHashed ips
+    _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
 
     -- initial amount in the central bank is the amount on all genesis accounts combined
     initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 $ genesisAccounts
+    block = BlockState {_blockHashes = undefined, ..}
+    hashes = makeBlockStateHashes block

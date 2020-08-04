@@ -68,6 +68,8 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Data.Set (Set)
 
+import Concordium.Crypto.SHA256 as H
+
 type ModuleIndex = Word64
 
 data Module = Module {
@@ -356,7 +358,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Freeze a mutable block state instance. The mutable state instance will
     -- not be used afterwards and the implementation can thus avoid copying
     -- data.
-    freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
+    freezeBlockState :: UpdatableBlockState m -> m (BlockState m, H.Hash)
 
     -- |Discard a mutable block state instance.  The mutable state instance will
     -- not be used afterwards.

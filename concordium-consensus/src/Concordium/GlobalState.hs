@@ -18,13 +18,12 @@ import Data.Pool(destroyAllResources)
 import System.FilePath
 
 import Concordium.GlobalState.Classes
-import Concordium.GlobalState.Types
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore (createBlobStore, closeBlobStore, loadBlobStore, destroyBlobStore)
+import Concordium.GlobalState.Persistent.BlobStore (closeBlobStore, createBlobStore, destroyBlobStore, loadBlobStore)
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState as TS
@@ -76,7 +75,6 @@ import Concordium.Logger
 -- generically from `BlockStateM` and the TreeState monads also generically from
 -- `TreeStateM bs (BlockStateM ..)`.
 
-
 -- |A newtype wrapper for providing instances of the block state related monads:
 -- 'BlockStateTypes', 'BlockStateQuery', 'AccountOperations', 'BakerQuery', 'BlockStateOperations', 'BirkParametersOperations' and 'BlockStateStorage'.
 --
@@ -118,15 +116,15 @@ deriving via PureBlockStateMonad m
     instance BlockStateTypes (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (MonadLogger m)
+    instance MonadLogger m
              => BlockStateQuery (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (MonadLogger m)
+    instance MonadLogger m
              => AccountOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (MonadLogger m)
+    instance MonadLogger m
              => BakerQuery (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
@@ -144,57 +142,57 @@ deriving via PureBlockStateMonad m
              => BlockStateStorage (MemoryBlockStateM r g s m)
 
 -- ** Disk implementations
-deriving via (PersistentBlockStateMonad PersistentBlockStateContext m)
+deriving via PersistentBlockStateMonad PersistentBlockStateContext m
     instance BlockStateTypes (PersistentBlockStateM r g s m)
 
-deriving via (PersistentBlockStateMonad
-               PersistentBlockStateContext
-               (FocusGlobalStateM PersistentBlockStateContext g m))
+deriving via PersistentBlockStateMonad
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
               BlockStateQuery (PersistentBlockStateMonad
                                 PersistentBlockStateContext
                                 (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BlockStateQuery (PersistentBlockStateM r g s m)
 
-deriving via (PersistentBlockStateMonad
-               PersistentBlockStateContext
-               (FocusGlobalStateM PersistentBlockStateContext g m))
+deriving via PersistentBlockStateMonad
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
               AccountOperations (PersistentBlockStateMonad
                                   PersistentBlockStateContext
                                   (FocusGlobalStateM PersistentBlockStateContext g m)))
              => AccountOperations (PersistentBlockStateM r g s m)
 
-deriving via (PersistentBlockStateMonad
-               PersistentBlockStateContext
-               (FocusGlobalStateM PersistentBlockStateContext g m))
+deriving via PersistentBlockStateMonad
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
               BakerQuery (PersistentBlockStateMonad
-                                PersistentBlockStateContext
-                                (FocusGlobalStateM PersistentBlockStateContext g m)))
+                           PersistentBlockStateContext
+                           (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BakerQuery (PersistentBlockStateM r g s m)
 
-deriving via (PersistentBlockStateMonad
-               PersistentBlockStateContext
-               (FocusGlobalStateM PersistentBlockStateContext g m))
+deriving via PersistentBlockStateMonad
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
               BirkParametersOperations (PersistentBlockStateMonad
-                                PersistentBlockStateContext
-                                (FocusGlobalStateM PersistentBlockStateContext g m)))
+                                         PersistentBlockStateContext
+                                         (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BirkParametersOperations (PersistentBlockStateM r g s m)
 
-deriving via (PersistentBlockStateMonad
-               PersistentBlockStateContext
-               (FocusGlobalStateM PersistentBlockStateContext g m))
+deriving via PersistentBlockStateMonad
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
               BlockStateOperations (PersistentBlockStateMonad
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
              => BlockStateOperations (PersistentBlockStateM r g s m)
 
-deriving via (PersistentBlockStateMonad
-               PersistentBlockStateContext
-               (FocusGlobalStateM PersistentBlockStateContext g m))
+deriving via PersistentBlockStateMonad
+              PersistentBlockStateContext
+              (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
               BlockStateStorage (PersistentBlockStateMonad
                                   PersistentBlockStateContext
@@ -233,13 +231,13 @@ deriving via PureTreeStateMonad bs m
 deriving via PureTreeStateMonad bs m
     instance (Monad m,
               BlockPointerMonad (PureTreeStateMonad bs m))
-              => BlockPointerMonad (MemoryTreeStateM bs m)
+             => BlockPointerMonad (MemoryTreeStateM bs m)
 
 deriving via PureTreeStateMonad bs m
     instance (Monad m,
               BlockStateStorage m,
               TreeStateMonad (PureTreeStateMonad bs m))
-              => TreeStateMonad (MemoryTreeStateM bs m)
+             => TreeStateMonad (MemoryTreeStateM bs m)
 
 -- ** Disk implementations
 deriving via PersistentTreeStateMonad ati bs m
@@ -247,8 +245,9 @@ deriving via PersistentTreeStateMonad ati bs m
              => ATITypes (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
-    instance (Monad m, PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
-             => PerAccountDBOperations (PersistentTreeStateM ati bs m)
+    instance (Monad m,
+              PerAccountDBOperations (PersistentTreeStateMonad ati bs m))
+           => PerAccountDBOperations (PersistentTreeStateM ati bs m)
 
 deriving via PersistentTreeStateMonad ati bs m
     instance GlobalStateTypes (PersistentTreeStateM ati bs m)
@@ -281,19 +280,23 @@ type TreeStateBlockStateM g c r s m = TreeStateM g (BlockStateM c r g s m)
 -- * Generic implementations
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, BlockStateQuery (BlockStateM c r g s m))
+    instance (Monad m,
+              BlockStateQuery (BlockStateM c r g s m))
              => BlockStateQuery (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, AccountOperations (BlockStateM c r g s m))
+    instance (Monad m,
+              AccountOperations (BlockStateM c r g s m))
              => AccountOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, BakerQuery (BlockStateM c r g s m))
+    instance (Monad m,
+              BakerQuery (BlockStateM c r g s m))
              => BakerQuery (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
-    instance (Monad m, BirkParametersOperations (BlockStateM c r g s m))
+    instance (Monad m,
+              BirkParametersOperations (BlockStateM c r g s m))
              => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
@@ -311,7 +314,8 @@ deriving via TreeStateBlockStateM g c r s m
              => ATITypes (GlobalStateM db c r g s m)
 
 deriving via TreeStateBlockStateM g c r s m
-    instance (Monad m, PerAccountDBOperations (TreeStateBlockStateM g c r s m))
+    instance (Monad m,
+              PerAccountDBOperations (TreeStateBlockStateM g c r s m))
              => PerAccountDBOperations (GlobalStateM db c r g s m)
 
 deriving via TreeStateBlockStateM g c r s m
@@ -324,7 +328,8 @@ deriving via TreeStateBlockStateM g c r s m
              => BlockPointerMonad (GlobalStateM db c r g s m)
 
 deriving via TreeStateBlockStateM g c r s m
-    instance (Monad m, BlockStateStorage (BlockStateM c r g s m),
+    instance (Monad m,
+              BlockStateStorage (BlockStateM c r g s m),
               TreeStateMonad (TreeStateBlockStateM g c r s m))
              => TreeStateMonad (GlobalStateM db c r g s m)
 
@@ -351,8 +356,6 @@ data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configTxLog :: !ByteString
   }
 
-
-
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig c where
     type GSContext c
@@ -361,13 +364,14 @@ class GlobalStateConfig c where
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
     initialiseGlobalState :: c -> LogIO (GSContext c, GSState c, GSLogContext c)
+
     -- |Shutdown the global state.
     shutdownGlobalState :: Proxy c -> GSContext c -> GSState c -> GSLogContext c -> IO ()
 
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
-    type instance GSContext MemoryTreeMemoryBlockConfig = ()
-    type instance GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
-    type instance GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
+    type GSContext MemoryTreeMemoryBlockConfig = ()
+    type GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
+    type GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
       return ((), initialSkovData rtparams gendata bs, NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
@@ -380,11 +384,13 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = liftIO $ do
         pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
-        let pbsc = PersistentBlockStateContext{..}
-        pbs <- makePersistent bs
-        _ <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
+        let pbsc = PersistentBlockStateContext {..}
+        pbs <- runReaderT (runPersistentBlockStateMonad (do
+                                                           pbs <- makePersistent bs
+                                                           _ <- saveBlockState pbs
+                                                           return pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
-    shutdownGlobalState _ (PersistentBlockStateContext{..}) _ _ = liftIO $ do
+    shutdownGlobalState _ (PersistentBlockStateContext {..}) _ _ = liftIO $ do
         closeBlobStore pbscBlobStore
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
@@ -403,15 +409,17 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         let pbsc = PersistentBlockStateContext{..}
         logm <- ask
         skovData <- liftIO (runLoggerT (loadSkovPersistentData rtparams gendata pbsc ((), NoLogContext)) logm
-                     `onException` (closeBlobStore pbscBlobStore))
+                    `onException` (closeBlobStore pbscBlobStore))
         return (pbsc, skovData, NoLogContext)
       else do
         pbscBlobStore <- liftIO $ createBlobStore blockStateFile
-        pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
+        (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad (do
+                                                                    pbs <- makePersistent bs
+                                                                    ser <- saveBlockState pbs
+                                                                    return (pbs, ser))) pbsc
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
-                            `onException` (destroyBlobStore pbscBlobStore))
+                           `onException` (destroyBlobStore pbscBlobStore))
         return (pbsc, isd, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) st _ = do
         closeBlobStore pbscBlobStore
@@ -422,32 +430,33 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
     type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
     initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
-      -- check if all the necessary database files exist
+        -- check if all the necessary database files exist
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
       dbHandle <- liftIO $ do
         dbHandle <- connectPostgres txLog
         createTable dbHandle
         return dbHandle
       if existingDB then do
-        pbscBlobStore <- liftIO $ 
+        pbscBlobStore <- liftIO $
           -- the block state file exists, is readable and writable
           -- we ignore the given block state parameter in such a case.
           loadBlobStore blockStateFile
         let pbsc = PersistentBlockStateContext{..}
         let ati = defaultValue
         logm <- ask
-        skovData <-
-          liftIO (runLoggerT (loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)) logm
-          `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
+        skovData <- liftIO (runLoggerT (loadSkovPersistentData rtparams gendata pbsc (ati, PAAIConfig dbHandle)) logm
+                    `onException` (destroyAllResources dbHandle >> closeBlobStore pbscBlobStore))
         return (pbsc, skovData, PAAIConfig dbHandle)
       else do
         pbscBlobStore <- liftIO $ createBlobStore blockStateFile
-        pbs <- makePersistent bs
         let pbsc = PersistentBlockStateContext{..}
-        serBS <- runReaderT (runPersistentBlockStateMonad (saveBlockState pbs)) pbsc
+        (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad (do
+                                                                    pbs <- makePersistent bs
+                                                                    ser <- saveBlockState pbs
+                                                                    return (pbs, ser))) pbsc
         let ati = defaultValue
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
-                 `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore))
+               `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore))
         return (pbsc, isd, PAAIConfig dbHandle)
     shutdownGlobalState _ (PersistentBlockStateContext{..}) st (PAAIConfig dbHandle) = do
         closeBlobStore pbscBlobStore
