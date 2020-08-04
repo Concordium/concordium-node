@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 module SchedulerTests.UpdateElectionDifficultySpec where
-
+{-
 import Test.Hspec
 
 import Lens.Micro.Platform
@@ -91,3 +91,4 @@ testCases =
 tests :: Spec
 tests = describe "UpdateElectionDifficulty" $
   mkSpecs testCases
+-}

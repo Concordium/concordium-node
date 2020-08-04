@@ -27,6 +27,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 
 import Concordium.Kontrol
@@ -171,7 +172,9 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     birkParams <- getBirkParameters slot bb
     (bakerId, _, lotteryPower) <- MaybeT $ birkEpochBakerByKeys (bakerSignPublicKey ident) birkParams
     leNonce <- birkLeadershipElectionNonce birkParams
-    elDiff <- getElectionDifficulty birkParams
+    bbState <- blockState bb
+    slotTime <- getSlotTimestamp slot
+    elDiff <- getElectionDifficulty bbState slotTime
     electionProof <- MaybeT . liftIO $
         leaderElection leNonce elDiff slot bakerElectionKey lotteryPower
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"

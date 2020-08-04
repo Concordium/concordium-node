@@ -69,6 +69,7 @@ import Concordium.Startup (makeBakerAccountKP, defaultFinalizationParameters)
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
+import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -536,17 +537,16 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
         createInitStates (finBs ++ nonFinBs) maxFinComSize []
 
 createInitStates :: [(BakerId, (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
-createInitStates bis maxFinComSize specialAccounts = do
+createInitStates bis maxFinComSize extraAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-            elDiff = 0.5
             seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            bps = BState.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
+            bps = BState.BasicBirkParameters genesisBakers genesisBakers genesisBakers seedState
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] (finalizationParameters maxFinComSize) dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState bakerAccounts (finalizationParameters maxFinComSize) dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig
-                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders nAccounts specialAccounts))
+                                               (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders nAccounts extraAccounts dummyAuthorizations dummyChainParameters))
                                                (ActiveFinalization fininst)
                                                NoHandler
                                        (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)

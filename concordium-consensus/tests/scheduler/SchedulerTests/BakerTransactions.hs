@@ -194,7 +194,6 @@ runWithIntermediateStates = do
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
-                                    Set.empty -- special beta accounts
                                     Types.dummyChainMeta
                                     maxBound
                                     st

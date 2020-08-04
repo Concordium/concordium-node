@@ -220,16 +220,17 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 genesisState :: GenesisData -> Basic.BlockState
 genesisState GenesisData{..} = Basic.initialState
                        (Basic.BasicBirkParameters
-                            genesisElectionDifficulty
                             genesisBakers
                             genesisBakers
                             genesisBakers
                             genesisSeedState)
                        genesisCryptographicParameters
-                       (genesisAccounts ++ genesisControlAccounts)
+                       genesisAccounts
                        genesisIdentityProviders
                        genesisAnonymityRevokers
                        genesisMintPerSlot
+                       genesisAuthorizations
+                       genesisChainParameters
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
@@ -586,6 +587,7 @@ receiveTransaction bptr tdata len = do
             case wmdData tr of
               NormalTransaction _ -> logm External LLTrace $ "Received normal transaction."
               CredentialDeployment _ -> logm External LLTrace $ "Received credential."
+              ChainUpdate _ -> logm External LLTrace $ "Received chain update."
             case c of
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr

@@ -59,7 +59,3 @@ cdi7 = unsafePerformIO (readCredential "testdata/credential-7.json")
 {-# WARNING dummyBlockSize "Do not use in production." #-}
 dummyBlockSize :: Integer
 dummyBlockSize = 10000000000
-
-{-# WARNING dummySpecialBetaAccounts "Do not use in production." #-}
-dummySpecialBetaAccounts :: Types.SpecialBetaAccounts
-dummySpecialBetaAccounts = Types.emptySpecialBetaAccounts

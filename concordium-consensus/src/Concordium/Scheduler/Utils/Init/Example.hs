@@ -14,6 +14,7 @@ import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.ID.Types as ID
 
 import Concordium.Types
+import Concordium.Types.Updates
 import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -42,6 +43,7 @@ import qualified Data.Text as Text
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
+import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
 
 import Prelude hiding(mod)
 
@@ -73,10 +75,10 @@ inCtx txt = fromJust (Map.lookup txt simpleCounterCtx)
 inCtxTm :: Text.Text -> Core.Atom origin
 inCtxTm = Core.Var . Core.LocalDef . inCtx
 
-initialTrans :: Int -> [Types.BareTransaction]
+initialTrans :: Int -> [Types.AccountTransaction]
 initialTrans n = map initSimpleCounter $ enumFromTo 1 n
 
-initSimpleCounter :: Int -> Types.BareTransaction
+initSimpleCounter :: Int -> Types.AccountTransaction
 initSimpleCounter n = Runner.signTxSingle
                              mateuszKP
                              header
@@ -97,7 +99,7 @@ initSimpleCounter n = Runner.signTxSingle
 {-# WARNING makeTransaction "Dummy transaction, only use for testing." #-}
 -- All transactions have the same arrival time (0)
 makeTransaction :: Bool -> ContractAddress -> Nonce -> Types.BlockItem
-makeTransaction inc ca n = Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTxSingle mateuszKP header payload
+makeTransaction inc ca n = Types.normalTransaction . Types.fromAccountTransaction 0 $ Runner.signTxSingle mateuszKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -113,7 +115,7 @@ makeTransaction inc ca n = Types.normalTransaction . Types.fromBareTransaction 0
 {-# WARNING makeTransferTransaction "Dummy transaction, only use for testing." #-}
 makeTransferTransaction :: (Sig.KeyPair, AccountAddress) -> AccountAddress -> Amount -> Nonce -> Types.BlockItem
 makeTransferTransaction (fromKP, fromAddress) toAddress amount n =
-  Types.normalTransaction . Types.fromBareTransaction 0 $ Runner.signTxSingle fromKP header payload
+  Types.normalTransaction . Types.fromAccountTransaction 0 $ Runner.signTxSingle fromKP header payload
     where
         header = Runner.TransactionHeader{
             thNonce = n,
@@ -129,6 +131,8 @@ initialStateWithMateuszAccount :: BlockState.BasicBirkParameters
                                -> IPS.IdentityProviders
                                -> Int
                                -> Amount
+                               -> Authorizations
+                               -> Types.ChainParameters
                                -> BlockState.BlockState
 initialStateWithMateuszAccount birkParams cryptoParams bakerAccounts ips n amount =
     initialState birkParams cryptoParams bakerAccounts ips n [createCustomAccount amount mateuszKP mateuszAccount]
@@ -147,8 +151,10 @@ initialState :: BlockState.BasicBirkParameters
              -> IPS.IdentityProviders
              -> Int
              -> [Account]
+             -> Authorizations
+             -> Types.ChainParameters
              -> BlockState.BlockState
-initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
+initialState birkParams cryptoParams bakerAccounts ips n customAccounts auths chainParams =
     let (_, _, mods) = foldl handleFile
                            baseState
                            $(embedFiles [Left "test/contracts/SimpleAccount.acorn"
@@ -159,13 +165,12 @@ initialState birkParams cryptoParams bakerAccounts ips n customAccounts =
                             Acc.emptyAccounts
                             allAccounts
         initialAmount = sum (_accountAmount <$> allAccounts)
-        gs = BlockState.emptyBlockState birkParams cryptoParams &
+        gs = BlockState.emptyBlockState birkParams cryptoParams auths chainParams &
                (BlockState.blockIdentityProviders .~ ips) .
                (BlockState.blockAccounts .~ initAccount) .
                (BlockState.blockModules .~ Mod.fromModuleList (moduleList mods)) .
                (BlockState.blockBank .~ Types.makeGenesisBankStatus initialAmount 10) -- 10 GTU minted per slot.
-        finState = Types.execSI (execTransactions (map (Types.normalTransaction . Types.fromBareTransaction 0) (initialTrans n)))
-                                Types.emptySpecialBetaAccounts
+        finState = Types.execSI (execTransactions (map (Types.normalTransaction . Types.fromAccountTransaction 0) (initialTrans n)))
                                 Types.dummyChainMeta
                                 maxBound
                                 gs

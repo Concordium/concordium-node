@@ -59,7 +59,6 @@ testAccountCreation = do
           }
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-            dummySpecialBetaAccounts
             Types.dummyChainMeta
             maxBound
             initialBlockState

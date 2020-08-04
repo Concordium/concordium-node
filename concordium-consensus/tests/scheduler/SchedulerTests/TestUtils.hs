@@ -61,8 +61,6 @@ data TestParameters = TestParameters
   { tpChainMeta :: ChainMetadata
     -- | The blockstate to start from.
   , tpInitialBlockState :: BlockState
-    -- | The 'Types.SpecialBetaAccounts' to run with.
-  , tpSpecialAccounts :: Types.SpecialBetaAccounts
     -- | Limit on the total energy the processed transactions can use.
   , tpEnergyLimit :: Energy
     -- | Limit on the total size of the processed transactions.
@@ -73,7 +71,6 @@ defaultParams :: TestParameters
 defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
   , tpInitialBlockState = createBlockState Acc.emptyAccounts
-  , tpSpecialAccounts = Types.emptySpecialBetaAccounts
   , tpEnergyLimit = maxBound
   , tpSizeLimit = fromIntegral $ (maxBound :: Int)
   }
@@ -123,7 +120,6 @@ runWithIntermediateStates mods TestParameters{..} transactions = do
                             let (ft@Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions tpSizeLimit (fromTransactions [tx]))
-                                    tpSpecialAccounts
                                     tpChainMeta
                                     tpEnergyLimit
                                     st

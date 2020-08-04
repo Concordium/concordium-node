@@ -78,7 +78,6 @@ testMaxBlockEnergy = do
 
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
-            dummySpecialBetaAccounts
             Types.dummyChainMeta
             maxBlockEnergy
             initialBlockState

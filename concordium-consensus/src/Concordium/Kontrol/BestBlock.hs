@@ -18,6 +18,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState(Branches, BlockPointerType)
+import Concordium.Kontrol
 
 blockLuck :: (SkovQueryMonad m, BlockPointerMonad m) => BlockPointerType m -> m BlockLuck
 blockLuck block = case blockFields block of
@@ -29,7 +30,9 @@ blockLuck block = case blockFields block of
             parent <- bpParent block
             params <- getBirkParameters (blockSlot block) parent
             baker  <- birkEpochBaker (blockBaker bf) params
-            elDiff <- getElectionDifficulty params
+            ts <- getSlotTimestamp (blockSlot block)
+            parentState <- blockState parent
+            elDiff <- getElectionDifficulty parentState ts
             case baker of
                 Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->

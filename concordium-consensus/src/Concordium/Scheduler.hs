@@ -271,9 +271,6 @@ dispatch msg = do
                    UndelegateStake ->
                      handleDelegateStake (mkWTC TTUndelegateStake) Nothing
 
-                   UpdateElectionDifficulty{..} ->
-                     handleUpdateElectionDifficulty (mkWTC TTUpdateElectionDifficulty) uedDifficulty
-
                    UpdateBakerAggregationVerifyKey{..} ->
                      handleUpdateBakerAggregationVerifyKey (mkWTC TTUpdateBakerAggregationVerifyKey) ubavkId ubavkKey ubavkProof
 
@@ -883,32 +880,6 @@ handleDelegateStake wtc targetBaker = do
           else
             return (TxReject (InvalidStakeDelegationTarget $ fromJust targetBaker), energyCost, usedEnergy)
         delegateCost = Cost.updateStakeDelegate . Set.size
-
--- |Update the election difficulty birk parameter.
--- The given difficulty must be valid (see 'isValidElectionDifficulty').
--- This precondition is ensured by the transaction (de)serialization.
-handleUpdateElectionDifficulty
-  :: SchedulerMonad m
-  => WithDepositContext m
-  -> ElectionDifficulty
-  -> m (Maybe TransactionSummary)
-handleUpdateElectionDifficulty wtc uedDifficulty = do
-  withDeposit wtc c k
-  where senderAccount = wtc ^. wtcSenderAccount
-        txHash = wtc ^. wtcTransactionHash
-        meta = wtc ^. wtcTransactionHeader
-        c = tickEnergy Cost.updateElectionDifficulty
-        k ls _ = do
-          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-          chargeExecutionCost txHash senderAccount energyCost
-          specialBetaAccounts <- getSpecialBetaAccounts
-          senderAddr <- getAccountAddress senderAccount
-          if HashSet.member senderAddr specialBetaAccounts
-          then do
-            assert (isValidElectionDifficulty uedDifficulty) $ return ()
-            updateElectionDifficulty uedDifficulty
-            return (TxSuccess [ElectionDifficultyUpdated uedDifficulty], energyCost, usedEnergy)
-          else return (TxReject NotFromSpecialAccount, energyCost, usedEnergy)
 
 -- *Transactions without a sender
 handleDeployCredential ::
