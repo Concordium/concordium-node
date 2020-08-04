@@ -1,5 +1,6 @@
 EXPORTS
  hs_init
+ hs_init_with_rtsopts
  hs_exit
  startConsensus
  startConsensusPassive
@@ -33,3 +34,6 @@ EXPORTS
  getBlocksAtHeight
  bakerIdBestBlock
  checkIfWeAreFinalizer
+ importBlocks
+ getAllIdentityProviders
+ getAllAnonymityRevokers
