@@ -32,6 +32,7 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 import qualified Concordium.GlobalState.Block as B
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Basic.BlockPointer
@@ -258,8 +259,8 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
         let prevState  = BS._bpState lfb
             prevBakers = _bakerMap $ BState._birkCurrentBakers $ BState._blockBirkParameters prevState
-            prevGTU    = _totalGTU $ BState._blockBank prevState
-        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU $ prevBakers) "==" "finalization committee" "calculated finalization committee"
+            prevGTU    = _totalGTU $ _unhashed $ BState._blockBank prevState
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU (Map.fromAscList $ [ (i, x) | (i, Just x) <- zip [0..] $ L.toList $ prevBakers])) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
             bakerEqParty PartyInfo{..} = baker ^. bakerInfo . bakerSignatureVerifyKey == partySignKey
