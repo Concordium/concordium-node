@@ -423,10 +423,10 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
 signBlock key slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
-        let sig = Sig.sign key . runPut $ (getHash preBlock)
+        -- let sig = Sig.sign key . runPut $ (getHash preBlock)
         -- FIXME: Signature of a block should be independent of body format serialization.
         -- This will be fixed as part of block hashing revision.
-        -- let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
+        let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
         preBlock $! sig
     where
         preBlock = BakedBlock slot (BlockFields parent baker claimedKey proof bnonce finData) transactions stateHash transactionOutcomesHash
