@@ -42,6 +42,7 @@ import Concordium.Scheduler.Utils.Init.Example as Example
 --import Debug.Trace
 import Concordium.Startup
 import Concordium.Crypto.DummyData (mateuszKP)
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 nContracts :: Int
 nContracts = 2
@@ -135,13 +136,15 @@ dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisData{..} = Example.initialState
-                       (Basic.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState)
+genesisState GenesisDataV1{..} = Example.initialState
+                       (Basic.BasicBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState)
                        genesisCryptographicParameters
                        genesisAccounts
                        genesisIdentityProviders
                        2
-                       genesisControlAccounts
+                       []
+                       genesisAuthorizations
+                       genesisChainParameters
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
@@ -168,7 +171,7 @@ main :: IO ()
 main = do
     let n = 5
     now <- currentTimestamp -- return 1588916588000
-    let (gen, bis) = makeGenesisData now n 200 0.2
+    let (gen, bis) = makeGenesisData now n 200
                      defaultFinalizationParameters{
                          finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
                          -- finalizationOldStyleSkip = True, finalizationSkipShrinkFactor = 0.5,
@@ -179,7 +182,10 @@ main = do
                      dummyCryptographicParameters
                      dummyIdentityProviders
                      dummyArs
-                     [createCustomAccount 1000000000000 mateuszKP mateuszAccount] (Energy maxBound)
+                     [createCustomAccount 1000000000000 mateuszKP mateuszAccount]
+                     (Energy maxBound)
+                     dummyAuthorizations
+                     (makeChainParameters 0.2 1 1)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

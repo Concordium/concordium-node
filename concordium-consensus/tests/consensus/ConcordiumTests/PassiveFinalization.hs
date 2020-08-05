@@ -310,7 +310,7 @@ createInitStates additionalFinMembers = do
         cps = dummyChainParameters {_cpElectionDifficulty = 1}
         bps = BS.BasicBirkParameters genesisBakers genesisBakers genesisBakers seedState
         bakerAccounts = map (\(_, _, acc) -> acc) bis
-        gen = GenesisData 0 1 genesisBakers seedState bakerAccounts finalizationParameters dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations cps
+        gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations cps
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig

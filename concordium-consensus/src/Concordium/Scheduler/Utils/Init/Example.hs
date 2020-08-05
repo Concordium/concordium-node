@@ -18,7 +18,6 @@ import Concordium.Types.Updates
 import qualified Concordium.Scheduler.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Concordium.Scheduler.Environment as Types
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState as BlockState
@@ -43,7 +42,6 @@ import qualified Data.Text as Text
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
-import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
 
 import Prelude hiding(mod)
 

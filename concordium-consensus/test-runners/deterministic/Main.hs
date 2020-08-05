@@ -51,6 +51,7 @@ import Concordium.Startup
 
 import Concordium.Crypto.DummyData
 import Concordium.Types.DummyData (mateuszAccount)
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 import System.Directory
 
@@ -88,13 +89,15 @@ dummyArs = emptyAnonymityRevokers
 
 -- |Construct genesis state.
 genesisState :: GenesisData -> BState.BlockState
-genesisState GenesisData{..} = Example.initialState
-                       (BState.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState)
+genesisState GenesisDataV1{..} = Example.initialState
+                       (BState.BasicBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState)
                        genesisCryptographicParameters
                        genesisAccounts
                        genesisIdentityProviders
                        2 -- Initial number of counter contracts
-                       genesisControlAccounts
+                       []
+                       genesisAuthorizations
+                       genesisChainParameters
 
 
 -- |Monad that provides a deterministic implementation of 'TimeMonad' -- i.e. that is
@@ -259,13 +262,14 @@ initialState = do
                                 0 -- Start at time 0, to match time
                                 (maxBakerId + 1) -- Number of bakers
                                 1000 -- Slot time is 1 second, to match time
-                                0.2 -- Election difficulty
                                 defaultFinalizationParameters
                                 dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
                                 [Example.createCustomAccount 1000000000000 mateuszKP mateuszAccount]
                                 (Energy maxBound)
+                                dummyAuthorizations
+                                (makeChainParameters 0.2 1 1)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"

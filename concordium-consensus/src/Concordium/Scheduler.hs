@@ -62,14 +62,12 @@ import qualified Concordium.Scheduler.Cost as Cost
 
 import Control.Applicative
 import Control.Monad.Except
-import Control.Exception
 import qualified Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe(fromJust, isJust)
 import Data.Ord
 import Data.List hiding (group)
 import qualified Data.Set as Set
-import qualified Data.HashSet as HashSet
 
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.BlsSignature as Bls
