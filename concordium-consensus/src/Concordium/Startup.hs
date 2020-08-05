@@ -81,11 +81,12 @@ defaultFinalizationParameters = FinalizationParameters {
 makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
-    -> Duration  -- ^Slot duration in seconds.
+    -> Duration  -- ^Slot duration (miliseconds).
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
+    -> [Account] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> Authorizations -- ^Authorizations for chain updates
     -> ChainParameters -- ^Initial chain parameters
@@ -98,15 +99,17 @@ makeGenesisData
         genesisCryptographicParameters
         genesisIdentityProviders
         genesisAnonymityRevokers
+        additionalAccounts
         genesisMaxBlockEnergy
         genesisAuthorizations
         genesisChainParameters
-    = (GenesisData{..}, bakers)
+    = (GenesisDataV1{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList (snd <$> bakers))
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
-        (bakers, genesisAccounts) = unzip (makeBakers nBakers)
+        (bakers, bakerAccounts) = unzip (makeBakers nBakers)
+        genesisAccounts = bakerAccounts ++ additionalAccounts
 
 
 {-# WARNING dummyCryptographicParameters "Do not use in production" #-}

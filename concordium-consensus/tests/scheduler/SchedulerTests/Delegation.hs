@@ -7,7 +7,6 @@ import Test.Hspec
 import Test.QuickCheck
 
 import qualified Data.Map as Map
-import qualified Data.HashSet as Set
 
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Acorn.Utils.Init as Init
@@ -30,7 +29,6 @@ import Lens.Micro.Platform
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
-import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers

@@ -27,6 +27,7 @@ import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 import Concordium.Scheduler.Utils.Init.Example as Example
 
@@ -201,9 +202,8 @@ dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisData{..} = Example.initialState
+genesisState GenesisDataV1{..} = Example.initialState
                        (Basic.BasicBirkParameters
-                           genesisElectionDifficulty
                            genesisBakers
                            genesisBakers
                            genesisBakers
@@ -212,13 +212,23 @@ genesisState GenesisData{..} = Example.initialState
                        genesisAccounts
                        genesisIdentityProviders
                        2
-                       genesisControlAccounts
+                       []
+                       genesisAuthorizations
+                       genesisChainParameters
 
 main :: IO ()
 main = do
     let n = 3
     now <- currentTimestamp
-    let (gen, bis) = makeGenesisData now n 100 0.5 defaultFinalizationParameters{finalizationMinimumSkip = 1} dummyCryptographicParameters dummyIdentityProviders dummyArs [] (Energy maxBound)
+    let (gen, bis) = makeGenesisData now n 100
+                        defaultFinalizationParameters{finalizationMinimumSkip = 1}
+                        dummyCryptographicParameters
+                        dummyIdentityProviders
+                        dummyArs
+                        []
+                        (Energy maxBound)
+                        dummyAuthorizations
+                        (makeChainParameters 0.5 1 1)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

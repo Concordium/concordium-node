@@ -21,7 +21,6 @@ import qualified Data.Text.IO as TIO
 import System.FilePath
 
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Environment as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
 

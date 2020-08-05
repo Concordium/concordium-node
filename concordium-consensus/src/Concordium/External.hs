@@ -218,7 +218,7 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisData{..} = Basic.initialState
+genesisState GenesisDataV1{..} = Basic.initialState
                        (Basic.BasicBirkParameters
                             genesisBakers
                             genesisBakers

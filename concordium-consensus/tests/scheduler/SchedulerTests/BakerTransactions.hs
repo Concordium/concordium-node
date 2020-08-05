@@ -5,7 +5,6 @@ import Test.Hspec
 import Test.HUnit
 
 import qualified Data.Map as Map
-import qualified Data.HashSet as Set
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Acorn.Utils.Init as Init

@@ -11,7 +11,6 @@
 module Concordium.Scheduler.Environment where
 
 import qualified Data.HashMap.Strict as HMap
-import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 

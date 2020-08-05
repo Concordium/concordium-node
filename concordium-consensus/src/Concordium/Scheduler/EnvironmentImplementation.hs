@@ -10,7 +10,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
-import qualified Data.HashSet as Set
 import Data.Functor.Identity
 
 import Lens.Micro.Platform
