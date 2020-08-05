@@ -91,6 +91,7 @@ testFinalizeABlock = do
   now <- liftIO $ getCurrentTime
   -- FIXME: Statehash is stubbed out with a placeholder hash
   pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 (Sig.verifyKey . fst $ randomBlockKeyPair (mkStdGen 1)) proof1 proof2 NoFinalizationData [] (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (getHash Trns.emptyTransactionOutcomes) now
+  
   now' <- liftIO $ getCurrentTime
   blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
