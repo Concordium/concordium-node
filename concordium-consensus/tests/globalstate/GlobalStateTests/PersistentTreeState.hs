@@ -22,7 +22,6 @@ import Concordium.GlobalState.LMDB.Helpers
 import Control.Monad.State hiding (state)
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData
-import Concordium.ID.DummyData
 import Concordium.Crypto.DummyData
 import Concordium.Types
 import Concordium.Types.HashableTo
