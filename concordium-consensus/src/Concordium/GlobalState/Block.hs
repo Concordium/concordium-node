@@ -29,18 +29,57 @@ hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
 instance HashableTo BlockHash BakedBlock where
+    -- getHash b = makeBlockHash b
+    -- getHash bb = generateBlockHash (blockSlot bb)
     -- FIXME: Hash of a block should be independent of serialization version.
     -- This will be fixed as part of block hashing revision.
     getHash b = BlockHashV0 . Hash.hashLazy . runPutLazy $ blockBodyV0 b
 
---WIP, structuring hashes. Currently having some issues with newtypes
+-- (blockSlot bb)
+--             put (blockPointer bb)
+--             put (blockBaker bb)
+--             put (blockClaimedKey bb)
+--             put (blockProof bb)
+
+-- generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
+--     -> BlockHash                  -- ^Hash of parent block
+--     -> BakerId                    -- ^Identifier of block baker
+--     -> BakerSignVerifyKey         -- ^Claimed Baker public Key
+--     -> BlockProof                 -- ^Block proof
+--     -> BlockNonce                 -- ^Block nonce
+--     -> BlockFinalizationData      -- ^Finalization data
+--     -> [BlockItem]                -- ^Payload of the block.
+--     -> StateHash                  -- ^Statehash of the block.
+--     -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
+--     -> BlockHash
+-- generateBlockHash slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash 
+--     = BlockHashV0 topHash
+--     where
+--         topHash = Hash.hashOfHashes transactionOutcomes h1
+--         transactionOutcomes = v0TransactionOutcomesHash transactionOutcomesHash
+--         statehash = v0StateHash stateHash
+--         h1 = Hash.hashOfHashes statehash h2
+--         h2 = Hash.hashOfHashes h3 h4 
+--         h3 = Hash.hashLazy . runPutLazy $ put finData
+--         h4 = Hash.hashLazy . runPutLazy $ do
+--             put slot
+--             put parent
+--             put baker
+--             put claimedKey
+--             put proof
+--             put bnonce
+--             putWord64be (fromIntegral (length transactions))
+--             mapM_ putBlockItemV0 $ transactions
+
+-- --WIP, structuring hashes. 
 -- makeBlockHash :: BakedBlock -> BlockHash
 -- makeBlockHash bb = BlockHashV0 (Hash.hashOfHashes transactionOutcomes h1)
 --     where
---         transactionOutcomes =  (blockTransactionOutcomesHash bb)
---         h1 = Hash.hashOfHashes (blockStateHash bb) h2
+--         transactionOutcomes = v0TransactionOutcomesHash (blockTransactionOutcomesHash bb)
+--         statehash = v0StateHash (blockStateHash bb) 
+--         h1 = Hash.hashOfHashes statehash h2
 --         h2 = Hash.hashOfHashes h3 h4 
---         h3 = Hash.hashLazy . runPutLazy $ put (blockFinalizationData b)
+--         h3 = Hash.hashLazy . runPutLazy $ put (blockFinalizationData bb)
 --         h4 = Hash.hashLazy . runPutLazy $ do
 --             put (blockSlot bb)
 --             put (blockPointer bb)
@@ -50,6 +89,7 @@ instance HashableTo BlockHash BakedBlock where
 --             put (blockNonce bb)
 --             putWord64be (fromIntegral (length (blockTransactions bb)))
 --             mapM_ putBlockItemV0 $ blockTransactions bb
+
 
 instance HashableTo BlockHash Block where
     getHash (GenesisBlock genData) = BlockHashV0 (hashGenesisData genData)
@@ -213,7 +253,7 @@ instance BlockData BakedBlock where
     blockSignature = Just . bbSignature
     -- FIXME: Signature verification should be independent of serialization format
     -- of blocks, this will be fixed as part of block hashing revision.
-    verifyBlockSignature key b = Sig.verify key (runPut (blockBodyV0 b)) (bbSignature b)
+    verifyBlockSignature key b = Sig.verify key (runPut (getHash b)) (bbSignature b)
     {-# INLINE putBlockV0 #-}
     putBlockV0 = putBakedBlockV0
 
@@ -383,9 +423,10 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
 signBlock key slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
+        let sig = Sig.sign key . runPut $ (getHash preBlock)
         -- FIXME: Signature of a block should be independent of body format serialization.
         -- This will be fixed as part of block hashing revision.
-        let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
+        -- let sig = Sig.sign key . runPut $ blockBodyV0 (preBlock undefined)
         preBlock $! sig
     where
         preBlock = BakedBlock slot (BlockFields parent baker claimedKey proof bnonce finData) transactions stateHash transactionOutcomesHash
