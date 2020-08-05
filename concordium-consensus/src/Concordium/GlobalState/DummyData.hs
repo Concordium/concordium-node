@@ -166,7 +166,7 @@ makeTestingGenesisData
   genesisMaxBlockEnergy
   genesisAuthorizations
   genesisChainParameters
-    = GenesisData{..}
+    = GenesisDataV1{..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList bakers)

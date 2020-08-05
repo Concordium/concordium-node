@@ -50,7 +50,7 @@ emptyUpdateQueue = UpdateQueue {
         uqQueue = Seq.empty
     }
 
-makePersistentUpdateQueue :: (MonadIO m, Serialize e) => Basic.UpdateQueue e -> m (UpdateQueue e)
+makePersistentUpdateQueue :: (MonadIO m) => Basic.UpdateQueue e -> m (UpdateQueue e)
 makePersistentUpdateQueue Basic.UpdateQueue{..} = do
     let uqNextSequenceNumber = _uqNextSequenceNumber
     uqQueue <- Seq.fromList <$> forM _uqQueue (\(t, e) -> (t,) <$> makeBufferedRef (StoreSerialized e))
@@ -58,7 +58,7 @@ makePersistentUpdateQueue Basic.UpdateQueue{..} = do
 
 -- |Try to add an update event to an update queue. Fails if the sequence number
 -- is not correct.
-checkEnqueue :: (MonadBlobStore m BlobRef, MonadIO m, Serialize e) 
+checkEnqueue :: (MonadBlobStore m BlobRef, MonadIO m) 
     => UpdateSequenceNumber -> Timestamp -> e -> UpdateQueue e -> m (Maybe (UpdateQueue e))
 checkEnqueue sn !t !e UpdateQueue{..}
     | sn == uqNextSequenceNumber = do

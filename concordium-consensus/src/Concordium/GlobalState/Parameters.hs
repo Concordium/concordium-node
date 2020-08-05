@@ -119,7 +119,7 @@ instance FromJSON FinalizationParameters where
         finalizationAllowZeroDelay <- v .:? "allowZeroDelay" .!= False
         return FinalizationParameters{..}
 
-data GenesisData = GenesisData {
+data GenesisDataV1 = GenesisDataV1 {
     genesisTime :: !Timestamp,
     genesisSlotDuration :: !Duration,
     genesisBakers :: !Bakers,
@@ -135,37 +135,67 @@ data GenesisData = GenesisData {
     genesisChainParameters :: !ChainParameters
 } deriving (Generic, Show, Eq)
 
-instance Serialize GenesisData where
+getGenesisDataV1 :: Get GenesisDataV1
+getGenesisDataV1 = do
+    genesisTime <- get
+    genesisSlotDuration <- get
+    genesisBakers <- get
+    genesisSeedState <- get
+    genesisAccounts <- get
+    genesisFinalizationParameters <- get
+    genesisCryptographicParameters <- get
+    genesisIdentityProviders <- get
+    genesisAnonymityRevokers <- get
+    genesisMintPerSlot <- get
+    genesisMaxBlockEnergy <- get
+    genesisAuthorizations <- get
+    genesisChainParameters <- get
+    return GenesisDataV1{..}
+
+putGenesisDataV1 :: Putter GenesisDataV1
+putGenesisDataV1 GenesisDataV1{..} = do
+    put genesisTime
+    put genesisSlotDuration
+    put genesisBakers
+    put genesisSeedState
+    put genesisAccounts
+    put genesisFinalizationParameters
+    put genesisCryptographicParameters
+    put genesisIdentityProviders
+    put genesisAnonymityRevokers
+    put genesisMintPerSlot
+    put genesisMaxBlockEnergy
+    put genesisAuthorizations
+    put genesisChainParameters
 
 
+instance Serialize GenesisDataV1 where
+  get = getGenesisDataV1
+  put = putGenesisDataV1
 
--- |Read a finalization pseudo message according to the V0 format.
-getGenesisDataV0 :: Get GenesisData
-getGenesisDataV0 = get
+type GenesisData = GenesisDataV1
+genesisDataVersion :: Version
+genesisDataVersion = 1
 
--- |Serialize a finalization pseudo message according to the V0 format.
-putGenesisDataV0 :: GenesisData -> Put
-putGenesisDataV0 = put
-
--- |Deserialize a versioned finalization pseudo message.
+-- |Deserialize genesis data.
 -- Read the version and decide how to parse the remaining data based on the
 -- version.
 --
--- Currently only supports version 0
+-- Currently only supports version 1
 getExactVersionedGenesisData :: Get GenesisData
 getExactVersionedGenesisData =
   getVersion >>= \case
-    0 -> getGenesisDataV0
+    1 -> getGenesisDataV1
     n -> fail $ "Unsupported Genesis version: " ++ show n
 
--- |Serialize the genesis data with a version according to the V0 format.
--- In contrast to 'getGenesisDataV0' this function also prepends the version.
-putVersionedGenesisDataV0 :: GenesisData -> Put
-putVersionedGenesisDataV0 fpm = putVersion 0 <> putGenesisDataV0 fpm
+-- |Serialize the genesis data with a version according to the V1 format.
+-- In contrast to 'putGenesisDataV1' this function also prepends the version.
+putVersionedGenesisDataV1 :: GenesisData -> Put
+putVersionedGenesisDataV1 fpm = putVersion 1 <> putGenesisDataV1 fpm
 
 -- |Get the total amount of GTU in genesis data.
 genesisTotalGTU :: GenesisData -> Amount
-genesisTotalGTU GenesisData{..} =
+genesisTotalGTU GenesisDataV1{..} =
   sum (_accountAmount <$> genesisAccounts)
 
 readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
@@ -237,7 +267,7 @@ instance FromJSON GenesisAccount where
 -- FIXME: We should refactor this so that we have a single list of accounts
 -- which can delegate to whoever they wish, and then we calculate initial balances
 -- for bakers.
-data GenesisParameters = GenesisParameters {
+data GenesisParametersV1 = GenesisParametersV1 {
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
@@ -247,12 +277,9 @@ data GenesisParameters = GenesisParameters {
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: IdentityProviders,
     gpAnonymityRevokers :: AnonymityRevokers,
-    -- |Additional accounts (not baker accounts and not control accounts).
+    -- |Additional accounts (not baker accounts).
     -- They cannot delegate to any bakers in genesis.
     gpInitialAccounts :: [GenesisAccount],
-    -- |Control accounts which have additional rights to update parameters.
-    -- They cannot delegate stake to any bakers in genesis.
-    gpControlAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount,
     -- |Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy,
@@ -262,7 +289,7 @@ data GenesisParameters = GenesisParameters {
     gpChainParameters :: ChainParameters
 }
 
-instance FromJSON GenesisParameters where
+instance FromJSON GenesisParametersV1 where
     parseJSON = withObject "GenesisParameters" $ \v -> do
         gpGenesisTime <- v .: "genesisTime"
         gpSlotDuration <- v .: "slotDuration"
@@ -276,14 +303,16 @@ instance FromJSON GenesisParameters where
         gpIdentityProviders <- v .:? "identityProviders" .!= emptyIdentityProviders
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
-        gpControlAccounts <- v .:? "controlAccounts" .!= []
         gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         gpAuthorizations <- v .: "updateAuthorizations"
         gpChainParameters <- v .: "chainParameters"
-        return GenesisParameters{..}
+        return GenesisParametersV1{..}
 
+type GenesisParameters = GenesisParametersV1
 
+genesisParametersVersion :: Version
+genesisParametersVersion = 1
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -340,7 +369,7 @@ instance FromJSON RuntimeParameters where
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
 parametersToGenesisData :: GenesisParameters -> GenesisData
-parametersToGenesisData GenesisParameters{..} = GenesisData{..}
+parametersToGenesisData GenesisParametersV1{..} = GenesisDataV1{..}
     where
         genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
