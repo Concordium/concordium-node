@@ -195,8 +195,8 @@ blockBodyV0 b = do
         put (blockProof b)
         put (blockNonce b)
         put (blockFinalizationData b)
-        put (blockTransactionOutcomesHash b)
         put (blockStateHash b)
+        put (blockTransactionOutcomesHash b)
         putWord64be (fromIntegral (length (blockTransactions b)))
         mapM_ putBlockItemV0 $ blockTransactions b
 
@@ -358,9 +358,9 @@ getBlockV0 arrivalTime = do
         bfBlockProof <- get
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
-        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
         bbStateHash <- get
         bbTransactionOutcomesHash <- get
+        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
         bbSignature <- get
         return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
 
