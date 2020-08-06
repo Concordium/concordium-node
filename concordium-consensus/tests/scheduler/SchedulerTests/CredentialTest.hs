@@ -35,19 +35,19 @@ initialBlockState = blockStateWithAlesAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 0 }
+  [TJSON { payload = Transfer {toaddress = alesAccount, amount = 0 }
          , metadata = makeDummyHeader alesAccount 1 1000
          , keys = [(0, alesKP)]
          }
    -- The next one should fail because the recepient account is not valid.
    -- The transaction should be in a block, but rejected.
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 0 }
          , metadata = makeDummyHeader alesAccount 2 1000
          , keys = [(0, alesKP)]
          }
    -- The next transaction should not be part of a block since it is being sent by an account
    -- without a credential
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 0 }
          , metadata = makeDummyHeader thomasAccount 1 1000
          , keys = [(0, thomasKP)]
          }

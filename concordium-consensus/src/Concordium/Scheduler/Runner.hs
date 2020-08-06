@@ -147,7 +147,7 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                           , receiveName :: Text
                           , message :: BSS.ShortByteString
                           }
-                 | Transfer { toaddress :: Address
+                 | Transfer { toaddress :: AccountAddress
                             , amount :: Amount
                             }
                  -- FIXME: These should be updated to support more than one keypair for the account.

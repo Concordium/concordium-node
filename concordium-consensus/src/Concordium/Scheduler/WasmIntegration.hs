@@ -66,7 +66,7 @@ applyInitFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ()), InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
     -- Just (result, usedEnergy) otherwise, where @usedEnergy@ is the amount of energy that was used.
-applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResult result energy
+applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResult (get :: Get ()) result energy
   where result = unsafeDupablePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -90,15 +90,19 @@ applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResul
         amountWord = _amount amnt
         nameBytes = Text.encodeUtf8 (initName iName)
 
-processInterpreterResult :: Serialize a => Maybe BS.ByteString -> InterpreterEnergy -> Maybe (Either ContractExecutionFailure (SuccessfulResultData a), InterpreterEnergy)
-processInterpreterResult result energy = case result of
+processInterpreterResult ::
+  Get a ->
+  Maybe BS.ByteString ->
+  InterpreterEnergy ->
+  Maybe (Either ContractExecutionFailure (SuccessfulResultData a), InterpreterEnergy)
+processInterpreterResult aDecoder result energy = case result of
     Nothing -> Just (Left RuntimeFailure, 0)
     Just bs ->
       let decoder = do
             tag <- getWord8
             case tag of
               0 -> return (Left ContractReject)
-              1 -> Right <$> get
+              1 -> Right <$> getSuccessfulResultData aDecoder
               _ -> fail $ "Invalid tag: " ++ show tag
       in
       case runGet decoder bs of
@@ -120,7 +124,7 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy that was used.
-applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpreterResult result energy
+applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpreterResult getActionsTree result energy
   where result = unsafeDupablePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->

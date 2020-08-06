@@ -731,8 +731,13 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
 
   {-# INLINE orElse #-}
   orElse (LocalT l) (LocalT r) = LocalT $ ContT $ \k -> do
+     initChangeSet <- use changeSet
      runContT l k >>= \case
-       Left (Just reason) | reason /= OutOfEnergy -> runContT r k
+       Left (Just reason) | reason /= OutOfEnergy -> do
+         -- reset changeSet, the left computation will have no effect at all other than
+         -- energy use.
+         changeSet .= initChangeSet
+         runContT r k
        x -> return x
 
   {-# INLINE outOfBlockEnergy #-}

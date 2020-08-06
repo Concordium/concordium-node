@@ -413,24 +413,13 @@ handleInitContract wtc initAmount modref initName param =
 handleSimpleTransfer ::
   SchedulerMonad m
     => WithDepositContext m
-    -> Address -- ^Address to send the amount to, either account or contract.
+    -> AccountAddress -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
     -> m (Maybe TransactionSummary)
 handleSimpleTransfer wtc toaddr amount =
   withDeposit wtc c (defaultSuccess wtc)
     where senderAccount = wtc ^. wtcSenderAccount
-          c = case toaddr of
-                AddressContract _cref -> error "FIXME: Unimplemented."
-                  -- i <- getCurrentContractInstanceTicking cref
-                  -- -- Send a Nothing message to the contract with the amount to be transferred.
-                  -- let qmsgExpLinked = I.mkNothingE
-                  -- handleMessage senderAccount
-                  --               i
-                  --               (Right senderAccount)
-                  --               amount
-                  --               (ExprMessage qmsgExpLinked)
-                AddressAccount toAccAddr ->
-                  handleTransferAccount senderAccount toAccAddr (Right senderAccount) amount
+          c = handleTransferAccount senderAccount toaddr (Right senderAccount) amount
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
@@ -549,7 +538,8 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
           resR <- go r
           return (resL ++ resR)
         -- FIXME: This will not retain logs from the left run if it fails.
-        -- This needs to be clarified and revised.
+        -- We might want to include the information on why the right-side
+        -- was run in the output event list.
         go (Wasm.Or l r) = go l `orElse` go r
         go Wasm.Accept = return []
 

@@ -34,25 +34,25 @@ initialBlockState = blockStateWithAlesAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
+  [TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 }
          , metadata = makeDummyHeader alesAccount 1 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 88 }
          , metadata = makeDummyHeader alesAccount 2 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 98700 }
          , metadata = makeDummyHeader alesAccount 3 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
+  ,TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 }
          , metadata = makeDummyHeader thomasAccount 1 500
          , keys = [(0, thomasKP)]
          }
     -- the next transaction should fail because the balance on alesAccount is now 1282, which is
     -- less than 600 + 700
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 600 }
          , metadata = makeDummyHeader alesAccount 4 700
          , keys = [(0, alesKP)]
          }
