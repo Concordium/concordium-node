@@ -70,14 +70,22 @@ makeInstanceHash :: InstanceParameters -> Wasm.ContractState -> Amount -> H.Hash
 makeInstanceHash params = makeInstanceHash' (instanceParameterHash params)
 
 makeInstance ::
-    ModuleRef     -- ^Module of the contract.
-    -> Wasm.InitName     -- ^Name of the init method used to initialize the contract.
-    -> Set.Set Wasm.ReceiveName -- ^Receive functions suitable for this instance.
-    -> Wasm.ModuleInterface        -- ^Module interface
-    -> Wasm.ContractState  -- ^Initial state
-    -> Amount       -- ^Initial balance
-    -> AccountAddress               -- ^Owner/creator of the instance.
-    -> ContractAddress              -- ^Address for the instance
+    ModuleRef
+    -- ^Module of the contract.
+    -> Wasm.InitName
+    -- ^Name of the init method used to initialize the contract.
+    -> Set.Set Wasm.ReceiveName
+    -- ^Receive functions suitable for this instance.
+    -> Wasm.ModuleInterface
+    -- ^Module interface
+    -> Wasm.ContractState
+    -- ^Initial state
+    -> Amount
+    -- ^Initial balance
+    -> AccountAddress
+    -- ^Owner/creator of the instance.
+    -> ContractAddress
+    -- ^Address for the instance
     -> Instance
 makeInstance instanceContractModule instanceInitName instanceReceiveFuns instanceModuleInterface instanceModel instanceAmount instanceOwner instanceAddress
         = Instance {..}
