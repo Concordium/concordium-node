@@ -206,7 +206,7 @@ async fn collect_data<'a>(
     let node_peer_stats_reply = client
         .peer_stats(req_with_auth!(
             proto::PeersRequest {
-                include_bootstrappers: true,
+                include_bootstrappers: false,
             },
             grpc_auth_token
         ))
