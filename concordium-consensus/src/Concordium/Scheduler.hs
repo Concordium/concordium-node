@@ -524,13 +524,12 @@ foldEvents :: (TransactionMonad m, AccountOperations m)
 foldEvents origin istance initEvent = fmap (initEvent:) . go
   where go Wasm.TSend{..} = do
           cinstance <- getCurrentContractInstanceTicking erAddr
-          evs <- handleMessage origin
+          handleMessage origin
                               cinstance
                               (Left istance)
                               erAmount
                               erName
                               erParameter
-          return evs
         go Wasm.TSimpleTransfer{..} = do
           handleTransferAccount origin erTo (Left istance) erAmount
         go (Wasm.And l r) = do
