@@ -57,7 +57,8 @@ copyExtLib _ flags _ lbi = case hostPlatform lbi of
         let verbosity = fromFlag $ copyVerbosity flags
         let dest = fromPathTemplate $ bindir $ installDirTemplates lbi
         putStrLn $ "Copying DLL to: " ++ dest
-        rawSystemExit verbosity "cp" [("../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll"), dest]
+        rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll", dest]
+    _ -> return ()
 
 
 main = defaultMainWithHooks simpleUserHooks
