@@ -134,10 +134,11 @@ unwrapVersionedGenesisParameters ver v =
   if vVersion v /= ver then die $ "Unsupported genesis parameters version " ++ show (vVersion v)
   else return (vValue v)
 
-expectedIpInfosVersion, expectedArInfosVersion, expectedGenesisParametersVersion :: Version
+expectedIpInfosVersion, expectedArInfosVersion, expectedGenesisParametersVersion, expectedCryptoParamsVersion :: Version
 expectedArInfosVersion = 0
 expectedIpInfosVersion = 0
 expectedGenesisParametersVersion = 0
+expectedCryptoParamsVersion = 0
 
 main :: IO ()
 main = cmdArgsRun mode >>=
@@ -152,7 +153,7 @@ main = cmdArgsRun mode >>=
                   g <- unwrapVersionedGenesisParameters expectedGenesisParametersVersion v
                   vId <- maybeModifyValueVersioned expectedIpInfosVersion gdIdentity "identityProviders" g
                   vAr <- maybeModifyValueVersioned expectedArInfosVersion gdArs "anonymityRevokers" vId
-                  vCP <- maybeModifyValue gdCryptoParams "cryptographicParameters" vAr
+                  vCP <- maybeModifyValueVersioned expectedCryptoParamsVersion gdCryptoParams "cryptographicParameters" vAr
                   vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
                   vAcc <- maybeModifyValue gdControlAccounts "controlAccounts" vAdditionalAccs
                   value <- maybeModifyValue gdBakers "bakers" vAcc
