@@ -26,16 +26,6 @@ updateExtraLibDirs localBuildInfo = do
         }
     }
 
--- copyExtLib :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
--- copyExtLib args flags pkg_descr lbi = do
---     let libPref = dynlibdir (configInstallDirs . configFlags $ lbi)
---     let verbosity = fromFlag $ copyVerbosity flags
-    
---     -- rawSystemExit verbosity "cp" ["rust-src/target/release/libec_vrf_ed25519.so",
--- --                                  "rust-src/target/release/libeddsa_ed25519.so",
--- --                                  "rust-src/target/release/libsha_2.so",
--- --                                  libPref]
-
 makeRust :: Args -> ConfigFlags -> IO HookedBuildInfo
 makeRust args flags = do
     let verbosity = fromFlag $ configVerbosity flags

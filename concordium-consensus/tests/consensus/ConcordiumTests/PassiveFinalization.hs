@@ -36,7 +36,6 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.Basic.TreeState as TS
-import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
@@ -307,7 +306,6 @@ createInitStates additionalFinMembers = do
         genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
         elDiff = 1
-        bps = BS.BasicBirkParameters elDiff genesisBakers genesisBakers genesisBakers seedState
         bakerAccounts = map (\(_, _, acc) -> acc) bis
         gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
         createState = liftIO . (\(_, bid, _) -> do

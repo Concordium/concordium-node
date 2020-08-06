@@ -39,7 +39,7 @@ baker = mkFullBaker 1 alesAccount
 -- This list includes all payload types to ensure that expiry is handled for
 -- all types of transactions.
 transactions :: Types.TransactionExpiryTime -> [TransactionJSON]
-transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                         , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
                         , keys = [(0, alesKP)]
                         }
