@@ -1,11 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-| Test that the init context of a contract is passed correctly by the scheduler. -}
-module SchedulerTests.ReceiveContextTest where
+module SchedulerTests.InitContextTest where
 
 import Test.Hspec
 import Test.HUnit
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
+import Data.Serialize
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -46,11 +47,6 @@ transactionInputs = [
       metadata = makeDummyHeader alesAccount 2 100000,
       payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
       keys = [(0, alesKP)]
-      },
-  TJSON{
-      metadata = makeDummyHeader alesAccount 3 100000,
-      payload = Update 9 (Types.ContractAddress 0 0) "receive_context" "",
-      keys = [(0, alesKP)]
       }
   ]
 
@@ -58,8 +54,8 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testReceive :: IO TestResult
-testReceive = do
+testInit :: IO TestResult
+testInit = do
     transactions <- processUngroupedTransactions transactionInputs
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
@@ -73,21 +69,13 @@ testReceive = do
         _ -> return ()
     return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
-checkReceiveResult :: TestResult -> Assertion
-checkReceiveResult (suc, fails, instances) = do
+checkInitResult :: TestResult -> Assertion
+checkInitResult (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 1 instance." 1 (length instances)
   let model = contractState . instanceModel . snd . head $ instances
-  let receiveCtx = ReceiveContext{
-        invoker = alesAccount,
-        selfAddress = Types.ContractAddress 0 0,
-        selfBalance = 9, -- balance it was initialized with
-        sender = Types.AddressAccount alesAccount,
-        owner = alesAccount
-        }
-  let expectedState = Types.encodeChainMeta chainMeta <> encodeReceiveContext receiveCtx
-  assertEqual "Instance model is the chain metadata + receive context." model expectedState
+  assertEqual "Instance model is the sender address of the account which inialized it." model (encode alesAccount)
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True
@@ -96,6 +84,6 @@ checkReceiveResult (suc, fails, instances) = do
 
 tests :: SpecWith ()
 tests =
-  describe "Receive context in transactions." $
-    specify "Passing receive context to contract." $
-      testReceive >>= checkReceiveResult
+  describe "Init context in transactions." $
+    specify "Passing init context to contract." $
+      testInit >>= checkInitResult

@@ -10,9 +10,7 @@ import qualified Data.Map as Map
 import qualified Data.HashSet as Set
 
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
-import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.BakerInfo
@@ -145,7 +143,7 @@ simpleTransfer m0 = do
         destAcct <- elements $ Map.keys $ _mAccounts m0
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
-            payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
+            payload = Transfer {toaddress = destAcct, amount = amt},
             metadata = makeDummyHeader srcAcct srcN energy,
             keys = [(0, srcKp)]
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
@@ -161,7 +159,7 @@ makeTransactions = sized (mt initialModel)
             | otherwise = return []
 
 testTransactions :: Property
-testTransactions = forAll makeTransactions (ioProperty . PR.evalContext Init.initialContextData . tt)
+testTransactions = forAll makeTransactions (ioProperty . tt)
     where
         tt tl = do
             transactions <- processUngroupedTransactions tl

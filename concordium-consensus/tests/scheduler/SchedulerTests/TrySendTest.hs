@@ -1,11 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-| This tests a minimal example of error handling in returns of smart contracts.
+  We do two invocations of the receive method, one with a valid account to send
+  to, and one with invalid.
 
-{- Testing the SimpleTransfer transaction.
-NOTE: See also 'SchedulerTests.SimpleTransfersTest'.
+  In the first case we expect a transfer to happen, in the second case we expect no events
+  since the transfer did not happen. However we still expect the transaction to succeed.
 -}
-module SchedulerTests.SimpleTransferSpec where
+module SchedulerTests.TrySendTest where
 
 import Test.Hspec
+import qualified Data.ByteString.Short as BSS
+import Data.Serialize(encode)
 
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Scheduler.Runner
@@ -27,34 +32,38 @@ initialBlockState = blockStateWithAlesAccount
     10000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
+toAddr :: BSS.ShortByteString
+toAddr = BSS.toShort (encode alesAccount)
+
 testCases :: [TestCase]
 testCases =
   [ -- NOTE: Could also check resulting balances on each affected account or contract, but
     -- the block state invariant at least tests that the total amount is preserved.
     TestCase
-    { tcName = "Transfers from a contract to accounts."
+    { tcName = "Error handling in contracts."
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/send-tokens-test.wasm"
+      [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/try-send-test.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0, alesKP)]
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/send-tokens-test.wasm" "init" ""
+      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/try-send-test.wasm" "init" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0, alesKP)]
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "receive" ""
+        -- valid account, should succeed in transferring
+      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "receive" toAddr
                 , metadata = makeDummyHeader alesAccount 3 70000
                 , keys = [(0, alesKP)]
                 }
         , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
                                    , euInstigator = Types.AddressAccount alesAccount
                                    , euAmount = 11
-                                   , euMessage = Parameter ""
+                                   , euMessage = Parameter toAddr
                                    , euEvents = []
                                    }, 
                     Types.Transferred {
@@ -63,6 +72,18 @@ testCases =
                         etTo = Types.AddressAccount alesAccount
                     }] , emptySpec)
         )
+        -- transfer did not happen
+      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "receive" (BSS.pack (replicate 32 0) )
+                , metadata = makeDummyHeader alesAccount 4 70000
+                , keys = [(0, alesKP)]
+                }
+        , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
+                                   , euInstigator = Types.AddressAccount alesAccount
+                                   , euAmount = 11
+                                   , euMessage = Parameter (BSS.pack (replicate 32 0))
+                                   , euEvents = []
+                                   }], emptySpec)
+        ) 
       ]
      }
   ]
