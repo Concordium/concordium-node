@@ -34,6 +34,7 @@ foreign import ccall unsafe "call_init"
              -> CSize -- ^Length of the name.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
+             -> Word64 -- ^Available energy.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
              -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
 
@@ -50,6 +51,7 @@ foreign import ccall unsafe "call_receive"
              -> CSize -- ^Length of the state.
              -> Ptr Word8 -- ^Pointer to the parameter.
              -> CSize -- ^Length of the parameter bytes.
+             -> Word64 -- ^Available energy.
              -> Ptr CSize -- ^Length of the output byte array, if non-null.
              -> IO (Ptr Word8) -- ^New state, logs, and actions, if applicable, or null, signaling out-of-energy.
 
@@ -65,8 +67,8 @@ applyInitFun
     -> InterpreterEnergy -- ^Maximum amount of energy that can be used by the interpreter.
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ()), InterpreterEnergy)
     -- ^Nothing if execution ran out of energy.
-    -- Just (result, usedEnergy) otherwise, where @usedEnergy@ is the amount of energy that was used.
-applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResult (get :: Get ()) result energy
+    -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
+applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
   where result = unsafeDupablePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -78,6 +80,7 @@ applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResul
                                            amountWord
                                            (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
                                            (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
+                                           energy
                                            outputLenPtr
                         if outPtr == nullPtr then return Nothing
                         else do
@@ -87,26 +90,35 @@ applyInitFun miface cm initCtx iName param amnt energy = processInterpreterResul
         wasmBytes = imWasmSource . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encode initCtx
         paramBytes = BSS.fromShort (parameter param)
+        energy = fromIntegral iEnergy
         amountWord = _amount amnt
         nameBytes = Text.encodeUtf8 (initName iName)
 
 processInterpreterResult ::
+  -- |How to decode the output messages.
   Get a ->
+  -- |Nothing if runtime failure, serialized output otherwise.
   Maybe BS.ByteString ->
-  InterpreterEnergy ->
+  -- |Result, and remaining energy.
   Maybe (Either ContractExecutionFailure (SuccessfulResultData a), InterpreterEnergy)
-processInterpreterResult aDecoder result energy = case result of
+processInterpreterResult aDecoder result = case result of
     Nothing -> Just (Left RuntimeFailure, 0)
     Just bs ->
       let decoder = do
             tag <- getWord8
             case tag of
-              0 -> return (Left ContractReject)
-              1 -> Right <$> getSuccessfulResultData aDecoder
+              0 -> return Nothing
+              1 -> do
+                remainingEnergy <- getWord64be
+                return (Just (Left ContractReject, fromIntegral remainingEnergy))
+              2 -> do
+                rData <- getSuccessfulResultData aDecoder
+                remainingEnergy <- getWord64be
+                return (Just (Right rData, fromIntegral remainingEnergy))
               _ -> fail $ "Invalid tag: " ++ show tag
       in
       case runGet decoder bs of
-        Right x -> Just (x, energy)
+        Right x -> x
         Left err -> error $ "Invariant violation. Could not interpret output from interpreter: " ++ err
 
 
@@ -123,8 +135,8 @@ applyReceiveFun
     -> InterpreterEnergy  -- ^Amount of energy available for execution.
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
-    -- of execution with the amount of energy that was used.
-applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpreterResult getActionsTree result energy
+    -- of execution with the amount of energy remaining.
+applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafeDupablePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -138,6 +150,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpr
                                                  (castPtr nameBytesPtr) (fromIntegral nameBytesLen)
                                                  (castPtr stateBytesPtr) (fromIntegral stateBytesLen)
                                                  (castPtr paramBytesPtr) (fromIntegral paramBytesLen)
+                                                 energy
                                                  outputLenPtr
                           if outPtr == nullPtr then return Nothing
                           else do
@@ -148,6 +161,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs energy = processInterpr
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
+        energy = fromIntegral initialEnergy
         paramBytes = BSS.fromShort (parameter param)
         nameBytes = Text.encodeUtf8 (receiveName rName)
 
