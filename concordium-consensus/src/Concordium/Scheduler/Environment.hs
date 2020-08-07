@@ -91,6 +91,9 @@ class Monad m => StaticInformation m where
 -- |Information needed to execute transactions in the form that is easy to use.
 class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m) => SchedulerMonad m where
 
+  -- |Notify the transaction log that a transaction had the given footprint. The
+  -- nature of the footprint will depend on the configuration, e.g., it could be
+  -- nothing, or the set of accounts affected by the transaction.
   tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
 
   -- |Get adddresses of special beta accounts which during the beta phase will
