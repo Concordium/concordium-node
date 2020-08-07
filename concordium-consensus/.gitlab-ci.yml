@@ -10,7 +10,7 @@ stages:
     GIT_SUBMODULE_STRATEGY: recursive
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:$LD_LIBRARY_PATH"
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/smart-contracts/wasmer-interp/target/release:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
     RUSTFLAGS: -Dwarnings
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
@@ -19,7 +19,6 @@ stages:
       - .stack
       - .stack-work
       - crypto/.stack-work
-      - acorn/.stack-work
       - Concordium/.stack-work
       - globalstate-mockup/globalstate/.stack-work
       - globalstate-types/.stack-work
@@ -89,12 +88,6 @@ stages:
     - echo "Running tests without extra features"
     - ( cd consensus-rust && cargo test --all --color=always )
 
-"stack:test:acorn":
-  extends: .generic-haskell-test
-  stage: test
-  script:
-    - "stack test acorn --bench --no-run-benchmarks"
-
 "stack:test:globalstate-types":
   extends: .generic-haskell-test
   stage: test
@@ -111,6 +104,7 @@ stages:
   extends: .generic-haskell-test
   stage: test
   script:
+    - "( cd scheduler/testdata/contracts && ( for wat in *wat; do wat2wasm $wat; done ) )"
     - "stack test scheduler --bench --no-run-benchmarks"
 
 "stack:test:consensus":

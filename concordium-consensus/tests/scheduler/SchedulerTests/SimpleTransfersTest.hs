@@ -9,17 +9,13 @@ import Control.Monad.IO.Class
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-
-import qualified Acorn.Core as Core
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -38,25 +34,25 @@ initialBlockState = blockStateWithAlesAccount
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
+  [TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 }
          , metadata = makeDummyHeader alesAccount 1 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 88 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 88 }
          , metadata = makeDummyHeader alesAccount 2 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 98700 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 98700 }
          , metadata = makeDummyHeader alesAccount 3 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 100 }
+  ,TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 }
          , metadata = makeDummyHeader thomasAccount 1 500
          , keys = [(0, thomasKP)]
          }
     -- the next transaction should fail because the balance on alesAccount is now 1282, which is
     -- less than 600 + 700
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 600 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 600 }
          , metadata = makeDummyHeader alesAccount 4 700
          , keys = [(0, alesKP)]
          }
@@ -68,7 +64,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    Types.Amount)
 
 
-testSimpleTransfer :: PR.Context Core.UA IO TestResult
+testSimpleTransfer :: IO TestResult
 testSimpleTransfer = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
@@ -86,13 +82,13 @@ testSimpleTransfer = do
             gstate ^. blockAccounts . singular (ix alesAccount) . accountAmount,
             gstate ^. blockAccounts . singular (ix thomasAccount) . accountAmount)
 
-checkSimpleTransferResult :: TestResult -> Bool
-checkSimpleTransferResult (suc, fails, alesamount, thomasamount) =
-  null fails && -- should be no failed transactions
-  reject &&  -- the last transaction is rejected
-  nonreject && -- all initial transactions are successful
-  alesamount == (100000 - 4 * fromIntegral simpleTransferCost - 88 - 98700 + 100) &&
-  thomasamount == (100000 - fromIntegral simpleTransferCost + 88 + 98700 - 100)
+checkSimpleTransferResult :: TestResult -> Assertion
+checkSimpleTransferResult (suc, fails, alesamount, thomasamount) = do
+  assertEqual "There should be no failed transactions." [] fails
+  assertBool "Last transaction is rejected." reject
+  assertBool "Initial transactions are accepted." nonreject
+  assertEqual "Amount on first account." alesamount (100000 - 4 * fromIntegral simpleTransferCost - 88 - 98700 + 100)
+  assertEqual "Amount on the second account." thomasamount (100000 - fromIntegral simpleTransferCost + 88 + 98700 - 100)
   where
     nonreject = all (\case (_, Types.TxSuccess{}) -> True
                            (_, Types.TxReject{}) -> False)
@@ -105,4 +101,4 @@ tests :: SpecWith ()
 tests =
   describe "Simple transfers test:" $
     specify "3 successful and 1 failed transaction" $
-      PR.evalContext Init.initialContextData testSimpleTransfer `shouldReturnP` checkSimpleTransferResult
+      testSimpleTransfer >>= checkSimpleTransferResult

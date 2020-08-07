@@ -29,8 +29,6 @@ import Concordium.GlobalState.TreeState hiding (BlockState)
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Types as GS
 
-import qualified Acorn.Core as Core
-
 -- |Chain metadata together with a set of special accounts which have special
 -- rights during the beta phase, as well as the maximum allowed block energy.
 data ContextState = ContextState{
@@ -90,17 +88,22 @@ instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
           MonadState state m,
-          BS.BlockStateOperations m
-          )
-    => StaticEnvironmentMonad Core.UA (BSOMonadWrapper ContextState w state m) where
+          BlockStateOperations m,
+          Footprint (ATIStorage m) ~ w,
+          MonadWriter w m
+         )
+         => StaticInformation (BSOMonadWrapper ContextState w state m) where
+
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = view maxBlockEnergy
+
   {-# INLINE getChainMetadata #-}
   getChainMetadata = view chainMetadata
 
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces mref = do
     s <- use schedulerBlockState
-    mmod <- lift (bsoGetModule s mref)
-    return $! mmod <&> \m -> (BS.moduleInterface m, BS.moduleValueInterface m)
+    lift (bsoGetModule s mref)
 
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
@@ -128,9 +131,6 @@ instance (MonadReader ContextState m,
   {-# INLINE bumpTransactionIndex #-}
   bumpTransactionIndex = nextIndex <<%= (+1)
 
-  {-# INLINE getMaxBlockEnergy #-}
-  getMaxBlockEnergy = view maxBlockEnergy
-
   {-# INLINE getSpecialBetaAccounts #-}
   getSpecialBetaAccounts = view specialBetaAccounts
 
@@ -157,32 +157,10 @@ instance (MonadReader ContextState m,
     lift . flip bsoRegIdExists regid =<< use schedulerBlockState
 
   {-# INLINE commitModule #-}
-  commitModule !mhash !iface !viface !source = do
-    (res, s') <- lift . (\s -> bsoPutNewModule s mhash iface viface source) =<< use schedulerBlockState
+  commitModule !iface = do
+    (res, s') <- lift . (\s -> bsoPutNewModule s iface) =<< use schedulerBlockState
     schedulerBlockState .= s'
     return res
-
-  {-# INLINE smTryGetLinkedExpr #-}
-  smTryGetLinkedExpr mref n = do
-    s <- use schedulerBlockState
-    lift (bsoTryGetLinkedExpr s mref n)
-
-  {-# INLINE smPutLinkedExpr #-}
-  smPutLinkedExpr mref n linked = do
-    s <- use schedulerBlockState
-    s' <- lift (bsoPutLinkedExpr s mref n linked)
-    schedulerBlockState .= s'
-
-  {-# INLINE smTryGetLinkedContract #-}
-  smTryGetLinkedContract mref n = do
-    s <- use schedulerBlockState
-    lift (bsoTryGetLinkedContract s mref n)
-
-  {-# INLINE smPutLinkedContract #-}
-  smPutLinkedContract mref n linked = do
-    s <- use schedulerBlockState
-    s' <- lift (bsoPutLinkedContract s mref n linked)
-    schedulerBlockState .= s'
 
   {-# INLINE increaseAccountNonce #-}
   increaseAccountNonce acc = do
@@ -215,12 +193,7 @@ instance (MonadReader ContextState m,
                        )
                   s'
                   (cs ^. accountUpdates))
-    -- store linked expressions into the cache, but only from successful transactions.
-    -- if contract initialization failed, or if the receive function rejected the transaction
-    -- we ignore the linked cache.
-    s''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedExpr curs mref n linked) s'' (Map.toList (cs ^. linkedExprs)))
-    s'''' <- lift (foldM (\curs ((mref, n), linked) -> bsoPutLinkedContract curs mref n linked) s''' (Map.toList (cs ^. linkedContracts)))
-    schedulerBlockState .= s''''
+    schedulerBlockState .= s''
 
   -- Observe a single transaction footprint.
   {-# INLINE observeTransactionFootprint #-}
@@ -345,7 +318,7 @@ type RWSTBS m a = RWST ContextState () PBSSS m a
 -- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWSTBS (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS)
-    deriving (StaticEnvironmentMonad Core.UA, AccountOperations)
+    deriving (StaticInformation, AccountOperations)
       via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity)))
 
 deriving via (PureBlockStateMonad Identity) instance GS.BlockStateTypes SchedulerImplementation
