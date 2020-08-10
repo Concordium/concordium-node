@@ -102,17 +102,14 @@ createBaker BakerInfo{..} bkrs =
       if Set.member _bakerAggregationVerifyKey (bkrs ^. aggregationKeys) then
         Left DuplicateAggregationKey
       else -- aggregation keys is not already in use, so we insert baker
-        let mnewBakerMap = snd <$> L.update (const ((), Just $ FullBakerInfo {_bakerInfo = BakerInfo {..}, ..})) (L.size . _bakerMap $ bkrs) (bkrs ^. bakerMap)
-           in case mnewBakerMap of
-                Just nbm ->
+        let newBakerMap = snd $ L.append (Just $ FullBakerInfo {_bakerInfo = BakerInfo {..}, ..}) (bkrs ^. bakerMap) in
                   Right
                     ( bid,
                       bkrs
-                        & bakerMap .~ nbm
+                        & bakerMap .~ newBakerMap
                         & bakersByKey . at' _bakerSignatureVerifyKey ?~ bid
                         & aggregationKeys %~ Set.insert _bakerAggregationVerifyKey
                     )
-                _ -> undefined
         where
           _bakerStake = 0
           bid = BakerId . L.size . _bakerMap $ bkrs
