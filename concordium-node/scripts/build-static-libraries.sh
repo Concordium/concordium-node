@@ -173,7 +173,7 @@ subsection "Pre-check in crypto libs: OK"
 #############################################################################################################################
 section "Build the project in default mode"
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all
 
 subsection "Project built: OK"
 
@@ -192,7 +192,7 @@ section "Build the project with smart contracts"
 
 sed -i 's/globalstate-types +disable-smart-contracts/globalstate-types -disable-smart-contracts/g' cabal.project.freeze
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release cabal build all
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all
 
 subsection "Project build: OK"
 
@@ -285,6 +285,26 @@ set -e
 ar rcs libRcommon.a
 ar rcs libRcrypto.a crypto/*.o
 rm -r crypto
+
+cp /build/smart-contracts/wasmer-interp/target/release/libwasmer_interp.a /target/rust/libwasmer_interp.a
+ar x libwasmer_interp.a
+
+set +e
+
+for file in $(find . -type f -name "*.o"); do
+  nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
+  if [ $? -eq 0 ]; then
+    echo "Removing file:"
+    echo $file
+    rm $file;
+  fi
+done
+
+set -e
+
+rm libwasmer_interp.a
+ar rcs libwasmer_interp.a *.o
+
 cp -r /target/rust/* /target-sc/rust/
 
 cd /build
