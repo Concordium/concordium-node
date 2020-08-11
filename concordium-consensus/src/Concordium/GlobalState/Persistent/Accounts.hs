@@ -72,7 +72,7 @@ type CanStoreAccounts r m =
 -- The new object is not yet stored on disk.
 makePersistent :: (MHashableTo m H.Hash PersistentAccount, MonadReader r m, HasBlobStore r, MonadIO m) => Transient.Accounts -> m Accounts
 makePersistent (Transient.Accounts amap atbl aregids) = do
-    accountTable <- L.fromList =<< mapM (makePersistentAccount . snd) (Transient.toList atbl)
+    accountTable <- L.fromAscList =<< mapM (makePersistentAccount . snd) (Transient.toList atbl)
     accountMap <- Trie.fromList (Map.toList amap)
     return Accounts {..}
     where

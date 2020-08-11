@@ -1,9 +1,4 @@
-{-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 -- |
 --    Module      : Concordium.GlobalState.LFMBTree
@@ -28,8 +23,15 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     update,
 
     -- * Conversion
-    toList,
-    fromList,
+    toAscList,
+    fromAscList,
+    toAscPairList,
+
+    -- * Specialized functions for @Maybe@
+    lookupMaybe,
+    delete,
+    toAscPairListMaybes,
+    fromAscListMaybes,
 
     -- * Structure specification
     -- $specification
@@ -43,21 +45,23 @@ import Data.Foldable (foldl')
 import Data.Serialize
 import Data.Word
 import Prelude hiding (lookup)
-
+import Control.Monad (join)
 {-
 -------------------------------------------------------------------------------
                                     Helpers
 -------------------------------------------------------------------------------
 -}
 
--- | Helper function that returns a saturated @Bits@ value until position @h@
-setBits :: (Bits a, Num a) => Int -> a
+-- | Helper function that returns a saturated @Bits@ value until position @h@.
+setBits :: (Bits a, Num a)
+  => Int -- ^ Number of bits set to 1. Must be true and not more than the bit length of the expected resulting type.
+  -> a
 setBits h = bit (h + 1) - 1
 
 -- | Local alias for the height of a node.
 -- Leaf's height is defined as -1 and the height of a
 -- node is one more than the maximum of the height of the children nodes.
-type Height = Word8
+type Height = Word64
 
 -- | Local alias for the key of the tree.
 type Key = Word64
@@ -69,27 +73,16 @@ type Key = Word64
 -}
 
 -- | Left-full Merkle Binary Tree
---
---  This type is parametrized by the monad and the reference type of
---  the stored items. The monad @m@ must be an instance of @MonadBlobStore m ref@
---  to provide transparent storing and loading of values using references
---  of type @ref@.
 data LFMBTree v
   = Empty
   | NonEmpty !Word64 !(T v)
-
-deriving instance (Eq v) => Eq (LFMBTree v)
-
-deriving instance (Show v) => (Show (LFMBTree v))
+  deriving (Eq, Show)
 
 -- | Inner type of a non-empty tree
 data T v
   = Node !Height !(T v) !(T v)
   | Leaf !v
-
-deriving instance (Eq v) => Eq (T v)
-
-deriving instance (Show v) => (Show (T v))
+  deriving (Eq, Show)
 
 {-
 -------------------------------------------------------------------------------
@@ -105,7 +98,7 @@ instance
   getHash (Leaf v) = getHash v
   getHash (Node _ l r) = H.hashOfHashes (getHash l) (getHash r)
 
--- | The hash of a LFMBTree is defined as the hash of the empty string if it
+-- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
 --
 -- Hash calculations might require accessing the items on the storage so
@@ -116,31 +109,31 @@ instance
   ) =>
   HashableTo H.Hash (LFMBTree v)
   where
-  getHash Empty = H.hash ""
+  getHash Empty = H.hash "EmptyLFMBTree"
   getHash (NonEmpty _ v) = getHash v
 
 instance Serialize v => Serialize (LFMBTree v) where
-  put Empty = put (0 :: Word64)
+  put Empty = putWord64be (0 :: Word64)
   put (NonEmpty h t) = do
-    put h
+    putWord64be h
     put t
   get = do
-    tag <- get :: Get Word64
+    tag <- getWord64be
     case tag of
       0 -> return Empty
       h -> NonEmpty h <$> get
 
 instance Serialize v => Serialize (T v) where
   put (Leaf v) = do
-    put (0 :: Word8)
+    putWord8 0
     put v
   put (Node h l r) = do
-    put (1 :: Word8)
+    putWord8 1
     put h
     put l
     put r
   get = do
-    tag <- get :: Get Word8
+    tag <- getWord8
     case tag of
       0 -> Leaf <$> get
       _ -> Node <$> get <*> get <*> get
@@ -168,7 +161,6 @@ lookup k (NonEmpty s t) =
     then Nothing -- If we try to find a key that is past the size of the tree, it will not be present
     else lookupT k t
   where
-    -- lookupT :: Key -> T m ref v -> m (Maybe v)
     lookupT key = \case
       Leaf v -> Just v
       Node height left right ->
@@ -176,15 +168,16 @@ lookup k (NonEmpty s t) =
           then lookupT key right
           else lookupT key left
 
+-- | If a tree holds values of type @Maybe v@ then lookup should return a @Just@ if the value is present and @Nothing@ if it is not present or is a Nothing. This function implements such behavior.
+lookupMaybe :: Key -> LFMBTree (Maybe v) -> Maybe v
+lookupMaybe k t = join $ lookup k t
+
 -- | Adds a value to the tree returning the assigned key and the new tree.
 append :: v -> LFMBTree v -> (Key, LFMBTree v)
 append v Empty = (0, NonEmpty 1 (Leaf v))
 append v (NonEmpty s t) = (s, NonEmpty (s + 1) (appendT s v t))
   where
-    -- createLeaf :: T m ref v -> Maybe (ref (T m ref v)) -> v -> (ref (T m ref v) -> ref (T m ref v)) -> m (T m ref v)
     createLeaf originalNode value f = f originalNode (Leaf value)
-    -- appendT :: Key -> v -> T m ref v -> Maybe (ref (T m ref v)) -> m (T m ref v)
-    -- NOTE: @refNode@ is the stored reference to @node@ for it to be reused if needed
     appendT key value node =
       case node of
         originalNode@(Leaf _) -> do
@@ -210,7 +203,7 @@ append v (NonEmpty s t) = (s, NonEmpty (s + 1) (appendT s v t))
 
 -- | Update a value at a given key.
 --
--- If the key is not present in the tree, the same tree is returned.
+-- If the key is not present in the tree, then it resturns @Nothing@.
 -- Otherwise, the value is loaded, modified with the given function and stored again.
 --
 -- @update@ will also recompute the hashes on the way up to the root.
@@ -223,7 +216,6 @@ update f k (NonEmpty s t) =
       let (a, t') = updateT k f t
        in Just (a, NonEmpty s t')
   where
-    -- updateT :: Key -> (v -> v) -> T m ref v -> m (T m ref v)
     updateT key fun node =
       case node of
         Leaf r ->
@@ -233,16 +225,43 @@ update f k (NonEmpty s t) =
             then let (a, right') = updateT key fun right in (a, Node height left right')
             else let (a, left') = updateT key fun left in (a, Node height left' right)
 
-toList :: LFMBTree v -> [v]
-toList Empty = []
-toList (NonEmpty _ t) = toListT t
+-- | If a tree holds values of type @Maybe v@ then deleting is done by inserting a @Nothing@ at a given position.
+-- This function will return Nothing if the key is not present and otherwise it will return the updated tree.
+delete :: Key -> LFMBTree (Maybe v) -> Maybe (LFMBTree (Maybe v))
+delete k t = snd <$> update (const ((), Nothing)) k t
+
+-- | Return the elements sorted by their keys. As there is no operation
+-- for deleting elements, this list will contain all the elements starting
+-- on the index 0 up to the size of the tree.
+toAscList :: LFMBTree v -> [v]
+toAscList Empty = []
+toAscList (NonEmpty _ t) = toListT t
   where
     toListT (Leaf v) = [v]
     toListT (Node _ l r) = toListT l ++ toListT r
 
-fromList :: [v] -> LFMBTree v
-fromList = foldl' (\acc e -> snd $ append e acc) empty
+-- | Return the pairs (key, value) sorted by their keys. This list will contain
+-- all the elements starting on the index 0.
+toAscPairList :: LFMBTree v -> [(Word64, v)]
+toAscPairList = zip [0..] . toAscList
 
+-- | If a tree contains values of type Maybe, a `Nothing` is considered a deletion.
+-- This function filters out the `Nothing` items and unwraps the `Just` items.
+toAscPairListMaybes :: LFMBTree (Maybe v) -> [(Word64, v)]
+toAscPairListMaybes l = [(i, v) | (i, Just v) <- toAscPairList l]
+
+-- | Create a tree from a list of items. The items will be inserted sequentially
+-- starting on the index 0.
+fromAscList :: [v] -> LFMBTree v
+fromAscList = foldl' (\acc e -> snd $ append e acc) empty
+
+-- | Create a tree that holds the values wrapped in @Just@ when present and keeps @Nothing@s on the missing positions
+fromAscListMaybes :: [(Word64, v)] -> LFMBTree (Maybe v)
+fromAscListMaybes l = fromAscList $ go l 0
+  where go z@((i,v):xs) ix
+         | i == ix = Just v : go xs (i + 1)
+         | otherwise = (replicate (fromIntegral $ i - ix) Nothing) ++ go z i
+        go [] _ = []
 {-
 -------------------------------------------------------------------------------
                                 Specification

@@ -86,17 +86,17 @@ makeBlockHashesM BlockStatePointers {..} = do
   modulesHash <- getHashM bspModules
   accountsHash <- getHashM bspAccounts
   instancesHash <- getHashM bspInstances
-  let bsHash0 = H.hash $ H.hashToByteString birkHash <> H.hashToByteString cryptoHash
-      bsHash1 = H.hash $ H.hashToByteString ipsHash <> H.hashToByteString arsHash
-      bsHash2 = H.hash $ H.hashToByteString modulesHash <> H.hashToByteString (getHash bspBank)
-      bsHash3 = H.hash $ H.hashToByteString accountsHash <> H.hashToByteString instancesHash
-      bsHash10 = H.hash $ H.hashToByteString bsHash0 <> H.hashToByteString bsHash1
-      bsHash11 = H.hash $ H.hashToByteString bsHash2 <> H.hashToByteString bsHash3
-      bsHash = H.hash $ H.hashToByteString bsHash10 <> H.hashToByteString bsHash11
+  let hashOfBirkParamsAndCryptoParams = H.hash $ H.hashToByteString birkHash <> H.hashToByteString cryptoHash
+      hashOfIPsAndARs = H.hash $ H.hashToByteString ipsHash <> H.hashToByteString arsHash
+      hashOfModulesAndBank = H.hash $ H.hashToByteString modulesHash <> H.hashToByteString (getHash bspBank)
+      hashOfAccountsAndInstances = H.hash $ H.hashToByteString accountsHash <> H.hashToByteString instancesHash
+      hashOfBirkCryptoIPsARs = H.hash $ H.hashToByteString hashOfBirkParamsAndCryptoParams <> H.hashToByteString hashOfIPsAndARs
+      hashOfModulesBankAccountsIntances = H.hash $ H.hashToByteString hashOfModulesAndBank <> H.hashToByteString hashOfAccountsAndInstances
+      blockStateHash = H.hash $ H.hashToByteString hashOfBirkCryptoIPsARs <> H.hashToByteString hashOfModulesBankAccountsIntances
   return Basic.BlockStateHashes {..}
 
 instance CanStoreAndHashBlockState r m => MHashableTo m H.Hash BlockStatePointers where
-  getHashM bps = maybe (fmap Basic.bsHash (makeBlockHashesM bps)) (return . Basic.bsHash) (bspHashes bps)
+  getHashM bps = maybe (fmap Basic.blockStateHash (makeBlockHashesM bps)) (return . Basic.blockStateHash) (bspHashes bps)
 
 instance CanStoreAndHashBlockState r m => BlobStorable m BlobRef BlockStatePointers where
     storeUpdate p bsp0@BlockStatePointers{..} = do
@@ -802,8 +802,8 @@ instance RequiredConstraints r m => BakerQuery (PersistentBlockStateMonad r m) w
     _ -> return Nothing
 
   getFullBakerInfos PersistentBakers {..} = do
-    l <- zip [0 ..] <$> L.toList _bakerMap
-    Map.fromAscList <$> mapM getFullInfo [(i, x) | (i, Some x) <- l]
+    l <- L.toAscPairList _bakerMap
+    Map.fromAscList <$> mapM getFullInfo [(BakerId i, x) | (i, Some x) <- l]
     where
       getFullInfo (i, (binfoRef, stake)) = do
         binfo <- loadBufferedRef binfoRef
@@ -920,7 +920,7 @@ instance RequiredConstraints r m => BlockStateStorage (PersistentBlockStateMonad
       bs <- loadPBS pbs
       hashes <- makeBlockHashesM bs
       _ <- storePBS pbs (bs {bspHashes = Just hashes})
-      return (pbs, Basic.bsHash hashes)
+      return (pbs, Basic.blockStateHash hashes)
 
     {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")

@@ -83,15 +83,15 @@ instance CanStorePersistentBakers r m => BlobStorable m BlobRef PersistentBakers
                   t + stake,
                   Set.insert _bakerAggregationVerifyKey aks
                 )
-        (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- (\l -> foldM collectBakerInfo (Map.empty, 0, Set.empty) [(bid, b) | (bid, Some b) <- zip [0 ..] l]) =<< L.toList _bakerMap
+        (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- (\l -> foldM collectBakerInfo (Map.empty, 0, Set.empty) [(BakerId bid, b) | (bid, Some b) <- l]) =<< L.toAscPairList _bakerMap
         return PersistentBakers {..}
 
 -- |Convert an in-memory 'Basic.Bakers' value to a persistent 'PersistentBakers' value.
 -- The new object is not yet stored on disk.
 makePersistentBakers :: CanStorePersistentBakers r m => Basic.Bakers -> m PersistentBakers
 makePersistentBakers Basic.Bakers {..} = do
-    bm <- mapM toPersistentElem $ LB.toList _bakerMap
-    _bakerMap <- L.fromList bm
+    bm <- mapM toPersistentElem $ LB.toAscList _bakerMap
+    _bakerMap <- L.fromAscList bm
     return PersistentBakers {..}
     where
       toPersistentElem (Just FullBakerInfo {..}) = do
@@ -126,10 +126,9 @@ updateBaker :: CanStorePersistentBakers r m => Basic.BakerUpdate -> PersistentBa
 updateBaker Basic.BakerUpdate {..} !bakers = do
   let bInfoMap = bakers ^. bakerMap
       BakerId bid = _buId
-  L.lookup bid bInfoMap >>= \case
+  L.lookupNullable bid bInfoMap >>= \case
     Nothing -> return $ Just bakers
-    Just Null -> return $ Just bakers
-    Just (Some (binfoRef, stake)) -> do
+    Just (binfoRef, stake) -> do
       binfo <- loadBufferedRef binfoRef
       let bacc = _buAccount ^. non (binfo ^. bakerAccount)
       case _buSignKey of
@@ -162,15 +161,14 @@ updateBaker Basic.BakerUpdate {..} !bakers = do
 removeBaker :: CanStorePersistentBakers r m => BakerId -> PersistentBakers -> m (Bool, PersistentBakers)
 removeBaker (BakerId bid) !bakers = do
     let bInfoMap = bakers ^. bakerMap
-    mBakerInfo <- L.lookup bid bInfoMap
+    mBakerInfo <- L.lookupNullable bid bInfoMap
     case mBakerInfo of
       Nothing -> return (False, bakers)
-      Just Null -> return (False, bakers)
-      Just (Some (bakerRef, stake)) -> do
-        updated <- L.update (const $ return ((), Null)) bid bInfoMap
+      Just (bakerRef, stake) -> do
+        updated <- L.delete bid bInfoMap
         case updated of
           Nothing -> return (False, bakers)
-          Just (_, newBakerMap) -> do
+          Just newBakerMap -> do
             bkr <- loadBufferedRef bakerRef
             return (True, bakers
                             & (bakerMap .~ newBakerMap)
