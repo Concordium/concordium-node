@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE MonoLocalBinds #-}
 
 -- |
 --    Module      : Concordium.GlobalState.LFMBTree
@@ -30,8 +31,14 @@ module Concordium.GlobalState.Persistent.LFMBTree
     update,
 
     -- * Conversion
-    toList,
-    fromList,
+    toAscList,
+    toAscPairList,
+    fromAscList,
+
+    -- * Specialized functions for @Nullable@
+    lookupNullable,
+    delete,
+    fromAscListNullable,
 
     -- * Structure specification
     -- $specification
@@ -63,7 +70,7 @@ setBits h = bit (h + 1) - 1
 -- | Local alias for the height of a node.
 -- Leaf's height is defined as -1 and the height of a
 -- node is one more than the maximum of the height of the children nodes.
-type Height = Word8
+type Height = Word64
 
 -- | Local alias for the key of the tree.
 type Key = Word64
@@ -76,10 +83,8 @@ type Key = Word64
 
 -- | Left-full Merkle Binary Tree
 --
---  This type is parametrized by the monad and the reference type of
---  the stored items. The monad @m@ must be an instance of @MonadBlobStore m ref@
---  to provide transparent storing and loading of values using references
---  of type @ref@.
+--  This type is parametrized by the reference type of
+--  the stored items.
 data LFMBTree (ref :: Type -> Type) v
   = Empty
   | NonEmpty !Word64 !(T ref v)
@@ -125,7 +130,7 @@ instance
   ) =>
   MHashableTo m H.Hash (LFMBTree ref v)
   where
-  getHashM Empty = return $ H.hash ""
+  getHashM Empty = return $ H.hash "EmptyLFMBTree"
   getHashM (NonEmpty _ v) = getHashM v
 
 -- | Constraints that ensures a monad @m@ can store an LFMBTree (that holds references
@@ -156,7 +161,7 @@ instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
     r <- store p right
     return $ do
       put (1 :: Word8)
-      put height
+      putWord64be height
       l
       r
 
@@ -169,7 +174,7 @@ instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
     return
       ( do
           put (1 :: Word8)
-          put height
+          putWord64be height
           leftp
           rightp,
         Node height left' right'
@@ -182,31 +187,27 @@ instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
         val <- load p
         return (Leaf <$> val)
       _ -> do
-        h <- get
+        h <- getWord64be
         left <- load p
         right <- load p
         return (Node h <$> left <*> right)
 
 instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (LFMBTree ref v) where
-  store _ Empty = return (put (0 :: Word64))
+  store _ Empty = return (putWord64be 0)
   store p (NonEmpty h t) = do
     t' <- store p t
-    return $ do
-      put h
-      t'
+    return $ putWord64be h <> t'
 
-  storeUpdate _ t@Empty = return (put (0 :: Word64), t)
+  storeUpdate _ t@Empty = return (putWord64be 0, t)
   storeUpdate p (NonEmpty h t) = do
     (pt, t') <- storeUpdate p t
     return
-      ( do
-          put h
-          pt,
+      ( putWord64be h <> pt,
         NonEmpty h t'
       )
 
   load p = do
-    s <- get :: Get Word64
+    s <- getWord64be
     case s of
       0 -> return . return $ Empty
       _ -> do
@@ -243,6 +244,12 @@ lookup k (NonEmpty s t) =
         if key `testBit` fromIntegral height -- If the bit at position @height@ is set on the requested key, move to the right, otherwise move to the left.
           then lookupT key =<< refLoad right
           else lookupT key =<< refLoad left
+
+-- | If a tree holds values of type @Nullable v@ then lookup should return a @Just@ if the value is present and @Nothing@ if it is not present or is a Null. This function implements such behavior.
+lookupNullable :: CanStoreLFMBTree r m ref (Nullable v) => Key -> LFMBTree ref (Nullable v) -> m (Maybe v)
+lookupNullable k t = lookup k t >>= \case
+  Just (Some v) -> return $ Just v
+  _ -> return Nothing
 
 -- | Adds a value to the tree returning the assigned key and the new tree.
 append :: CanStoreLFMBTree r m ref v => v -> LFMBTree ref v -> m (Key, LFMBTree ref v)
@@ -327,9 +334,19 @@ update f k (NonEmpty s t) =
               left'' <- refMake left'
               return (a, Node height left'' right)
 
-toList :: CanStoreLFMBTree r m ref v => LFMBTree ref v -> m [v]
-toList Empty = return []
-toList (NonEmpty _ t) = toListT t
+-- | If a tree holds values of type @Maybe v@ then deleting is done by inserting a @Nothing@ at a given position.
+-- This function will return Nothing if the key is not present and otherwise it will return the updated tree.
+delete :: CanStoreLFMBTree r m ref (Nullable v) => Key -> LFMBTree ref (Nullable v) -> m (Maybe (LFMBTree ref (Nullable v)))
+delete k t = do
+  v <- update (const $ return ((), Null)) k t
+  return $ fmap snd v
+
+-- | Return the elements sorted by their keys. As there is no operation
+-- for deleting elements, this list will contain all the elements starting
+-- on the index 0 up to the size of the tree.
+toAscList :: CanStoreLFMBTree r m ref v => LFMBTree ref v -> m [v]
+toAscList Empty = return []
+toAscList (NonEmpty _ t) = toListT t
   where
     toListT (Leaf v) = (return :: a -> [a]) <$> refLoad v
     toListT (Node _ l r) = do
@@ -337,8 +354,23 @@ toList (NonEmpty _ t) = toListT t
       r' <- toListT =<< refLoad r
       return (l' ++ r')
 
-fromList :: CanStoreLFMBTree r m ref v => [v] -> m (LFMBTree ref v)
-fromList = foldM (\acc e -> snd <$> append e acc) empty
+-- | Return the pairs (key, value) sorted by their keys. This list will contain
+-- all the elements starting on the index 0.
+toAscPairList :: CanStoreLFMBTree r m ref v => LFMBTree ref v -> m [(Word64, v)]
+toAscPairList t = zip [0..] <$> toAscList t
+
+-- | Create a tree from a list of items. The items will be inserted sequentially
+-- starting on the index 0.
+fromAscList :: CanStoreLFMBTree r m ref v => [v] -> m (LFMBTree ref v)
+fromAscList = foldM (\acc e -> snd <$> append e acc) empty
+
+-- | Create a tree that holds the values wrapped in @Just@ when present and keeps @Nothing@s on the missing positions
+fromAscListNullable :: CanStoreLFMBTree r m ref (Nullable v) => [(Word64, v)] -> m (LFMBTree ref (Nullable v))
+fromAscListNullable l = fromAscList $ go l 0
+  where go z@((i,v):xs) ix
+         | i == ix = Some v : go xs (i + 1)
+         | otherwise = (replicate (fromIntegral $ i - ix) Null) ++ go z i
+        go [] _ = []
 
 {-
 -------------------------------------------------------------------------------

@@ -282,7 +282,7 @@ instance Show Instances where
     show (InstancesTree _ t) = showFix showITString t
 
 instance (MonadIO m, MonadBlobStore m BlobRef) => MHashableTo m H.Hash Instances where
-  getHashM InstancesEmpty = return $ H.hash ""
+  getHashM InstancesEmpty = return $ H.hash "EmptyInstances"
   getHashM (InstancesTree _ t) = getHash <$> mproject t
 
 instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Instances where

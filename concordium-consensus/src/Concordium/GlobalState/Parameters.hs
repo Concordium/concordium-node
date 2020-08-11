@@ -35,19 +35,7 @@ import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
 import Concordium.Types.Transactions
 
-import qualified Concordium.Crypto.SHA256 as H
-import Concordium.Types.HashableTo
-
 type CryptographicParameters = GlobalContext
-
-instance HashableTo H.Hash CryptographicParameters where
-  getHash val =
-    H.hash $
-      "CryptoParams"
-        <> encode val
-
-instance (Monad m) => MHashableTo m H.Hash CryptographicParameters where
-  getHashM = return . getHash
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,

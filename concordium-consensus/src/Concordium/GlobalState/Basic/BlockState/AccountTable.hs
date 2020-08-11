@@ -17,7 +17,7 @@ type AccountIndex = Word64
 data AccountTable = Empty | Tree !AT
 
 instance HashableTo H.Hash AccountTable where
-    getHash Empty = H.hash ""
+    getHash Empty = H.hash "EmptyAccountTable"
     getHash (Tree t) = getHash t
 
 data AT

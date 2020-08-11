@@ -12,6 +12,7 @@ import Concordium.ID.Types
 import Concordium.ID.IdentityProvider
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
+import Control.Monad (replicateM)
 
 -- |The set of all identity providers. Identity providers are identified
 -- uniquely by their public key (the key used to verify signatures).
@@ -34,5 +35,11 @@ emptyIdentityProviders :: IdentityProviders
 emptyIdentityProviders = IdentityProviders Map.empty
 
 instance S.Serialize IdentityProviders where
-    put IdentityProviders{..} = S.put (Map.toAscList idProviders)
-    get = IdentityProviders . Map.fromAscList <$> S.get
+    put IdentityProviders{..} = do
+      let l = Map.toAscList idProviders
+      S.putWord32be (fromIntegral $ length l)
+      mapM_ S.put l
+    get = do
+      l <- S.getWord32be
+      ascList <- replicateM (fromIntegral l) S.get
+      return . IdentityProviders . Map.fromAscList $ ascList

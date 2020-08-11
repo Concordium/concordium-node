@@ -12,6 +12,7 @@ import Concordium.ID.Types
 import Concordium.ID.AnonymityRevoker
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
+import Control.Monad (replicateM)
 
 -- |The set of all anonymity revokers. Anonymity revokers are identified
 -- uniquely by their identity. The public key of an anonymity revoker should
@@ -36,5 +37,11 @@ emptyAnonymityRevokers :: AnonymityRevokers
 emptyAnonymityRevokers = AnonymityRevokers Map.empty
 
 instance S.Serialize AnonymityRevokers where
-    put AnonymityRevokers{..} = S.put (Map.toAscList arRevokers)
-    get = AnonymityRevokers . Map.fromAscList <$> S.get
+    put AnonymityRevokers{..} = do
+      let l = Map.toAscList arRevokers
+      S.putWord32be (fromIntegral $ length l)
+      mapM_ S.put l
+    get = do
+      l <- S.getWord32be
+      ascList <- replicateM (fromIntegral l) S.get
+      return . AnonymityRevokers . Map.fromAscList $ ascList
