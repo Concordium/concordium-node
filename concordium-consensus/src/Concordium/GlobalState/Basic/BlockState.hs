@@ -472,18 +472,16 @@ initialState :: BasicBirkParameters
              -> ARS.AnonymityRevokers
              -> Amount
              -> BlockState
-initialState _blockBirkParameters cryptoParams genesisAccounts ips anonymityRevokers mintPerSlot = block {_blockHashes = hashes}
+initialState _blockBirkParameters cryptoParams genesisAccounts ips anonymityRevokers mintPerSlot = BlockState {..}
   where
     _blockCryptographicParameters = makeHashed cryptoParams
     _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.emptyModules
+    -- initial amount in the central bank is the amount on all genesis accounts combined
+    initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 $ genesisAccounts
     _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount mintPerSlot
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-
-    -- initial amount in the central bank is the amount on all genesis accounts combined
-    initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 $ genesisAccounts
-    block = BlockState {_blockHashes = undefined, ..}
-    hashes = makeBlockStateHashes block
+    _blockHashes = makeBlockStateHashes' (getHash _blockBirkParameters) (getHash _blockCryptographicParameters) (getHash _blockIdentityProviders) (getHash _blockAnonymityRevokers) (getHash _blockModules) (getHash _blockBank) (getHash _blockAccounts) (getHash _blockInstances)

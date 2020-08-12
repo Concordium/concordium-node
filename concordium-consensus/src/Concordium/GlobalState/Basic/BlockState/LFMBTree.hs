@@ -33,6 +33,9 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     toAscPairListMaybes,
     fromAscListMaybes,
 
+    -- * Helpers
+    setBits,
+
     -- * Structure specification
     -- $specification
   )
@@ -100,10 +103,6 @@ instance
 
 -- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
---
--- Hash calculations might require accessing the items on the storage so
--- it is bound to a monadic computation. Therefore we can only define an
--- instance that hashes into an @m H.Hash@.
 instance
   ( HashableTo H.Hash v
   ) =>
@@ -113,7 +112,7 @@ instance
   getHash (NonEmpty _ v) = getHash v
 
 instance Serialize v => Serialize (LFMBTree v) where
-  put Empty = putWord64be (0 :: Word64)
+  put Empty = putWord64be 0
   put (NonEmpty h t) = do
     putWord64be h
     put t
