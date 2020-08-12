@@ -71,13 +71,7 @@ data BlockStatePointers = BlockStatePointers {
     bspHashes :: !(Maybe Basic.BlockStateHashes)
 }
 
-type CanStoreAndHashBlockState r m =
-  ( MonadIO m,
-    MonadReader r m,
-    HasBlobStore r
-  )
-
-makeBlockHashesM :: CanStoreAndHashBlockState r m => BlockStatePointers -> m Basic.BlockStateHashes
+makeBlockHashesM :: (MonadIO m, MonadReader r m, HasBlobStore r) => BlockStatePointers -> m Basic.BlockStateHashes
 makeBlockHashesM BlockStatePointers {..} = do
   birkHash <- getHashM bspBirkParameters
   cryptoHash <- getHashM bspCryptographicParameters
@@ -95,10 +89,10 @@ makeBlockHashesM BlockStatePointers {..} = do
       blockStateHash = H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances
   return Basic.BlockStateHashes {..}
 
-instance CanStoreAndHashBlockState r m => MHashableTo m H.Hash BlockStatePointers where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash BlockStatePointers where
   getHashM bps = maybe (fmap Basic.blockStateHash (makeBlockHashesM bps)) (return . Basic.blockStateHash) (bspHashes bps)
 
-instance CanStoreAndHashBlockState r m => BlobStorable m BlobRef BlockStatePointers where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef BlockStatePointers where
     storeUpdate p bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate p bspAccounts
         (pinsts, bspInstances') <- storeUpdate p bspInstances
@@ -221,7 +215,7 @@ data PersistentBirkParameters = PersistentBirkParameters {
 
 makeLenses ''PersistentBirkParameters
 
-instance CanStorePersistentBakers r m => MHashableTo m H.Hash PersistentBirkParameters where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash PersistentBirkParameters where
   getHashM PersistentBirkParameters {..} = do
     currentHash <- getHashM _birkCurrentBakers
     prevHash <- getHashM _birkPrevEpochBakers
@@ -231,7 +225,7 @@ instance CanStorePersistentBakers r m => MHashableTo m H.Hash PersistentBirkPara
         bpH2 = H.hashOfHashes currentHash bpH1
     return $ H.hashOfHashes bpH0 bpH2
 
-instance CanStorePersistentBakers r m => BlobStorable m BlobRef PersistentBirkParameters where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef PersistentBirkParameters where
     storeUpdate p bps@PersistentBirkParameters{..} = do
         (ppebs, prevEpochBakers) <- storeUpdate p _birkPrevEpochBakers
         (plbs, lotteryBakers) <- storeUpdate p _birkLotteryBakers
@@ -260,7 +254,7 @@ instance CanStorePersistentBakers r m => BlobStorable m BlobRef PersistentBirkPa
             _birkLotteryBakers <- mlbs
             return PersistentBirkParameters{..}
 
-makePersistentBirkParameters :: CanStoreAndHashBlockState r m => Basic.BasicBirkParameters -> m PersistentBirkParameters
+makePersistentBirkParameters :: (MonadIO m, MonadReader r m, HasBlobStore r) => Basic.BasicBirkParameters -> m PersistentBirkParameters
 makePersistentBirkParameters Basic.BasicBirkParameters{..} = do
     prevEpochBakers <- refMake =<< makePersistentBakers ( _unhashed _birkPrevEpochBakers)
     lotteryBakers <- refMake =<< makePersistentBakers (_unhashed _birkLotteryBakers)
@@ -272,7 +266,7 @@ makePersistentBirkParameters Basic.BasicBirkParameters{..} = do
         lotteryBakers
         _birkSeedState
 
-makePersistent :: CanStoreAndHashBlockState r m  => Basic.BlockState -> m PersistentBlockState
+makePersistent :: (MonadIO m, MonadReader r m, HasBlobStore r)  => Basic.BlockState -> m PersistentBlockState
 makePersistent Basic.BlockState{..} = do
   persistentBlockInstances <- Instances.makePersistent _blockInstances
   persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
@@ -298,7 +292,7 @@ makePersistent Basic.BlockState{..} = do
         }
   liftIO $ newIORef $! bsp
 
-initialPersistentState :: CanStoreAndHashBlockState r m =>Basic.BasicBirkParameters
+initialPersistentState :: (MonadIO m, MonadReader r m, HasBlobStore r) =>Basic.BasicBirkParameters
              -> CryptographicParameters
              -> [TransientAccount.Account]
              -> IPS.IdentityProviders
@@ -309,7 +303,7 @@ initialPersistentState bps cps accts ips ars amt = makePersistent $ Basic.initia
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
-emptyBlockState :: CanStoreAndHashBlockState r m => PersistentBirkParameters -> CryptographicParameters -> m PersistentBlockState
+emptyBlockState :: (MonadIO m, MonadReader r m, HasBlobStore r) => PersistentBirkParameters -> CryptographicParameters -> m PersistentBlockState
 emptyBlockState bspBirkParameters cryptParams = do
   modules <- refMake emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
@@ -332,7 +326,7 @@ emptyBlockState bspBirkParameters cryptParams = do
   bsp <- makeBufferedRef $ temp {bspHashes = Just hashes}
   liftIO $ newIORef $! bsp
 
-fromPersistentInstance ::  RequiredConstraints r m =>
+fromPersistentInstance ::  IsSuitableForPersistentBlockState r m =>
     PersistentBlockState -> Instances.PersistentInstance -> m Instance
 fromPersistentInstance _ Instances.PersistentInstance{pinstanceCachedParameters = (Some CacheableInstanceParameters{..}), ..} = do
     PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
@@ -371,41 +365,42 @@ fromPersistentInstance pbs Instances.PersistentInstance{..} = do
                     ..
                 }
 
-type RequiredConstraints r m =
+type IsSuitableForPersistentBlockState r m =
   ( MHashableTo m H.Hash IPS.IdentityProviders,
     MHashableTo m H.Hash ARS.AnonymityRevokers,
     MHashableTo m H.Hash Modules,
-    Accounts.CanStoreAccounts r m, -- => MHashableTo m H.Hash (Account.Accounts m)
+    MHashableTo m H.Hash PersistentAccount,
     MHashableTo m H.Hash CryptographicParameters,
     MonadIO m,
     MonadReader r m,
     HasBlobStore r,
+    MonadBlobStore m BlobRef,
     BlobStorable m BlobRef (Nullable (BufferedRef BakerInfo, Amount)),
     MHashableTo (PersistentBlockStateMonad r m) H.Hash PersistentBakers
   )
 
-loadPBS :: RequiredConstraints r m => PersistentBlockState -> m BlockStatePointers
+loadPBS :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> m BlockStatePointers
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 
-storePBS :: RequiredConstraints r m => PersistentBlockState -> BlockStatePointers -> m PersistentBlockState
+storePBS :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> BlockStatePointers -> m PersistentBlockState
 storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
     writeIORef pbs pbsp
     return pbs
 
-doGetModule :: RequiredConstraints r m => PersistentBlockState -> ModuleRef -> m (Maybe Module)
+doGetModule :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ModuleRef -> m (Maybe Module)
 doGetModule s modRef = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
     fmap persistentModuleToModule <$> Trie.lookup modRef (modules mods)
 
-doGetModuleList :: RequiredConstraints r m => PersistentBlockState -> m [ModuleRef]
+doGetModuleList :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> m [ModuleRef]
 doGetModuleList s = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
     Trie.keys (modules mods)
 
-doPutNewModule :: RequiredConstraints r m =>PersistentBlockState
+doPutNewModule :: IsSuitableForPersistentBlockState r m =>PersistentBlockState
     -> Wasm.ModuleInterface
     -> m (Bool, PersistentBlockState)
 doPutNewModule pbs pmInterface = do
@@ -425,17 +420,17 @@ doPutNewModule pbs pmInterface = do
         else
             return (False, pbs)
 
-doGetBlockBirkParameters :: RequiredConstraints r m => PersistentBlockState -> m PersistentBirkParameters
+doGetBlockBirkParameters :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> m PersistentBirkParameters
 doGetBlockBirkParameters pbs = bspBirkParameters <$> loadPBS pbs
 
-doAddBaker :: RequiredConstraints r m => PersistentBlockState -> BakerInfo -> m (Either BakerError BakerId, PersistentBlockState)
+doAddBaker :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> BakerInfo -> m (Either BakerError BakerId, PersistentBlockState)
 doAddBaker pbs binfo = do
         bsp <- loadPBS pbs
         createBaker binfo (bspBirkParameters bsp ^. birkCurrentBakers) >>= \case
             Left err -> return (Left err, pbs)
             Right (bid, newBakers) -> (Right bid,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
-doUpdateBaker :: RequiredConstraints r m => PersistentBlockState -> BB.BakerUpdate -> PersistentBlockStateMonad r m (Bool, PersistentBlockState)
+doUpdateBaker :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> BB.BakerUpdate -> PersistentBlockStateMonad r m (Bool, PersistentBlockState)
 doUpdateBaker pbs bupdate = do
         bsp <- loadPBS pbs
         PersistentBlockStateMonad (updateBaker bupdate (bspBirkParameters bsp ^. birkCurrentBakers)) >>= \case
@@ -443,48 +438,48 @@ doUpdateBaker pbs bupdate = do
             Just newBakers ->
               (True,) <$!> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
-doRemoveBaker :: RequiredConstraints r m => PersistentBlockState -> BakerId -> PersistentBlockStateMonad r m (Bool, PersistentBlockState)
+doRemoveBaker :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> BakerId -> PersistentBlockStateMonad r m (Bool, PersistentBlockState)
 doRemoveBaker pbs bid = do
         bsp <- loadPBS pbs
         (rv, newBakers) <- PersistentBlockStateMonad $ removeBaker bid (bspBirkParameters bsp ^. birkCurrentBakers)
         (rv,) <$> storePBS pbs (bsp {bspBirkParameters = bspBirkParameters bsp & birkCurrentBakers .~ newBakers})
 
-doGetRewardStatus :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m Rewards.BankStatus
+doGetRewardStatus :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m Rewards.BankStatus
 doGetRewardStatus pbs = _unhashed . bspBank <$> loadPBS pbs
 
-doSetInflation :: RequiredConstraints r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m PersistentBlockState
+doSetInflation :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m PersistentBlockState
 doSetInflation pbs amount = do
         bsp <- loadPBS pbs
         storePBS pbs (bsp {bspBank = bspBank bsp & unhashed . Rewards.mintedGTUPerSlot .~ amount})
 
-doMint :: RequiredConstraints r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m (Amount, PersistentBlockState)
+doMint :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m (Amount, PersistentBlockState)
 doMint pbs amount = do
         bsp <- loadPBS pbs
         let newBank = bspBank bsp & (unhashed . Rewards.totalGTU +~ amount) . (unhashed . Rewards.centralBankGTU +~ amount)
         (newBank ^. unhashed . Rewards.centralBankGTU,) <$> storePBS pbs (bsp {bspBank = newBank})
 
-doDecrementCentralBankGTU :: RequiredConstraints r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m (Amount, PersistentBlockState)
+doDecrementCentralBankGTU :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m (Amount, PersistentBlockState)
 doDecrementCentralBankGTU pbs amount = do
         bsp <- loadPBS pbs
         let newBank = bspBank bsp & unhashed . Rewards.centralBankGTU -~ amount
         (newBank ^. unhashed . Rewards.centralBankGTU,) <$> storePBS pbs (bsp {bspBank = newBank})
 
-doGetAccount :: RequiredConstraints r m => PersistentBlockState -> AccountAddress -> m (Maybe PersistentAccount)
+doGetAccount :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> AccountAddress -> m (Maybe PersistentAccount)
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccount addr (bspAccounts bsp)
 
-doAccountList :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m [AccountAddress]
+doAccountList :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m [AccountAddress]
 doAccountList pbs = do
         bsp <- loadPBS pbs
         Accounts.accountAddresses (bspAccounts bsp)
 
-doRegIdExists :: RequiredConstraints r m => PersistentBlockState -> ID.CredentialRegistrationID -> m Bool
+doRegIdExists :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doPutNewAccount :: RequiredConstraints r m => PersistentBlockState -> PersistentAccount -> m (Bool, PersistentBlockState)
+doPutNewAccount :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentAccount -> m (Bool, PersistentBlockState)
 doPutNewAccount pbs acct = do
         bsp <- loadPBS pbs
         -- Add the account
@@ -505,7 +500,7 @@ doPutNewAccount pbs acct = do
         else
             return (False, pbs)
 
-doModifyAccount :: RequiredConstraints r m => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
+doModifyAccount :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> AccountUpdate -> m PersistentBlockState
 doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
         -- Do the update to the account
@@ -527,19 +522,19 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
           newAcc <- Accounts.updateAccount aUpd oldAccount
           return (delegate, newAcc)
 
-doGetInstance :: RequiredConstraints r m => PersistentBlockState -> ContractAddress -> m (Maybe Instance)
+doGetInstance :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ContractAddress -> m (Maybe Instance)
 doGetInstance pbs caddr = do
         bsp <- loadPBS pbs
         minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
         forM minst $ fromPersistentInstance pbs
 
-doContractInstanceList :: RequiredConstraints r m => PersistentBlockState -> m [Instance]
+doContractInstanceList :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> m [Instance]
 doContractInstanceList pbs = do
         bsp <- loadPBS pbs
         insts <- Instances.allInstances (bspInstances bsp)
         mapM (fromPersistentInstance pbs) insts
 
-doPutNewInstance :: RequiredConstraints r m => PersistentBlockState -> (ContractAddress -> Instance) -> PersistentBlockStateMonad r m (ContractAddress, PersistentBlockState)
+doPutNewInstance :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> (ContractAddress -> Instance) -> PersistentBlockStateMonad r m (ContractAddress, PersistentBlockState)
 doPutNewInstance pbs fnew = do
         bsp <- loadPBS pbs
         -- Create the instance
@@ -581,7 +576,7 @@ doPutNewInstance pbs fnew = do
                 pinstanceHash = instanceHash
             })
 
-doModifyInstance :: RequiredConstraints r m => PersistentBlockState -> ContractAddress -> AmountDelta -> Wasm.ContractState -> m PersistentBlockState
+doModifyInstance :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ContractAddress -> AmountDelta -> Wasm.ContractState -> m PersistentBlockState
 doModifyInstance pbs caddr deltaAmnt val = do
         bsp <- loadPBS pbs
         -- Update the instance
@@ -610,7 +605,7 @@ doModifyInstance pbs caddr deltaAmnt val = do
                 return (Just acct, rehash (pinstanceParameterHash piParams) $ oldInst {pinstanceParameters = newParamsRef, pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst), pinstanceModel = val})
         rehash iph inst@(PersistentInstance {..}) = inst {pinstanceHash = makeInstanceHash' iph pinstanceModel pinstanceAmount}
 
-doDelegateStake :: RequiredConstraints r m => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
+doDelegateStake :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> AccountAddress -> Maybe BakerId -> m (Bool, PersistentBlockState)
 doDelegateStake pbs aaddr target = do
         bsp <- loadPBS pbs
         targetValid <- case target of
@@ -639,19 +634,19 @@ doDelegateStake pbs aaddr target = do
                     return (True, pbs')
         else return (False, pbs)
 
-doGetIdentityProvider :: RequiredConstraints r m => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
+doGetIdentityProvider :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ID.IdentityProviderIdentity -> m (Maybe IPS.IpInfo)
 doGetIdentityProvider pbs ipId = do
         bsp <- loadPBS pbs
         ips <- refLoad (bspIdentityProviders bsp)
         return $! IPS.idProviders ips ^? ix ipId
 
-doGetAllIdentityProvider :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m [IPS.IpInfo]
+doGetAllIdentityProvider :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m [IPS.IpInfo]
 doGetAllIdentityProvider pbs = do
         bsp <- loadPBS pbs
         ips <- refLoad (bspIdentityProviders bsp)
         return $! Map.elems $ IPS.idProviders ips
 
-doGetAnonymityRevokers :: RequiredConstraints r m => PersistentBlockState -> [ID.ArIdentity] -> PersistentBlockStateMonad r m (Maybe [ARS.ArInfo])
+doGetAnonymityRevokers :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> [ID.ArIdentity] -> PersistentBlockStateMonad r m (Maybe [ARS.ArInfo])
 doGetAnonymityRevokers pbs arIds = do
         bsp <- loadPBS pbs
         ars <- refLoad (bspAnonymityRevokers bsp)
@@ -659,57 +654,57 @@ doGetAnonymityRevokers pbs arIds = do
           $! let arsMap = ARS.arRevokers ars
               in forM arIds (`Map.lookup` arsMap)
 
-doGetAllAnonymityRevokers :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m [ARS.ArInfo]
+doGetAllAnonymityRevokers :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m [ARS.ArInfo]
 doGetAllAnonymityRevokers pbs = do
         bsp <- loadPBS pbs
         ars <- refLoad (bspAnonymityRevokers bsp)
         return $! Map.elems $ ARS.arRevokers ars
 
-doGetCryptoParams :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m CryptographicParameters
+doGetCryptoParams :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m CryptographicParameters
 doGetCryptoParams pbs = do
         bsp <- loadPBS pbs
         refLoad (bspCryptographicParameters bsp)
 
-doGetTransactionOutcome :: RequiredConstraints r m => PersistentBlockState -> Transactions.TransactionIndex -> PersistentBlockStateMonad r m (Maybe TransactionSummary)
+doGetTransactionOutcome :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> Transactions.TransactionIndex -> PersistentBlockStateMonad r m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! bspTransactionOutcomes bsp ^? ix transHash
 
-doSetTransactionOutcomes :: RequiredConstraints r m => PersistentBlockState -> [TransactionSummary] -> PersistentBlockStateMonad r m PersistentBlockState
+doSetTransactionOutcomes :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> [TransactionSummary] -> PersistentBlockStateMonad r m PersistentBlockState
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
 
-doNotifyExecutionCost :: RequiredConstraints r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m PersistentBlockState
+doNotifyExecutionCost :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m PersistentBlockState
 doNotifyExecutionCost pbs amnt = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspBank = bspBank bsp & unhashed . Rewards.executionCost +~ amnt}
 
-doNotifyIdentityIssuerCredential :: RequiredConstraints r m => PersistentBlockState -> ID.IdentityProviderIdentity -> PersistentBlockStateMonad r m PersistentBlockState
+doNotifyIdentityIssuerCredential :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ID.IdentityProviderIdentity -> PersistentBlockStateMonad r m PersistentBlockState
 doNotifyIdentityIssuerCredential pbs idk = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspBank = bspBank bsp & (unhashed . Rewards.identityIssuersRewards . at' idk . non 0) +~ 1}
 
-doGetExecutionCost :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m Amount
+doGetExecutionCost :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m Amount
 doGetExecutionCost pbs = (^. unhashed . Rewards.executionCost) . bspBank <$> loadPBS pbs
 
-doGetSpecialOutcomes :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m [Transactions.SpecialTransactionOutcome]
+doGetSpecialOutcomes :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m [Transactions.SpecialTransactionOutcome]
 doGetSpecialOutcomes pbs = (^. to bspTransactionOutcomes . Transactions.outcomeSpecial) <$> loadPBS pbs
 
-doGetOutcomes :: RequiredConstraints r m => PersistentBlockState -> PersistentBlockStateMonad r m (Vec.Vector TransactionSummary)
+doGetOutcomes :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBlockStateMonad r m (Vec.Vector TransactionSummary)
 doGetOutcomes pbs = (^. to bspTransactionOutcomes . to Transactions.outcomeValues) <$> loadPBS pbs
 
-doAddSpecialTransactionOutcome :: RequiredConstraints r m => PersistentBlockState -> Transactions.SpecialTransactionOutcome -> PersistentBlockStateMonad r m PersistentBlockState
+doAddSpecialTransactionOutcome :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> Transactions.SpecialTransactionOutcome -> PersistentBlockStateMonad r m PersistentBlockState
 doAddSpecialTransactionOutcome pbs !o = do
         bsp <- loadPBS pbs
         storePBS pbs $! bsp {bspTransactionOutcomes = bspTransactionOutcomes bsp & Transactions.outcomeSpecial %~ (o :)}
 
-doUpdateBirkParameters :: RequiredConstraints r m => PersistentBlockState -> PersistentBirkParameters -> PersistentBlockStateMonad r m PersistentBlockState
+doUpdateBirkParameters :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> PersistentBirkParameters -> PersistentBlockStateMonad r m PersistentBlockState
 doUpdateBirkParameters pbs newBirk = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspBirkParameters = newBirk}
 
-doSetElectionDifficulty :: RequiredConstraints r m => PersistentBlockState -> ElectionDifficulty -> PersistentBlockStateMonad r m PersistentBlockState
+doSetElectionDifficulty :: IsSuitableForPersistentBlockState r m => PersistentBlockState -> ElectionDifficulty -> PersistentBlockStateMonad r m PersistentBlockState
 doSetElectionDifficulty pbs d = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspBirkParameters = bspBirkParameters bsp & birkElectionDifficulty .~ d}
@@ -754,7 +749,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BirkParametersOperation
 
     updateSeedState f bps = return $ bps & birkSeedState %~ f
 
-instance RequiredConstraints r m => BlockStateQuery (PersistentBlockStateMonad r m) where
+instance IsSuitableForPersistentBlockState r m => BlockStateQuery (PersistentBlockStateMonad r m) where
     getModule = doGetModule
     getAccount = doGetAccount
     getContractInstance = doGetInstance
@@ -782,14 +777,14 @@ instance RequiredConstraints r m => BlockStateQuery (PersistentBlockStateMonad r
     {-# INLINE getAllIdentityProviders #-}
     {-# INLINE getAllAnonymityRevokers #-}
 
-doGetBakerStake :: RequiredConstraints r m => PersistentBakers -> BakerId -> PersistentBlockStateMonad r m (Maybe Amount)
+doGetBakerStake :: IsSuitableForPersistentBlockState r m => PersistentBakers -> BakerId -> PersistentBlockStateMonad r m (Maybe Amount)
 doGetBakerStake bs (BakerId bid) =
   PersistentBlockStateMonad $
     L.lookup bid (bs ^. bakerMap) >>= \case
       Just (Some (_, s)) -> return (Just s)
       _ -> return Nothing
 
-instance RequiredConstraints r m => BakerQuery (PersistentBlockStateMonad r m) where
+instance IsSuitableForPersistentBlockState r m => BakerQuery (PersistentBlockStateMonad r m) where
 
   getBakerStake = doGetBakerStake
 
@@ -809,7 +804,7 @@ instance RequiredConstraints r m => BakerQuery (PersistentBlockStateMonad r m) w
         binfo <- loadBufferedRef binfoRef
         return $ (i, FullBakerInfo binfo stake)
 
-instance RequiredConstraints r m => AccountOperations (PersistentBlockStateMonad r m) where
+instance IsSuitableForPersistentBlockState r m => AccountOperations (PersistentBlockStateMonad r m) where
 
   getAccountAddress acc = acc ^^. accountAddress
 
@@ -850,7 +845,7 @@ instance RequiredConstraints r m => AccountOperations (PersistentBlockStateMonad
     pData <- loadBufferedRef _persistingData
     return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt _accountEncryptedAmount pData
 
-instance RequiredConstraints r m => BlockStateOperations (PersistentBlockStateMonad r m) where
+instance IsSuitableForPersistentBlockState r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
     bsoGetAccount = doGetAccount
     bsoGetInstance = doGetInstance
@@ -906,7 +901,7 @@ instance RequiredConstraints r m => BlockStateOperations (PersistentBlockStateMo
     {-# INLINE bsoUpdateBirkParameters #-}
     {-# INLINE bsoSetElectionDifficulty #-}
 
-instance RequiredConstraints r m => BlockStateStorage (PersistentBlockStateMonad r m) where
+instance IsSuitableForPersistentBlockState r m => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}
     thawBlockState pbs = do
             bsp <- loadPBS pbs
