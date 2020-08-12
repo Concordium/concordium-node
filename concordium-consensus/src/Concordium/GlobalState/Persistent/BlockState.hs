@@ -763,7 +763,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => AccountOperations (Pers
                   }
           _accountNonce = minNonce
           _accountAmount = 0
-          _accountEncryptedAmount = []
+          _accountEncryptedAmount = initialAccountEncryptedAmount
       _persistingData <- makeBufferedRef pData
       let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
       return $ PersistentAccount {..}

@@ -5,6 +5,7 @@ module Concordium.GlobalState.Account where
 import Control.Monad
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
 import Data.Maybe
 import Data.Serialize
 import Lens.Micro.Platform
@@ -12,6 +13,7 @@ import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
+import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
 
@@ -28,6 +30,53 @@ data PersistingAccountData = PersistingAccountData {
 } deriving (Show, Eq)
 
 makeClassy ''PersistingAccountData
+
+-- | Encrypted amounts stored on an account.
+data AccountEncryptedAmount = AccountEncryptedAmount {
+  -- | Starting index for encrypted amounts.
+  _startIndex :: !EncryptedAmountAggIndex,
+  -- | Amounts starting at @startIndex@. They are assumed to be numbered sequentially.
+  _encryptedAmounts :: !(Seq.Seq EncryptedAmount)
+} deriving(Eq, Show)
+
+-- |Initial encrypted amount on a newly created account.
+initialAccountEncryptedAmount :: AccountEncryptedAmount
+initialAccountEncryptedAmount = AccountEncryptedAmount{
+  _startIndex = 0,
+  _encryptedAmounts = Seq.empty
+}
+
+instance Serialize AccountEncryptedAmount where
+  put AccountEncryptedAmount{..} = 
+    put _startIndex <>
+    putWord32be (fromIntegral (Seq.length _encryptedAmounts)) <>
+    mapM_ put _encryptedAmounts
+  
+  get = do 
+    _startIndex <- get
+    len <- getWord32be
+    _encryptedAmounts <- Seq.fromList <$> replicateM (fromIntegral len) get
+    return AccountEncryptedAmount{..}
+
+makeLenses ''AccountEncryptedAmount
+
+-- | Add an encrypted amount to the end of the list.
+addEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+addEncryptedAmount newAmount accEncAmount = accEncAmount & encryptedAmounts %~ (Seq.|> newAmount)
+
+-- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
+-- If the new index is before the 
+replaceUpTo :: EncryptedAmountAggIndex -> EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+replaceUpTo newIndex newAmount AccountEncryptedAmount{..} = 
+  AccountEncryptedAmount{
+    _startIndex = newStartIndex,
+    _encryptedAmounts = newEncryptedAmounts
+  }
+  where (newStartIndex, toDrop) = 
+          if newIndex > _startIndex 
+          then (newIndex, fromIntegral (newIndex - _startIndex)) 
+          else (_startIndex, 0)
+        newEncryptedAmounts = Seq.drop toDrop _encryptedAmounts Seq.|> newAmount
 
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
@@ -49,7 +98,7 @@ instance Serialize PersistingAccountData where
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> [EncryptedAmount] -> PersistingAccountData -> Hash.Hash
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> PersistingAccountData -> Hash.Hash
 makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put pd
 
@@ -68,9 +117,23 @@ setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at
 setThreshold :: HasPersistingAccountData d => SignatureThreshold -> d -> d
 setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })
 
-data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
-                           | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
-                           | Empty                    -- ^Do nothing to the encrypted amount.
+data EncryptedAmountUpdate = 
+  -- |Replace encrypted amounts less than the given index,
+  -- by appending the new amount at the end of the list of encrypted amounts.
+  -- This is used when sending an encrypted amount, as well as when transferring
+  -- from the encrypted to public balance.
+  ReplaceUpTo {
+    aggIndex :: !EncryptedAmountAggIndex,
+    newAmount :: !EncryptedAmount
+  }
+  -- |Add an encrypted amount to the end of the list of encrypted amounts.
+  -- This is used when transfering from public to encrypted balance, as well
+  -- as when receiving an encrypted amount.
+  | Add {
+    newAmount :: !EncryptedAmount
+  }
+  -- |Do nothing to the encrypted amount.
+  | Empty
 
 data AccountKeysUpdate =
     RemoveKeys !(Set.Set KeyIndex) -- Removes the keys at the specified indexes from the account

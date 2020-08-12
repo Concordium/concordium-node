@@ -216,8 +216,8 @@ updateAccount !upd !acc = do
   pData <- loadBufferedRef pDataRef
   let newEncryptedAmount = case upd ^. auEncrypted of
                                 Empty -> acc ^. accountEncryptedAmount
-                                Add ea -> ea:(acc ^. accountEncryptedAmount)
-                                Replace ea -> [ea]
+                                Add{..} -> acc ^. accountEncryptedAmount & addEncryptedAmount newAmount
+                                ReplaceUpTo{..} -> acc ^. accountEncryptedAmount & replaceUpTo aggIndex newAmount
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountEncryptedAmount .~ newEncryptedAmount

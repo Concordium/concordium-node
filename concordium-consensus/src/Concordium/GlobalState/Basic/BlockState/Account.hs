@@ -29,7 +29,7 @@ data Account = Account {
   _accountPersisting :: !PersistingAccountData
   ,_accountNonce :: !Nonce
   ,_accountAmount :: !Amount
-  ,_accountEncryptedAmount :: ![EncryptedAmount]
+  ,_accountEncryptedAmount :: !AccountEncryptedAmount
   } deriving(Show, Eq)
 
 makeLenses ''Account
@@ -65,5 +65,5 @@ newAccount _accountVerificationKeys _accountAddress credential = Account {
         },
         _accountNonce = minNonce,
         _accountAmount = 0,
-        _accountEncryptedAmount = []
+        _accountEncryptedAmount = initialAccountEncryptedAmount
     }
