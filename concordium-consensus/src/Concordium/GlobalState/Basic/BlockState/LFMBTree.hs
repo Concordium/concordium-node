@@ -1,3 +1,4 @@
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 -- |
@@ -33,6 +34,10 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     toAscPairListMaybes,
     fromAscListMaybes,
 
+    -- * Traversals
+    ix,
+    ixMaybe,
+
     -- * Helpers
     setBits,
 
@@ -49,6 +54,9 @@ import Data.Serialize
 import Data.Word
 import Prelude hiding (lookup)
 import Control.Monad (join)
+import Data.Coerce (coerce, Coercible)
+import Lens.Micro ((<&>), Traversal')
+import Data.Maybe (fromJust)
 {-
 -------------------------------------------------------------------------------
                                     Helpers
@@ -171,6 +179,16 @@ lookup k (NonEmpty s t) =
 lookupMaybe :: Key -> LFMBTree (Maybe v) -> Maybe v
 lookupMaybe k t = join $ lookup k t
 
+ix :: Coercible k Key => k -> Traversal' (LFMBTree v) v
+ix k f m = case lookup (coerce k) m of
+    Just v -> f v <&> (\v' -> snd . fromJust $ update (const ((), v')) (coerce k) m)
+    Nothing -> pure m
+
+ixMaybe :: Coercible k Key => k -> Traversal' (LFMBTree (Maybe v)) v
+ixMaybe k f m = case lookupMaybe (coerce k) m of
+    Just v -> f v <&> (\v' -> snd . fromJust $ update (const ((), Just v')) (coerce k) m)
+    Nothing -> pure m
+
 -- | Adds a value to the tree returning the assigned key and the new tree.
 append :: v -> LFMBTree v -> (Key, LFMBTree v)
 append v Empty = (0, NonEmpty 1 (Leaf v))
@@ -257,9 +275,9 @@ fromAscList = foldl' (\acc e -> snd $ append e acc) empty
 -- | Create a tree that holds the values wrapped in @Just@ when present and keeps @Nothing@s on the missing positions
 fromAscListMaybes :: [(Word64, v)] -> LFMBTree (Maybe v)
 fromAscListMaybes l = fromAscList $ go l 0
-  where go z@((i,v):xs) ix
-         | i == ix = Just v : go xs (i + 1)
-         | otherwise = (replicate (fromIntegral $ i - ix) Nothing) ++ go z i
+  where go z@((i,v):xs) idx
+         | i == idx = Just v : go xs (i + 1)
+         | otherwise = (replicate (fromIntegral $ i - idx) Nothing) ++ go z i
         go [] _ = []
 {-
 -------------------------------------------------------------------------------

@@ -309,8 +309,24 @@ emptyBlockState bspBirkParameters cryptParams = do
   identityProviders <- refMake IPS.emptyIdentityProviders
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
-  let temp =
-        BlockStatePointers
+  -- calculate hashes
+  birkHash <- getHashM bspBirkParameters
+  cryptoHash <- getHashM cryptographicParameters
+  ipsHash <- getHashM identityProviders
+  arsHash <- getHashM anonymityRevokers
+  modulesHash <- getHashM modules
+  accountsHash <- getHashM Accounts.emptyAccounts
+  instancesHash <- getHashM Instances.emptyInstances
+  let hashOfBirkParamsAndCryptoParams = H.hashOfHashes birkHash cryptoHash
+      hashOfIPsAndARs = H.hashOfHashes ipsHash arsHash
+      hashOfModulesAndBank = H.hashOfHashes modulesHash (getHash Rewards.emptyBankStatus)
+      hashOfAccountsAndInstances = H.hashOfHashes accountsHash instancesHash
+      hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
+      hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
+      blockStateHash = H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances
+  let bspHashes = Just Basic.BlockStateHashes {..}
+
+  bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
             bspInstances = Instances.emptyInstances,
             bspModules = modules,
@@ -319,11 +335,8 @@ emptyBlockState bspBirkParameters cryptParams = do
             bspAnonymityRevokers = anonymityRevokers,
             bspCryptographicParameters = cryptographicParameters,
             bspTransactionOutcomes = Transactions.emptyTransactionOutcomes,
-            bspHashes = undefined,
             ..
           }
-  hashes <- makeBlockHashesM temp
-  bsp <- makeBufferedRef $ temp {bspHashes = Just hashes}
   liftIO $ newIORef $! bsp
 
 fromPersistentInstance ::  IsSuitableForPersistentBlockState r m =>

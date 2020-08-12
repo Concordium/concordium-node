@@ -248,13 +248,13 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
 instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
 
-  getBakerStake bs (BakerId bid) = return (_bakerStake <$> join (L.lookup bid (bs ^. bakerMap)))
+  getBakerStake bs bid = return $ bs ^? bakerMap . L.ixMaybe bid . bakerStake
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs (BakerId bid) = return (_bakerInfo <$> join (L.lookup bid (bs ^. bakerMap)))
+  getBakerInfo bs bid = return $ bs ^? bakerMap . L.ixMaybe bid . bakerInfo
 
   getFullBakerInfos bks = return $ Map.fromAscList ([(BakerId i, v) | (i, Just v) <- L.toAscPairList $ _bakerMap bks])
 
@@ -400,7 +400,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         where
             targetValid = case target of
                 Nothing -> True
-                Just (BakerId bid) -> isJust $ join $ L.lookup bid (bs ^. blockBirkParameters . birkCurrentBakers . bakerMap)
+                Just bid -> isJust (bs ^? blockBirkParameters . birkCurrentBakers . bakerMap . L.ix bid)
             acct = fromMaybe (error "Invalid account address") $ bs ^? blockAccounts . ix aaddr
             stake = acct ^. accountAmount +
                 sum [Instances.instanceAmount inst |
