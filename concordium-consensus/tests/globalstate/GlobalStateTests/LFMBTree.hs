@@ -1,7 +1,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-
+Creates a new LFMBTree using HashedBufferedRefs and BufferedRefs and check it is well formed and that items are accessible.
 
+In the case of the tree that uses HashedBufferedRefs we also check that the hash of the structure is the correct one even after
+updating one of the nodes.
+-}
 module GlobalStateTests.LFMBTree where
 
 import qualified Concordium.Crypto.SHA256 as H

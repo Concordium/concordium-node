@@ -86,13 +86,13 @@ makeBlockHashesM BlockStatePointers {..} = do
   modulesHash <- getHashM bspModules
   accountsHash <- getHashM bspAccounts
   instancesHash <- getHashM bspInstances
-  let hashOfBirkParamsAndCryptoParams = H.hash $ H.hashToByteString birkHash <> H.hashToByteString cryptoHash
-      hashOfIPsAndARs = H.hash $ H.hashToByteString ipsHash <> H.hashToByteString arsHash
-      hashOfModulesAndBank = H.hash $ H.hashToByteString modulesHash <> H.hashToByteString (getHash bspBank)
-      hashOfAccountsAndInstances = H.hash $ H.hashToByteString accountsHash <> H.hashToByteString instancesHash
-      hashOfBirkCryptoIPsARs = H.hash $ H.hashToByteString hashOfBirkParamsAndCryptoParams <> H.hashToByteString hashOfIPsAndARs
-      hashOfModulesBankAccountsIntances = H.hash $ H.hashToByteString hashOfModulesAndBank <> H.hashToByteString hashOfAccountsAndInstances
-      blockStateHash = H.hash $ H.hashToByteString hashOfBirkCryptoIPsARs <> H.hashToByteString hashOfModulesBankAccountsIntances
+  let hashOfBirkParamsAndCryptoParams = H.hashOfHashes birkHash cryptoHash
+      hashOfIPsAndARs = H.hashOfHashes ipsHash arsHash
+      hashOfModulesAndBank = H.hashOfHashes modulesHash (getHash bspBank)
+      hashOfAccountsAndInstances = H.hashOfHashes accountsHash instancesHash
+      hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
+      hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
+      blockStateHash = H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances
   return Basic.BlockStateHashes {..}
 
 instance CanStoreAndHashBlockState r m => MHashableTo m H.Hash BlockStatePointers where

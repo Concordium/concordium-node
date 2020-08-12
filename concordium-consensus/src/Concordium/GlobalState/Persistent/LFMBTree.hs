@@ -51,6 +51,7 @@ import Concordium.Types.HashableTo
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (setBits)
 import Data.Bits
 import Data.Kind
 import Data.Serialize
@@ -62,10 +63,6 @@ import Prelude hiding (lookup)
                                     Helpers
 -------------------------------------------------------------------------------
 -}
-
--- | Helper function that returns a saturated @Bits@ value until position @h@
-setBits :: (Bits a, Num a) => Int -> a
-setBits h = bit (h + 1) - 1
 
 -- | Local alias for the height of a node.
 -- Leaf's height is defined as -1 and the height of a
@@ -117,12 +114,8 @@ instance
     hr <- getHashM r
     return $ H.hashOfHashes hl hr
 
--- | The hash of a LFMBTree is defined as the hash of the empty string if it
+-- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
---
--- Hash calculations might require accessing the items on the storage so
--- it is bound to a monadic computation. Therefore we can only define an
--- instance that hashes into an @m H.Hash@.
 instance
   ( Monad m,
     MHashableTo m H.Hash (ref v), -- references to values       must be mhashable
@@ -155,25 +148,25 @@ type CanStoreLFMBTree r m ref v =
 instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
   store p (Leaf ref) = do
     pt <- store p ref
-    return (put (0 :: Word8) >> pt)
+    return (putWord8 0 >> pt)
   store p (Node height left right) = do
     l <- store p left
     r <- store p right
     return $ do
-      put (1 :: Word8)
+      putWord8 1
       putWord64be height
       l
       r
 
   storeUpdate p (Leaf ref) = do
     (pt, ref') <- storeUpdate p ref
-    return (put (0 :: Word8) >> pt, Leaf ref')
+    return (putWord8 0 >> pt, Leaf ref')
   storeUpdate p (Node height left right) = do
     (leftp, left') <- storeUpdate p left
     (rightp, right') <- storeUpdate p right
     return
       ( do
-          put (1 :: Word8)
+          putWord8 1
           putWord64be height
           leftp
           rightp,
@@ -181,7 +174,7 @@ instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
       )
 
   load p = do
-    t <- get :: Get Word8
+    t <- getWord8
     case t of
       0 -> do
         val <- load p
@@ -364,7 +357,7 @@ toAscPairList t = zip [0..] <$> toAscList t
 fromAscList :: CanStoreLFMBTree r m ref v => [v] -> m (LFMBTree ref v)
 fromAscList = foldM (\acc e -> snd <$> append e acc) empty
 
--- | Create a tree that holds the values wrapped in @Just@ when present and keeps @Nothing@s on the missing positions
+-- | Create a tree that holds the values wrapped in @Some@ when present and keeps @Null@s on the missing positions
 fromAscListNullable :: CanStoreLFMBTree r m ref (Nullable v) => [(Word64, v)] -> m (LFMBTree ref (Nullable v))
 fromAscListNullable l = fromAscList $ go l 0
   where go z@((i,v):xs) ix
