@@ -44,6 +44,7 @@ import Data.Ratio
 import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
+import Data.Set (Set)
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -64,7 +65,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
-import Data.Set (Set)
+
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -124,7 +125,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountVerificationKeys :: Account m -> m ID.AccountKeys
 
   -- |Get the list of encrypted amounts on the account
-  getAccountEncryptedAmount :: Account m -> m [EncryptedAmount]
+  getAccountEncryptedAmount :: Account m -> m AccountEncryptedAmount
 
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)

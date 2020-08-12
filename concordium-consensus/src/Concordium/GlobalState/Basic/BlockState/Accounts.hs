@@ -98,8 +98,8 @@ updateAccount !upd
     updateAmount = maybeUpdate (upd ^. auAmount) $ \d -> accountAmount %~ applyAmountDelta d
     updateEncryptedAmount = case upd ^. auEncrypted of
       Empty -> id
-      Add ea -> accountEncryptedAmount %~ (ea:)
-      Replace ea -> accountEncryptedAmount .~ [ea]
+      Add{..} -> accountEncryptedAmount %~ addEncryptedAmount newAmount
+      ReplaceUpTo{..} -> accountEncryptedAmount %~ replaceUpTo aggIndex newAmount
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.

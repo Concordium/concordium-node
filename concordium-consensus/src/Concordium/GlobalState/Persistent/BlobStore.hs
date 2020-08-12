@@ -521,8 +521,7 @@ instance (MonadBlobStore m ref) => BlobStorable m ref Account
 instance (MonadBlobStore m ref) => BlobStorable m ref Amount
 instance (MonadBlobStore m ref) => BlobStorable m ref BakerId
 instance (MonadBlobStore m ref) => BlobStorable m ref BakerInfo
-instance (MonadBlobStore m ref) => BlobStorable m ref EncryptedAmount
 -- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
-instance (MonadBlobStore m ref) => BlobStorable m ref [EncryptedAmount]
+instance (MonadBlobStore m ref) => BlobStorable m ref AccountEncryptedAmount
 instance (MonadBlobStore m ref) => BlobStorable m ref PersistingAccountData
 instance (MonadBlobStore m ref) => BlobStorable m ref Word64
