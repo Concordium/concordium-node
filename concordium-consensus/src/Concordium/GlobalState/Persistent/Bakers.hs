@@ -41,16 +41,10 @@ data PersistentBakers = PersistentBakers {
 
 makeLenses ''PersistentBakers
 
-type CanStorePersistentBakers r m =
-  ( MonadIO m,
-    MonadReader r m,
-    HasBlobStore r
-  )
-
-instance CanStorePersistentBakers r m => MHashableTo m H.Hash PersistentBakers where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash PersistentBakers where
   getHashM PersistentBakers {..} = getHashM _bakerMap
 
-instance CanStorePersistentBakers r m => BlobStorable m BlobRef PersistentBakers where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef PersistentBakers where
     storeUpdate p PersistentBakers{..} = do
         (pInfoMap, bInfoMap) <- storeUpdate p _bakerMap
         let newBakers = PersistentBakers {
@@ -83,12 +77,13 @@ instance CanStorePersistentBakers r m => BlobStorable m BlobRef PersistentBakers
                   t + stake,
                   Set.insert _bakerAggregationVerifyKey aks
                 )
-        (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- (\l -> foldM collectBakerInfo (Map.empty, 0, Set.empty) [(BakerId bid, b) | (bid, Some b) <- l]) =<< L.toAscPairList _bakerMap
+        list <- L.toAscPairList _bakerMap
+        (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) [(BakerId bid, b) | (bid, Some b) <- list]
         return PersistentBakers {..}
 
 -- |Convert an in-memory 'Basic.Bakers' value to a persistent 'PersistentBakers' value.
 -- The new object is not yet stored on disk.
-makePersistentBakers :: CanStorePersistentBakers r m => Basic.Bakers -> m PersistentBakers
+makePersistentBakers :: (MonadIO m, MonadReader r m, HasBlobStore r) => Basic.Bakers -> m PersistentBakers
 makePersistentBakers Basic.Bakers {..} = do
     bm <- mapM toPersistentElem $ LB.toAscList _bakerMap
     _bakerMap <- L.fromAscList bm
@@ -99,7 +94,7 @@ makePersistentBakers Basic.Bakers {..} = do
         return $ Some (bakerRef, _bakerStake)
       toPersistentElem Nothing = return Null
 
-createBaker :: CanStorePersistentBakers r m => BakerInfo -> PersistentBakers -> m (Either BakerError (BakerId, PersistentBakers))
+createBaker :: (MonadIO m, MonadReader r m, HasBlobStore r) => BakerInfo -> PersistentBakers -> m (Either BakerError (BakerId, PersistentBakers))
 createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey _bakerAccount) bkrs = do
     let bInfoMap = bkrs ^. bakerMap
     case bkrs ^. bakersByKey . at' _bakerSignatureVerifyKey of
@@ -122,7 +117,7 @@ createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAg
 -- |Update a given baker. If this would lead to duplicate baker signing keys
 -- return 'Nothing'. If the baker with the given id does not exist this function
 -- returns the original 'PersistentBakers' object.
-updateBaker :: CanStorePersistentBakers r m => Basic.BakerUpdate -> PersistentBakers -> m (Maybe PersistentBakers)
+updateBaker :: (MonadIO m, MonadReader r m, HasBlobStore r) => Basic.BakerUpdate -> PersistentBakers -> m (Maybe PersistentBakers)
 updateBaker Basic.BakerUpdate {..} !bakers = do
   let bInfoMap = bakers ^. bakerMap
       BakerId bid = _buId
@@ -158,7 +153,7 @@ updateBaker Basic.BakerUpdate {..} !bakers = do
 
 -- | Removes a baker from the 'PersistentBakers' data type and returns the resulting bakers plus a flag indicating whether
 -- the baker was successfully removed (i.e. whether the baker with the given ID was part of the bakers).
-removeBaker :: CanStorePersistentBakers r m => BakerId -> PersistentBakers -> m (Bool, PersistentBakers)
+removeBaker :: (MonadIO m, MonadReader r m, HasBlobStore r) => BakerId -> PersistentBakers -> m (Bool, PersistentBakers)
 removeBaker (BakerId bid) !bakers = do
     let bInfoMap = bakers ^. bakerMap
     mBakerInfo <- L.lookupNullable bid bInfoMap
@@ -175,7 +170,7 @@ removeBaker (BakerId bid) !bakers = do
                             & bakersByKey . at' (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as well.
                             & (bakerTotalStake %~ subtract stake))
 
-modifyStake :: CanStorePersistentBakers r m => Maybe BakerId -> AmountDelta -> PersistentBakers -> m PersistentBakers
+modifyStake :: (MonadIO m, MonadReader r m, HasBlobStore r) => Maybe BakerId -> AmountDelta -> PersistentBakers -> m PersistentBakers
 modifyStake (Just (BakerId bid)) delta bakers = do
     let bInfoMap = bakers ^. bakerMap
     updated <- L.update thisUpdate bid bInfoMap
@@ -190,8 +185,8 @@ modifyStake (Just (BakerId bid)) delta bakers = do
       thisUpdate (Some (bakerRef, stake)) = return ((), Some (bakerRef, applyAmountDelta delta stake))
 modifyStake _ _ bakers = return bakers
 
-addStake :: CanStorePersistentBakers r m => Maybe BakerId -> Amount -> PersistentBakers -> m PersistentBakers
+addStake :: (MonadIO m, MonadReader r m, HasBlobStore r) => Maybe BakerId -> Amount -> PersistentBakers -> m PersistentBakers
 addStake bid amt = modifyStake bid (amountToDelta amt)
 
-removeStake :: CanStorePersistentBakers r m => Maybe BakerId -> Amount -> PersistentBakers -> m PersistentBakers
+removeStake :: (MonadIO m, MonadReader r m, HasBlobStore r) => Maybe BakerId -> Amount -> PersistentBakers -> m PersistentBakers
 removeStake bid amt = modifyStake bid (- amountToDelta amt)

@@ -65,9 +65,6 @@ data Accounts = Accounts {
     accountRegIdHistory :: !RegIdHistory
 }
 
-type CanStoreAccounts r m =
-  (MonadReader r m, HasBlobStore r, MHashableTo m H.Hash PersistentAccount, MonadBlobStore m BlobRef, MonadIO m)
-
 -- |Convert a (non-persistent) 'Transient.Accounts' to a (persistent) 'Accounts'.
 -- The new object is not yet stored on disk.
 makePersistent :: (MHashableTo m H.Hash PersistentAccount, MonadReader r m, HasBlobStore r, MonadIO m) => Transient.Accounts -> m Accounts
@@ -82,7 +79,7 @@ makePersistent (Transient.Accounts amap atbl aregids) = do
 instance Show Accounts where
     show a = show (accountTable a)
 
-instance CanStoreAccounts r m => MHashableTo m H.Hash Accounts where
+instance (MonadReader r m, HasBlobStore r, MHashableTo m H.Hash PersistentAccount, MonadBlobStore m BlobRef, MonadIO m) => MHashableTo m H.Hash Accounts where
   getHashM Accounts {..} = getHashM accountTable
 
 -- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
