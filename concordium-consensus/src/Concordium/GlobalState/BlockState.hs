@@ -45,6 +45,7 @@ import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import Data.Set (Set)
+import qualified Data.Sequence as Seq
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -65,6 +66,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
+import Concordium.Crypto.EncryptedTransfers
 
 
 -- |Index of the module in the module table. Reflects when the module was added
@@ -124,8 +126,18 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountKeys
 
-  -- |Get the list of encrypted amounts on the account
+  -- |Get the current encrypted amount on the account.
   getAccountEncryptedAmount :: Account m -> m AccountEncryptedAmount
+
+  -- |Get the next index of the encrypted amount for this account. Next here refers
+  -- to the index a newly added encrypted amount will receive.
+  -- This has a default implementation in terms of 'getAccountEncryptedAmount',
+  -- but it could be replaced by more efficient implementations for, e.g.,
+  -- the persistent instance
+  getNextEncryptedAmountIndex :: Account m -> m EncryptedAmountIndex
+  getNextEncryptedAmountIndex acc = do
+    AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
+    return $! addToAggIndex _startIndex (fromIntegral (Seq.length _encryptedAmounts))
 
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
