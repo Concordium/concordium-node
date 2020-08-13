@@ -20,11 +20,15 @@ stages:
       - .stack-work
       - crypto/.stack-work
       - Concordium/.stack-work
+      - globalstate-mockup/deps/haskell-lmdb/.stack-work
       - globalstate-mockup/globalstate/.stack-work
       - globalstate-types/.stack-work
       - scheduler/.stack-work
       - consensus-rust/target
       - crypto/rust-src/target
+      - smart-contracts/wasmer-interp/target
+      - wasm/.stack-work
+
   before_script:
     - rustc --version && cargo --version
     - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
@@ -104,7 +108,7 @@ stages:
   extends: .generic-haskell-test
   stage: test
   script:
-    - "( cd scheduler/testdata/contracts && ( for wat in *wat; do wat2wasm $wat; done ) )"
+    - "( ./.diff-wat-wasm.sh )"
     - "stack test scheduler --bench --no-run-benchmarks"
 
 "stack:test:consensus":
