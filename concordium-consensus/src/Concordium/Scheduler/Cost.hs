@@ -218,3 +218,8 @@ addAccountKeys = updateAccountKeys
 -- has no cost except for that of checking the header.
 removeAccountKeys :: Int -> Energy
 removeAccountKeys _n = 0
+
+-- |Cost of an encrypted amount transfer validation.
+-- FIXME: After we have benchmarked proof checking update this.
+encryptedAmountTransfer :: Energy
+encryptedAmountTransfer = 10000
