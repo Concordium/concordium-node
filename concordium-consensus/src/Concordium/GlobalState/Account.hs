@@ -36,6 +36,10 @@ data AccountEncryptedAmount = AccountEncryptedAmount {
   -- | Starting index for encrypted amounts.
   _startIndex :: !EncryptedAmountAggIndex,
   -- | Amounts starting at @startIndex@. They are assumed to be numbered sequentially.
+  -- FIXME: Limit the number of amounts that can be in this list.
+  -- If a new amount is added that exceeds the limit, the first two amounts should be aggregated
+  -- into one, and start-index increased.
+  -- The limit should be a runtime parameter.
   _encryptedAmounts :: !(Seq.Seq EncryptedAmount)
 } deriving(Eq, Show)
 
@@ -131,13 +135,12 @@ data EncryptedAmountUpdate =
   -- as when receiving an encrypted amount.
   | Add {
     newAmount :: !EncryptedAmount
-  }
-  -- |Do nothing to the encrypted amount.
-  | Empty
+  } deriving(Eq, Show)
 
 data AccountKeysUpdate =
     RemoveKeys !(Set.Set KeyIndex) -- Removes the keys at the specified indexes from the account
   | SetKeys !(Map.Map KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
+  deriving(Eq)
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -147,19 +150,21 @@ data AccountUpdate = AccountUpdate {
   ,_auNonce :: !(Maybe Nonce)
   -- |Optionally an update to the account amount.
   ,_auAmount :: !(Maybe AmountDelta)
-  -- |Optionally an update to the encrypted amounts.
-  ,_auEncrypted :: !EncryptedAmountUpdate
+  -- |Optionally a series of updates to the encrypted amounts. The updates will
+  -- be applied in the __reverse__ order, i.e., last update takes affect first,
+  -- followed by second to last, ...
+  ,_auEncrypted :: ![EncryptedAmountUpdate]
   -- |Optionally a new credential.
   ,_auCredential :: !(Maybe CredentialDeploymentValues)
   -- |Optionally an update to the account keys
   ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
   -- |Optionally update the signature threshold
   ,_auSignThreshold :: !(Maybe SignatureThreshold)
-}
+} deriving(Eq)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing Nothing Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing [] Nothing Nothing Nothing
 
 -- |Optionally add a credential to an account.
 {-# INLINE updateCredential #-}

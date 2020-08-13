@@ -134,10 +134,19 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- This has a default implementation in terms of 'getAccountEncryptedAmount',
   -- but it could be replaced by more efficient implementations for, e.g.,
   -- the persistent instance
-  getNextEncryptedAmountIndex :: Account m -> m EncryptedAmountIndex
-  getNextEncryptedAmountIndex acc = do
+  getAccountEncryptedAmountNextIndex :: Account m -> m EncryptedAmountIndex
+  getAccountEncryptedAmountNextIndex acc = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
     return $! addToAggIndex _startIndex (fromIntegral (Seq.length _encryptedAmounts))
+
+  -- |Get an encrypted amount at index, if possible.
+  -- This has a default implementation in terms of `getAccountEncryptedAmount`.
+  getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m (Maybe EncryptedAmount)
+  getAccountEncryptedAmountAtIndex acc index = do
+    AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
+    if index >= _startIndex then
+      return $! Seq.lookup (fromIntegral (index - _startIndex)) _encryptedAmounts
+    else return Nothing
 
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
