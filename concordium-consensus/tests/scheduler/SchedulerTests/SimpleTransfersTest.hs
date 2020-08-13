@@ -29,30 +29,30 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    100000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 }
+  [TJSON { payload = Transfer {toaddress = alesAccount, amount = 10000 }
          , metadata = makeDummyHeader alesAccount 1 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 88 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 8800 }
          , metadata = makeDummyHeader alesAccount 2 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 98700 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 9870000 }
          , metadata = makeDummyHeader alesAccount 3 1000
          , keys = [(0, alesKP)]
          }
-  ,TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 }
+  ,TJSON { payload = Transfer {toaddress = alesAccount, amount = 10000 }
          , metadata = makeDummyHeader thomasAccount 1 500
          , keys = [(0, thomasKP)]
          }
     -- the next transaction should fail because the balance on alesAccount is now 1282, which is
     -- less than 600 + 700
-  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 600 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 60000 }
          , metadata = makeDummyHeader alesAccount 4 700
          , keys = [(0, alesKP)]
          }
@@ -87,8 +87,8 @@ checkSimpleTransferResult (suc, fails, alesamount, thomasamount) = do
   assertEqual "There should be no failed transactions." [] fails
   assertBool "Last transaction is rejected." reject
   assertBool "Initial transactions are accepted." nonreject
-  assertEqual "Amount on first account." alesamount (100000 - 4 * fromIntegral simpleTransferCost - 88 - 98700 + 100)
-  assertEqual "Amount on the second account." thomasamount (100000 - fromIntegral simpleTransferCost + 88 + 98700 - 100)
+  assertEqual "Amount on first account." alesamount (10000000 - 100 * 4 * fromIntegral simpleTransferCost - 8800 - 9870000 + 10000)
+  assertEqual "Amount on the second account." thomasamount (10000000 - 100 * fromIntegral simpleTransferCost + 8800 + 9870000 - 10000)
   where
     nonreject = all (\case (_, Types.TxSuccess{}) -> True
                            (_, Types.TxReject{}) -> False)
