@@ -18,12 +18,13 @@ import Control.Monad.Cont hiding (cont)
 
 import Lens.Micro.Platform
 
+import Concordium.Crypto.EncryptedTransfers
 import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.Account (AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
 import Concordium.GlobalState.AccountTransactionIndex
@@ -288,6 +289,13 @@ class StaticInformation m => TransactionMonad m where
   -- computation in the modified environment.
   withContractToContractAmount :: Instance -> Instance -> Amount -> m a -> m a
 
+  -- |Replace encrypted amounts on an account up to (but not including) the
+  -- given limit with a new amount. Return the index of the new amount.
+  replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m EncryptedAmountIndex
+
+  -- |Add a new encrypted amount to an account, and return its index.
+  addEncryptedAmount :: Account m -> EncryptedAmount -> m EncryptedAmountIndex
+
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
@@ -375,6 +383,20 @@ emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
   (emptyCS txHash) & accountUpdates . at addr ?~ (emptyAccountUpdate addr & auAmount ?~ amnt)
+
+-- |Add the encryped amount update to the list of updates, and return the index of the additional
+-- encrypted amount added to the account.
+addEncryptedAmountUpdateToCS :: AccountOperations m => Account m -> EncryptedAmountUpdate -> ChangeSet -> m (EncryptedAmountIndex, ChangeSet)
+addEncryptedAmountUpdateToCS acc update cs = do
+  addr <- getAccountAddress acc
+  -- NB: The <<%~ is crucial, we need to get the old state because the next
+  -- index is already the index of the next encrypted amount that will be added
+  -- to the account.
+  let (updates, cs') = cs & accountUpdates . at addr . non (emptyAccountUpdate addr) . auEncrypted <<%~ (update:)
+  nextIndex <- getAccountEncryptedAmountNextIndex acc
+  -- the next index is the next index currently existing on the account + the number of pending updates.
+  -- NB: This relies on the fact that each encrypted amount update adds a new index.
+  return (nextIndex + fromIntegral (length updates), cs')
 
 -- |Record an addition to the amount of the given account in the changeset.
 {-# INLINE addAmountToCS #-}
@@ -661,6 +683,18 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS toAcc (amountToDelta amount)
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
+
+  replaceEncryptedAmount acc aggIndex newAmount = do
+    cs <- use changeSet
+    (newIndex, cs') <- addEncryptedAmountUpdateToCS acc ReplaceUpTo{..} cs
+    changeSet .= cs'
+    return newIndex
+
+  addEncryptedAmount acc newAmount = do
+    cs <- use changeSet
+    (newIndex, cs') <- addEncryptedAmountUpdateToCS acc Add{..} cs
+    changeSet .= cs'
+    return newIndex
 
   getCurrentAccount addr = do
     liftLocal (getAccount addr) >>= \case

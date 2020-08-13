@@ -56,6 +56,7 @@ import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
 import qualified Concordium.Scheduler.Cost as Cost
+import Concordium.Crypto.EncryptedTransfers
 
 import Control.Applicative
 import Control.Monad.Except
@@ -280,10 +281,85 @@ dispatch msg = do
                    RemoveAccountKeys{..} ->
                      handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndices rakThreshold
 
+                   EncryptedAmountTransfer{..} ->
+                     handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatRemainingAmount eatTransferAmount eatIndex eatProof
+
+                   TransferToEncrypted{..} -> error "Unimplemented."
+
+                   TransferToPublic{..} -> error "Unimplemented."
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
+
+handleEncryptedAmountTransfer ::
+  SchedulerMonad m
+  => WithDepositContext m
+  -> AccountAddress -- ^ Receiver address.
+  -> EncryptedAmount -- ^ Remaining amount.
+  -> EncryptedAmount -- ^ Amount to transfer.
+  -> EncryptedAmountAggIndex -- ^ Index indicating which amounts were used in the transfer.
+  -> EncryptedAmountTransferProof -- ^ Proof of validity of the transfer.
+  -> m (Maybe TransactionSummary)
+handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index proof = do
+  cryptoParams <- getCrypoParams
+  withDeposit wtc (c cryptoParams) k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+
+        c cryptoParams = do
+          -- Look up the sender account first, and don't charge if it does not exist
+          -- and does not have a valid credential.
+          targetAccount <- getCurrentAccount toAddress `rejectingWith` InvalidAccountReference toAddress
+          cm <- getChainMetadata
+          validCredExists <- existsValidCredential cm targetAccount
+          unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential toAddress)
+
+          -- Get the encrypted amount at the index that the transfer claims to be using.
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount index `rejectingWith` (InvalidEncryptedAmountIndex index)
+
+          -- After we've checked all of that, we charge.
+          tickEnergy Cost.encryptedAmountTransfer
+
+          -- and then we start validating the proof. This is the most expensive
+          -- part of the validation by far, the rest only being lookups.
+          let valid = verifyEncryptedTransferProof cryptoParams senderAmount remainingAmount transferAmount proof
+
+          unless valid $ rejectTransaction InvalidEncryptedAmountTransferProof
+
+          -- if the proof is valid we need to
+          -- - update the receiver account with an additional amount
+          -- - replace some encrypted amounts on the sender's account
+          -- We do this by first replacing on the sender's account, and then adding.
+          -- This order only has an effect if the sender and receiver accounts are the same.
+
+          remainingAmountIndex <- replaceEncryptedAmount senderAccount index remainingAmount
+          -- The index that the new amount on the receiver's account will get
+          targetAccountIndex <- addEncryptedAmount targetAccount transferAmount
+
+          return (remainingAmountIndex, targetAccountIndex)
+
+        k ls (remainingAmountIndex, targetAccountIndex) = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+
+          senderAddress <- getAccountAddress senderAccount
+          return (TxSuccess [EncryptedAmountsRemoved{earUpToIndex = index},
+                             NewEncryptedAmount{
+                                neaAccount = senderAddress,
+                                neaNewIndex = remainingAmountIndex,
+                                neaEncryptedAmount = remainingAmount
+                                },
+                             NewEncryptedAmount{
+                                neaAccount = toAddress,
+                                neaNewIndex = targetAccountIndex,
+                                neaEncryptedAmount = transferAmount
+                                }
+                            ],
+                   energyCost,
+                   usedEnergy)
 
 -- | Handle the deployment of a module.
 handleDeployModule ::
