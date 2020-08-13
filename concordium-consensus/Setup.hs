@@ -36,8 +36,8 @@ makeRust args flags = do
                 ["build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
                 (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
             _ <- rawSystemExitCode verbosity "mkdir" ["../smart-contracts/lib"]
-            rawSystemExit verbosity "cp" ["../smart-contracts/wamser-interp/target/release/*wasmer_interp*.a", "../smart-contracts/lib/"]
-            rawSystemExit verbosity "cp" ["../smart-contracts/wamser-interp/target/release/*wasmer_interp*.so", "../smart-contracts/lib/"]
+            rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/libwasmer_interp.a", "../smart-contracts/lib/"]
+            rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/libwasmer_interp.so", "../smart-contracts/lib/"]
     return emptyHookedBuildInfo
 
 -- This is a quick and dirty hook to copy the wasmer_interp DLL on Windows.
