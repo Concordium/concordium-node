@@ -10,7 +10,7 @@ stages:
     GIT_SUBMODULE_STRATEGY: recursive
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/rust-src/target/release:${CI_PROJECT_DIR}/smart-contracts/wasmer-interp/target/release:$LD_LIBRARY_PATH"
+    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/lib:${CI_PROJECT_DIR}/smart-contracts/lib:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
     RUSTFLAGS: -Dwarnings
     EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
@@ -26,7 +26,9 @@ stages:
       - scheduler/.stack-work
       - consensus-rust/target
       - crypto/rust-src/target
+      - crypto/lib
       - smart-contracts/wasmer-interp/target
+      - smart-contracts/lib
       - wasm/.stack-work
 
   before_script:
