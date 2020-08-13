@@ -24,8 +24,8 @@ import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    10000000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
+    10000000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
 
 testCases :: [TestCase]
 testCases =

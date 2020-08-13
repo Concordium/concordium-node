@@ -29,8 +29,8 @@ import SchedulerTests.Helpers
 -- Create initial state where alesAccount has a valid credential, but thomasAccount does not.
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    100000
-    (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 
 transactionsInput :: [TransactionJSON]
