@@ -104,7 +104,7 @@ expiryTime :: Types.TransactionExpiryTime
 expiryTime = 1
 
 slotTime :: Types.Timestamp
-slotTime = fromIntegral (Types.expiry expiryTime) * 1000
+slotTime = Types.transactionTimeToTimestamp expiryTime
 
 type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],

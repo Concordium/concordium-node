@@ -13,6 +13,7 @@ import GHC.Stack
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Updates
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
@@ -470,9 +471,15 @@ doReceiveTransactionInternal tr slot =
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.
                   when (nextNonce <= transactionNonce tx) $
-                      putPendingTransactions $! extendPendingTransactionTable nextNonce WithMetadata{wmdData=tx,..} ptrs
-                CredentialDeployment _ -> do
-                  putPendingTransactions $! extendPendingTransactionTable' wmdHash ptrs
+                      putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                CredentialDeployment _ ->
+                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                ChainUpdate cu -> do
+                    focus <- getFocusBlock
+                    st <- blockState focus
+                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                        putPendingTransactions $! addPendingUpdate nextSN cu ptrs
               return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)

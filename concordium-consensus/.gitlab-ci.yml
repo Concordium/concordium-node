@@ -22,6 +22,7 @@ stages:
       - acorn/.stack-work
       - Concordium/.stack-work
       - globalstate-mockup/globalstate/.stack-work
+      - globalstate-mockup/deps/haskell-lmdb/.stack-work
       - globalstate-types/.stack-work
       - scheduler/.stack-work
       - consensus-rust/target

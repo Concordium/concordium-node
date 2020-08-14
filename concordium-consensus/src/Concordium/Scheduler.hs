@@ -1159,6 +1159,21 @@ handleAddAccountKeys wtc keys threshold =
       else
         return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
 
+-- * Chain updates
+
+-- |Handle a chain update message
+handleChainUpdate ::
+  SchedulerMonad m
+  => WithMetadata UpdateInstruction
+  -> m TxResult
+handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
+  auths <- getUpdateAuthorizations 
+  if checkUpdateInstructionSignatures auths ui then
+    undefined
+  else undefined
+
+
+
 
 -- * Exposed methods.
 

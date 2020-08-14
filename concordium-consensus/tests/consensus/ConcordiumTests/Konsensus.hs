@@ -27,6 +27,7 @@ import Concordium.Crypto.SHA256
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Updates
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
@@ -91,6 +92,7 @@ dummyTime = posixSecondsToUTCTime 0
 
 type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
+type NFCUS = Map.Map UpdateType NonFinalizedChainUpdates
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
@@ -124,26 +126,38 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
         -- Transactions
-        (nonFinTrans, anftNonces) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty)
-        let anft' = foldr (\(bi, _) ->
+        (nonFinTrans, anftNonces, nfcuSNs) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty) Map.empty
+        let (anft', nfcu') = foldr (\(bi, _) ->
                              case bi of
                                WithMetadata{wmdData=NormalTransaction tr,..} ->
-                                 at (transactionSender tr)
+                                 _1
+                                 . at (transactionSender tr)
                                  . non emptyANFT
                                  . anftMap
                                  . at (transactionNonce tr)
                                  . non Set.empty %~ Set.insert WithMetadata{wmdData=tr,..}
+                               WithMetadata{wmdData=ChainUpdate cu,..} ->
+                                    _2
+                                    . at (updateType (uiPayload cu))
+                                    . non emptyNFCU
+                                    . nfcuMap
+                                    . at (updateSeqNumber (uiHeader cu))
+                                    . non Set.empty %~ Set.insert WithMetadata{wmdData=cu,..}
                                _ -> id
                           )
-                          anftNonces
+                          (anftNonces, nfcuSNs)
                           nonFinTrans
         unless (anft' == _ttNonFinalizedTransactions _transactionTable) $ Left "Incorrect non-finalized transactions"
-        (pendingTrans, pendingNonces) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces
+        unless (nfcu' == _ttNonFinalizedChainUpdates _transactionTable) $ Left "Incorrect non-finalized chain updates"
+        (pendingTrans, pendingNonces, pendingUpdateSNs) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces nfcuSNs
         let ptt = foldr (\(bi, _) ->
-                           case wmdData bi of
-                             NormalTransaction tr ->
-                               checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
-                             CredentialDeployment _ -> extendPendingTransactionTable' (wmdHash bi)
+                        case wmdData bi of
+                            NormalTransaction tr ->
+                                checkedAddPendingTransaction (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
+                            CredentialDeployment _ ->
+                                addPendingDeployCredential (wmdHash bi)
+                            ChainUpdate cu ->
+                                checkedAddPendingUpdate (pendingUpdateSNs ^. at (updateType (uiPayload cu)) . non emptyNFCU . nfcuNextSequenceNumber) cu
                         )
                         emptyPendingTransactionTable
                         pendingTrans
@@ -188,26 +202,37 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                 Nothing -> return ()
                 _ -> Left $ "Pending parent status (" ++ show parentBlockStatus ++ ") should be BlockPending or Nothing"
             foldM checkChild queue children
-        -- walkTransactions :: BS.BasicBlockPointer -> BS.BasicBlockPointer -> Trs -> ANFTS -> Either String (Trs, ANFTS)
-        walkTransactions src dest trMap anfts
-            | src == dest = return (trMap, anfts)
+        -- walkTransactions :: BS.BasicBlockPointer -> BS.BasicBlockPointer -> Trs -> ANFTS -> NFCUS -> Either String (Trs, ANFTS, NFCUS)
+        -- Call checkTransaction on each transaction in the blocks from src (exclusive) to dest (inclusive).
+        -- This checks that each transaction is in the transaction map, and removes it from the map.
+        -- It also checks that the transactions are sequential with respect to nonces/sequence numbers and builds
+        -- 'AccountNonFinalizedTransactions' and 'NonFinalizedChainUpdates' for each account/update type seen.
+        walkTransactions src dest trMap anfts nfcus
+            | src == dest = return (trMap, anfts, nfcus)
             | otherwise = do
-                (trMap', anfts') <- walkTransactions src (runIdentity $ BS._bpParent dest) trMap anfts
-                foldM checkTransaction (trMap', anfts') (blockTransactions dest)
-        checkTransaction :: (Trs, ANFTS) -> BlockItem -> Either String (Trs, ANFTS)
-        checkTransaction (trMap, anfts) bi = do
+                (trMap', anfts', nfcus') <- walkTransactions src (runIdentity $ BS._bpParent dest) trMap anfts nfcus
+                foldM checkTransaction (trMap', anfts', nfcus') (blockTransactions dest)
+        checkTransaction :: (Trs, ANFTS, NFCUS) -> BlockItem -> Either String (Trs, ANFTS, NFCUS)
+        checkTransaction (trMap, anfts, nfcus) bi = do
             let updMap Nothing = Left $ "Transaction missing: " ++ show bi
                 updMap (Just _) = Right Nothing
             trMap' <- (at (getHash bi)) updMap trMap
             case wmdData bi of
-              NormalTransaction tr ->
-                let updNonce n =
-                      if n == transactionNonce tr then Right (n + 1)
-                      else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
-                in do anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
-                      return (trMap', anfts')
-              _ -> do
-                return (trMap', anfts)
+                NormalTransaction tr -> do
+                    let updNonce n =
+                            if n == transactionNonce tr then Right (n + 1)
+                            else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
+                    anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
+                    return (trMap', anfts', nfcus)
+                ChainUpdate cu -> do
+                    let usn = updateSeqNumber (uiHeader cu)
+                        uty = updateType (uiPayload cu)
+                        updSN sn =
+                            if sn == usn then Right (sn + 1)
+                            else Left $ "Expected sequence number" ++ show usn ++ " but found " ++ show sn ++ " for update type " ++ show uty
+                    nfcus' <- (at uty . non emptyNFCU . nfcuNextSequenceNumber) updSN nfcus
+                    return (trMap', anfts, nfcus')
+                _ -> return (trMap', anfts, nfcus)
 
         notDeadOrPending TreeState.BlockDead = False
         notDeadOrPending (TreeState.BlockPending {}) = False

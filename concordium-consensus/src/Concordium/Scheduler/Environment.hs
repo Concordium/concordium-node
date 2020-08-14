@@ -267,6 +267,10 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- |Get cryptographic parameters for the current state.
   getCrypoParams :: m CryptographicParameters
 
+  -- * Chain updates
+
+  getUpdateAuthorizations :: m Authorizations
+
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not
