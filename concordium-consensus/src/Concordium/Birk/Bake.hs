@@ -121,7 +121,7 @@ maintainTransactions bp FilteredTransactions{..} = do
           else do
             -- but otherwise do
             nonce <- nextNonceFor (transactionSender tx)
-            return $! checkedExtendPendingTransactionTable nonce tx cpt
+            return $! checkedAddPendingTransaction nonce tx cpt
 
     newpt <- foldM purgeFailed emptyPendingTransactionTable (map fst ftFailed)
 
@@ -133,7 +133,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     let purgeCredential cpt cred = do
           b <- purgeTransaction (credentialDeployment cred)
           if b then return cpt
-          else return $! extendPendingTransactionTable' (wmdHash cred) cpt
+          else return $! addPendingDeployCredential (wmdHash cred) cpt
 
     newpt' <- foldM purgeCredential newpt (map fst ftFailedCredentials)
 
@@ -141,7 +141,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     let purgeTooBig cpt tx =
           if transactionSize tx < maxSize then do
             nonce <- nextNonceFor (transactionSender tx)
-            return $! checkedExtendPendingTransactionTable nonce tx cpt
+            return $! checkedAddPendingTransaction nonce tx cpt
           else do
             -- only purge a transaction from the table if it is too big **and**
             -- not already commited to a recent block. if it is in a currently
@@ -152,14 +152,14 @@ maintainTransactions bp FilteredTransactions{..} = do
             if b then return cpt
             else do
               nonce <- nextNonceFor (transactionSender tx)
-              return $! checkedExtendPendingTransactionTable nonce tx cpt
+              return $! checkedAddPendingTransaction nonce tx cpt
 
     ptWithUnprocessed <- foldM purgeTooBig newpt' ftUnprocessed
 
     -- And finally put back in all the unprocessed credentials
     -- We assume here that chain parameters are such that credentials always fit on a block
     -- and processing of one credential does not exceed maximum block energy.
-    let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> extendPendingTransactionTable' (wmdHash cdiwm) cpt) ptWithUnprocessed ftUnprocessedCredentials
+    let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed ftUnprocessedCredentials
 
     -- commit the new pending transactions to the tree state
     putPendingTransactions ptWithUnprocessedCreds

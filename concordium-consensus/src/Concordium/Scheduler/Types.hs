@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.Types,
+                                   module Concordium.Types.Updates,
                                    module Concordium.Types.Execution,
                                    module Concordium.Types.Acorn.Interfaces,
                                    module Concordium.Types.Transactions,
@@ -18,6 +19,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
 import Prelude hiding(fail)
 
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.Types.Acorn.Interfaces hiding(Value, Interface, ValueInterface, ContractValue)
 import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.Types.Execution
