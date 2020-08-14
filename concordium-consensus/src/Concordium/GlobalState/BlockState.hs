@@ -46,6 +46,7 @@ import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import Data.Set (Set)
 import qualified Data.Sequence as Seq
+import Data.Foldable (foldl')
 
 import Concordium.Types
 import Concordium.Types.Execution
@@ -67,7 +68,6 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Concordium.Crypto.EncryptedTransfers
-
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -141,11 +141,15 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
 
   -- |Get an encrypted amount at index, if possible.
   -- This has a default implementation in terms of `getAccountEncryptedAmount`.
+  -- The implementation's complexity is linear in the difference between the start index of the current
+  -- encrypted amount on the account, and the given index.
   getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m (Maybe EncryptedAmount)
   getAccountEncryptedAmountAtIndex acc index = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
-    if index >= _startIndex then
-      return $! Seq.lookup (fromIntegral (index - _startIndex)) _encryptedAmounts
+    if index >= _startIndex && fromIntegral (Seq.length _encryptedAmounts) < index - _startIndex then
+      case Seq.take (fromIntegral (index - _startIndex)) _encryptedAmounts of
+        x Seq.:<| xs -> return $! Just $! foldl' aggregateAmounts x xs
+        Seq.Empty -> return Nothing
     else return Nothing
 
   -- |Get the baker to which this account's stake is delegated (if any)
