@@ -33,6 +33,7 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 
 data SkovData bs = SkovData {
@@ -69,7 +70,7 @@ makeLenses ''SkovData
 
 instance Show (SkovData bs) where
     show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . bpHash . snd <$> toList _finalizationList) ++ "\n" ++
-        "Branches: " ++ intercalate "," ( (('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash)) <$> toList _branches)
+        "Branches: " ++ intercalate "," ( ('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovDataDefault :: GenesisData -> bs -> SkovData bs
@@ -203,7 +204,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
 
     getCredential txHash =
       preuse (transactionTable . ttHashMap . ix txHash) >>= \case
-        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $! Just WithMetadata{wmdData=biCred,..}
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $ Just WithMetadata{wmdData=biCred,..}
         _ -> return Nothing
 
     addCommitTransaction bi@WithMetadata{..} slot = do
@@ -216,7 +217,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
-                  transactionTablePurgeCounter %= (+ 1)
+                  transactionTablePurgeCounter += 1
                   let wmdtr = WithMetadata{wmdData=tr,..}
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
@@ -225,6 +226,17 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
               CredentialDeployment{..} -> do
                 transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
                 return (TS.Added bi)
+              ChainUpdate cu -> do
+                let uty = updateType (uiPayload cu)
+                    sn = updateSeqNumber (uiHeader cu)
+                if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
+                  transactionTablePurgeCounter += 1
+                  let wmdcu = WithMetadata{wmdData=cu,..}
+                  transactionTable .= (tt
+                          & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Set.empty %~ Set.insert wmdcu)
+                          & (ttHashMap . at' trHash ?~ (bi, Received slot)))
+                  return (TS.Added bi)
+                else return TS.ObsoleteNonce
           Just (_, Finalized{}) ->
             return TS.ObsoleteNonce
           Just (tr', results) -> do
@@ -257,6 +269,24 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
               transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
+            finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
+                let sn = updateSeqNumber (uiHeader cu)
+                    uty = updateType (uiPayload cu)
+                nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
+                assert (nfcu ^. nfcuNextSequenceNumber == sn) $ do
+                    let nfsn = nfcu ^. nfcuMap . at' sn . non Set.empty
+                    let wmdcu = WithMetadata{wmdData = cu,..}
+                    assert (Set.member wmdcu nfsn) $ do
+                        -- Remove any other updates with the same sequence number, since they weren't finalized
+                        forM_ (Set.delete wmdcu nfsn) $ 
+                          \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
+                        -- Mark this update as finalized.
+                        transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
+                            \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
+                                  _ -> error "Transaction should be in committed state when finalized."
+                        -- Update the non-finalized chain updates
+                        transactionTable . ttNonFinalizedChainUpdates . at' uty ?=
+                          (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
 
     commitTransaction slot bh tr idx =
         transactionTable . ttHashMap . at' (getHash tr) %= fmap (_2 %~ addResult bh slot idx)
@@ -266,7 +296,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if (lastFinSlot >= results ^. tsSlot) then do
+                if lastFinSlot >= results ^. tsSlot then do
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- if the transaction is from a sender also delete the relevant

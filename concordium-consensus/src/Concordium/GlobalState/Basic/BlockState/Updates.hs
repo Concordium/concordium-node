@@ -112,3 +112,8 @@ futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} = fed 
         fed ced ((ts', ed) : r) ts
             | ts' <= ts = fed ed r ts
             | otherwise = ced
+
+lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateAuthorization = u ^. pendingUpdates . pAuthorizationQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateProtocol = u ^. pendingUpdates . pProtocolQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateParameters = u ^. pendingUpdates . pParameterQueue . uqNextSequenceNumber

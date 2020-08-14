@@ -28,6 +28,7 @@ import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions as T
+import Concordium.Types.Updates
 import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
@@ -551,7 +552,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
     -- transaction is not yet finalized
     getCredential txHash =
       preuse (transactionTable . ttHashMap . ix txHash) >>= \case
-        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $! Just WithMetadata{wmdData=biCred,..}
+        Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $ Just WithMetadata{wmdData=biCred,..}
         _ -> return Nothing
 
     addCommitTransaction bi@WithMetadata{..} slot = do
@@ -560,13 +561,12 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
       -- check if the transaction is in the transaction table cache
       case tt ^? ttHashMap . ix trHash of
           Nothing -> do
-
             case wmdData of
               NormalTransaction tr -> do
                 let sender = transactionSender tr
                     nonce = transactionNonce tr
                 if (tt ^. ttNonFinalizedTransactions . at' sender . non emptyANFT . anftNextNonce) <= nonce then do
-                  transactionTablePurgeCounter %= (+ 1)
+                  transactionTablePurgeCounter += 1
                   let wmdtr = WithMetadata{wmdData=tr,..}
                   transactionTable .= (tt & (ttNonFinalizedTransactions . at' sender . non emptyANFT . anftMap . at' nonce . non Set.empty %~ Set.insert wmdtr)
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
@@ -577,17 +577,28 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                 -- this transction does not already exist in the on-disk storage.
                 finalizedP <- memberTransactionTable trHash
                 if finalizedP then
-                  return $ TS.Duplicate bi
+                  return TS.ObsoleteNonce
                 else do
                   transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
                   return (TS.Added bi)
-          Just (_, results) -> do
+              ChainUpdate cu -> do
+                let uty = updateType (uiPayload cu)
+                    sn = updateSeqNumber (uiHeader cu)
+                if (tt ^. ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuNextSequenceNumber) <= sn then do
+                  transactionTablePurgeCounter += 1
+                  let wmdcu = WithMetadata{wmdData=cu,..}
+                  transactionTable .= (tt
+                      & (ttNonFinalizedChainUpdates . at' uty . non emptyNFCU . nfcuMap . at' sn . non Set.empty %~ Set.insert wmdcu)
+                      & (ttHashMap . at' trHash ?~ (bi, Received slot)))
+                  return (TS.Added bi)
+                else return TS.ObsoleteNonce
+          Just (bi', results) -> do
             -- if it is we update the maximum committed slot,
             -- unless the transaction is already finalized (this case is handled by updateSlot)
             -- In the current model this latter case should not happen; once a transaction is finalized
             -- it is written to disk (see finalizeTransactions below)
             when (slot > results ^. tsSlot) $ transactionTable . ttHashMap . at' trHash . mapped . _2 %= updateSlot slot
-            return $ TS.Duplicate bi
+            return $ TS.Duplicate bi'
 
     finalizeTransactions bh slot txs = mapM finTrans txs >>= writeTransactionStatuses
         where
@@ -613,16 +624,36 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                                                                                            & (anftNextNonce .~ nonce + 1))
                         return ss
                     else do
-                       logErrorAndThrowTS $ "Tried to finalize thransaction which is not known to be in the set of non finalized accounts for the sender " ++ show sender
+                       logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
                 else do
                  logErrorAndThrowTS $
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
             finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
+            finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
+                let sn = updateSeqNumber (uiHeader cu)
+                    uty = updateType (uiPayload cu)
+                nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
+                unless (nfcu ^. nfcuNextSequenceNumber == sn) $ logErrorAndThrowTS $
+                        "The recorded next sequence number for update type " ++ show uty ++ " (" ++ show (nfcu ^. nfcuNextSequenceNumber) ++ ") doesn't match the one that is going to be finalzied (" ++ show sn ++ ")"
+                let nfsn = nfcu ^. nfcuMap . at' sn . non Set.empty
+                    wmdcu = WithMetadata{wmdData=cu,..}
+                unless (Set.member wmdcu nfsn) $ logErrorAndThrowTS $
+                        "Tried to finalized a chain update that is not known to be in the set of non-finalized chain updates of type " ++ show uty
+                -- Remove any other updates with the same sequence number, since they weren't finalized
+                forM_ (Set.delete wmdcu nfsn) $
+                  \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
+                -- Mark the status of the update as finalized, and remove the data from the in-memory table
+                ss <- deleteAndFinalizeStatus wmdHash
+                -- Update the non-finalized chain updates
+                transactionTable . ttNonFinalizedChainUpdates . at' uty ?=
+                  (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
+                return ss
+
 
             deleteAndFinalizeStatus txHash = do
               status <- preuse (transactionTable . ttHashMap . ix txHash . _2)
               case status of
-                Just (Committed{..}) -> do
+                Just Committed{..} -> do
                   -- delete the transaction from the cache
                   transactionTable . ttHashMap . at' txHash .= Nothing
                   -- and write the status to disk
@@ -644,7 +675,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
             Nothing -> return True
             Just (_, results) -> do
                 lastFinSlot <- blockSlot . _bpBlock . fst <$> TS.getLastFinalized
-                if (lastFinSlot >= results ^. tsSlot) then do
+                if lastFinSlot >= results ^. tsSlot then do
                     -- remove from the table
                     transactionTable . ttHashMap . at' wmdHash .= Nothing
                     -- if the transaction is from a sender also delete the relevant

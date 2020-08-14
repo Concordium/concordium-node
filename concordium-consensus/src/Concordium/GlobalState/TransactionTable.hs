@@ -10,32 +10,15 @@ import Lens.Micro.Platform
 import qualified Data.Serialize as S
 import Control.Monad
 import Control.Exception
+import Data.Foldable
 
 import Concordium.Utils
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
 
 -- * Transaction status
-
-data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
-    -- |Non-finalized transactions (for an account) indexed by nonce.
-    _anftMap :: Map.Map Nonce (Set.Set Transaction),
-    -- |The next available nonce at the last finalized block.
-    -- 'anftMap' should only contain nonces that are at least 'anftNextNonce'.
-    _anftNextNonce :: Nonce
-} deriving (Eq)
-makeLenses ''AccountNonFinalizedTransactions
-
--- |Empty (no pending transactions) account non-finalized table starting at the
--- minimal nonce.
-emptyANFT :: AccountNonFinalizedTransactions
-emptyANFT = emptyANFTWithNonce minNonce
-
--- |An account non-finalized table with no pending transactions and given
--- starting nonce.
-emptyANFTWithNonce :: Nonce -> AccountNonFinalizedTransactions
-emptyANFTWithNonce n = AccountNonFinalizedTransactions Map.empty n
 
 -- |Result of a transaction is block dependent.
 data TransactionStatus =
@@ -72,7 +55,7 @@ instance S.Serialize TransactionStatus where
   put Committed{..} = do
     S.putWord8 1
     S.put _tsSlot
-    S.putWord32be $ (fromIntegral (HM.size tsResults))
+    S.putWord32be $ fromIntegral (HM.size tsResults)
     forM_ (HM.toList tsResults) $ \(h, i) -> S.put h <> S.put i
   put Finalized{..} = do
     S.putWord8 2
@@ -138,6 +121,39 @@ getTransactionIndex bh = \case
 
 -- * Transaction table
 
+-- |The non-finalized transactions for a particular account.
+data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
+    -- |Non-finalized transactions (for an account) indexed by nonce.
+    _anftMap :: Map.Map Nonce (Set.Set Transaction),
+    -- |The next available nonce at the last finalized block.
+    -- 'anftMap' should only contain nonces that are at least 'anftNextNonce'.
+    _anftNextNonce :: Nonce
+} deriving (Eq)
+makeLenses ''AccountNonFinalizedTransactions
+
+-- |Empty (no pending transactions) account non-finalized table starting at the
+-- minimal nonce.
+emptyANFT :: AccountNonFinalizedTransactions
+emptyANFT = emptyANFTWithNonce minNonce
+
+-- |An account non-finalized table with no pending transactions and given
+-- starting nonce.
+emptyANFTWithNonce :: Nonce -> AccountNonFinalizedTransactions
+emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
+
+-- |The non-finalized chain updates of a particular type.
+data NonFinalizedChainUpdates = NonFinalizedChainUpdates {
+    _nfcuMap :: Map.Map UpdateSequenceNumber (Set.Set (WithMetadata UpdateInstruction)),
+    _nfcuNextSequenceNumber :: UpdateSequenceNumber
+} deriving (Eq)
+makeLenses ''NonFinalizedChainUpdates
+
+emptyNFCU :: NonFinalizedChainUpdates
+emptyNFCU = emptyNFCUWithSequenceNumber minUpdateSequenceNumber
+
+emptyNFCUWithSequenceNumber :: UpdateSequenceNumber -> NonFinalizedChainUpdates
+emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
+
 -- |The transaction table stores transactions and their statuses.
 -- In the persistent tree state implementation, finalized transactions are not
 -- stored in this table, but can be looked up from a disk-backed database.
@@ -153,19 +169,21 @@ data TransactionTable = TransactionTable {
     _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, TransactionStatus)),
     -- |For each account, the non-finalized transactions for that account, grouped by
     -- nonce.
-    _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddress AccountNonFinalizedTransactions)
+    _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddress AccountNonFinalizedTransactions),
+    -- |For each update types, the non-finalized update instructions, grouped by
+    -- sequence number.
+    _ttNonFinalizedChainUpdates :: !(Map.Map UpdateType NonFinalizedChainUpdates)
 }
 makeLenses ''TransactionTable
 
 emptyTransactionTable :: TransactionTable
 emptyTransactionTable = TransactionTable {
         _ttHashMap = HM.empty,
-        _ttNonFinalizedTransactions = HM.empty
+        _ttNonFinalizedTransactions = HM.empty,
+        _ttNonFinalizedChainUpdates = Map.empty
     }
 
 -- * Pending transaction table
-
-
 
 -- |A pending transaction table records whether transactions are pending after
 -- execution of a particular block.  For each account address, if there are
@@ -178,20 +196,22 @@ data PendingTransactionTable = PTT {
   _pttWithSender :: !(HM.HashMap AccountAddress (Nonce, Nonce)),
   -- |Pending credentials. We only store the hash because updating the
   -- pending table would otherwise be more costly with the current setup.
-  _pttDeployCredential :: HS.HashSet TransactionHash
+  _pttDeployCredential :: !(HS.HashSet TransactionHash),
+  -- |Pending update instructions. We record the next and high sequence numbers.
+  _pttUpdates :: !(Map.Map UpdateType (UpdateSequenceNumber, UpdateSequenceNumber))
   } deriving(Eq, Show)
 
 makeLenses ''PendingTransactionTable
 
 emptyPendingTransactionTable :: PendingTransactionTable
-emptyPendingTransactionTable = PTT HM.empty HS.empty
+emptyPendingTransactionTable = PTT HM.empty HS.empty Map.empty
 
 -- |Insert an additional element in the pending transaction table.
 -- If the account does not yet exist create it.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
 -- PRECONDITION: the next nonce should be less than or equal to the transaction nonce.
-extendPendingTransactionTable :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
-extendPendingTransactionTable nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v = HM.alter f sender _pttWithSender in PTT{_pttWithSender = v, ..}
+addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
+addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v = HM.alter f sender _pttWithSender in PTT{_pttWithSender = v, ..}
   where
         f Nothing = Just (nextNonce, nonce)
         f (Just (l, u)) = Just (l, max u nonce)
@@ -202,20 +222,47 @@ extendPendingTransactionTable nextNonce tx PTT{..} = assert (nextNonce <= nonce)
 -- Does nothing if the next nonce is greater than the transaction nonce.
 -- If the account does not yet exist create it.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
-checkedExtendPendingTransactionTable :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
-checkedExtendPendingTransactionTable nextNonce tx pt =
+checkedAddPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
+checkedAddPendingTransaction nextNonce tx pt =
   if nextNonce > nonce then pt else
     pt & pttWithSender . at' (transactionSender tx) %~ \case Nothing -> Just (nextNonce, nonce)
                                                              Just (l, u) -> Just (l, max u nonce)
   where nonce = transactionNonce tx
 
 -- |Extend the pending transaction table with a credential hash.
-extendPendingTransactionTable' :: TransactionHash -> PendingTransactionTable -> PendingTransactionTable
-extendPendingTransactionTable' hash pt =
+addPendingDeployCredential :: TransactionHash -> PendingTransactionTable -> PendingTransactionTable
+addPendingDeployCredential hash pt =
   pt & pttDeployCredential %~ HS.insert hash
 
+-- |Add an update instruction to the pending transaction table, without
+-- checking that its sequence number is high enough.
+-- NB: This only updates the pending table.
+addPendingUpdate ::
+  UpdateSequenceNumber
+  -- ^Next sequence number at the last finalized block
+  -> UpdateInstruction
+  -> PendingTransactionTable
+  -> PendingTransactionTable
+addPendingUpdate nextSN ui ptt = assert (nextSN <= sn) $ ptt & pttUpdates . at' ut %~ f
+  where
+    f Nothing = Just (nextSN, sn)
+    f (Just (l, u)) = Just (l, max u sn)
+    sn = updateSeqNumber (uiHeader ui)
+    ut = updateType (uiPayload ui)
+
+-- |Add an update instruction to the pending transaction table, checking
+-- that its sequence number is high enough.  (Does nothing if it is not.)
+-- NB: This only updates the pending table.
+checkedAddPendingUpdate :: UpdateSequenceNumber -> UpdateInstruction -> PendingTransactionTable -> PendingTransactionTable
+checkedAddPendingUpdate nextSN ui ptt
+    | nextSN > updateSeqNumber (uiHeader ui) = ptt
+    | otherwise = addPendingUpdate nextSN ui ptt
+
+-- |Update the pending transaction table by considering the supplied 'BlockItem's
+-- as no longer pending. The 'BlockItem's must be ordered correctly with respect
+-- to sequence numbers, as they would appear in a block.
 forwardPTT :: [BlockItem] -> PendingTransactionTable -> PendingTransactionTable
-forwardPTT trs ptt0 = foldl forward1 ptt0 trs
+forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
     where
         forward1 :: PendingTransactionTable -> BlockItem -> PendingTransactionTable
         forward1 ptt WithMetadata{wmdData=NormalTransaction tr} = ptt & pttWithSender . at' (transactionSender tr) %~ upd
@@ -226,10 +273,19 @@ forwardPTT trs ptt0 = foldl forward1 ptt0 trs
                         if low == high then Nothing else Just (low+1,high)
         forward1 ptt WithMetadata{wmdData=CredentialDeployment{..},..} = ptt & pttDeployCredential %~ upd
             where
-              upd ps = case HS.member wmdHash ps of
-                         False -> error "forwardPTT: forwarding a block item that is not pending."
-                         True -> HS.delete wmdHash ps
+              upd ps
+                | wmdHash `HS.member` ps = HS.delete wmdHash ps
+                | otherwise = error "forwardPTT: forwarding a block item that is not pending."
+        forward1 ptt WithMetadata{wmdData=ChainUpdate{..}} = ptt & pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd
+            where
+                upd Nothing = error "forwardPTT : forwarding a block item that is not pending"
+                upd (Just (low, high)) =
+                    assert (low == updateSeqNumber (uiHeader biUpdate)) $ assert (low <= high) $
+                      if low == high then Nothing else Just (low+1, high)
 
+-- |Update the pending transaction table by considering the supplied 'BlockItem's
+-- pending again. The 'BlockItem's must be ordered correctly with respect
+-- to sequence numbers, as they would appear in a block.
 reversePTT :: [BlockItem] -> PendingTransactionTable -> PendingTransactionTable
 reversePTT trs ptt0 = foldr reverse1 ptt0 trs
     where
@@ -243,4 +299,10 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         reverse1 WithMetadata{wmdData=CredentialDeployment{..},..} = pttDeployCredential %~ upd
             where
               upd ps = assert (not (HS.member wmdHash ps)) $ HS.insert wmdHash ps
-
+        reverse1 WithMetadata{wmdData=ChainUpdate{..}} = pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd
+            where
+                sn = updateSeqNumber (uiHeader biUpdate)
+                upd Nothing = Just (sn, sn)
+                upd (Just (low, high)) =
+                        assert (low == sn + 1) $
+                        Just (low - 1, high)

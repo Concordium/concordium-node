@@ -49,6 +49,7 @@ import Data.Serialize(Serialize)
 
 import Concordium.Types
 import Concordium.Types.Execution
+import Concordium.Types.Updates
 import Concordium.GlobalState.Classes
 import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.Types.Acorn.Interfaces
@@ -218,7 +219,8 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
 
     -- |Get the value of the election difficulty parameter.
     getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
-
+    -- |Get the next sequence number for a particular update type.
+    getNextUpdateSequenceNumber :: BlockState m -> UpdateType -> m UpdateSequenceNumber
 {-
     -- |Get the access structure for the given update type.
     getCurrentAuthorization :: UpdateType -> BlockState m -> m AccessStructure
@@ -379,6 +381,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Update the birk parameters of a block state
   bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters m -> m (UpdatableBlockState m)
 
+  -- |Process queued updates.
+  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m ()
+
+  -- |Get the current 'Authorizations' for validating updates.
+  bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
+
 -- | Block state storage operations
 class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
@@ -441,6 +449,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getAllIdentityProviders s = lift $ getAllIdentityProviders s
   getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
   getElectionDifficulty s = lift . getElectionDifficulty s
+  getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -455,6 +464,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getAllIdentityProviders #-}
   {-# INLINE getAllAnonymityRevokers #-}
   {-# INLINE getElectionDifficulty #-}
+  {-# INLINE getNextUpdateSequenceNumber #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
@@ -523,6 +533,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
+  bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -553,6 +564,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
+  {-# INLINE bsoGetCurrentAuthorizations #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
