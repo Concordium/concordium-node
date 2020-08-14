@@ -24,20 +24,19 @@ makeRust args flags = do
                 ["run", "stable-x86_64-pc-windows-msvc", "cargo", "build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
                 (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
             _ <- rawSystemExitCode verbosity "mkdir" ["../smart-contracts/lib"]
+            -- Copy just the dynamic library, since it doesn't link with the static one.
             rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll", "../smart-contracts/lib/"]
-            -- rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll.lib", "../smart-contracts/lib/"]
-            {-
-            -- We also copy the generated DLL
-            installOrdinaryFile normal "../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll" "."
-            installOrdinaryFile normal "../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll" ".."
-            -}
         _ -> do
             rawSystemExitWithEnv verbosity "cargo"
                 ["build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
                 (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
             _ <- rawSystemExitCode verbosity "mkdir" ["../smart-contracts/lib"]
-            rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/libwasmer_interp.a", "../smart-contracts/lib/"]
-            rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/libwasmer_interp.so", "../smart-contracts/lib/"]
+            rawSystemExit verbosity "ln" ["-s", "-f", "../wasmer-interp/target/release/libwasmer_interp.a", "../smart-contracts/lib/"]
+            case buildOS of
+                OSX ->
+                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasmer-interp/target/release/libwasmer_interp.dylib", "../smart-contracts/lib/libwasmer_interp.dylib"]
+                _ ->
+                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasmer-interp/target/release/libwasmer_interp.so", "../smart-contracts/lib/libwasmer_interp.so"]
     return emptyHookedBuildInfo
 
 -- This is a quick and dirty hook to copy the wasmer_interp DLL on Windows.
