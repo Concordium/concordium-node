@@ -754,6 +754,11 @@ doGetElectionDifficulty pbs ts = do
         bsp <- loadPBS pbs
         futureElectionDifficulty (bspUpdates bsp) ts
 
+doGetNextUpdateSequenceNumber :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> UpdateType -> m UpdateSequenceNumber
+doGetNextUpdateSequenceNumber pbs uty = do
+        bsp <- loadPBS pbs
+        lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
+
 data PersistentBlockStateContext = PersistentBlockStateContext {
     pbscModuleCache :: IORef ModuleCache,
     pbscBlobStore :: BlobStore
@@ -811,6 +816,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     getAllIdentityProviders = doGetAllIdentityProvider
     getAllAnonymityRevokers = doGetAllAnonymityRevokers
     getElectionDifficulty = doGetElectionDifficulty
+    getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -825,6 +831,7 @@ instance (MonadIO m, HasModuleCache r, HasBlobStore r, MonadReader r m) => Block
     {-# INLINE getAllIdentityProviders #-}
     {-# INLINE getAllAnonymityRevokers #-}
     {-# INLINE getElectionDifficulty #-}
+    {-# INLINE getNextUpdateSequenceNumber #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BakerQuery (PersistentBlockStateMonad r m) where
 

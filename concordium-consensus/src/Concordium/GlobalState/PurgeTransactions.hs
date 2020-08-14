@@ -14,6 +14,7 @@ import Lens.Micro.Platform
 import Concordium.Utils
 import Concordium.Types.Transactions
 import Concordium.Types
+import Concordium.Types.Updates
 
 import Concordium.GlobalState.TransactionTable
 
@@ -65,6 +66,8 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         -- arrival time, or if its expiry time has passed.
         tooOld tx = biArrivalTime tx < oldestArrivalTime
                     || transactionExpired (thExpiry (btrHeader (wmdData tx))) currentTime
+        tooOldCU tx = biArrivalTime tx < oldestArrivalTime
+                    || transactionExpired (updateTimeout (uiHeader (wmdData tx))) currentTime
         -- Determine if an entry in the transaction hash table indicates that a
         -- transaction is eligible for removal.  This is the case if the recorded
         -- slot preceeds the last finalized slot.
@@ -139,16 +142,42 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 (dc1, trs1) = HS.foldl' purgeDC (dc0, trs0) dc0
             _1 . pttDeployCredential .= dc1
             _2 .= trs1
+        purgeUpds :: UpdateSequenceNumber -> Set.Set (WithMetadata UpdateInstruction) -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
+        purgeUpds sn uis = state $ \(mmsn, tht) ->
+            let
+                purgeUpd (uisacc, thtacc) ui
+                    | tooOldCU ui
+                    , removable (thtacc ^? ix (biHash ui))
+                        = (uisacc, HM.delete (biHash ui) thtacc)
+                    | otherwise
+                        = (ui : uisacc, thtacc)
+                (uisl', tht') = foldl' purgeUpd ([], tht) (Set.toDescList uis)
+                (!mmsn', !mres)
+                    | null uisl' = (mmsn, Nothing)
+                    | otherwise = (mmsn <> Just (Max sn), Just (Set.fromDistinctAscList uisl'))
+            in (mres, (mmsn', tht'))
+        purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable) NonFinalizedChainUpdates
+        purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0) ->
+            let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0)
+                updptt (Just (Max newHigh)) (Just (low, _))
+                    | newHigh < low = Nothing
+                    | otherwise = Just (low, newHigh)
+                updptt _ _ = Nothing
+                !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
+            in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1))
         purge = do
             -- Purge each account
             nnft <- HM.traverseWithKey purgeAccount _ttNonFinalizedTransactions
             -- Purge credential deployments
             purgeDeployCredentials
-            return nnft
+            -- Purge chain updates
+            nnfcu <- Map.traverseWithKey purgeUpdates _ttNonFinalizedChainUpdates
+            return (nnft, nnfcu)
 
-        (newNFT, (ptable', finalTT)) = runState purge (ptable, _ttHashMap)
+        ((newNFT, newNFCU), (ptable', finalTT)) = runState purge (ptable, _ttHashMap)
         ttable' = TransactionTable{
             _ttHashMap = finalTT,
-            _ttNonFinalizedTransactions = newNFT
+            _ttNonFinalizedTransactions = newNFT,
+            _ttNonFinalizedChainUpdates = newNFCU
         }
         

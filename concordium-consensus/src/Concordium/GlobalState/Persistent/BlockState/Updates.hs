@@ -1,4 +1,4 @@
-{-# LANGUAGE MonoLocalBinds, BangPatterns #-}
+{-# LANGUAGE MonoLocalBinds, BangPatterns, ScopedTypeVariables #-}
 module Concordium.GlobalState.Persistent.BlockState.Updates where
 
 import Data.Maybe
@@ -241,3 +241,12 @@ futureElectionDifficulty uref ts = do
                     Nothing -> latestUpdate l
                     Just ed -> return ed
         latestUpdate elapsedUpdates
+
+lookupNextUpdateSequenceNumber :: forall m. (MonadBlobStore m BlobRef, MonadIO m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
+lookupNextUpdateSequenceNumber uref uty = do
+        Updates{..} <- loadBufferedRef uref
+        case uty of
+            UpdateAuthorization -> uqNextSequenceNumber <$> loadBufferedRef (pAuthorizationQueue pendingUpdates)
+            UpdateProtocol -> uqNextSequenceNumber <$> loadBufferedRef (pProtocolQueue pendingUpdates)
+            UpdateParameters -> uqNextSequenceNumber <$> loadBufferedRef (pParameterQueue pendingUpdates)
+        

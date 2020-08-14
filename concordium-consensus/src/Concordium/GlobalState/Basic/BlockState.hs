@@ -149,6 +149,8 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getElectionDifficulty #-}
     getElectionDifficulty bs ts = return (futureElectionDifficulty (_blockUpdates bs) ts)
 
+    {-# INLINE getNextUpdateSequenceNumber #-}
+    getNextUpdateSequenceNumber bs uty = return (lookupNextUpdateSequenceNumber (_blockUpdates bs) uty)
 
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
