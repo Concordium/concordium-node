@@ -310,18 +310,26 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
         meta = wtc ^. wtcTransactionHeader
 
         c cryptoParams = do
-          -- Look up the sender account first, and don't charge if it does not exist
+          senderAddress <- getAccountAddress senderAccount
+          -- We do not allow sending encrypted transfers from an account to itself.
+          -- There is no reason to do so in the current setup, and it causes some technical
+          -- complications.
+          when (toAddress == senderAddress) $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
+
+          -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getCurrentAccount toAddress `rejectingWith` InvalidAccountReference toAddress
           cm <- getChainMetadata
           validCredExists <- existsValidCredential cm targetAccount
           unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential toAddress)
 
-          -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount index `rejectingWith` (InvalidEncryptedAmountIndex index)
+          -- the expensive operations start now, so we charge.
 
           -- After we've checked all of that, we charge.
           tickEnergy Cost.encryptedAmountTransfer
+
+          -- Get the encrypted amount at the index that the transfer claims to be using.
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount index
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
@@ -335,22 +343,20 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
           -- We do this by first replacing on the sender's account, and then adding.
           -- This order only has an effect if the sender and receiver accounts are the same.
 
-          remainingAmountIndex <- replaceEncryptedAmount senderAccount index remainingAmount
+          replaceEncryptedAmount senderAccount index remainingAmount
           -- The index that the new amount on the receiver's account will get
           targetAccountIndex <- addEncryptedAmount targetAccount transferAmount
 
-          return (remainingAmountIndex, targetAccountIndex)
+          return (senderAddress, targetAccountIndex)
 
-        k ls (remainingAmountIndex, targetAccountIndex) = do
+        k ls (senderAddress, targetAccountIndex) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
-          senderAddress <- getAccountAddress senderAccount
-          return (TxSuccess [EncryptedAmountsRemoved{earUpToIndex = index},
-                             NewEncryptedAmount{
-                                neaAccount = senderAddress,
-                                neaNewIndex = remainingAmountIndex,
-                                neaEncryptedAmount = remainingAmount
+          return (TxSuccess [EncryptedAmountsRemoved{
+                                earAccount = senderAddress,
+                                earUpToIndex = index,
+                                earNewAmount = remainingAmount
                                 },
                              NewEncryptedAmount{
                                 neaAccount = toAddress,
