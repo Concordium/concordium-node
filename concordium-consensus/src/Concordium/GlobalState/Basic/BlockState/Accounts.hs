@@ -97,7 +97,8 @@ updateAccount !upd
     updateNonce = maybeUpdate (upd ^. auNonce) (accountNonce .~)
     updateAmount = maybeUpdate (upd ^. auAmount) $ \d -> accountAmount %~ applyAmountDelta d
     updateEncryptedAmount acc = foldr updateSingle acc (upd ^. auEncrypted)
-    updateSingle Add{..} = accountEncryptedAmount %~ addEncryptedAmount newAmount
+    updateSingle AddSelf{..} = accountEncryptedAmount %~ addToSelfEncryptedAmount newAmount
+    updateSingle Add{..} = accountEncryptedAmount %~ addIncomingEncryptedAmount newAmount
     updateSingle ReplaceUpTo{..} = accountEncryptedAmount %~ replaceUpTo aggIndex newAmount
 
 -- |Retrieve an account with the given address.

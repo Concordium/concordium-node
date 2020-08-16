@@ -33,54 +33,77 @@ makeClassy ''PersistingAccountData
 
 -- | Encrypted amounts stored on an account.
 data AccountEncryptedAmount = AccountEncryptedAmount {
-  -- | Starting index for encrypted amounts.
+  -- | Encrypted amount that is a result of this accounts' actions.
+  -- In particular this list includes the aggregate of
+  --
+  -- - remaining amounts that result when transfering to public balance
+  -- - remaining amounts when transfering to another account
+  -- - encrypted amounts that are transfered from public balance
+  --
+  -- When a transfer is made all of these must always be used.
+  _selfAmount :: !EncryptedAmount,
+  -- | Starting index for incoming encrypted amounts.
   _startIndex :: !EncryptedAmountAggIndex,
   -- | Amounts starting at @startIndex@. They are assumed to be numbered sequentially.
   -- FIXME: Limit the number of amounts that can be in this list.
   -- If a new amount is added that exceeds the limit, the first two amounts should be aggregated
   -- into one, and start-index increased.
   -- The limit should be a runtime parameter.
-  _encryptedAmounts :: !(Seq.Seq EncryptedAmount)
+  _incomingEncryptedAmounts :: !(Seq.Seq EncryptedAmount)
 } deriving(Eq, Show)
 
 -- |Initial encrypted amount on a newly created account.
 initialAccountEncryptedAmount :: AccountEncryptedAmount
 initialAccountEncryptedAmount = AccountEncryptedAmount{
+  _selfAmount = mempty,
   _startIndex = 0,
-  _encryptedAmounts = Seq.empty
+  _incomingEncryptedAmounts = Seq.empty
 }
 
 instance Serialize AccountEncryptedAmount where
-  put AccountEncryptedAmount{..} = 
+  put AccountEncryptedAmount{..} =
+    put _selfAmount <>
     put _startIndex <>
-    putWord32be (fromIntegral (Seq.length _encryptedAmounts)) <>
-    mapM_ put _encryptedAmounts
+    putWord32be (fromIntegral (Seq.length _incomingEncryptedAmounts)) <>
+    mapM_ put _incomingEncryptedAmounts
   
-  get = do 
+  get = do
+    _selfAmount <- get
     _startIndex <- get
     len <- getWord32be
-    _encryptedAmounts <- Seq.fromList <$> replicateM (fromIntegral len) get
+    _incomingEncryptedAmounts <- Seq.fromList <$> replicateM (fromIntegral len) get
     return AccountEncryptedAmount{..}
 
 makeLenses ''AccountEncryptedAmount
 
 -- | Add an encrypted amount to the end of the list.
-addEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
-addEncryptedAmount newAmount accEncAmount = accEncAmount & encryptedAmounts %~ (Seq.|> newAmount)
+-- This is used when an incoming transfer is added to the account.
+addIncomingEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+addIncomingEncryptedAmount newAmount = incomingEncryptedAmounts %~ (Seq.|> newAmount)
 
 -- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
--- If the new index is before the 
+-- This is used when an account is transfering from from an encrypted balance, and the newly added
+-- amount is the remaining balance that was not used.
+--
+-- As mentioned above, the whole 'selfBalance' must always be used in any
+-- outgoing action of the account.
 replaceUpTo :: EncryptedAmountAggIndex -> EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 replaceUpTo newIndex newAmount AccountEncryptedAmount{..} = 
   AccountEncryptedAmount{
+    _selfAmount = newAmount,
     _startIndex = newStartIndex,
-    _encryptedAmounts = newEncryptedAmounts
+    _incomingEncryptedAmounts = newEncryptedAmounts
   }
   where (newStartIndex, toDrop) = 
           if newIndex > _startIndex 
           then (newIndex, fromIntegral (newIndex - _startIndex)) 
           else (_startIndex, 0)
-        newEncryptedAmounts = Seq.drop toDrop _encryptedAmounts Seq.|> newAmount
+        newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
+
+-- | Add the given encrypted amount to 'selfAmount'
+-- This is used when the account is transferring from public to secret balance.
+addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
@@ -131,11 +154,16 @@ data EncryptedAmountUpdate =
     newAmount :: !EncryptedAmount
   }
   -- |Add an encrypted amount to the end of the list of encrypted amounts.
-  -- This is used when transfering from public to encrypted balance, as well
-  -- as when receiving an encrypted amount.
+  -- This is used when receiving an encrypted amount.
   | Add {
     newAmount :: !EncryptedAmount
-  } deriving(Eq, Show)
+  }
+  -- |Add an encrypted amount to the self balance, aggregating to what is already there.
+  -- This is used when an account is transferring from public to secret balance.
+  | AddSelf {
+    newAmount :: !EncryptedAmount
+    }
+  deriving(Eq, Show)
 
 data AccountKeysUpdate =
     RemoveKeys !(Set.Set KeyIndex) -- Removes the keys at the specified indexes from the account
@@ -150,10 +178,8 @@ data AccountUpdate = AccountUpdate {
   ,_auNonce :: !(Maybe Nonce)
   -- |Optionally an update to the account amount.
   ,_auAmount :: !(Maybe AmountDelta)
-  -- |Optionally a series of updates to the encrypted amounts. The updates will
-  -- be applied in the __reverse__ order, i.e., last update takes affect first,
-  -- followed by second to last, ...
-  ,_auEncrypted :: ![EncryptedAmountUpdate]
+  -- |Optionally an update the encrypted amount.
+  ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally a new credential.
   ,_auCredential :: !(Maybe CredentialDeploymentValues)
   -- |Optionally an update to the account keys
@@ -164,7 +190,7 @@ data AccountUpdate = AccountUpdate {
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing [] Nothing Nothing Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- |Optionally add a credential to an account.
 {-# INLINE updateCredential #-}

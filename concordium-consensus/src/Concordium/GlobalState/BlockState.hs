@@ -137,20 +137,22 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountEncryptedAmountNextIndex :: Account m -> m EncryptedAmountIndex
   getAccountEncryptedAmountNextIndex acc = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
-    return $! addToAggIndex _startIndex (fromIntegral (Seq.length _encryptedAmounts))
+    return $! addToAggIndex _startIndex (fromIntegral (Seq.length _incomingEncryptedAmounts))
 
   -- |Get an encrypted amount at index, if possible.
   -- This has a default implementation in terms of `getAccountEncryptedAmount`.
   -- The implementation's complexity is linear in the difference between the start index of the current
   -- encrypted amount on the account, and the given index.
-  getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m (Maybe EncryptedAmount)
+  --
+  -- At each index, the 'selfAmounts' is always included, hence if the index is
+  -- out of bounds we simply return the 'selfAmounts'
+  getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m EncryptedAmount
   getAccountEncryptedAmountAtIndex acc index = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
-    if index >= _startIndex && fromIntegral (Seq.length _encryptedAmounts) < index - _startIndex then
-      case Seq.take (fromIntegral (index - _startIndex)) _encryptedAmounts of
-        x Seq.:<| xs -> return $! Just $! foldl' aggregateAmounts x xs
-        Seq.Empty -> return Nothing
-    else return Nothing
+    if index >= _startIndex && fromIntegral (Seq.length _incomingEncryptedAmounts) < index - _startIndex then
+      let toTake = Seq.take (fromIntegral (index - _startIndex)) _incomingEncryptedAmounts
+      in return $! foldl' aggregateAmounts _selfAmount toTake
+    else return _selfAmount
 
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
