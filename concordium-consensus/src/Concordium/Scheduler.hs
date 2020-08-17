@@ -195,7 +195,7 @@ dispatch msg = do
       -- by the cost for checking the header (which is linear in the transaction size).
 
       tsIndex <- bumpTransactionIndex
-      case decodePayload (transactionPayload msg) of
+      case decodePayload psize (transactionPayload msg) of
         Left _ -> do
           -- In case of serialization failure we charge the sender for checking
           -- the header and reject the transaction; we have checked that the amount
@@ -333,7 +333,10 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
-          let valid = verifyEncryptedTransferProof cryptoParams senderAmount remainingAmount transferAmount proof
+          let transferData = prepareEncryptedAmountTransferBytes remainingAmount transferAmount index proof
+          receiverPK <- getAccountEncryptionKey targetAccount
+          senderPK <- getAccountEncryptionKey senderAccount
+          let valid = verifyEncryptedTransferProof cryptoParams receiverPK senderPK senderAmount transferData
 
           unless valid $ rejectTransaction InvalidEncryptedAmountTransferProof
 
