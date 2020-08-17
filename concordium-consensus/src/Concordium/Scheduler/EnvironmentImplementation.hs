@@ -322,6 +322,9 @@ instance (MonadReader ContextState m,
   {-# INLINE getCrypoParams #-}
   getCrypoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
 
+  {-# INLINE getUpdateAuthorizations #-}
+  getUpdateAuthorizations = lift . bsoGetCurrentAuthorizations =<< use schedulerBlockState
+
 deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
 
 deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r w state m)

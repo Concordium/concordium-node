@@ -932,7 +932,7 @@ handleDeployCredential cdi cdiHash = do
                     -- first check whether an account with the address exists in the global store
                     -- if it does not we cannot deploy the credential.
                     getAccount aaddr >>= \case
-                      Nothing -> return $! Just (TxInvalid (NonExistentAccount aaddr))
+                      Nothing -> return $ Just (TxInvalid (NonExistentAccount aaddr))
                       Just account -> do
                             -- otherwise we just try to add a credential to the account
                             -- but only if the credential is from the same identity provider
@@ -948,7 +948,7 @@ handleDeployCredential cdi cdiHash = do
                               addAccountCredential account cdv
                               mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                             else
-                              return $ (Just (TxInvalid AccountCredentialInvalid))
+                              return $ Just (TxInvalid AccountCredentialInvalid)
                   ID.NewAccount keys threshold ->
                     -- account does not yet exist, so create it, but we need to be careful
                     if null keys || length keys > 255 then
@@ -1167,10 +1167,39 @@ handleChainUpdate ::
   => WithMetadata UpdateInstruction
   -> m TxResult
 handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
-  auths <- getUpdateAuthorizations 
-  if checkUpdateInstructionSignatures auths ui then
-    undefined
-  else undefined
+  -- Check that the timeout is not in the past
+  cm <- getChainMetadata
+  if transactionExpired (updateTimeout uiHeader) (slotTime cm) then
+    return (TxInvalid ExpiredTransaction)
+  else do
+    -- Check that the timeout is no later than the effective time,
+    -- or the update is immediate
+    if updateTimeout uiHeader >= updateEffectiveTime uiHeader && updateEffectiveTime uiHeader /= 0 then
+      return (TxInvalid InvalidUpdateTime)
+    else do
+      -- Check that the sequence number is correct
+      expectedSequenceNumber <- getNextUpdateSequenceNumber (updateType uiPayload)
+      if updateSeqNumber uiHeader /= expectedSequenceNumber then
+        return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
+      else do
+        -- Check that the signatures use the appropriate keys and are valid.
+        auths <- getUpdateAuthorizations
+        if checkUpdateAuthorizationKeys auths uiPayload (OrdMap.keysSet (updateInstructionSignatures uiSignatures))
+            && checkUpdateInstructionSignatures auths ui then do
+          enqueueUpdate (updateEffectiveTime uiHeader) uiPayload
+          tsIndex <- bumpTransactionIndex
+          return $ TxValid TransactionSummary {
+              tsSender = Nothing,
+              tsHash = wmdHash,
+              tsCost = 0,
+              tsEnergyCost = 0,
+              tsType = Nothing,
+              tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload])),
+              ..
+            }
+          
+        else
+          return (TxInvalid IncorrectSignature)
 
 
 
