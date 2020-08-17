@@ -371,6 +371,12 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoUpdateBirkParameters #-}
     bsoUpdateBirkParameters bs bps = return $! bs & blockBirkParameters .~ bps
 
+    {-# INLINE bsoProcessUpdateQueues #-}
+    bsoProcessUpdateQueues bs ts = return $! bs & blockUpdates %~ processUpdateQueues ts
+
+    {-# INLINE bsoGetCurrentAuthorizations #-}
+    bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations
+
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .

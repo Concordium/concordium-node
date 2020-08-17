@@ -382,7 +382,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters m -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
-  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m ()
+  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
   -- |Get the current 'Authorizations' for validating updates.
   bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
@@ -533,6 +533,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
+  bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
@@ -564,6 +565,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
+  {-# INLINE bsoProcessUpdateQueues #-}
   {-# INLINE bsoGetCurrentAuthorizations #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where

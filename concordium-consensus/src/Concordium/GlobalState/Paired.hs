@@ -499,6 +499,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoUpdateBirkParameters bs1 bps1
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps2
         return (bs1', bs2')
+    bsoProcessUpdateQueues (bs1, bs2) ts = do
+        bs1' <- coerceBSML $ bsoProcessUpdateQueues bs1 ts
+        bs2' <- coerceBSMR $ bsoProcessUpdateQueues bs2 ts
+        return (bs1', bs2')
+    bsoGetCurrentAuthorizations (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetCurrentAuthorizations bs1
+        a2 <- coerceBSMR $ bsoGetCurrentAuthorizations bs2
+        assert (a1 == a2) $ return a1
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 

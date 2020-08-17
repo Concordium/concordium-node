@@ -759,6 +759,18 @@ doGetNextUpdateSequenceNumber pbs uty = do
         bsp <- loadPBS pbs
         lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
 
+doProcessUpdateQueues :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> Timestamp -> m PersistentBlockState
+doProcessUpdateQueues pbs ts = do
+        bsp <- loadPBS pbs
+        u' <- processUpdateQueues ts (bspUpdates bsp)
+        storePBS pbs bsp{bspUpdates = u'}
+
+doGetCurrentAuthorizations :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> m Authorizations
+doGetCurrentAuthorizations pbs = do
+        bsp <- loadPBS pbs
+        u <- loadBufferedRef (bspUpdates bsp)
+        unStoreSerialized <$> loadBufferedRef (currentAuthorizations u)
+
 data PersistentBlockStateContext = PersistentBlockStateContext {
     pbscModuleCache :: IORef ModuleCache,
     pbscBlobStore :: BlobStore
@@ -923,6 +935,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoUpdateBirkParameters = doUpdateBirkParameters
+    bsoProcessUpdateQueues = doProcessUpdateQueues
+    bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetInstance #-}
@@ -953,6 +967,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => Block
     {-# INLINE bsoSetTransactionOutcomes #-}
     {-# INLINE bsoAddSpecialTransactionOutcome #-}
     {-# INLINE bsoUpdateBirkParameters #-}
+    {-# INLINE bsoProcessUpdateQueues #-}
+    {-# INLINE bsoGetCurrentAuthorizations #-}
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r, HasModuleCache r) => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}
