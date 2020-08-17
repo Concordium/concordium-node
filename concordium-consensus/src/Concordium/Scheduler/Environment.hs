@@ -269,7 +269,20 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 
   -- * Chain updates
 
+  -- |Get the current 'Authorizations'.
   getUpdateAuthorizations :: m Authorizations
+
+  -- |Get the next sequence number of updates of a given type.
+  getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
+
+  -- |Add an update to the relevant update queue. The update is
+  -- assumed to have the next sequence number for its update type.
+  -- The next sequence number will be correspondingly incremented,
+  -- and any queued updates of the given type with a later effective
+  -- time are cancelled.
+  enqueueUpdate :: TransactionTime -> UpdatePayload -> m ()
+
+
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
