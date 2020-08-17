@@ -158,6 +158,8 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
 
+  getAccountEncryptionKey acc = return $ acc ^. accountEncryptionKey
+
   getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
 
   getAccountInstances acc = return $ acc ^. accountInstances

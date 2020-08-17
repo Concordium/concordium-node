@@ -129,6 +129,9 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- |Get the current encrypted amount on the account.
   getAccountEncryptedAmount :: Account m -> m AccountEncryptedAmount
 
+  -- |Get the public key used to receive encrypted amounts.
+  getAccountEncryptionKey :: Account m -> m ID.AccountEncryptionKey
+
   -- |Get the next index of the encrypted amount for this account. Next here refers
   -- to the index a newly added encrypted amount will receive.
   -- This has a default implementation in terms of 'getAccountEncryptedAmount',
@@ -469,6 +472,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
+  getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountStakeDelegate = lift . getAccountStakeDelegate
   getAccountInstances = lift . getAccountInstances
   createNewAccount ks addr = lift . createNewAccount ks addr
