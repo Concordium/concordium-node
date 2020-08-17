@@ -26,6 +26,7 @@ import qualified Data.FixedByteString as FBS
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
+import Concordium.Crypto.FFIDataTypes
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
@@ -103,7 +104,7 @@ randomizeAccount _accountAddress _accountVerificationKeys = do
         return $ a0 & accountNonce .~ nonce & accountAmount .~ amt
 
 randomCredential :: Gen ID.CredentialRegistrationID
-randomCredential = ID.RegIdCred . FBS.pack <$> vectorOf 42 arbitrary
+randomCredential = ID.RegIdCred . generateElgamalPublicKeyFromSeed <$> arbitrary
 
 randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)

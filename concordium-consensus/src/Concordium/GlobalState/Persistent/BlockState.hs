@@ -747,6 +747,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => AccountOperations (Pers
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
+  
+  getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
   getAccountStakeDelegate acc = acc ^^. accountStakeDelegate
 
