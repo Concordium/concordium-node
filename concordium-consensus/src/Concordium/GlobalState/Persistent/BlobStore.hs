@@ -527,6 +527,6 @@ instance (MonadBlobStore m ref) => BlobStorable m ref [EncryptedAmount]
 instance (MonadBlobStore m ref) => BlobStorable m ref PersistingAccountData
 instance (MonadBlobStore m ref) => BlobStorable m ref Word64
 
-newtype StoreSerialized a = StoreSerialized a
+newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)
 instance (MonadBlobStore m ref, Serialize a) => BlobStorable m ref (StoreSerialized a)
