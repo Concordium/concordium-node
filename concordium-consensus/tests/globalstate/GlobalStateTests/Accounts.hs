@@ -104,7 +104,7 @@ randomizeAccount _accountAddress _accountVerificationKeys = do
         return $ a0 & accountNonce .~ nonce & accountAmount .~ amt
 
 randomCredential :: Gen ID.CredentialRegistrationID
-randomCredential = ID.RegIdCred . generateElgamalPublicKeyFromSeed <$> arbitrary
+randomCredential = ID.RegIdCred . generateElgamalSecondFromSeed <$> arbitrary
 
 randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)
