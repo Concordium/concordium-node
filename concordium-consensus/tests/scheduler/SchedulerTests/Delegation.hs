@@ -171,7 +171,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     maxBound
                     initialBlockState
             let gs = finState ^. EI.ssBlockState
-            let rejs = [(z, decodePayload (btrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
+            let rejs = [(z, decodePayload (thPayloadSize . btrHeader $ z) (btrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
             case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of
                 Left f -> return $ counterexample f False
