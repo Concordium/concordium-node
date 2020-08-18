@@ -2,7 +2,6 @@
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Concordium.GlobalState.DummyData where
 
-import qualified Data.HashMap.Strict as HM
 import Lens.Micro.Platform
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -67,7 +66,7 @@ dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders =
   case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
     Left err -> error $ "Could not load identity provider test data: " ++ err
-    Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
+    Right ips -> ips
 
 
 {-# NOINLINE dummyArs #-}
