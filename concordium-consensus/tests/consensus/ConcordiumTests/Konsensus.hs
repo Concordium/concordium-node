@@ -260,7 +260,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
         let prevState  = BS._bpState lfb
             prevBakers = _bakerMap $ BState._birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ _unhashed $ BState._blockBank prevState
-        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU (Map.fromAscList $ [ (BakerId i, x) | (i, Just x) <- L.toAscPairList $ prevBakers])) "==" "finalization committee" "calculated finalization committee"
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ prevBakers])) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
             bakerEqParty PartyInfo{..} = baker ^. bakerInfo . bakerSignatureVerifyKey == partySignKey
