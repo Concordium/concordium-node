@@ -167,7 +167,7 @@ movePrimitiveCursor target PrimitiveCursor{..} = do
 traverseTable :: MDB_txn -> MDB_dbi' -> (a -> MDB_val -> MDB_val -> IO a) -> a -> IO a
 traverseTable txn db step start =
     withPrimitiveCursor txn db $ \cursor -> do
-      let 
+      let
           loop Nothing cur = return cur
           loop (Just (key, val)) cur = do
             nxt <- step cur key val
@@ -204,7 +204,7 @@ loadAll txn db = withCursor txn db $ \cursor -> do
         trav [] =<< getCursor CursorLast cursor
 
 -- |Store a record. Do not replace an existing record at the same key.
-storeRecord :: forall db. (MDBDatabase db) 
+storeRecord :: forall db. (MDBDatabase db)
   => MDB_txn
   -- ^Transaction
   -> db

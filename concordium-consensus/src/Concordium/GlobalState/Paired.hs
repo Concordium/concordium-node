@@ -297,7 +297,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
 
     updateAccountAmount (acc1, acc2) amnt = do
         acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
-        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt) 
+        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
         assert ((getHash acc1 :: H.Hash) == getHash acc2) $
           return (acc1', acc2')
 
@@ -502,9 +502,9 @@ instance (MonadLogger m,
         ubs2 <- coerceBSMR $ thawBlockState bs2
         return (ubs1, ubs2)
     freezeBlockState (ubs1, ubs2) = do
-        bs1 <- coerceBSML $ freezeBlockState ubs1
-        bs2 <- coerceBSMR $ freezeBlockState ubs2
-        return (bs1, bs2)
+        (bs1, h1) <- coerceBSML $ freezeBlockState ubs1
+        (bs2, h2) <- coerceBSMR $ freezeBlockState ubs2
+        assert (h1 == h2) $ return ((bs1, bs2), h1)
     dropUpdatableBlockState (ubs1, ubs2) = do
         coerceBSML $ dropUpdatableBlockState ubs1
         coerceBSMR $ dropUpdatableBlockState ubs2

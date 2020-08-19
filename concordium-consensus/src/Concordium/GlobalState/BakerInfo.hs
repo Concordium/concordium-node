@@ -5,6 +5,8 @@ module Concordium.GlobalState.BakerInfo where
 import GHC.Generics
 import Data.Serialize
 import Lens.Micro.Platform
+import Concordium.Types.HashableTo
+import qualified Concordium.Crypto.SHA256 as H
 
 import Concordium.Types
 
@@ -29,6 +31,9 @@ data FullBakerInfo = FullBakerInfo {
 instance Serialize FullBakerInfo
 
 makeLenses ''FullBakerInfo
+
+instance HashableTo H.Hash FullBakerInfo where
+  getHash = H.hash . encode
 
 data BakerError =
       DuplicateSignKey

@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module GlobalStateTests.Trie where
 
 import Data.Word
@@ -12,6 +13,13 @@ import Test.Hspec
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
+-- | Newtype providing a @BlobStorable@ reference for every wrapped type
+--  that is an instance of @Serialize@
+newtype SerializeStorable v = SerStore v
+  deriving newtype (Eq, Ord, Show, Serialize)
+
+-- Every @SerializeStorable@ value will be serialized with the default implementation
+instance (Serialize v, MonadBlobStore m ref) => BlobStorable m ref (SerializeStorable v)
 
 tests :: Spec
 tests = describe "GlobalStateTests.Trie" $
