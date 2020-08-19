@@ -221,7 +221,7 @@ main = cmdArgsRun mode >>=
 
               putStrLn $ "Genesis bakers:"
               putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
-              forM_ (zip [0 :: BakerId ..] $ L.toList (genesisBakers ^. bakerMap)) $ \(bid, v) ->
+              forM_ (L.toAscPairList (genesisBakers ^. bakerMap)) $ \(bid, v) ->
                case v of
                 Nothing -> return ()
                 Just FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} -> do
