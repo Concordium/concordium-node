@@ -66,7 +66,7 @@ instance HasSchedulerState (NoLogSchedulerState m) where
   schedulerBlockState = ssBlockState
   schedulerEnergyUsed = ssSchedulerEnergyUsed
   nextIndex = ssNextIndex
-  accountTransactionLog f s = (const s) <$> (f ())
+  accountTransactionLog f s = s <$ f ()
 
 newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
     deriving (Functor,
@@ -324,6 +324,17 @@ instance (MonadReader ContextState m,
 
   {-# INLINE getUpdateAuthorizations #-}
   getUpdateAuthorizations = lift . bsoGetCurrentAuthorizations =<< use schedulerBlockState
+
+  {-# INLINE getNextUpdateSequenceNumber #-}
+  getNextUpdateSequenceNumber uty = do
+    s <- use schedulerBlockState
+    lift (bsoGetNextUpdateSequenceNumber s uty)
+
+  {-# INLINE enqueueUpdate #-}
+  enqueueUpdate tt p = do
+    s <- use schedulerBlockState
+    s' <- lift (bsoEnqueueUpdate s tt p)
+    schedulerBlockState .= s'
 
 deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
 
