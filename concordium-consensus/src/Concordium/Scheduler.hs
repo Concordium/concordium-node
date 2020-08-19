@@ -1194,7 +1194,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
               tsCost = 0,
               tsEnergyCost = 0,
               tsType = Nothing,
-              tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload])),
+              tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
               ..
             }
           
@@ -1433,6 +1433,7 @@ runTransactions = go []
           predispatch :: BlockItem -> m (Maybe TxResult)
           predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
           predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
+          predispatch WithMetadata{wmdData=ChainUpdate cu,..} = Just <$> handleChainUpdate WithMetadata{wmdData=cu,..}
 
 -- |Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
 --
@@ -1463,3 +1464,4 @@ execTransactions = go
         predispatch :: BlockItem -> m (Maybe TxResult)
         predispatch WithMetadata{wmdData=NormalTransaction tr,..} = dispatch WithMetadata{wmdData=tr,..}
         predispatch WithMetadata{wmdData=CredentialDeployment cred,..} = handleDeployCredential cred wmdHash
+        predispatch WithMetadata{wmdData=ChainUpdate cu,..} = Just <$> handleChainUpdate WithMetadata{wmdData=cu,..}
