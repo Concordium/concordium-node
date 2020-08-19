@@ -217,13 +217,15 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               creds <- BS.getAccountCredentials acc
               delegate <- BS.getAccountStakeDelegate acc
               instances <- BS.getAccountInstances acc
+              encrypted <- BS.getAccountEncryptedAmount acc
               return $ object ["accountNonce" .= nonce
-                                        ,"accountAmount" .= toInteger amount
-                                        -- credentials, most recent first
-                                        ,"accountCredentials" .= map (Versioned 0) creds
-                                        ,"accountDelegation" .= delegate
-                                        ,"accountInstances" .= S.toList instances
-                                        ]
+                              ,"accountAmount" .= toInteger amount
+                                -- credentials, most recent first
+                              ,"accountCredentials" .= map (Versioned 0) creds
+                              ,"accountDelegation" .= delegate
+                              ,"accountInstances" .= S.toList instances
+                              ,"accountEncryptedAmount" .= encrypted
+                              ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
 getContractInfo hash sfsRef addr = runStateQuery sfsRef $
