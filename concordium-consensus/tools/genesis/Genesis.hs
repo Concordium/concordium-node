@@ -26,6 +26,8 @@ import qualified Concordium.GlobalState.SeedState as SS
 import Concordium.ID.Types
 import Concordium.Types
 
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
+
 data Genesis
     = GenerateGenesisData {gdSource :: FilePath,
                            gdOutput :: FilePath,
@@ -130,7 +132,7 @@ maybeModifyValueVersioned ver (Just source) key obj = do
           Just v -> return v
 
 unwrapVersionedGenesisParameters :: Version -> (Versioned Value) -> IO Value
-unwrapVersionedGenesisParameters ver v = 
+unwrapVersionedGenesisParameters ver v =
   if vVersion v /= ver then die $ "Unsupported genesis parameters version " ++ show (vVersion v)
   else return (vValue v)
 
@@ -213,20 +215,23 @@ main = cmdArgsRun mode >>=
               putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
 
               putStrLn ""
-              putStrLn $ "There are " ++ show (Map.size (idProviders genesisIdentityProviders)) ++ " identity providers in genesis."
+              putStrLn $ "There are " ++ show (OrdMap.size (idProviders genesisIdentityProviders)) ++ " identity providers in genesis."
 
               putStrLn ""
-              putStrLn $ "There are " ++ show (Map.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
+              putStrLn $ "There are " ++ show (OrdMap.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
 
               putStrLn $ "Genesis bakers:"
               putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
-              forM_ (OrdMap.toAscList (genesisBakers ^. bakerMap)) $ \(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> do
-                putStrLn $ "  - baker: " ++ show bid
-                putStrLn $ "    * stake: " ++ showBalance (genesisBakers ^. bakerTotalStake) _bakerStake
-                putStrLn $ "    * account: " ++ show _bakerAccount
-                putStrLn $ "    * election key: " ++ show _bakerElectionVerifyKey
-                putStrLn $ "    * signature key: " ++ show _bakerSignatureVerifyKey
-                putStrLn $ "    * aggregation key: " ++ show _bakerAggregationVerifyKey
+              forM_ (zip [0 :: BakerId ..] $ L.toList (genesisBakers ^. bakerMap)) $ \(bid, v) ->
+               case v of
+                Nothing -> return ()
+                Just FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} -> do
+                 putStrLn $ "  - baker: " ++ show bid
+                 putStrLn $ "    * stake: " ++ showBalance (genesisBakers ^. bakerTotalStake) _bakerStake
+                 putStrLn $ "    * account: " ++ show _bakerAccount
+                 putStrLn $ "    * election key: " ++ show _bakerElectionVerifyKey
+                 putStrLn $ "    * signature key: " ++ show _bakerSignatureVerifyKey
+                 putStrLn $ "    * aggregation key: " ++ show _bakerAggregationVerifyKey
 
               putStrLn ""
               putStrLn "Genesis normal accounts:"

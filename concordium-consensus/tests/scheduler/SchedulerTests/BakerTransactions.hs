@@ -4,7 +4,8 @@ module SchedulerTests.BakerTransactions where
 import Test.Hspec
 import Test.HUnit
 
-import qualified Data.Map as Map
+import Control.Monad
+import Data.Maybe
 import qualified Data.HashSet as Set
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -29,6 +30,8 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
+
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -199,6 +202,13 @@ runWithIntermediateStates = do
                          (Types.perAccountTransactions txs)
   return (res, state)
 
+keysL :: L.LFMBTree (Maybe FullBakerInfo) -> [Types.BakerId]
+keysL t = let l = L.toList t in
+   [ i | (i, Just _) <- zip [0..] l ]
+
+getL :: L.LFMBTree (Maybe FullBakerInfo) -> Types.BakerId -> FullBakerInfo
+getL t (Types.BakerId bid) = fromJust $ join $ L.lookup bid t
+
 tests :: Spec
 tests = do
   (results, endState) <- runIO runWithIntermediateStates
@@ -214,53 +224,53 @@ tests = do
           [([(_,Types.TxSuccess [Types.BakerAdded 0])],[],bps1),
            ([(_,Types.TxSuccess [Types.BakerAdded 1])],[],bps2),
            ([(_,Types.TxSuccess [Types.BakerAdded 2])],[],bps3)] ->
-            Map.keys (bps1 ^. birkCurrentBakers . bakerMap) == [0] &&
-            Map.keys (bps2 ^. birkCurrentBakers . bakerMap) == [0,1] &&
-            Map.keys (bps3 ^. birkCurrentBakers . bakerMap) == [0,1,2]
+            keysL (bps1 ^. birkCurrentBakers . bakerMap) == [0] &&
+            keysL (bps2 ^. birkCurrentBakers . bakerMap) == [0,1] &&
+            keysL (bps3 ^. birkCurrentBakers . bakerMap) == [0,1,2]
           _ -> False
 
     specify "Attempt to add baker with incorrect proof of knowledge of aggregation secret key" $
       case results !! 3 of
         ([(_, Types.TxReject Types.InvalidProof)], [], bps) ->
-          Map.keys (bps ^. birkCurrentBakers . bakerMap) == [0,1,2]
+          keysL (bps ^. birkCurrentBakers . bakerMap) == [0,1,2]
         _ -> False
 
     specify "Remove second baker." $
       case results !! 4 of
         ([(_,Types.TxSuccess [Types.BakerRemoved 1])], [], bps4) ->
-            Map.keys (bps4 ^. birkCurrentBakers . bakerMap) == [0,2]
+            keysL (bps4 ^. birkCurrentBakers . bakerMap) == [0,2]
         _ -> False
 
     specify "Update third baker's account." $
       -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 4, results !! 5) of
         ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _])], [], bps5)) ->
-          Map.keys (bps5 ^. birkCurrentBakers . bakerMap) == [0,2] &&
-          let b2 = (bps5 ^. birkCurrentBakers . bakerMap) Map.! 2
+          keysL (bps5 ^. birkCurrentBakers . bakerMap) == [0,2] &&
+          let b2 = (bps5 ^. birkCurrentBakers . bakerMap) `getL` 2
           in b2 ^. bakerInfo . bakerAccount == alesAccount &&
-             ((bps4 ^. birkCurrentBakers . bakerMap) Map.! 2) ^. bakerInfo . bakerAccount == thomasAccount
+             ((bps4 ^. birkCurrentBakers . bakerMap) `getL` 2) ^. bakerInfo . bakerAccount == thomasAccount
         _ -> False
 
     specify "Update first baker's sign key." $
       case (results !! 5, results !! 6) of
         ((_, _, bps5), ([(_,Types.TxSuccess [Types.BakerKeyUpdated 0 _])], [], bps6)) ->
-          Map.keys (bps6 ^. birkCurrentBakers . bakerMap) == [0,2] &&
-          let b0 = (bps6 ^. birkCurrentBakers . bakerMap) Map.! 0
+          keysL (bps6 ^. birkCurrentBakers . bakerMap) == [0,2] &&
+          let b0 = (bps6 ^. birkCurrentBakers . bakerMap) `getL` 0
           in b0 ^. bakerInfo . bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 55) &&
-             ((bps5 ^. birkCurrentBakers . bakerMap) Map.! 0) ^. bakerInfo . bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
+             ((bps5 ^. birkCurrentBakers . bakerMap) `getL` 0) ^. bakerInfo . bakerSignatureVerifyKey == BlockSig.verifyKey (bakerSignKey 0)
         _ -> False
 
     specify "Readding removed baker shouldn't fail due to duplicated keys" $
       case results !! 7 of
         ([(_,Types.TxSuccess [Types.BakerAdded 3])], [], bps7) -> do
-            assertEqual "Baker ids" (Map.keys (bps7 ^. birkCurrentBakers . bakerMap)) [0,2,3]
+            assertEqual "Baker ids" (keysL (bps7 ^. birkCurrentBakers . bakerMap)) [0,2,3]
         r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to update baker's signature key to a duplicate" $
       case (results !! 7, results !! 8) of
         ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) ->
-            let b0_bps7 = (bps7 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
-                b0_bps8 = (bps8 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
+            let b0_bps7 = (bps7 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
+                b0_bps8 = (bps8 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
             in do
               assertEqual "Unchanged signature key" (b0_bps7 ^. bakerSignatureVerifyKey) (b0_bps8 ^. bakerSignatureVerifyKey)
               assertEqual "Duplicated signature key" duplicated (baker2 ^. _1 . bakerInfo . bakerSignatureVerifyKey)
@@ -269,15 +279,15 @@ tests = do
     specify "Fail to add baker with duplicated signature key" $
       case (results !! 8, results !! 9) of
         ((_,_, bps7), ([(_, Types.TxReject (Types.DuplicateSignKey duplicated))], [], bps8)) -> do
-            assertEqual "Unchanged bakers" (Map.keys (bps7 ^. birkCurrentBakers . bakerMap)) (Map.keys (bps8 ^. birkCurrentBakers . bakerMap))
+            assertEqual "Unchanged bakers" (keysL (bps7 ^. birkCurrentBakers . bakerMap)) (keysL (bps8 ^. birkCurrentBakers . bakerMap))
             assertEqual "Duplicated signature key" duplicated (baker2 ^. _1 . bakerInfo . bakerSignatureVerifyKey)
         r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Update first baker's aggregation key." $
       case (results !! 9, results !! 10) of
         ((_, _, bps9), ([(_,Types.TxSuccess [Types.BakerAggregationKeyUpdated 0 newKey])], [], bps10)) ->
-          let b0_bps9 = (bps9 ^. birkCurrentBakers . bakerMap) Map.! 0 ^. bakerInfo
-              b0_bps10 = (bps10 ^. birkCurrentBakers . bakerMap) Map.! 0 ^. bakerInfo
+          let b0_bps9 = (bps9 ^. birkCurrentBakers . bakerMap) `getL` 0 ^. bakerInfo
+              b0_bps10 = (bps10 ^. birkCurrentBakers . bakerMap) `getL` 0 ^. bakerInfo
           in do
             assertEqual "Baker aggregation key after transaction" (b0_bps10 ^. bakerAggregationVerifyKey) (Bls.derivePublicKey $ bakerAggregationKey 42)
             assertEqual "Baker aggregation key before transaction" (b0_bps9 ^. bakerAggregationVerifyKey) (baker0 ^. _1 ^. bakerInfo . bakerAggregationVerifyKey)
@@ -287,15 +297,15 @@ tests = do
     specify "Fail to add baker with duplicated aggregation key" $
       case (results !! 10, results !! 11) of
         ((_,_, bps10), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps11)) -> do
-            assertEqual "Baker ids unchanged" (Map.keys (bps10 ^. birkCurrentBakers . bakerMap)) (Map.keys (bps11 ^. birkCurrentBakers . bakerMap))
+            assertEqual "Baker ids unchanged" (keysL (bps10 ^. birkCurrentBakers . bakerMap)) (keysL (bps11 ^. birkCurrentBakers . bakerMap))
             assertEqual "Duplicated aggregation key" duplicated (baker2 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
         r -> assertFailure $ "Incorrect result shape: " ++ show r
 
     specify "Fail to update baker's aggregation key to a duplicate" $
       case (results !! 11, results !! 12) of
         ((_,_, bps11), ([(_, Types.TxReject (Types.DuplicateAggregationKey duplicated))], [], bps12)) ->
-            let b0_bps11 = (bps11 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
-                b0_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
+            let b0_bps11 = (bps11 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
+                b0_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
             in do
               assertEqual "Unchanged signature key" (b0_bps11 ^. bakerSignatureVerifyKey) (b0_bps12 ^. bakerSignatureVerifyKey)
               assertEqual "Duplicated aggregation key" duplicated (Bls.derivePublicKey $ bakerAggregationKey 42)
@@ -304,8 +314,8 @@ tests = do
     specify "Update first baker's election key" $
       case (results !! 12, results !! 13) of
         ((_,_, bps12), ([(_,Types.TxSuccess [Types.BakerElectionKeyUpdated 3 k])], [], bps13)) ->
-            let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
-                b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
+            let b3_bps12 = (bps12 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
+                b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
             in do
               assertEqual "Election key before update" (b3_bps12 ^. bakerElectionVerifyKey) (VRF.pubKey $ baker1 ^. _2)
               assertEqual "Updated election key" (b3_bps13 ^. bakerElectionVerifyKey) (VRF.pubKey $ baker3 ^. _2)
@@ -315,8 +325,8 @@ tests = do
     specify "Fail to update first baker's election key using wrong account" $
       case (results !! 13, results !! 14) of
         ((_,_, bps13), ([(_, Types.TxReject rr)], [], bps14)) ->
-            let b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
-                b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
+            let b3_bps13 = (bps13 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
+                b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
             in do
               assertEqual "Rejection reason" (Types.NotFromBakerAccount thomasAccount alesAccount) rr
               assertEqual "Unchanged election key" (b3_bps13 ^. bakerElectionVerifyKey) (b3_bps14 ^. bakerElectionVerifyKey)
@@ -325,7 +335,7 @@ tests = do
     specify "Fail to update first baker's election key using wrong private key for proof" $
       case (results !! 14, results !! 15) of
         ((_,_, bps14), ([(_,Types.TxReject Types.InvalidProof)], [], bps15)) ->
-            let b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
-                b3_bps15 = (bps15 ^. birkCurrentBakers . bakerMap) Map.! 3 ^. bakerInfo
+            let b3_bps14 = (bps14 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
+                b3_bps15 = (bps15 ^. birkCurrentBakers . bakerMap) `getL` 3 ^. bakerInfo
             in assertEqual "Unchanged election key" (b3_bps14 ^. bakerElectionVerifyKey) (b3_bps15 ^. bakerElectionVerifyKey)
         r -> assertFailure $ "Incorrect result shape: " ++ show r

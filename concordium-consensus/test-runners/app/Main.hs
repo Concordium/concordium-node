@@ -28,6 +28,7 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
+import Concordium.GlobalState.Paired
 import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Logger
@@ -136,24 +137,23 @@ dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
 
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
+-- type TreeConfig = DiskTreeDiskBlockConfig
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
 
 -- type TreeConfig = MemoryTreeDiskBlockConfig
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 -- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
 
--- type TreeConfig = MemoryTreeMemoryBlockConfig
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
+--type TreeConfig = MemoryTreeMemoryBlockConfig
+--makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+--makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
 
--- uncomment if wanting paired config
--- type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
-
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
--- makeGlobalStateConfig rp genData =
---    return $ PairGSConfig (MTMBConfig rp genData (genesisState genData), DTDBConfig rp genData (genesisState genData))
+--uncomment if wanting paired config
+type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+makeGlobalStateConfig rp genData =
+   return $ PairGSConfig (MTMBConfig rp genData (Dummy.basicGenesisState genData), DTDBConfig rp genData (Dummy.basicGenesisState genData))
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
