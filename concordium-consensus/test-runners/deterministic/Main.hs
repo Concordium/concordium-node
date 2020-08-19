@@ -15,6 +15,7 @@ import Control.Monad.IO.Class
 import Lens.Micro.Platform
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
+import Data.Word
 import Control.Monad.Trans.State (StateT(..),execStateT)
 import Control.Monad.State.Class
 import Control.Monad.Trans.Reader (ReaderT(..))
@@ -26,7 +27,6 @@ import System.IO
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
-import qualified Concordium.GlobalState.Basic.BlockState as BState
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.Types.Transactions
@@ -38,7 +38,6 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 
-import qualified Concordium.Scheduler.Utils.Init.Example as Example
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
@@ -49,8 +48,9 @@ import Concordium.Kontrol
 import Concordium.TimeMonad
 import Concordium.Startup
 
-import Concordium.Crypto.DummyData
-import Concordium.Types.DummyData (mateuszAccount)
+import qualified Concordium.Types.DummyData as Dummy
+import qualified Concordium.GlobalState.DummyData as Dummy
+import qualified Concordium.Crypto.DummyData as Dummy
 
 import System.Directory
 
@@ -66,7 +66,7 @@ makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 
 
 type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
@@ -85,17 +85,6 @@ dummyIdentityProviders = emptyIdentityProviders
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
-
--- |Construct genesis state.
-genesisState :: GenesisData -> BState.BlockState
-genesisState GenesisData{..} = Example.initialState
-                       (BState.BasicBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState)
-                       genesisCryptographicParameters
-                       genesisAccounts
-                       genesisIdentityProviders
-                       2 -- Initial number of counter contracts
-                       genesisControlAccounts
-
 
 -- |Monad that provides a deterministic implementation of 'TimeMonad' -- i.e. that is
 -- not dependent on real time.
@@ -237,10 +226,9 @@ allBakers :: (Integral a) => [a]
 allBakers = [0..maxBakerId]
 
 transactions :: StdGen -> [(Integer, BlockItem)]
-transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
+transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
     where
-        --contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n@(Nonce z) (_ : _ : rs) = (fromIntegral (z `div` 100), Example.makeTransferTransaction (mateuszKP, mateuszAccount) mateuszAccount 123 n) : trs (n+1) rs
+        trs (Nonce n) (amnt:amnts) = (toInteger n `div` 100, Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) (Nonce n)) : trs (Nonce (n+1)) amnts
         trs _ _ = error "Ran out of transaction data"
 
 
@@ -264,7 +252,7 @@ initialState = do
                                 dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
-                                [Example.createCustomAccount 1000000000000 mateuszKP mateuszAccount]
+                                [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do

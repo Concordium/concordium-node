@@ -30,7 +30,6 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
 import Concordium.ID.Types
-import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
@@ -327,7 +326,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
-        case (decode gdata, AE.eitherDecodeStrict bdata) of
+        case (runGet getExactVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) ->
               if connStringLen /= 0 then do -- enable logging of transactions
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
@@ -388,7 +387,7 @@ startConsensusPassive ::
 startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
-        case decode gdata of
+        case runGet getExactVersionedGenesisData gdata of
             Right genData ->
               if connStringLen /= 0 then do
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
@@ -858,12 +857,12 @@ getModuleSource cptr blockcstr cstr = do
         logm External LLDebug $ "Decoded module hash to : " ++ show mref -- base 16
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           mmodul <- runConsensusQuery c (Get.getModuleSource hash) mref
-          case mmodul :: Maybe (Core.Module Core.UA) of
+          case mmodul of
             Nothing -> do
               logm External LLTrace "Module not available."
               byteStringToCString BS.empty
             Just modul ->
-              let reply = P.runPut (Core.putModule modul)
+              let reply = encode modul
               in do
                 logm External LLTrace $ "Replying with data size = " ++ show (BS.length reply)
                 byteStringToCString reply

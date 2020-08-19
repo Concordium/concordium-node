@@ -34,16 +34,14 @@ import Control.Monad.RWS.Strict
 
 import Lens.Micro.Platform
 
-import qualified Acorn.Core as Core
-
 import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w)
 
 deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
-    instance (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state, BlockStateOperations m)
-             => StaticEnvironmentMonad Core.UA (BlockStateMonad w state m)
+    instance (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state, BlockStateOperations m, Footprint (ATIStorage m) ~ w)
+             => StaticInformation (BlockStateMonad w state m)
 
 instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
   type ATIStorage (BlockStateMonad w state m) = ATIStorage m
