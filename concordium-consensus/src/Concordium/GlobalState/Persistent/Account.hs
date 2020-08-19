@@ -59,6 +59,8 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
 instance HashableTo Hash.Hash PersistentAccount where
   getHash = _accountHash
 
+instance Monad m => MHashableTo m Hash.Hash PersistentAccount
+
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.
 makePersistentAccount :: MonadIO m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
@@ -67,7 +69,7 @@ makePersistentAccount Transient.Account{..} = do
   return PersistentAccount {..}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
-sameAccount :: (MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
+sameAccount :: (MonadIO m, MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
@@ -97,7 +99,7 @@ setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   newPData <- makeBufferedRef $ f pData
   return $ acc & persistingData .~ newPData
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData 
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the

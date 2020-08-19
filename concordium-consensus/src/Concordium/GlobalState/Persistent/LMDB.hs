@@ -107,7 +107,7 @@ instance S.Serialize FinalizedTransactionStatus where
 
 -- |Convert a 'FinalizedTransactionStatus' to a 'TransactionStatus'
 finalizedToTransactionStatus :: FinalizedTransactionStatus -> T.TransactionStatus
-finalizedToTransactionStatus FinalizedTransactionStatus{..} = 
+finalizedToTransactionStatus FinalizedTransactionStatus{..} =
   T.Finalized{_tsSlot = ftsSlot, tsBlockHash = ftsBlockHash, tsFinResult = ftsIndex}
 
 instance MDBDatabase TransactionStatusStore where
@@ -119,6 +119,7 @@ newtype FinalizedByHeightStore = FinalizedByHeightStore MDB_dbi'
 
 instance MDBDatabase FinalizedByHeightStore where
   type DBKey FinalizedByHeightStore = BlockHeight
+
   type DBValue FinalizedByHeightStore = BlockHash
   encodeValue _ = LBS.fromStrict . hashToByteString . v0BlockHash
 
@@ -272,7 +273,7 @@ readFinalizedBlockAtHeight bHeight = do
   dbh <- use dbHandlers
   liftIO $ getFinalizedBlockAtHeight dbh bHeight
 
--- |Check if the given key is in the on-disk transaction table.        
+-- |Check if the given key is in the on-disk transaction table.
 memberTransactionTable :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
   => TransactionHash
   -> m Bool
@@ -312,7 +313,7 @@ getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
       Just (Left s) -> return $ Left $ "Could not read last finalization record: " ++ s
       Nothing -> return $ Left "No last finalized block found"
 
--- |Get the first block 
+-- |Get the first block
 getFirstBlock :: (S.Serialize st) => DatabaseHandlers st -> IO (Maybe (StoredBlock st))
 getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
         mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) 0
@@ -350,7 +351,7 @@ resizeOnFull addSize a = do
 writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
   => StoredBlock st -> m ()
 writeBlock block = resizeOnFull blockSize
-    $ \dbh -> transaction (dbh ^. storeEnv) False 
+    $ \dbh -> transaction (dbh ^. storeEnv) False
     $ \txn -> do
         let b = sbInfo block
         storeReplaceRecord txn (dbh ^. finalizedByHeightStore) (_bpHeight b) (_bpHash b)
