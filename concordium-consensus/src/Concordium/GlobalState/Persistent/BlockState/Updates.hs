@@ -75,7 +75,9 @@ checkEnqueue sn !t !e UpdateQueue{..}
 data PendingUpdates = PendingUpdates {
         pAuthorizationQueue :: !(BufferedRef (UpdateQueue Authorizations)),
         pProtocolQueue :: !(BufferedRef (UpdateQueue ProtocolUpdate)),
-        pParameterQueue :: !(BufferedRef (UpdateQueue ParameterUpdate))
+        pElectionDifficultyQueue :: !(BufferedRef (UpdateQueue ElectionDifficulty)),
+        pEuroPerEnergyQueue :: !(BufferedRef (UpdateQueue ExchangeRate)),
+        pMicroGTUPerEuroQueue :: !(BufferedRef (UpdateQueue ExchangeRate))
     }
 
 instance (MonadBlobStore m BlobRef, MonadIO m)
@@ -83,22 +85,30 @@ instance (MonadBlobStore m BlobRef, MonadIO m)
     storeUpdate p PendingUpdates{..} = do
             (pAQ, aQ) <- storeUpdate p pAuthorizationQueue
             (pPrQ, prQ) <- storeUpdate p pProtocolQueue
-            (pPaQ, paQ) <- storeUpdate p pParameterQueue
+            (pEDQ, edQ) <- storeUpdate p pElectionDifficultyQueue
+            (pEPEQ, epeQ) <- storeUpdate p pEuroPerEnergyQueue
+            (pMGTUPEQ, mgtupeQ) <- storeUpdate p pMicroGTUPerEuroQueue
             let newPU = PendingUpdates {
                     pAuthorizationQueue = aQ,
                     pProtocolQueue = prQ,
-                    pParameterQueue = paQ
+                    pElectionDifficultyQueue = edQ,
+                    pEuroPerEnergyQueue = epeQ,
+                    pMicroGTUPerEuroQueue = mgtupeQ
                 }
-            return (pAQ >> pPrQ >> pPaQ, newPU)
+            return (pAQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ, newPU)
     store p pu = fst <$> storeUpdate p pu
     load p = do
         mAQ <- label "Authorization update queue" $ load p
         mPrQ <- label "Protocol update queue" $ load p
-        mPaQ <- label "Parameter update queue" $ load p
+        mEDQ <- label "Election difficulty update queue" $ load p
+        mEPEQ <- label "Euro per energy update queue" $ load p
+        mMGTUPEQ <- label "Micro GTU per Euro update queue" $ load p
         return $! do
             pAuthorizationQueue <- mAQ
             pProtocolQueue <- mPrQ
-            pParameterQueue <- mPaQ
+            pElectionDifficultyQueue <- mEDQ
+            pEuroPerEnergyQueue <- mEPEQ
+            pMicroGTUPerEuroQueue <- mMGTUPEQ
             return PendingUpdates{..}
 
 emptyPendingUpdates :: (MonadIO m) => m PendingUpdates

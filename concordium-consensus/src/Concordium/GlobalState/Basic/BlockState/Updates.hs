@@ -39,12 +39,14 @@ checkEnqueue sn !t !e UpdateQueue{..}
 data PendingUpdates = PendingUpdates {
     _pAuthorizationQueue :: !(UpdateQueue Authorizations),
     _pProtocolQueue :: !(UpdateQueue ProtocolUpdate),
-    _pParameterQueue :: !(UpdateQueue ParameterUpdate)
+    _pElectionDifficultyQueue :: !(UpdateQueue ElectionDifficulty),
+    _pEuroPerEnergyQueue :: !(UpdateQueue ExchangeRate),
+    _pMicroGTUPerEuroQueue :: !(UpdateQueue ExchangeRate)
 } deriving (Show)
 makeLenses ''PendingUpdates
 
 emptyPendingUpdates :: PendingUpdates
-emptyPendingUpdates = PendingUpdates emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue
+emptyPendingUpdates = PendingUpdates emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue
 
 data Updates = Updates {
     _currentAuthorizations :: !Authorizations,
@@ -61,26 +63,32 @@ initialUpdates _currentAuthorizations _currentParameters = Updates {
         ..
     }
 
-processAuthorizationUpdates :: Timestamp -> Authorizations -> UpdateQueue Authorizations -> (Authorizations, UpdateQueue Authorizations)
-processAuthorizationUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), uq {_uqQueue = qr})
+-- |Process the update queue to determine the new value of a parameter (or the authorizations).
+-- This splits the queue at the given timestamp. The last value up to and including the timestamp
+-- is the new value, if any -- otherwise the current value is retained. The queue is updated to
+-- be the updates with later timestamps.
+processValueUpdates ::
+    Timestamp
+    -- ^Current timestamp
+    -> v
+    -- ^Current value
+    -> UpdateQueue v
+    -- ^Current queue
+    -> (v, UpdateQueue v)
+processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), uq {_uqQueue = qr})
     where
         (ql, qr) = span ((<= t) . fst) (uq ^. uqQueue)
 
+-- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
+-- overridden by later ones.
+-- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
+-- elapsed.
 processProtocolUpdates :: Timestamp -> Maybe ProtocolUpdate -> UpdateQueue ProtocolUpdate -> (Maybe ProtocolUpdate, UpdateQueue ProtocolUpdate)
 processProtocolUpdates t pu0 uq = (pu', uq {_uqQueue = qr})
     where
         (ql, qr) = span ((<= t) . fst) (uq ^. uqQueue)
         pu' = getFirst <$> mconcat ((First <$> pu0) : (Just . First . snd <$> ql))
 
-processParameterUpdates :: Timestamp -> ChainParameters -> UpdateQueue ParameterUpdate -> (ChainParameters, UpdateQueue ParameterUpdate)
-processParameterUpdates t cp0 uq = (cp', uq {_uqQueue = qr})
-    where
-        (ql, qr) = span ((<= t) . fst) (uq ^. uqQueue)
-        cp' = foldl' applyPU cp0 (snd <$> ql)
-        applyPU ChainParameters{..} ParameterUpdate{..} = makeChainParameters
-                (fromMaybe _cpElectionDifficulty puElectionDifficulty)
-                (fromMaybe _cpEuroPerEnergy puEuroPerEnergy)
-                (fromMaybe _cpMicroGTUPerEuro puMicroGTUPerEuro)
 
 -- |Process the update queues to determine the current state of
 -- updates.
@@ -89,29 +97,28 @@ processUpdateQueues
     -- ^Current timestamp
     -> Updates
     -> Updates
-processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..},..} = Updates {
+processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..},_currentParameters = ChainParameters{..}, ..} = Updates {
             _currentAuthorizations = newAuthorizations,
             _currentProtocolUpdate = newProtocolUpdate,
-            _currentParameters = newParameters,
+            _currentParameters = makeChainParameters newElectionDifficulty newEuroPerEnergy newMicroGTUPerEuro,
             _pendingUpdates = PendingUpdates {
                     _pAuthorizationQueue = newAuthorizationQueue,
                     _pProtocolQueue = newProtocolQueue,
-                    _pParameterQueue = newParameterQueue
+                    _pElectionDifficultyQueue = newElectionDifficultyQueue,
+                    _pEuroPerEnergyQueue = newEuroPerEnergyQueue,
+                    _pMicroGTUPerEuroQueue = newMicroGTUPerEuroQueue
                 }
         }
     where
-        (newAuthorizations, newAuthorizationQueue) = processAuthorizationUpdates t _currentAuthorizations _pAuthorizationQueue
+        (newAuthorizations, newAuthorizationQueue) = processValueUpdates t _currentAuthorizations _pAuthorizationQueue
         (newProtocolUpdate, newProtocolQueue) = processProtocolUpdates t _currentProtocolUpdate _pProtocolQueue
-        (newParameters, newParameterQueue) = processParameterUpdates t _currentParameters _pParameterQueue
+        (newElectionDifficulty, newElectionDifficultyQueue) = processValueUpdates t _cpElectionDifficulty _pElectionDifficultyQueue
+        (newEuroPerEnergy, newEuroPerEnergyQueue) = processValueUpdates t _cpEuroPerEnergy _pEuroPerEnergyQueue
+        (newMicroGTUPerEuro, newMicroGTUPerEuroQueue) = processValueUpdates t _cpMicroGTUPerEuro _pMicroGTUPerEuroQueue
 
 futureElectionDifficulty :: Updates -> Timestamp -> ElectionDifficulty
-futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} = fed (_cpElectionDifficulty _currentParameters) eds
-    where
-        eds = [(ts, ed) | (ts, ParameterUpdate{puElectionDifficulty = Just ed}) <- _uqQueue _pParameterQueue]
-        fed ced [] _ = ced
-        fed ced ((ts', ed) : r) ts
-            | ts' <= ts = fed ed r ts
-            | otherwise = ced
+futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} ts
+        = fst (processValueUpdates ts (_cpElectionDifficulty _currentParameters) _pElectionDifficultyQueue)
 
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateAuthorization = u ^. pendingUpdates . pAuthorizationQueue . uqNextSequenceNumber
