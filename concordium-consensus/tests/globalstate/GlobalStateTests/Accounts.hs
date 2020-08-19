@@ -61,7 +61,7 @@ checkEquivalent ba pa = do
   pam <- Trie.toMap (P.accountMap pa)
   checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
   let bat = BAT.toList (B.accountTable ba)
-  pat <- zip [0 ..] <$> L.toList (P.accountTable pa)
+  pat <- L.toAscPairList (P.accountTable pa)
   checkBinaryM sameAccList bat pat "==" "Basic account table (as list)" "Persistent account table (as list)"
   let bath = getHash (B.accountTable ba) :: H.Hash
   path <- getHashM (P.accountTable pa)

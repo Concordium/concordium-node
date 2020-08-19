@@ -1,3 +1,5 @@
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -24,9 +26,10 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
     update,
 
     -- * Conversion
-    toAscList,
-    fromAscList,
+    toList,
+    fromList,
     toAscPairList,
+    fromListChoosingFirst,
 
     -- * Specialized functions for @Maybe@
     lookupMaybe,
@@ -36,7 +39,6 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree
 
     -- * Traversals
     ix,
-    ixMaybe,
 
     -- * Helpers
     setBits,
@@ -55,8 +57,9 @@ import Data.Word
 import Prelude hiding (lookup)
 import Control.Monad (join)
 import Data.Coerce (coerce, Coercible)
-import Lens.Micro ((<&>), Traversal')
+import Lens.Micro ((<&>))
 import Data.Maybe (fromJust)
+import Lens.Micro.Internal (Ixed(..), IxValue, Index)
 {-
 -------------------------------------------------------------------------------
                                     Helpers
@@ -74,9 +77,6 @@ setBits h = bit (h + 1) - 1
 -- node is one more than the maximum of the height of the children nodes.
 type Height = Word64
 
--- | Local alias for the key of the tree.
-type Key = Word64
-
 {-
 -------------------------------------------------------------------------------
                                 Type definition
@@ -84,7 +84,7 @@ type Key = Word64
 -}
 
 -- | Left-full Merkle Binary Tree
-data LFMBTree v
+data LFMBTree k v
   = Empty
   | NonEmpty !Word64 !(T v)
   deriving (Eq, Show)
@@ -101,34 +101,26 @@ data T v
 -------------------------------------------------------------------------------
 -}
 
-instance
-  ( HashableTo H.Hash v
-  ) =>
-  HashableTo H.Hash (T v)
-  where
+instance HashableTo H.Hash v => HashableTo H.Hash (T v) where
   getHash (Leaf v) = getHash v
   getHash (Node _ l r) = H.hashOfHashes (getHash l) (getHash r)
 
 -- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
-instance
-  ( HashableTo H.Hash v
-  ) =>
-  HashableTo H.Hash (LFMBTree v)
-  where
+instance HashableTo H.Hash v => HashableTo H.Hash (LFMBTree k v) where
   getHash Empty = H.hash "EmptyLFMBTree"
   getHash (NonEmpty _ v) = getHash v
 
-instance Serialize v => Serialize (LFMBTree v) where
+instance Serialize v => Serialize (LFMBTree k v) where
   put Empty = putWord64be 0
   put (NonEmpty h t) = do
-    putWord64be h
+    putWord64be (coerce h)
     put t
   get = do
     tag <- getWord64be
     case tag of
       0 -> return Empty
-      h -> NonEmpty h <$> get
+      h -> NonEmpty (coerce h) <$> get
 
 instance Serialize v => Serialize (T v) where
   put (Leaf v) = do
@@ -136,14 +128,21 @@ instance Serialize v => Serialize (T v) where
     put v
   put (Node h l r) = do
     putWord8 1
-    put h
+    putWord64be h
     put l
     put r
   get = do
     tag <- getWord8
     case tag of
       0 -> Leaf <$> get
-      _ -> Node <$> get <*> get <*> get
+      _ -> Node <$> getWord64be <*> get <*> get
+
+type instance Index (LFMBTree k v) = k
+type instance IxValue (LFMBTree k v) = v
+instance (Bits k, Ord k, Coercible k Word64) => Ixed (LFMBTree k v) where
+  ix k f m = case lookup k m of
+    Just v -> f v <&> (\v' -> snd . fromJust $ update (const ((), v')) k m)
+    Nothing -> pure m
 
 {-
 -------------------------------------------------------------------------------
@@ -151,20 +150,20 @@ instance Serialize v => Serialize (T v) where
 -------------------------------------------------------------------------------
 -}
 
-size :: LFMBTree v -> Word64
+size :: (Num k, Coercible k Word64) => LFMBTree k v -> k
 size Empty = 0
-size (NonEmpty s _) = s
+size (NonEmpty s _) = coerce s
 
 -- | Returns the empty tree
-empty :: LFMBTree v
+empty :: LFMBTree k v
 empty = Empty
 
 -- | Returns the value at the given key if it is present in the tree
 -- or Nothing otherwise.
-lookup :: Key -> LFMBTree v -> Maybe v
+lookup :: (Bits k, Ord k, Coercible k Word64) => k -> LFMBTree k v -> Maybe v
 lookup _ Empty = Nothing
 lookup k (NonEmpty s t) =
-  if k >= s
+  if k >= (coerce s)
     then Nothing -- If we try to find a key that is past the size of the tree, it will not be present
     else lookupT k t
   where
@@ -176,40 +175,19 @@ lookup k (NonEmpty s t) =
           else lookupT key left
 
 -- | If a tree holds values of type @Maybe v@ then lookup should return a @Just@ if the value is present and @Nothing@ if it is not present or is a Nothing. This function implements such behavior.
-lookupMaybe :: Key -> LFMBTree (Maybe v) -> Maybe v
+lookupMaybe :: (Bits k, Ord k, Coercible k Word64) => k -> LFMBTree k (Maybe v) -> Maybe v
 lookupMaybe k t = join $ lookup k t
 
-ix :: Coercible k Key => k -> Traversal' (LFMBTree v) v
-ix k f m = case lookup (coerce k) m of
-    Just v -> f v <&> (\v' -> snd . fromJust $ update (const ((), v')) (coerce k) m)
-    Nothing -> pure m
-
-ixMaybe :: Coercible k Key => k -> Traversal' (LFMBTree (Maybe v)) v
-ixMaybe k f m = case lookupMaybe (coerce k) m of
-    Just v -> f v <&> (\v' -> snd . fromJust $ update (const ((), Just v')) (coerce k) m)
-    Nothing -> pure m
-
 -- | Adds a value to the tree returning the assigned key and the new tree.
-append :: v -> LFMBTree v -> (Key, LFMBTree v)
+append :: (Num k, Coercible k Word64) => v -> LFMBTree k v -> (k, LFMBTree k v)
 append v Empty = (0, NonEmpty 1 (Leaf v))
-append v (NonEmpty s t) = (s, NonEmpty (s + 1) (appendT s v t))
+append v (NonEmpty s t) = (coerce s, NonEmpty (s + 1) (appendT s v t))
   where
     createLeaf originalNode value f = f originalNode (Leaf value)
     appendT key value node =
       case node of
-        originalNode@(Leaf _) -> do
-          -- Inserting on a leaf will create a new node in which
-          -- its right child is a leaf with the new value and the
-          -- left child is the original leaf
-          createLeaf originalNode value (Node 0)
-        originalNode@(Node height leftNode rightNode) ->
-          -- For inserting on a node, if the wanted key is bigger than the
-          -- saturated value at the current height, a new node has to be created
-          -- holding the new value as a leaf on its right child and the original
-          -- node on its left child. Otherwise, we have to insert the value into
-          -- the right subtree and the key has to be cropped to allow for this
-          -- same comparison to work recursively so we remove the highest bit using
-          -- an @and@ operation.
+        originalNode@(Leaf _) -> createLeaf originalNode value (Node 0) -- see Note [Inserting on a leaf]
+        originalNode@(Node height leftNode rightNode) ->                -- see Note [Moving on the tree]
           let saturatedLevel = setBits (fromIntegral height)
               modLevel = (.&. setBits (fromIntegral height - 1))
            in if key > saturatedLevel
@@ -218,16 +196,34 @@ append v (NonEmpty s t) = (s, NonEmpty (s + 1) (appendT s v t))
                   let newNode = appendT (modLevel key) value rightNode
                    in Node height leftNode newNode
 
+{- Note [Inserting on a leaf]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Inserting on a leaf will create a new node in which
+its right child is a leaf with the new value and the
+left child is the original leaf
+-}
+
+{- Note [Moving on the tree]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+For inserting on a node, if the wanted key is bigger than the
+saturated value at the current height, a new node has to be created
+holding the new value as a leaf on its right child and the original
+node on its left child. Otherwise, we have to insert the value into
+the right subtree and the key has to be cropped to allow for this
+same comparison to work recursively so we remove the highest bit using
+an @and@ operation.
+-}
+
 -- | Update a value at a given key.
 --
 -- If the key is not present in the tree, then it resturns @Nothing@.
 -- Otherwise, the value is loaded, modified with the given function and stored again.
 --
 -- @update@ will also recompute the hashes on the way up to the root.
-update :: (v -> (a, v)) -> Key -> LFMBTree v -> Maybe (a, LFMBTree v)
+update :: (Ord k, Bits k, Coercible k Word64) => (v -> (a, v)) -> k -> LFMBTree k v -> Maybe (a, LFMBTree k v)
 update _ _ Empty = Nothing
 update f k (NonEmpty s t) =
-  if k >= s
+  if k >= (coerce s)
     then Nothing
     else
       let (a, t') = updateT k f t
@@ -244,37 +240,46 @@ update f k (NonEmpty s t) =
 
 -- | If a tree holds values of type @Maybe v@ then deleting is done by inserting a @Nothing@ at a given position.
 -- This function will return Nothing if the key is not present and otherwise it will return the updated tree.
-delete :: Key -> LFMBTree (Maybe v) -> Maybe (LFMBTree (Maybe v))
+delete :: (Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k (Maybe v) -> Maybe (LFMBTree k (Maybe v))
 delete k t = snd <$> update (const ((), Nothing)) k t
 
 -- | Return the elements sorted by their keys. As there is no operation
 -- for deleting elements, this list will contain all the elements starting
 -- on the index 0 up to the size of the tree.
-toAscList :: LFMBTree v -> [v]
-toAscList Empty = []
-toAscList (NonEmpty _ t) = toListT t
+toList :: LFMBTree k v -> [v]
+toList Empty = []
+toList (NonEmpty _ t) = toListT t
   where
     toListT (Leaf v) = [v]
     toListT (Node _ l r) = toListT l ++ toListT r
 
 -- | Return the pairs (key, value) sorted by their keys. This list will contain
 -- all the elements starting on the index 0.
-toAscPairList :: LFMBTree v -> [(Word64, v)]
-toAscPairList = zip [0..] . toAscList
+toAscPairList :: Coercible k Word64 => LFMBTree k v -> [(k, v)]
+toAscPairList = zip (map coerce [0 :: Word64 ..]) . toList
 
 -- | If a tree contains values of type Maybe, a `Nothing` is considered a deletion.
 -- This function filters out the `Nothing` items and unwraps the `Just` items.
-toAscPairListMaybes :: LFMBTree (Maybe v) -> [(Word64, v)]
+toAscPairListMaybes :: Coercible k Word64 => LFMBTree k (Maybe v) -> [(k, v)]
 toAscPairListMaybes l = [(i, v) | (i, Just v) <- toAscPairList l]
 
 -- | Create a tree from a list of items. The items will be inserted sequentially
 -- starting on the index 0.
-fromAscList :: [v] -> LFMBTree v
-fromAscList = foldl' (\acc e -> snd $ append e acc) empty
+fromList :: (Num k, Coercible k Word64) => [v] -> LFMBTree k v
+fromList = foldl' (\acc e -> snd $ append e acc) empty
+
+-- | Create a tree from a list of items choosing the first item seen when getting duplicates. The given function extracts the equatable field of the value that will be compared when checking for duplicates.
+fromListChoosingFirst :: (Num k, Eq a, Coercible k Word64) => (v -> a) -> [v] -> LFMBTree k v
+fromListChoosingFirst f = fromListHelper [] empty
+  where fromListHelper _ t [] = t
+        fromListHelper seen t (x:xs) =
+          let key = f x in
+            if key `elem` seen then fromListHelper seen t xs
+            else fromListHelper (seen ++ [key]) (snd $ append x t) xs
 
 -- | Create a tree that holds the values wrapped in @Just@ when present and keeps @Nothing@s on the missing positions
-fromAscListMaybes :: [(Word64, v)] -> LFMBTree (Maybe v)
-fromAscListMaybes l = fromAscList $ go l 0
+fromAscListMaybes :: (Integral k, Coercible k Word64) => [(k, v)] -> LFMBTree k (Maybe v)
+fromAscListMaybes l = fromList $ go l 0
   where go z@((i,v):xs) idx
          | i == idx = Just v : go xs (i + 1)
          | otherwise = (replicate (fromIntegral $ i - idx) Nothing) ++ go z i

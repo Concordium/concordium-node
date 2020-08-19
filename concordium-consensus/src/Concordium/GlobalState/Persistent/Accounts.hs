@@ -58,7 +58,7 @@ data Accounts = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(Trie.TrieN (BufferedBlobbed BlobRef) AccountAddress AccountIndex),
     -- |Hashed Markel-tree of the accounts
-    accountTable :: !(LFMBTree HashedBufferedRef PersistentAccount),
+    accountTable :: !(LFMBTree AccountIndex HashedBufferedRef PersistentAccount),
     -- |Optional cached set of used 'ID.CredentialRegistrationID's
     accountRegIds :: !(Nullable (Set.Set ID.CredentialRegistrationID)),
     -- |Persisted representation of the set of used 'ID.CredentialRegistrationID's
