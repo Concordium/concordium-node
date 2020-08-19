@@ -219,7 +219,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               instances <- BS.getAccountInstances acc
               encrypted <- BS.getAccountEncryptedAmount acc
               return $ object ["accountNonce" .= nonce
-                              ,"accountAmount" .= toInteger amount
+                              ,"accountAmount" .= amount
                                 -- credentials, most recent first
                               ,"accountCredentials" .= map (Versioned 0) creds
                               ,"accountDelegation" .= delegate
