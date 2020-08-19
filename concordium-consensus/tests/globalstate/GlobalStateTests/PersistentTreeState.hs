@@ -26,7 +26,6 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.IdentityProviders
-<<<<<<< HEAD
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.LMDB.Helpers
 
