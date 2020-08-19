@@ -1,5 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
-
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Account where
 
 import Control.Monad
@@ -8,6 +8,7 @@ import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Maybe
 import Data.Serialize
+import qualified Data.Aeson as AE
 import Lens.Micro.Platform
 
 import Concordium.Utils
@@ -51,6 +52,20 @@ data AccountEncryptedAmount = AccountEncryptedAmount {
   -- The limit should be a runtime parameter.
   _incomingEncryptedAmounts :: !(Seq.Seq EncryptedAmount)
 } deriving(Eq, Show)
+
+instance AE.ToJSON AccountEncryptedAmount where
+  toJSON AccountEncryptedAmount{..} = AE.object [
+    "selfAmount" AE..= _selfAmount,
+    "startIndex" AE..= _startIndex,
+    "incomingAmounts" AE..= _incomingEncryptedAmounts
+    ]
+
+instance AE.FromJSON AccountEncryptedAmount where
+  parseJSON = AE.withObject "AccountEncryptedAmount" $ \obj -> do
+    _selfAmount <- obj AE..: "selfAmount"
+    _startIndex <- obj AE..: "startIndex"
+    _incomingEncryptedAmounts <- obj AE..: "incomingAmounts"
+    return AccountEncryptedAmount{..}
 
 -- |Initial encrypted amount on a newly created account.
 initialAccountEncryptedAmount :: AccountEncryptedAmount
