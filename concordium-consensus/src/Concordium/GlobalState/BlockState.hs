@@ -387,6 +387,12 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the current 'Authorizations' for validating updates.
   bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
 
+  -- |Get the next 'UpdateSequenceNumber' for a given update type.
+  bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
+
+  -- |Enqueue an update to take effect at the specificied time.
+  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
+
 -- | Block state storage operations
 class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
@@ -535,6 +541,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
+  bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
+  bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
