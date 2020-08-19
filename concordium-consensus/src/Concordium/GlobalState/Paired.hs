@@ -495,9 +495,9 @@ instance (MonadLogger m,
         ubs2 <- coerceBSMR $ thawBlockState bs2
         return (ubs1, ubs2)
     freezeBlockState (ubs1, ubs2) = do
-        (bs1, h1) <- coerceBSML $ freezeBlockState ubs1
-        (bs2, h2) <- coerceBSMR $ freezeBlockState ubs2
-        assert (h1 == h2) $ return ((bs1, bs2), h1)
+        bs1 <- coerceBSML $ freezeBlockState ubs1
+        bs2 <- coerceBSMR $ freezeBlockState ubs2
+        return (bs1, bs2)
     dropUpdatableBlockState (ubs1, ubs2) = do
         coerceBSML $ dropUpdatableBlockState ubs1
         coerceBSMR $ dropUpdatableBlockState ubs2

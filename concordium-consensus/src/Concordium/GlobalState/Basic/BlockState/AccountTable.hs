@@ -17,7 +17,7 @@ type AccountIndex = Word64
 data AccountTable = Empty | Tree !AT
 
 instance HashableTo H.Hash AccountTable where
-    getHash Empty = H.hash "EmptyAccountTable"
+    getHash Empty = H.hash "EmptyLFMBTree" -- this is the definition in the persistent implementation, I think it is acceptable to define it this way in the basic one
     getHash (Tree t) = getHash t
 
 data AT
