@@ -16,18 +16,12 @@ import Test.Hspec
 
 import Lens.Micro.Platform
 import Control.Monad
-import Control.Monad.IO.Class
-import qualified Data.Text.IO as TIO
-import System.FilePath
+import Data.List
 
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Environment as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
-
-import qualified Acorn.Core as Core
-import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState
@@ -86,8 +80,6 @@ data TestCase = TestCase
     tcName :: String
     -- | Parameters for executing the transactions.
   , tcParameters :: TestParameters
-    -- | Modules within in the test/ directory to be available for deployment.
-  , tcModules :: [FilePath]
     -- | The transactions to run, with their respective 'ResultSpec'.
     -- NOTE: The following could be parametrized over the loaded module data like references, names etc.
     -- to be able to specify result events like specifying the TJSON.
@@ -105,21 +97,15 @@ data ProcessResult
 
 -- | Execute the given transactions in sequence (ungrouped) with 'Sch.filterTransactions',
 -- with the given parameters. Returns a list of result and block state after each transaction.
-runWithIntermediateStates
-  :: [FilePath] -- ^ Modules from test/ directory to be available for deployment.
-  -> TestParameters
+runWithIntermediateStates ::
+  TestParameters
   -> [TransactionJSON]
-  -> PR.Context Core.UA IO [(ProcessResult, BlockState)]
-runWithIntermediateStates mods TestParameters{..} transactions = do
-  forM_ mods $ \m -> do
-    let file = "test/" </> m
-    source <- liftIO $ TIO.readFile $ file
-    _ <- PR.processModule file source -- execute only for effect on global state
-    return ()
+  -> IO [(ProcessResult, BlockState)]
+runWithIntermediateStates TestParameters{..} transactions = do
   -- Create actual 'Transaction's from the 'TransactionJSON'.
   txs <- processUngroupedTransactions transactions
   return $ reverse $ fst $
-    foldl (\(acc, st) tx ->
+    foldl' (\(acc, st) tx ->
                             let (ft@Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions tpSizeLimit (fromTransactions [tx]))
@@ -155,8 +141,7 @@ mkSpec :: TestCase -> Spec
 mkSpec TestCase{..} =
   describe tcName $ do
   let (tJsons, resultSpecs) = unzip tcTransactions
-  results <- runIO (PR.evalContext Init.initialContextData $
-                     runWithIntermediateStates tcModules tcParameters tJsons)
+  results <- runIO (runWithIntermediateStates tcParameters tJsons)
   -- NB: This check is important to make sure that the zipped lists below have the same length and
   -- thus all 'ResultSpec's are checked.
   specify "Correct number of transactions" $

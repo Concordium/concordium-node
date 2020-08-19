@@ -10,16 +10,12 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-
-import qualified Acorn.Core as Core
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -33,25 +29,25 @@ import SchedulerTests.Helpers
 -- Create initial state where alesAccount has a valid credential, but thomasAccount does not.
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    100000
-    (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
-  [TJSON { payload = Transfer {toaddress = Types.AddressAccount alesAccount, amount = 0 }
+  [TJSON { payload = Transfer {toaddress = alesAccount, amount = 0 }
          , metadata = makeDummyHeader alesAccount 1 1000
          , keys = [(0, alesKP)]
          }
    -- The next one should fail because the recepient account is not valid.
    -- The transaction should be in a block, but rejected.
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 0 }
          , metadata = makeDummyHeader alesAccount 2 1000
          , keys = [(0, alesKP)]
          }
    -- The next transaction should not be part of a block since it is being sent by an account
    -- without a credential
-  ,TJSON { payload = Transfer {toaddress = Types.AddressAccount thomasAccount, amount = 0 }
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 0 }
          , metadata = makeDummyHeader thomasAccount 1 1000
          , keys = [(0, thomasKP)]
          }
@@ -61,8 +57,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [Types.Transaction])
 
-testCredentialCheck :: PR.Context Core.UA IO TestResult
-
+testCredentialCheck :: IO TestResult
 testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
@@ -104,4 +99,4 @@ tests :: Spec
 tests =
   describe "Credential check test:" $
     specify "one successful, one rejected, one failed transaction" $
-      PR.evalContext Init.initialContextData testCredentialCheck >>= checkCredentialCheckResult
+      testCredentialCheck >>= checkCredentialCheckResult

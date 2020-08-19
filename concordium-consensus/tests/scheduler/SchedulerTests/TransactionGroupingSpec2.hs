@@ -13,14 +13,10 @@ import Test.Hspec
 import Test.HUnit
 
 import Control.Monad.IO.Class
-import qualified Data.Text.IO as TIO
 import Lens.Micro.Platform
 
 import Data.Foldable
 
-import Acorn.Core
-import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -60,7 +56,7 @@ tOkay amount nonce = tOkayE amount nonce simpleTransferCost
 -- account) with sepcifying the energy to be deposited.
 tOkayE :: Amount -> Nonce -> Energy -> TransactionJSON
 tOkayE amount nonce energy =
-  TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
+  TJSON { payload = Transfer { toaddress = alesAccount, .. }
         , metadata = makeDummyHeader alesAccount nonce energy
         , keys = [(0, alesKP)]
         }
@@ -68,7 +64,7 @@ tOkayE amount nonce energy =
 -- | Make a test transaction (simple transfer with given amount) that will fail with 'tFailKind'.
 tFail :: Amount -> Nonce -> TransactionJSON
 tFail amount nonce =
-  TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, .. }
+  TJSON { payload = Transfer { toaddress = alesAccount, .. }
         , metadata = makeDummyHeader alesAccount nonce 0 -- will result in DepositInsufficient failure
         , keys = [(0, alesKP)]
         }
@@ -259,11 +255,8 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [Types.Transaction],
                    [Types.Transaction])
 
-testGroups :: [[TransactionJSON]] -> PR.Context UA IO TestResult
+testGroups :: [[TransactionJSON]] -> IO TestResult
 testGroups groups = do
-    let file = "test/contracts/FibContract.acorn"
-    source <- liftIO $ TIO.readFile file
-    (_, _) <- PR.processModule file source
     -- NOTE Checks should also succeed if arrival time is not 0 for all;
     -- It is only required that the order of 'ts' corresponds to the order in 'groups'.
     ts <- processGroupedTransactions groups
@@ -286,8 +279,7 @@ tests =
   describe "Transaction grouping test (2)" $
     forM_ testCases $ \(name, tc) ->
             describe name $ do
-              (valid, invalid, unproc, input) <- runIO $
-                PR.evalContext Init.initialContextData (testGroups $ map (map fst) tc)
+              (valid, invalid, unproc, input) <- runIO $ (testGroups $ map (map fst) tc)
               let tsjson = concat tc
               -- NOTE: We do not check as part of this test whether the second component is a 'TxValid'
               let (validTs, _) = unzip valid

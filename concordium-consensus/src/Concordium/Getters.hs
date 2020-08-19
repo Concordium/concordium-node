@@ -25,11 +25,10 @@ import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.Types as T
-import Concordium.GlobalState.Information(jsonStorable)
+import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.Types.HashableTo
-import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
 
@@ -218,13 +217,12 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               creds <- BS.getAccountCredentials acc
               delegate <- BS.getAccountStakeDelegate acc
               instances <- BS.getAccountInstances acc
-              let verInstances = map (Versioned 0) $ S.toList instances
               return $ object ["accountNonce" .= nonce
                                         ,"accountAmount" .= toInteger amount
                                         -- credentials, most recent first
-                                        ,"accountCredentials" .= creds
+                                        ,"accountCredentials" .= map (Versioned 0) creds
                                         ,"accountDelegation" .= delegate
-                                        ,"accountInstances" .= verInstances
+                                        ,"accountInstances" .= S.toList instances
                                         ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
@@ -233,7 +231,7 @@ getContractInfo hash sfsRef addr = runStateQuery sfsRef $
   BS.getContractInstance st addr >>=
       \case Nothing -> return Null
             Just istance -> let params = instanceParameters istance
-                            in return $ object ["model" .= jsonStorable (instanceModel istance)
+                            in return $ object ["model" .= instanceModel istance
                                                ,"owner" .= instanceOwner params
                                                ,"amount" .= instanceAmount istance]
 
@@ -275,14 +273,18 @@ getModuleList hash sfsRef = runStateQuery sfsRef $
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
 
 
-getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe (Core.Module Core.UA))
+-- FIXME: This should not return an instrumented module, but rather the module as deployed.
+getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe Wasm.WasmModule)
 getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
   resolveBlock hash >>=
     \case Nothing -> return Nothing
           Just bp -> do
             st <- queryBlockState bp
-            mmodul <- BS.getModule st mhash
-            return (BS.moduleSource <$> mmodul)
+            BS.getModule st mhash >>= \case
+              Nothing -> return Nothing
+              Just modul -> return . Just $
+                  let iModule = Wasm.miModule . BS.moduleInterface $ modul
+                  in Wasm.WasmModule (Wasm.imWasmVersion iModule) (Wasm.imWasmSource iModule)
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do

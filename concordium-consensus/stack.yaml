@@ -36,11 +36,11 @@ resolver: lts-15.8
 packages:
 - Concordium
 - crypto
-- acorn
 - scheduler
 - globalstate-types
 - globalstate-mockup/globalstate
 - globalstate-mockup/deps/haskell-lmdb
+- wasm
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
@@ -50,6 +50,7 @@ extra-deps:
 
 extra-lib-dirs:
 - ./crypto/rust-src/target/release
+- ./smart-contracts/wasmer-interp/target/release
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
@@ -77,4 +78,3 @@ extra-lib-dirs:
 
 nix:
   shell-file: shell-stack.nix
-  
