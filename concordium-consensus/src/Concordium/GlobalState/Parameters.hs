@@ -9,7 +9,7 @@ module Concordium.GlobalState.Parameters(
 ) where
 
 import Prelude hiding (fail)
-import GHC.Generics
+import GHC.Generics hiding (to)
 import Data.Serialize
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
@@ -60,6 +60,18 @@ makeChainParameters ::
 makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro = ChainParameters{..}
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
+
+cpElectionDifficulty :: Lens' ChainParameters ElectionDifficulty
+cpElectionDifficulty = lens _cpElectionDifficulty (\cp ed -> cp {_cpElectionDifficulty = ed})
+
+cpEuroPerEnergy :: Lens' ChainParameters ExchangeRate
+cpEuroPerEnergy = lens _cpEuroPerEnergy (\cp epe -> cp {_cpEuroPerEnergy = epe, _cpEnergyRate = computeEnergyRate (_cpMicroGTUPerEuro cp) epe})
+
+cpMicroGTUPerEuro :: Lens' ChainParameters ExchangeRate
+cpMicroGTUPerEuro = lens _cpMicroGTUPerEuro (\cp mgtupe -> cp {_cpMicroGTUPerEuro = mgtupe, _cpEnergyRate = computeEnergyRate mgtupe (_cpEuroPerEnergy cp)})
+
+cpEnergyRate :: SimpleGetter ChainParameters EnergyRate
+cpEnergyRate = to _cpEnergyRate
 
 instance Serialize ChainParameters where
   put ChainParameters{..} = do

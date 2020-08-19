@@ -377,6 +377,12 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoGetCurrentAuthorizations #-}
     bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations
 
+    {-# INLINE bsoGetNextUpdateSequenceNumber #-}
+    bsoGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
+
+    {-# INLINE bsoEnqueueUpdate #-}
+    bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
+
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ bs & (blockBank . Rewards.executionCost .~ 0) .

@@ -507,6 +507,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         a1 <- coerceBSML $ bsoGetCurrentAuthorizations bs1
         a2 <- coerceBSMR $ bsoGetCurrentAuthorizations bs2
         assert (a1 == a2) $ return a1
+    bsoGetNextUpdateSequenceNumber (bs1, bs2) uty = do
+        a1 <- coerceBSML $ bsoGetNextUpdateSequenceNumber bs1 uty
+        a2 <- coerceBSMR $ bsoGetNextUpdateSequenceNumber bs2 uty
+        assert (a1 == a2) $ return a1
+    bsoEnqueueUpdate (bs1, bs2) tt p = do
+        bs1' <- coerceBSML $ bsoEnqueueUpdate bs1 tt p
+        bs2' <- coerceBSMR $ bsoEnqueueUpdate bs2 tt p
+        return (bs1', bs2')
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 

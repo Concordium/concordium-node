@@ -1,9 +1,7 @@
 {-# LANGUAGE TemplateHaskell, BangPatterns #-}
 module Concordium.GlobalState.Basic.BlockState.Updates where
 
-import Data.Foldable
 import Data.List.NonEmpty (NonEmpty(..))
-import Data.Maybe
 import Data.Semigroup
 import Lens.Micro.Platform
 
@@ -15,8 +13,8 @@ import Concordium.GlobalState.Parameters
 data UpdateQueue e = UpdateQueue {
     -- |The next available sequence number for an update.
     _uqNextSequenceNumber :: !UpdateSequenceNumber,
-    -- |Pending updates, in ascending order of timestamp.
-    _uqQueue :: ![(Timestamp, e)]
+    -- |Pending updates, in ascending order of effective time.
+    _uqQueue :: ![(TransactionTime, e)]
 } deriving (Show)
 makeLenses ''UpdateQueue
 
@@ -26,15 +24,10 @@ emptyUpdateQueue = UpdateQueue {
         _uqQueue = []
     }
 
--- |Try to add an update event to an update queue. Fails if the sequence number
--- is not correct.
-checkEnqueue :: UpdateSequenceNumber -> Timestamp -> e -> UpdateQueue e -> Maybe (UpdateQueue e)
-checkEnqueue sn !t !e UpdateQueue{..}
-    | sn == _uqNextSequenceNumber = Just (UpdateQueue {
-            _uqNextSequenceNumber = sn + 1,
-            _uqQueue = let !r = takeWhile ((< t) . fst) _uqQueue in r ++ [(t, e)]
-        })
-    | otherwise = Nothing
+-- |Add an update event to an update queue, incrementing the sequence number.
+enqueue :: TransactionTime -> e -> UpdateQueue e -> UpdateQueue e
+enqueue !t !e = (uqNextSequenceNumber +~ 1)
+            . (uqQueue %~ \q -> let !r = takeWhile ((< t) . fst) q in r ++ [(t, e)])
 
 data PendingUpdates = PendingUpdates {
     _pAuthorizationQueue :: !(UpdateQueue Authorizations),
@@ -77,7 +70,7 @@ processValueUpdates ::
     -> (v, UpdateQueue v)
 processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), uq {_uqQueue = qr})
     where
-        (ql, qr) = span ((<= t) . fst) (uq ^. uqQueue)
+        (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
 
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
 -- overridden by later ones.
@@ -86,7 +79,7 @@ processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), 
 processProtocolUpdates :: Timestamp -> Maybe ProtocolUpdate -> UpdateQueue ProtocolUpdate -> (Maybe ProtocolUpdate, UpdateQueue ProtocolUpdate)
 processProtocolUpdates t pu0 uq = (pu', uq {_uqQueue = qr})
     where
-        (ql, qr) = span ((<= t) . fst) (uq ^. uqQueue)
+        (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
         pu' = getFirst <$> mconcat ((First <$> pu0) : (Just . First . snd <$> ql))
 
 
@@ -123,4 +116,13 @@ futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} ts
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateAuthorization = u ^. pendingUpdates . pAuthorizationQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateProtocol = u ^. pendingUpdates . pProtocolQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateParameters = u ^. pendingUpdates . pParameterQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateElectionDifficulty = u ^. pendingUpdates . pElectionDifficultyQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateEuroPerEnergy = u ^. pendingUpdates . pEuroPerEnergyQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateMicroGTUPerEuro = u ^. pendingUpdates . pMicroGTUPerEuroQueue . uqNextSequenceNumber
+
+enqueueUpdate :: TransactionTime -> UpdatePayload -> Updates -> Updates
+enqueueUpdate effectiveTime (AuthorizationUpdatePayload auths) = pendingUpdates . pAuthorizationQueue %~ enqueue effectiveTime auths
+enqueueUpdate effectiveTime (ProtocolUpdatePayload protUp) = pendingUpdates . pProtocolQueue %~ enqueue effectiveTime protUp
+enqueueUpdate effectiveTime (ElectionDifficultyUpdatePayload edUp) = pendingUpdates . pElectionDifficultyQueue %~ enqueue effectiveTime edUp
+enqueueUpdate effectiveTime (EuroPerEnergyUpdatePayload epeUp) = pendingUpdates . pEuroPerEnergyQueue %~ enqueue effectiveTime epeUp
+enqueueUpdate effectiveTime (MicroGTUPerEuroUpdatePayload mgtupeUp) = pendingUpdates . pMicroGTUPerEuroQueue %~ enqueue effectiveTime mgtupeUp
