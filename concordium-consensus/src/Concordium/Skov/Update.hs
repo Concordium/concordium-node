@@ -35,9 +35,6 @@ import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import Data.Maybe (fromMaybe)
 
--- used for stubbing statehash
-import Data.FixedByteString as FBS
-import Concordium.Crypto.SHA256
 
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
@@ -344,10 +341,8 @@ addBlock block = do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock
                                 Right result -> do
-                                    -- FIXME: add check on statehash here, when merged
-                                    -- stateHash <- getStateHash (_finalState result)
-                                    -- FIXME: Check that the statehash is correct, (CURRENTLY STUBBED OUT)
-                                    let stateHash = (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word))))))
+                                    -- Check that the StateHash is correct
+                                    stateHash <- getStateHash (_finalState result)
                                     check (stateHash == blockStateHash block) $ do
                                         -- Check that the TransactionOutcomeHash is correct
                                         tohash <- getTransactionOutcomesHash (_finalState result) 

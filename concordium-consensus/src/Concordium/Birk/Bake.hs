@@ -43,10 +43,6 @@ import Concordium.Scheduler.Types(FilteredTransactions(..))
 import Concordium.Logger
 import Concordium.TimeMonad
 
--- FIXME: temporary import for stubbing types
-import Data.FixedByteString as FBS
-import Concordium.Crypto.SHA256
-
 
 data BakerIdentity = BakerIdentity {
     bakerSignKey :: BakerSignPrivateKey,
@@ -196,11 +192,9 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    -- FIXME: placeholder hashes 
-    -- When Statehashing is done, we statehash is hash of (_finalstate results)
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
-    -- Transactionoutcomeshash should be gettable from result somehow?
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) transactionOutcomesHash receiveTime
+    stateHash <- getStateHash (_finalState result)
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
