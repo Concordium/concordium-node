@@ -66,7 +66,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Data.Set (Set)
 
-import Concordium.Crypto.SHA256 as H
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -207,6 +206,9 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
 
     -- |Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m (TransactionOutcomesHash)
+
+    -- |Get the stateHash of a given block.
+    getStateHash :: BlockState m -> m (StateHash)
 
     -- |Get all transaction outcomes for this block.
     getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
@@ -362,7 +364,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Freeze a mutable block state instance. The mutable state instance will
     -- not be used afterwards and the implementation can thus avoid copying
     -- data.
-    freezeBlockState :: UpdatableBlockState m -> m (BlockState m, H.Hash)
+    freezeBlockState :: UpdatableBlockState m -> m (BlockState m, StateHash)
 
     -- |Discard a mutable block state instance.  The mutable state instance will
     -- not be used afterwards.
@@ -409,6 +411,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
   getTransactionOutcomesHash = lift . getTransactionOutcomesHash
+  getStateHash = lift . getStateHash
   getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
   getAllIdentityProviders s = lift $ getAllIdentityProviders s
