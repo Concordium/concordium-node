@@ -73,13 +73,13 @@ setup nBakers = do
         inst
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        (Map.fromAscList $ [ (BakerId i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
+        (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
         (genesisTotalGTU genData)
   let initialPassiveState =
         initialPassiveFinalizationState
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        (Map.fromAscList $ [ (BakerId i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
+        (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
         (genesisTotalGTU genData)
   let finInstances = map (makeFinalizationInstance . fst) bakers
   (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))
