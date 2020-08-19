@@ -441,12 +441,8 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE freezeBlockState #-}
     freezeBlockState bs = do
       let bs' = bs & ((blockBirkParameters . birkCurrentBakersHash) ?~ getHash (bs ^. blockBirkParameters . birkCurrentBakers))
-          bs'' =
-            bs' & (blockBank %~ (makeHashed . _unhashed))
-                . (blockIdentityProviders %~ (makeHashed . _unhashed))
-                . (blockAnonymityRevokers %~ (makeHashed . _unhashed))
-          bs''' = bs'' & blockHashes .~ makeBlockStateHashes bs''
-      return bs'''
+          bs'' = bs' & blockHashes .~ makeBlockStateHashes bs'
+      return bs''
 
     {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState _ = return ()
