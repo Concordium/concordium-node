@@ -253,7 +253,8 @@ instance BlockData BakedBlock where
     blockSignature = Just . bbSignature
     -- FIXME: Signature verification should be independent of serialization format
     -- of blocks, this will be fixed as part of block hashing revision.
-    verifyBlockSignature key b = Sig.verify key (runPut (getHash b)) (bbSignature b)
+    -- verifyBlockSignature key b = Sig.verify key (runPut (getHash b)) (bbSignature b)
+    verifyBlockSignature key b = Sig.verify key (runPut (blockBodyV0 b)) (bbSignature b)
     {-# INLINE putBlockV0 #-}
     putBlockV0 = putBakedBlockV0
 
