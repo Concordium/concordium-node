@@ -33,8 +33,8 @@ import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    10000000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
+    100000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
 fibParamBytes :: Word64 -> BSS.ShortByteString
 fibParamBytes n = BSS.toShort $ runPut (putWord64le n)
