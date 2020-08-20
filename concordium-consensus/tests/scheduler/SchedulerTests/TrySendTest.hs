@@ -29,8 +29,8 @@ import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    10000000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
+    100000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000000) Acc.emptyAccounts)
 
 toAddr :: BSS.ShortByteString
 toAddr = BSS.toShort (encode alesAccount)
