@@ -238,7 +238,7 @@ main = cmdArgsRun mode >>=
 
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
-            printf "%d (= %.4f%%)" (toInteger balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
+            printf "%s (= %.4f%%)" (amountToString balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
         showAccount totalGTU Account{_accountPersisting=PersistingAccountData{..}, ..} = do
           putStrLn $ "  - " ++ show _accountAddress
           putStrLn $ "     * balance: " ++ showBalance totalGTU _accountAmount
