@@ -207,7 +207,7 @@ instance FromJSON GenesisAccount where
   parseJSON = withObject "GenesisAccount" $ \obj -> do
     gaAddress <- obj .: "address"
     gaVerifyKeys <- obj .: "accountKeys"
-    gaBalance <- Amount <$> obj .: "balance"
+    gaBalance <- obj .: "balance"
     Versioned{..} <- obj .: "credential"
     unless (vVersion == 0) $ fail "Only V0 credentials supported in genesis."
     gaCredential <- parseJSON vValue
@@ -256,7 +256,7 @@ instance FromJSON GenesisParameters where
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
         gpControlAccounts <- v .:? "controlAccounts" .!= []
-        gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+        gpMintPerSlot <-  v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
 
