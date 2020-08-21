@@ -206,6 +206,15 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
       preuse (transactionTable . ttHashMap . ix txHash) >>= \case
         Just (WithMetadata{wmdData=CredentialDeployment{..},..}, _) -> return $ Just WithMetadata{wmdData=biCred,..}
         _ -> return Nothing
+    
+    getNonFinalizedChainUpdates uty sn =
+      use (transactionTable . ttNonFinalizedChainUpdates . at' uty) >>= \case
+        Nothing -> return []
+        Just nfcus ->
+          let (_, atsn, beyond) = Map.splitLookup sn (nfcus ^. nfcuMap)
+          in return $ case atsn of
+            Nothing -> Map.toAscList beyond
+            Just s -> (sn, s) : Map.toAscList beyond
 
     addCommitTransaction bi@WithMetadata{..} slot = do
       let trHash = wmdHash

@@ -733,6 +733,10 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         r1 <- coerceGSML $ getAccountNonFinalized acct nonce
         r2 <- coerceGSMR $ getAccountNonFinalized acct nonce
         assert (r1 == r2) $ return r1
+    getNonFinalizedChainUpdates uty sn = do
+        r1 <- coerceGSML $ getNonFinalizedChainUpdates uty sn
+        r2 <- coerceGSMR $ getNonFinalizedChainUpdates uty sn
+        assert (r1 == r2) $ return r1
     addTransaction tr = do
         r1 <- coerceGSML $ addTransaction tr
         r2 <- coerceGSMR $ addTransaction tr
