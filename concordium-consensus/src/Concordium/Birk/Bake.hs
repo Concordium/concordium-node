@@ -27,6 +27,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.TreeState as TS
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 
@@ -78,14 +79,14 @@ processTransactions
 processTransactions slot ss bh finalizedP bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
-  -- at this point we can contruct the block. The function 'constructBlock' also
+  -- at this point we can construct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
   slotTime <- getSlotTimestamp slot
   constructBlock slot slotTime bh finalizedP bid ss
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
--- |Reestablish all the invariants among the transaction table, pending table,
+-- |Re-establish all the invariants among the transaction table, pending table,
 -- account non-finalized table
 maintainTransactions ::
   (TreeStateMonad m)
@@ -137,6 +138,14 @@ maintainTransactions bp FilteredTransactions{..} = do
 
     newpt' <- foldM purgeCredential newpt (map fst ftFailedCredentials)
 
+    let purgeUpdate cpt ui = do
+          b <- purgeTransaction (chainUpdate ui)
+          if b then return cpt
+          else do
+            sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
+            return $! checkedAddPendingUpdate sn (wmdData ui) cpt
+    newpt'' <- foldM purgeUpdate newpt' (map fst ftFailedUpdates)
+
     -- additionally add in the unprocessed transactions which are sufficiently small (here meaning < maxSize)
     let purgeTooBig cpt tx =
           if transactionSize tx < maxSize then do
@@ -144,7 +153,7 @@ maintainTransactions bp FilteredTransactions{..} = do
             return $! checkedAddPendingTransaction nonce tx cpt
           else do
             -- only purge a transaction from the table if it is too big **and**
-            -- not already commited to a recent block. if it is in a currently
+            -- not already committed to a recent block. if it is in a currently
             -- live block then we must not purge it to maintain the invariant
             -- that all transactions in live blocks exist in the transaction
             -- table.
@@ -154,15 +163,22 @@ maintainTransactions bp FilteredTransactions{..} = do
               nonce <- nextNonceFor (transactionSender tx)
               return $! checkedAddPendingTransaction nonce tx cpt
 
-    ptWithUnprocessed <- foldM purgeTooBig newpt' ftUnprocessed
+    ptWithUnprocessed <- foldM purgeTooBig newpt'' ftUnprocessed
 
-    -- And finally put back in all the unprocessed credentials
+    -- Put back in all the unprocessed credentials
     -- We assume here that chain parameters are such that credentials always fit on a block
     -- and processing of one credential does not exceed maximum block energy.
     let ptWithUnprocessedCreds = foldl' (\cpt cdiwm -> addPendingDeployCredential (wmdHash cdiwm) cpt) ptWithUnprocessed ftUnprocessedCredentials
 
+    let purgeUnprocessedUpdates cpt ui =
+          if wmdSize ui < maxSize then do
+            sn <- getNextUpdateSequenceNumber stateHandle (updateType (uiPayload (wmdData ui)))
+            return $! checkedAddPendingUpdate sn (wmdData ui) cpt
+          else purgeUpdate cpt ui
+    ptWithAllUnprocessed <- foldM purgeUnprocessedUpdates ptWithUnprocessedCreds ftUnprocessedUpdates 
+
     -- commit the new pending transactions to the tree state
-    putPendingTransactions ptWithUnprocessedCreds
+    putPendingTransactions ptWithAllUnprocessed
 
 
 doBakeForSlot :: (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
@@ -199,7 +215,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                          bb
                          lastFinal
                          result
-    -- reestablish invariants in the transaction table/pending table/anf table.
+    -- re-establish invariants in the transaction table/pending table/anf table.
     maintainTransactions newbp filteredTxs
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp

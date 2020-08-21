@@ -109,7 +109,7 @@ processTransactions = mapM transactionHelper
 -- Arrival time of transactions is taken to be 0.
 processUngroupedTransactions :: (MonadFail m, MonadIO m) =>
                                 [TransactionJSON] ->
-                                Context Core.UA m (Types.GroupedTransactions Types.Transaction)
+                                Context Core.UA m Types.GroupedTransactions
 processUngroupedTransactions inpt = do
   txs <- processTransactions inpt
   return (Types.fromTransactions (map ((:[]) . Types.fromAccountTransaction 0) txs))
@@ -118,7 +118,7 @@ processUngroupedTransactions inpt = do
 -- The arrival time of all transactions is taken to be 0.
 processGroupedTransactions :: (MonadFail m, MonadIO m) =>
                               [[TransactionJSON]] ->
-                              Context Core.UA m (Types.GroupedTransactions Types.Transaction)
+                              Context Core.UA m Types.GroupedTransactions
 processGroupedTransactions = fmap (Types.fromTransactions . map (map (Types.fromAccountTransaction 0)))
                              . mapM processTransactions
 
