@@ -54,9 +54,7 @@ testAccountCreation ::
      Account,
      Types.BankStatus)
 testAccountCreation = do
-    let transactions = Types.emptyGroupedTransactions {
-          Types.credentialDeployments = transactionsInput
-          }
+    let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             Types.dummyChainMeta

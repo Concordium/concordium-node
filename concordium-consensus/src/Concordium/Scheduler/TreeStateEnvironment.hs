@@ -6,10 +6,10 @@ module Concordium.Scheduler.TreeStateEnvironment where
 
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HashSet
+import qualified Data.Map as Map
 import qualified Data.Set as Set
-import qualified Data.List as List
-import Data.Maybe
 import qualified Data.Kind as DK
+import qualified Data.PQueue.Prio.Min as MinPQ
 import Control.Monad
 
 import Concordium.Types
@@ -145,7 +145,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 -- during this block execution.
 executeFrom :: forall m .
   (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
-  => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
+  => BlockHash -- ^Hash of the block we are executing. Used only for committing transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m  -- ^Parent pointer from which to start executing
@@ -215,36 +215,45 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     bshandle1 <- bsoUpdateBirkParameters bshandle0 bps
     pt <- getPendingTransactions
 
+    -- Prioritise the block items for inclusion in a block.
+    -- We do this by building a priority queue, keyed by arrival time,
+    -- consisting of:
+    -- - each credential, keyed by its arrival time
+    -- - the pending transactions for each account with pending transactions,
+    --   keyed by the lowest arrival time of a transaction with the lowest nonce.
+    -- - the pending update instructions for each update type, keyed by the lowest
+    --   arrival time of an update with the lowest sequence number. 
+
+    -- getCredential shouldn't return Nothing based on the transaction table invariants
+    credentials <- mapM getCredential (HashSet.toList (pt ^. pttDeployCredential))
+    let grouped0 = MinPQ.fromList [(wmdArrivalTime c, TGCredentialDeployment c) | Just c <- credentials]
+    let groupAcctTxs groups (acc, (l, _)) = getAccountNonFinalized acc l <&> \case
+          accTxs@((_, firstNonceTxs) : _) ->
+            let txsList = concatMap (Set.toList . snd) accTxs
+                minTime = minimum $ wmdArrivalTime <$> Set.toList firstNonceTxs
+            in MinPQ.insert minTime (TGAccountTransactions txsList) groups
+          -- This should not happen since the pending transaction table should
+          -- only have entries where there are actually transactions.
+          [] -> groups
+    grouped1 <- foldM groupAcctTxs grouped0 (HM.toList (pt ^. pttWithSender))
+    let groupUpdates groups (uty, (l, _)) = getNonFinalizedChainUpdates uty l <&> \case
+          uds@((_, firstSNUs) : _) ->
+            let udsList = concatMap (Set.toList . snd) uds
+                minTime = minimum $ wmdArrivalTime <$> Set.toList firstSNUs
+            in MinPQ.insert minTime (TGUpdateInstructions udsList) groups
+          [] -> groups
+    transactionGroups <- MinPQ.elems <$> foldM groupUpdates grouped1 (Map.toList (pt ^. pttUpdates))
+
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
 
-    let credentialHashes = HashSet.toList (pt ^. pttDeployCredential)
-    -- NB: catMaybes is safe, but invariants should ensure that it is a no-op.
-    orderedCredentials <- List.sortOn wmdArrivalTime . catMaybes <$> mapM getCredential credentialHashes
-
-    -- now we get transactions for each of the pending accounts.
-    txs <- forM (HM.toList (pt ^. pttWithSender)) $ \(acc, (l, _)) -> do
-      accTxs <- getAccountNonFinalized acc l
-
-      -- now find for each account the least arrival time of a transaction
-      let txsList = concatMap (Set.toList . snd) accTxs
-      let minTime = minimum $ map wmdArrivalTime txsList
-      return (txsList, minTime)
-
-    -- FIXME: This is inefficient and should be changed. Doing it only to get the integration working.
-    -- Order the accounts by the arrival time of the earliest transaction.
-    let orderedTxs = map fst $ List.sortOn snd txs
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy
           }
-    let grouped = GroupedTransactions{
-          perAccountTransactions = orderedTxs,
-          credentialDeployments = orderedCredentials
-          }
     (ft@Sch.FilteredTransactions{..}, finState) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) grouped) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     let usedEnergy = finState ^. schedulerEnergyUsed
