@@ -284,14 +284,110 @@ dispatch msg = do
                    EncryptedAmountTransfer{..} ->
                      handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatRemainingAmount eatTransferAmount eatIndex eatProof
 
-                   TransferToEncrypted{..} -> error "Unimplemented."
+                   TransferToEncrypted{..} ->
+                     handleTransferToEncrypted (mkWTC TTTransferToEncrypted) tteAmount
 
-                   TransferToPublic{..} -> error "Unimplemented."
+                   TransferToPublic{..} ->
+                     handleTransferToPublic (mkWTC TTTransferToEncrypted) ttpRemainingAmount ttpAmount ttpIndex ttpProof
 
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
+
+handleTransferToPublic ::
+  SchedulerMonad m
+  => WithDepositContext m
+  -> EncryptedAmount
+  -> Amount
+  -> EncryptedAmountAggIndex
+  -> TransferToPublicProof
+  -> m (Maybe TransactionSummary)
+handleTransferToPublic wtc tpRemaining tpAmount index proof = do
+  cryptoParams <- getCrypoParams
+  withDeposit wtc (c cryptoParams) k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+
+        c cryptoParams = do
+          senderAddress <- getAccountAddress senderAccount
+          -- the expensive operations start now, so we charge.
+
+          -- After we've checked all of that, we charge.
+          tickEnergy Cost.encryptedAmountTransfer --FIXME js: should be other cost
+
+          -- Get the encrypted amount at the index that the transfer claims to be using.
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount index
+
+          -- and then we start validating the proof. This is the most expensive
+          -- part of the validation by far, the rest only being lookups.
+          let transferData = prepareTransferToPublicBytes tpRemaining (_amount tpAmount) index proof
+          senderPK <- getAccountEncryptionKey senderAccount
+          let valid = verifySecretToPublicTransferProof cryptoParams senderPK senderAmount transferData
+
+          unless valid $ rejectTransaction InvalidTransferToPublicProof
+
+          -- if the proof is valid we need to
+          -- - add the decrypted amount to the balance
+          -- - replace some encrypted amounts on the sender's account
+          replaceEncryptedAmount senderAccount index tpRemaining
+          addAmountFromEncrypted senderAccount tpAmount
+
+          return senderAddress
+
+        k ls senderAddress = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+
+          return (TxSuccess [EncryptedAmountsRemoved{
+                                earAccount = senderAddress,
+                                earUpToIndex = index,
+                                earNewAmount = tpRemaining
+                                }],
+                   energyCost,
+                   usedEnergy)
+
+
+handleTransferToEncrypted ::
+  SchedulerMonad m
+  => WithDepositContext m
+  -> Amount
+  -> m (Maybe TransactionSummary)
+handleTransferToEncrypted wtc toEncrypted = do
+  cryptoParams <- getCrypoParams
+  withDeposit wtc (c cryptoParams) k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+
+        c cryptoParams = do
+          senderAddress <- getAccountAddress senderAccount
+
+          tickEnergy Cost.encryptedAmountTransfer
+
+          -- check that the sender actually owns the amount it claims to be transferred
+          senderamount <- getCurrentAmount (Right senderAccount)
+          unless (senderamount >= toEncrypted) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) toEncrypted)
+
+          -- compute the encrypted amount
+          let encryptedAmount = encryptAmount cryptoParams (_amount toEncrypted)
+
+          -- We have to subtract the amount and update the self encrypted amount
+          addSelfEncryptedAmount senderAccount toEncrypted encryptedAmount
+
+          return (senderAddress, encryptedAmount)
+
+        k ls (senderAddress, encryptedAmount) = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+
+          return (TxSuccess [EncryptedSelfAmountAdded{
+                                eaaAccount = senderAddress,
+                                eaaNewAmount = encryptedAmount
+                                }],
+                   energyCost,
+                   usedEnergy)
 
 handleEncryptedAmountTransfer ::
   SchedulerMonad m
@@ -473,7 +569,7 @@ handleInitContract wtc initAmount modref initName param =
             -- is in the future we should be mindful of which balance is exposed.
             result <- runInterpreter (return . Wasm.applyInitFun iface cm (Wasm.InitContext (thSender meta)) initName param initAmount)
                        `rejectingWith'` wasmRejectToRejectReason
-            
+
             -- Charge for storing the contract state.
             tickEnergyValueStorage (Wasm.newState result)
 
@@ -527,7 +623,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                         uAmount
                         uReceiveName
                         uMessage
-                        
+
 
 -- | Process a message to a contract.
 -- This includes the transfer of an amount from the sending account or instance.
@@ -1018,7 +1114,7 @@ handleDeployCredential cdi cdiHash = do
                       if not accExistsAlready && check then do
                         -- Add the account to the state, but only if the credential was valid and the account does not exist
                         _ <- putNewAccount account
-                        
+
                         mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                       else return $ Just (TxInvalid AccountCredentialInvalid)
 
