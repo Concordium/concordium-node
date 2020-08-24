@@ -193,7 +193,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     elDiff <- getElectionDifficulty bbState slotTime
     electionProof <- MaybeT . liftIO $
         leaderElection leNonce elDiff slot bakerElectionKey lotteryPower
-    logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ ")"
+    logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ "; election difficulty: " ++ show elDiff ++ ")"
     nonce <- liftIO $ computeBlockNonce leNonce slot bakerElectionKey
     nfr <- lift (nextFinalizationRecord bb)
     (lastFinal, finData) <- case nfr of

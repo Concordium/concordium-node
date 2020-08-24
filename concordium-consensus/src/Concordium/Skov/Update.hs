@@ -314,6 +314,7 @@ addBlock block = do
                 slotTime <- getSlotTimestamp (blockSlot block)
                 parentState <- blockState parentP
                 elDiff <- getElectionDifficulty parentState slotTime
+                logEvent Skov LLTrace $ "Verifying block with election difficulty " ++ show elDiff
                 case baker of
                     Nothing -> invalidBlock
                     Just (BakerInfo{..}, lotteryPower) ->
