@@ -6,7 +6,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
 import Lens.Micro.Platform
-import qualified Acorn.Utils.Init as Acorn
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -20,7 +19,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
-import Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
 import Concordium.Types.Updates
@@ -203,7 +201,6 @@ createBlockState accounts =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
-      (blockModules .~ (let (_, _, gs) = Acorn.baseState in Modules.fromModuleList (Acorn.moduleList gs))) .
       (blockIdentityProviders .~ dummyIdentityProviders) .
       (blockAnonymityRevokers .~ dummyArs)
 
@@ -251,3 +248,9 @@ makeFakeBakerAccount bid =
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
+
+createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
+createCustomAccount amount kp address =
+    newAccount (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
+        & (accountAmount .~ amount)
+  where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt

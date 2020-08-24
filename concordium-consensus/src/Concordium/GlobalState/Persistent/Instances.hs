@@ -9,34 +9,26 @@ import Data.Functor.Foldable hiding (Nil)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Serialize
-import Data.HashMap.Strict(HashMap)
 import Data.Bits
+import qualified Data.Set as Set
 import Control.Exception
 
-import Concordium.GlobalState.Persistent.MonadicRecursive
-import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
-import qualified Concordium.Types.Acorn.Core as Core
-import Concordium.Types.Acorn.Interfaces
+import qualified Concordium.Wasm as Wasm
+
+import Concordium.GlobalState.Persistent.MonadicRecursive
+import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
 
-
+-- |The module interface will likely need to change so that
+-- it either stores the serialized or deserialized module.
+-- Hopefully (de)serialization should be very cheap.
 data CacheableInstanceParameters = CacheableInstanceParameters {
-    -- |The contract's receive function
-    pinstanceReceiveFun :: !(LinkedExpr Core.NoAnnot),
     -- |The interface of 'instanceContractModule'
-    pinstanceModuleInterface :: !(Interface Core.UA),
-    -- |The value interface of 'instanceContractModule'
-    pinstanceModuleValueInterface :: !(UnlinkedValueInterface Core.NoAnnot),
-    -- |The type of messages the contract receive function supports
-    pinstanceMessageType :: !(Core.Type Core.UA Core.ModuleRef),
-    -- |Implementation of the given class sender method. This can also be looked
-    -- up through the contract, and we should probably do that, but having it here
-    -- simplifies things.
-    pinstanceImplements :: !(HashMap (Core.ModuleRef, Core.TyName) (LinkedImplementsValue Core.NoAnnot))
+    pinstanceModuleInterface :: !Wasm.ModuleInterface
 }
 
 -- |The fixed parameters associated with a smart contract instance
@@ -46,15 +38,17 @@ data PersistentInstanceParameters = PersistentInstanceParameters {
     -- |Address of this contract instance owner, i.e., the creator account.
     pinstanceOwner :: !AccountAddress,
     -- |The module that the contract is defined in
-    pinstanceContractModule :: !Core.ModuleRef,
+    pinstanceContractModule :: !ModuleRef,
     -- |The name of the contract
-    pinstanceContract :: !Core.TyName,
+    pinstanceInitName :: !Wasm.InitName,
+    -- |The contract's allowed receive functions.
+    pinstanceReceiveFuns :: !(Set.Set Wasm.ReceiveName),
     -- |Hash of the fixed parameters
     pinstanceParameterHash :: !H.Hash
 }
 
 instance Show PersistentInstanceParameters where
-    show PersistentInstanceParameters{..} = show pinstanceAddress ++ " :: " ++ show pinstanceContractModule ++ "." ++ show pinstanceContract
+    show PersistentInstanceParameters{..} = show pinstanceAddress ++ " :: " ++ show pinstanceContractModule ++ "." ++ show pinstanceInitName
 
 instance HashableTo H.Hash PersistentInstanceParameters where
     getHash = pinstanceParameterHash
@@ -64,13 +58,15 @@ instance Serialize PersistentInstanceParameters where
         put pinstanceAddress
         put pinstanceOwner
         put pinstanceContractModule
-        put pinstanceContract
+        put pinstanceInitName
+        put pinstanceReceiveFuns
     get = do
         pinstanceAddress <- get
         pinstanceOwner <- get
         pinstanceContractModule <- get
-        pinstanceContract <- get
-        let pinstanceParameterHash = makeInstanceParameterHash pinstanceAddress pinstanceOwner pinstanceContractModule pinstanceContract
+        pinstanceInitName <- get
+        pinstanceReceiveFuns <- get
+        let pinstanceParameterHash = makeInstanceParameterHash pinstanceAddress pinstanceOwner pinstanceContractModule pinstanceInitName
         return PersistentInstanceParameters{..}
 
 instance (MonadBlobStore m ref) => BlobStorable m ref PersistentInstanceParameters
@@ -83,7 +79,7 @@ data PersistentInstance = PersistentInstance {
     -- |The fixed parameters that might be cached
     pinstanceCachedParameters :: !(Nullable CacheableInstanceParameters),
     -- |The current local state of the instance
-    pinstanceModel :: !(Value Core.NoAnnot),
+    pinstanceModel :: !Wasm.ContractState,
     -- |The current amount of GTU owned by the instance
     pinstanceAmount :: !Amount,
     -- |Hash of the smart contract instance
@@ -101,13 +97,13 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
         (pparams, newParameters) <- storeUpdate p pinstanceParameters
         let putInst = do
                 pparams
-                putStorable pinstanceModel
+                put pinstanceModel
                 put pinstanceAmount
         return (putInst, PersistentInstance{pinstanceParameters = newParameters, ..})
     store p pinst = fst <$> storeUpdate p pinst
     load p = do
         rparams <- load p
-        pinstanceModel <- getStorable
+        pinstanceModel <- get
         pinstanceAmount <- get
         return $ do
             pinstanceParameters <- rparams
@@ -118,17 +114,17 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
 
 
 
-makeInstanceParameterHash :: ContractAddress -> AccountAddress -> Core.ModuleRef -> Core.TyName -> H.Hash
+makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put ca
         put aa
         put modRef
         put conName
 
-makeInstanceHash :: PersistentInstanceParameters -> Value Core.NoAnnot -> Amount -> H.Hash
-makeInstanceHash params v a = H.hashLazy $ runPutLazy $ do
+makeInstanceHash :: PersistentInstanceParameters -> Wasm.ContractState -> Amount -> H.Hash
+makeInstanceHash params conState a = H.hashLazy $ runPutLazy $ do
         put (pinstanceParameterHash params)
-        putStorable v
+        putByteString (H.hashToByteString (getHash conState))
         put a
 
 makeBranchHash :: H.Hash -> H.Hash -> H.Hash
@@ -408,17 +404,14 @@ makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> 
                 pinstanceAddress = instanceAddress,
                 pinstanceOwner = instanceOwner,
                 pinstanceContractModule = instanceContractModule,
-                pinstanceContract = instanceContract,
-                pinstanceParameterHash = instanceParameterHash
+                pinstanceInitName = instanceInitName,
+                pinstanceParameterHash = instanceParameterHash,
+                pinstanceReceiveFuns = instanceReceiveFuns
             }
             return $ PersistentInstance {
                 pinstanceParameters = pIParams,
                 pinstanceCachedParameters = Some CacheableInstanceParameters{
-                        pinstanceReceiveFun = instanceReceiveFun,
-                        pinstanceModuleInterface = instanceModuleInterface,
-                        pinstanceModuleValueInterface = instanceModuleValueInterface,
-                        pinstanceMessageType = instanceMessageType,
-                        pinstanceImplements = instanceImplements
+                        pinstanceModuleInterface = instanceModuleInterface
                     },
                 pinstanceModel = instanceModel,
                 pinstanceAmount = instanceAmount,

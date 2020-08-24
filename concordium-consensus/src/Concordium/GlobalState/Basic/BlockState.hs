@@ -35,8 +35,6 @@ import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (cdvRegId)
 
-import qualified Acorn.Utils.Init as Acorn
-
 data BasicBirkParameters = BasicBirkParameters {
     -- |The current stake of bakers. All updates should be to this state.
     _birkCurrentBakers :: !Bakers,
@@ -211,7 +209,7 @@ basicUpdateBirkParametersForNewEpoch seedState bps = bps &
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoGetModule #-}
-    bsoGetModule bs mref = return $ bs ^. blockModules . to (Modules.getModule mref)
+    bsoGetModule bs mref = return $ bs ^. blockModules . to (fmap BS.moduleInterface . Modules.getModule mref)
 
     {-# INLINE bsoGetInstance #-}
     bsoGetInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
@@ -249,23 +247,10 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                     (\owner -> blockBirkParameters . birkCurrentBakers %~ addStake (owner ^. accountStakeDelegate) (Instances.instanceAmount inst))
                     (bs ^? blockAccounts . ix instanceOwner)
 
-    bsoPutNewModule bs mref iface viface source = return $!
-        case Modules.putInterfaces mref iface viface source (bs ^. blockModules) of
+    bsoPutNewModule bs iface = return $!
+        case Modules.putInterfaces iface (bs ^. blockModules) of
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
-
-    bsoTryGetLinkedExpr bs mref n = return $!
-        Modules.getLinkedExpr mref n (bs ^. blockModules)
-
-    bsoPutLinkedExpr bs mref n linked = return $!
-        bs & blockModules %~ (Modules.putLinkedExpr mref n linked)
-
-
-    bsoTryGetLinkedContract bs mref n = return $!
-        Modules.getLinkedContract mref n (bs ^. blockModules)
-
-    bsoPutLinkedContract bs mref n linked = return $!
-        bs & blockModules %~ (Modules.putLinkedContract mref n linked)
 
     bsoModifyInstance bs caddr delta model = return $!
         bs & blockInstances %~ Instances.updateInstanceAt caddr delta model
@@ -421,7 +406,7 @@ initialState _blockBirkParameters _blockCryptographicParameters genesisAccounts 
   where
     _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances
-    _blockModules = Modules.fromModuleList (Acorn.moduleList (let (_, _, pm) = Acorn.baseState in pm))
+    _blockModules = Modules.emptyModules
     _blockBank = Rewards.makeGenesisBankStatus initialAmount mintPerSlot
     _blockIdentityProviders = ips
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
