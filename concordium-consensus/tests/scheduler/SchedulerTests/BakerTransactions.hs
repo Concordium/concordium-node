@@ -7,9 +7,7 @@ import Test.HUnit
 import qualified Data.Map as Map
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init as Init
 import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.BakerInfo
@@ -21,8 +19,6 @@ import Concordium.GlobalState.Basic.BlockState.Invariants
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlsSignature as Bls
-
-import qualified Acorn.Core as Core
 
 import Lens.Micro.Platform
 
@@ -38,8 +34,8 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    100000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 alesAccount
@@ -186,7 +182,7 @@ type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
                      BasicBirkParameters)],
                     BlockState)
 
-runWithIntermediateStates :: PR.Context Core.UA IO TestResult
+runWithIntermediateStates :: IO TestResult
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
   let (res, state) = foldl (\(acc, st) tx ->
@@ -203,7 +199,7 @@ runWithIntermediateStates = do
 
 tests :: Spec
 tests = do
-  (results, endState) <- runIO (PR.evalContext Init.initialContextData runWithIntermediateStates)
+  (results, endState) <- runIO runWithIntermediateStates
   describe "Baker transactions." $ do
     specify "Result state satisfies invariant" $
         case invariantBlockState endState of

@@ -8,24 +8,25 @@ module Concordium.Scheduler.Cost where
 
 import Data.Word
 
-import Acorn.Types
+import Concordium.Types
+import qualified Concordium.Wasm as Wasm
 
 -- |A newtype wrapper around ByteSize to be able to charge for lookup differently
-newtype LookupByteSize = LookupByteSize ByteSize
-    deriving(Eq, Show, Ord, Num, Real, Enum, Integral) via ByteSize
+newtype LookupByteSize = LookupByteSize Wasm.ByteSize
+    deriving(Eq, Show, Ord, Num, Real, Enum, Integral) via Wasm.ByteSize
 
 -- * Cost factors
 
 -- | The amount of interpreter energy corresponding to one unit of energy.
-interpreterEnergyFactor :: InterpreterEnergy
+interpreterEnergyFactor :: Wasm.InterpreterEnergy
 interpreterEnergyFactor = 1000
 
 -- | Convert an energy amount to interpreter energy.
-toInterpreterEnergy :: Energy -> InterpreterEnergy
+toInterpreterEnergy :: Energy -> Wasm.InterpreterEnergy
 toInterpreterEnergy = (* interpreterEnergyFactor) . fromIntegral
 
 -- | Convert interpreter energy to general energy (rounding down).
-fromInterpreterEnergy :: InterpreterEnergy -> Energy
+fromInterpreterEnergy :: Wasm.InterpreterEnergy -> Energy
 fromInterpreterEnergy = fromIntegral . (`div` interpreterEnergyFactor)
 
 
@@ -52,11 +53,11 @@ storeBytesPer100Byte :: Energy
 storeBytesPer100Byte = 50 -- NB: This number must be positive.
 
 -- | Cost for storing the given number of bytes. It is charged for every started 100 bytes.
-storeBytes :: ByteSize -> Energy
+storeBytes :: Wasm.ByteSize -> Energy
 storeBytes n = storeBytesBase + ((fromIntegral n + 99) `div` 100) * storeBytesPer100Byte
 
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
-maxStorage :: Energy -> ByteSize
+maxStorage :: Energy -> Wasm.ByteSize
 maxStorage e = if e < storeBytesBase then 0
                else fromIntegral $ ((e-storeBytesBase) * 100) `div` storeBytesPer100Byte
 
@@ -122,15 +123,6 @@ lookupModule size = lookupBytes (fromIntegral size)
 -- | Cost for linking a term of resulting size 100 (as determined by 'linkWithMaxSize').
 linkPer100Size :: Energy
 linkPer100Size = 1
-
--- | Cost for linking a term of the given resulting size (as determined by 'linkWithMaxSize').
-link :: LinkedTermSize -> Energy
-link size = ((fromIntegral size + 99) `div` 100) * linkPer100Size
-
--- | For a given amount of energy, determine the maximum resulting size of a term that can be
--- linked using that energy.
-maxLink :: Energy -> LinkedTermSize
-maxLink e = fromIntegral $ (e * 100) `div` linkPer100Size
 
 -- * Cost for individual transactions / actions
 

@@ -1,27 +1,17 @@
-{-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.Types,
                                    module Concordium.Types.Updates,
                                    module Concordium.Types.Execution,
-                                   module Concordium.Types.Acorn.Interfaces,
                                    module Concordium.Types.Transactions,
                                    module Concordium.GlobalState.Instance,
                                    module Concordium.GlobalState.Rewards,
                                    module Concordium.GlobalState.Parameters,
                                    module Concordium.GlobalState.IdentityProviders,
                                    module Concordium.GlobalState.AnonymityRevokers,
-                                   IdentityProviderIdentity,
-                                   ReceiveContext(..),
-                                   InitContext(..),
-                                   linkExprWithMaxSize,
-                                   Core.NoAnnot) where
-
-import Prelude hiding(fail)
+                                   IdentityProviderIdentity) where
 
 import Concordium.Types
 import Concordium.Types.Updates
-import Concordium.Types.Acorn.Interfaces hiding(Value, Interface, ValueInterface, ContractValue)
-import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.Types.Execution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Rewards
@@ -32,23 +22,12 @@ import Concordium.GlobalState.AnonymityRevokers
 
 import Concordium.ID.Types(IdentityProviderIdentity)
 
-import Acorn.Types(ReceiveContext(..), InitContext(..), linkExprWithMaxSize)
-import qualified Acorn.Core as Core
-
-type Value = Interfaces.Value Core.NoAnnot
-type ContractValue = Interfaces.LinkedContractValue Core.NoAnnot
-type ValueInterface = Interfaces.UnlinkedValueInterface Core.NoAnnot
-type Interface = Interfaces.Interface Core.UA
-
-type Module = Core.Module Core.UA
-
 dummyChainMeta :: ChainMetadata
 dummyChainMeta = ChainMetadata { slotNumber = 0
                                , blockHeight = 0
                                , finalizedHeight = 0
                                , slotTime = 0
                                }
-
 
 -- |Result of constructing a block from 'GroupedTransactions'.
 data FilteredTransactions = FilteredTransactions {

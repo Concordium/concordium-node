@@ -12,6 +12,7 @@ import Data.Time.Clock.POSIX
 import System.IO
 import Data.IORef
 import Data.Serialize
+import Data.Word
 import System.Directory
 
 import Concordium.TimerMonad
@@ -24,12 +25,9 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.AnonymityRevokers
 
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
 import Concordium.GlobalState.DummyData (dummyAuthorizations)
-
-import Concordium.Scheduler.Utils.Init.Example as Example
 
 import Concordium.Types
 import Concordium.Runner
@@ -41,10 +39,13 @@ import Concordium.Birk.Bake
 import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Startup
+import qualified Concordium.Types.DummyData as Dummy
+import qualified Concordium.GlobalState.DummyData as Dummy
+import qualified Concordium.Crypto.DummyData as Dummy
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (genesisState genData)
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
@@ -56,10 +57,9 @@ nContracts :: Int
 nContracts = 2
 
 transactions :: StdGen -> [BlockItem]
-transactions gen = trs (0 :: Nonce) (randoms gen :: [Int])
+transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
     where
-        contr i = ContractAddress (fromIntegral $ i `mod` nContracts) 0
-        trs n (a : b : rs) = Example.makeTransaction (a `mod` 9 /= 0) (contr b) n : trs (n+1) rs
+        trs n (amnt:amnts)= Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) n : trs (n+1) amnts
         trs _ _ = error "Ran out of transaction data"
 
 sendTransactions :: Chan (InMessage Peer) -> [BlockItem] -> IO ()
@@ -198,37 +198,23 @@ gsToString gs = intercalate "\\l" . map show $ keys
 dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders = emptyIdentityProviders
 
-dummyArs :: AnonymityRevokers
-dummyArs = emptyAnonymityRevokers
-
-genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisDataV1{..} = Example.initialState
-                       (Basic.BasicBirkParameters
-                           genesisBakers
-                           genesisBakers
-                           genesisBakers
-                           genesisSeedState)
-                       genesisCryptographicParameters
-                       genesisAccounts
-                       genesisIdentityProviders
-                       2
-                       []
-                       genesisAuthorizations
-                       genesisChainParameters
+emptyArs :: AnonymityRevokers
+emptyArs = emptyAnonymityRevokers
 
 main :: IO ()
 main = do
     let n = 3
     now <- currentTimestamp
-    let (gen, bis) = makeGenesisData now n 100
-                        defaultFinalizationParameters{finalizationMinimumSkip = 1}
-                        dummyCryptographicParameters
-                        dummyIdentityProviders
-                        dummyArs
-                        []
-                        (Energy maxBound)
-                        dummyAuthorizations
-                        (makeChainParameters 0.5 1 1)
+    let (gen, bis) =
+          makeGenesisData now n 100
+            defaultFinalizationParameters{finalizationMinimumSkip = 1}
+            dummyCryptographicParameters
+            dummyIdentityProviders
+            emptyArs
+            [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
+            (Energy maxBound)
+            dummyAuthorizations
+            (makeChainParameters 0.5 1 1)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

@@ -5,12 +5,8 @@ import Test.Hspec
 import Test.HUnit
 
 import Control.Monad.IO.Class
-import qualified Data.Text.IO as TIO
 import Lens.Micro.Platform
 
-import Acorn.Core
-import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -34,7 +30,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 2000000000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 200000000000 Acc.emptyAccounts
 
 baker :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
@@ -43,7 +39,7 @@ baker = mkFullBaker 1 alesAccount
 -- This list includes all payload types to ensure that expiry is handled for
 -- all types of transactions.
 transactions :: Types.TransactionExpiryTime -> [TransactionJSON]
-transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount = 10000 }
                         , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
                         , keys = [(0, alesKP)]
                         }
@@ -78,26 +74,6 @@ transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount 
                       , metadata = makeHeaderWithExpiry alesAccount 7 100000 t
                       , keys = [(0, alesKP)]
                       }
-                 ,TJSON { payload = DeployModule "FibContract"
-                        , metadata = makeHeaderWithExpiry alesAccount 8 10000000 t
-                        , keys = [(0, alesKP)]
-                        }
-                 ,TJSON { payload = InitContract { amount = 123
-                                                 , contractName = "Fibonacci"
-                                                 , moduleName = "FibContract"
-                                                 , parameter = "Unit.Unit"
-                                                 }
-                        , metadata = makeHeaderWithExpiry alesAccount 9 100000000 t
-                        , keys = [(0, alesKP)]
-                        }
-                 ,TJSON { payload = Update { amount = 0
-                                           , address = Types.ContractAddress 0 0
-                                           , moduleName = "FibContract"
-                                           , message = "Fib 30"
-                                           }
-                        , metadata = makeHeaderWithExpiry alesAccount 10 100000000 t
-                        , keys = [(0, alesKP)]
-                        }
                  ]
 
 expiryTime :: Types.TransactionExpiryTime
@@ -110,11 +86,8 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [Types.Transaction])
 
-testExpiryTime :: Types.TransactionExpiryTime -> PR.Context UA IO TestResult
+testExpiryTime :: Types.TransactionExpiryTime -> IO TestResult
 testExpiryTime expiry = do
-    let file = "test/contracts/FibContract.acorn"
-    source <- liftIO $ TIO.readFile file
-    (_, _) <- PR.processModule file source
     ts <- processUngroupedTransactions $ transactions expiry
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
@@ -126,19 +99,24 @@ testExpiryTime expiry = do
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed)
 
-checkExpiryTimeResult :: Types.TransactionExpiryTime ->
-                         TestResult ->
-                         Bool
-checkExpiryTimeResult expiry (added, fails, unprocs) =
-    null unprocs &&
-        if expiryTime <= expiry
-        -- transactions haven't expired, so they should all succeed
-        then check fails added (\case (_, Types.TxSuccess{}) -> True
-                                      _ -> False)
-        -- transactions expired and they should all fail
-        else check added fails (\case (_, Types.ExpiredTransaction) -> True
-                                      _ -> False)
-    where check nulls ts f = null nulls && all f ts
+checkExpiryTimeResult :: Types.TransactionExpiryTime -> TestResult -> Assertion
+checkExpiryTimeResult expiry (added, fails, unprocs) = do
+  assertEqual "No unprocessed transactions." [] unprocs
+  if expiryTime <= expiry
+     -- transactions haven't expired, so they should all succeed
+  then do
+    assertEqual "No failed transactions." [] fails
+    assertBool "All added transactions succeed." $ all fSucs added
+     -- transactions expired and they should all fail
+  else do
+    assertEqual "No transactions added." [] added
+    assertBool "All failed transactions expired." $ all fFails fails
+
+  where fFails (_, Types.ExpiredTransaction) = True
+        fFails _ = False
+
+        fSucs (_, Types.TxSuccess{}) = True
+        fSucs _ = False
 
 tests :: Spec
 tests =
@@ -149,5 +127,4 @@ tests =
        testExpiry $ expiryTime
     specify "Same transactions with expiry set before slot time fail" $
        testExpiry $ expiryTime - 1
-  where testExpiry expiry = PR.evalContext Init.initialContextData (testExpiryTime expiry)
-            `shouldReturnP` checkExpiryTimeResult expiry
+  where testExpiry expiry = testExpiryTime expiry >>= checkExpiryTimeResult expiry

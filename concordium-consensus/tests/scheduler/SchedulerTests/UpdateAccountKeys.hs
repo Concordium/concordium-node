@@ -24,12 +24,12 @@ import            SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = createBlockState $
-                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 100000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
 initialBlockState2 :: BlockState
 initialBlockState2 = createBlockState $
-                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 100000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
 -- Makes a random ED25519 keypair, using the integer to feed the randomization.
@@ -51,7 +51,6 @@ testCases =
   [ TestCase
     { tcName = "Account key updates"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
-    , tcModules = []
     , tcTransactions = [
         -- correctly update a keypair
         ( Runner.TJSON  { payload = Runner.UpdateAccountKeys $ Map.fromList [(0, vk kp2)],
@@ -94,7 +93,6 @@ testCases =
   , TestCase
     { tcName = "Adding account keys"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
-    , tcModules = []
     , tcTransactions = [
         -- Correctly add account key
         ( Runner.TJSON  { payload = Runner.AddAccountKeys (Map.fromList [(2, vk kp2)]) Nothing,
@@ -149,7 +147,6 @@ testCases =
   , TestCase
     { tcName = "Removing account keys"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState2} -- ales has 5 keys in this one
-    , tcModules = []
     , tcTransactions = [
         -- Correctly remove keys 3 and 4.
         ( Runner.TJSON  { payload = Runner.RemoveAccountKeys (Set.fromList [3, 4]) Nothing,

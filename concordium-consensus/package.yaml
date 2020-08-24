@@ -35,7 +35,6 @@ dependencies:
 - mtl >=2.2
 - pqueue >= 1.4.1
 - psqueues >= 0.2.7
-- acorn
 - vector >= 0.12
 - concordium-crypto
 - base16-bytestring
