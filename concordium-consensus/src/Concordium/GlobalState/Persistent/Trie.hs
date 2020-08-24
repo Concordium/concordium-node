@@ -25,9 +25,8 @@ import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
 
-import Concordium.Types (AccountAddress, BakerId(..))
+import Concordium.Types (AccountAddress, BakerId(..), ModuleRef(..))
 import Concordium.Utils
-import qualified Concordium.Types.Acorn.Core as Core (Name(..), ModuleRef(..))
 import qualified Concordium.Crypto.SHA256 as SHA256
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
@@ -46,9 +45,8 @@ class FixedTrieKey a where
 
 instance FixedTrieKey Word64
 instance FixedTrieKey Word32
-deriving via Word32 instance FixedTrieKey Core.Name
 instance FixedTrieKey SHA256.Hash
-deriving via SHA256.Hash instance FixedTrieKey Core.ModuleRef
+deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
 

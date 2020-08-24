@@ -1,4 +1,4 @@
-{-# LANGUAGE DerivingVia, StandaloneDeriving, MultiParamTypeClasses, FlexibleContexts, GeneralizedNewtypeDeriving, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
+{-# LANGUAGE DerivingVia, MultiParamTypeClasses, FlexibleContexts, UndecidableInstances, FlexibleInstances, OverloadedStrings, ScopedTypeVariables, TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
@@ -72,7 +72,7 @@ specifyWithGS s f =
       runSilentLogger . void . uncurry (runRWST (runGlobalStateM $ f))
 
 useI :: MonadState (Identity s) f => Getting b s b -> f b
-useI f = (^. f) <$> runIdentity <$> RWS.get
+useI f = (^. f) . runIdentity <$> RWS.get
 
 testFinalizeABlock :: Test
 testFinalizeABlock = do
