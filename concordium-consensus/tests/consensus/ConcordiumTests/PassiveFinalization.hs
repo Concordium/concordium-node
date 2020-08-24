@@ -36,7 +36,6 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.Basic.TreeState as TS
-import qualified Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
@@ -46,8 +45,6 @@ import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParamete
 
 import Concordium.Logger
 
-import qualified Concordium.Scheduler.Utils.Init.Example as Example
-
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
@@ -55,6 +52,8 @@ import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+
+import qualified Concordium.GlobalState.DummyData as Dummy
 
 -- Test that Concordium.Afgjort.Finalize.newPassiveRound has an effect on finalization;
 -- specifically, that non-finalizers can successfully gather signatures from the pending-
@@ -307,14 +306,13 @@ createInitStates additionalFinMembers = do
     let bis = baker1 : baker2 : finMember : finMembers
         genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-        cps = dummyChainParameters & cpElectionDifficulty .~ 1
-        bps = BS.BasicBirkParameters genesisBakers genesisBakers genesisBakers seedState
+        elDiff = 1
         bakerAccounts = map (\(_, _, acc) -> acc) bis
         gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations cps
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
-                                           (MTMBConfig defaultRuntimeParameters gen (Example.initialState bps dummyCryptographicParameters bakerAccounts emptyIdentityProviders 2 [] dummyAuthorizations cps))
+                                           (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
                                            (ActiveFinalization fininst)
                                            NoHandler
                                    (initCtx, initState) <- runSilentLogger (initialiseSkov config)

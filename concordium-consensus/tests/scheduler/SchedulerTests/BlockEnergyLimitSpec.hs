@@ -11,9 +11,6 @@ import Control.Monad.IO.Class
 
 import Lens.Micro.Platform
 
-import Acorn.Core
-import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
@@ -44,20 +41,20 @@ maxBlockEnergy = usedTransactionEnergy * 2
 
 transactions :: [TransactionJSON]
 transactions = [-- valid transaction: energy not over max limit
-                TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+                TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 1 usedTransactionEnergy
                       , keys = [(0, alesKP)]
                       },
                 -- invalid transaction: although its used energy amount (plus the energy of the
                 -- previously valid transaction) is under the energy limit,
                 -- the stated energy is above the limit, so this transaction cannot be added to the block
-                TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+                TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 3 $ maxBlockEnergy + Types.Energy 1
                       , keys = [(0, alesKP)]
                       },
                 -- will be an unprocessed transaction because together with the first valid transaction,
                 -- its energy exceeds the limit
-                TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+                TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 4 $ usedTransactionEnergy + 1
                       , keys = [(0, alesKP)]
                       }
@@ -69,7 +66,7 @@ type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [Types.Transaction],
                    [Types.Transaction])
 
-testMaxBlockEnergy :: PR.Context UA IO TestResult
+testMaxBlockEnergy :: IO TestResult
 testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
@@ -113,4 +110,4 @@ tests :: Spec
 tests =
   describe "Maximum block energy limit test:" $
     specify "One valid, two invalid, one unprocessed transaction" $
-        PR.evalContext Init.initialContextData testMaxBlockEnergy >>= checkResult
+        testMaxBlockEnergy >>= checkResult

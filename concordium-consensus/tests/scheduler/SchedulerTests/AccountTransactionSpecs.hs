@@ -6,8 +6,6 @@ import Test.HUnit
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init as Init
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
 
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -22,8 +20,6 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 
 import SchedulerTests.Helpers
-
-import qualified Acorn.Core as Core
 
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
@@ -46,7 +42,6 @@ transactionsInput = map (Types.fromCDI 0) $ [
   ]
 
 testAccountCreation ::
-  PR.Context Core.UA
     IO
     ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
@@ -76,13 +71,17 @@ checkAccountCreationResult ::
      [Maybe Account],
      Account,
      Types.BankStatus)
-  -> Bool
-checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
-  length fails == 1 && -- all but the 4'th transaction should fail.
-  txsuc &&
-  txstateAccs &&
-  noCost &&
-  stateInvariant
+  -> Assertion
+checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) = do
+  assertEqual "All but the 4th transactions should fail." 1 (length fails)
+  assertEqual "Account should keep the initial amount." initialAmount (stateAles ^. accountAmount)
+  assertEqual "Execution cost should be 0." 0 (bankState ^. Types.executionCost)
+  assertEqual "Total amount of tokens is maintained." initialAmount (stateAles ^. accountAmount + bankState ^. Types.executionCost)
+
+  -- FIXME: Make these more fine-grained so that failures are understandable.
+  assertBool "Successful transaction results." txsuc
+  assertBool "Newly created accounts." txstateAccs
+
   where txsuc = case suc of
           [(_, a11), (_, a12),(_, a13),(_, a15),(_, a16),(_, a17)] |
             Types.TxSuccess [Types.AccountCreated _, Types.CredentialDeployed{}] <- a11,
@@ -95,11 +94,9 @@ checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) =
         txstateAccs = case stateAccs of
                         [Just _, Just _, Just _, Just _, Just _] -> True
                         _ -> False
-        noCost = stateAles ^. accountAmount == initialAmount && bankState ^. Types.executionCost == 0
-        stateInvariant = stateAles ^. accountAmount + bankState ^. Types.executionCost == initialAmount
 
 tests :: Spec
 tests =
   describe "Account creation" $
     specify "4 accounts created, fifth rejected, credential deployed, and one more account created." $
-      PR.evalContext Init.initialContextData testAccountCreation `shouldReturnP` checkAccountCreationResult
+      testAccountCreation >>= checkAccountCreationResult

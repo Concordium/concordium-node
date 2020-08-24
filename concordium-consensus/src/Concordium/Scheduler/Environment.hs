@@ -6,8 +6,6 @@
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# OPTIONS_GHC -Wall #-}
-
 module Concordium.Scheduler.Environment where
 
 import qualified Data.HashMap.Strict as HMap
@@ -19,8 +17,7 @@ import Control.Monad.Cont hiding (cont)
 
 import Lens.Micro.Platform
 
-import qualified Acorn.Core as Core
-import Acorn.Types(InterpreterEnergy)
+import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
@@ -28,7 +25,6 @@ import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (AccountUpdate(..), auAmount, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
-import qualified Concordium.Types.Acorn.Interfaces as Interfaces
 import Concordium.GlobalState.AccountTransactionIndex
 
 import Control.Exception(assert)
@@ -53,22 +49,15 @@ instance ResourceMeasure Energy where
   {-# INLINE fromEnergy #-}
   fromEnergy = id
 
--- |Measures the cost of linking.
-instance ResourceMeasure LinkedTermSize where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.link
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.maxLink
-
 -- |Meaures the cost of running the interpreter.
-instance ResourceMeasure InterpreterEnergy where
+instance ResourceMeasure Wasm.InterpreterEnergy where
   {-# INLINE toEnergy #-}
   toEnergy = Cost.fromInterpreterEnergy
   {-# INLINE fromEnergy #-}
   fromEnergy = Cost.toInterpreterEnergy
 
 -- |Measures the cost of __storing__ the given amount of bytes.
-instance ResourceMeasure ByteSize where
+instance ResourceMeasure Wasm.ByteSize where
   {-# INLINE toEnergy #-}
   toEnergy = Cost.storeBytes
   {-# INLINE fromEnergy #-}
@@ -83,13 +72,23 @@ instance ResourceMeasure Cost.LookupByteSize where
 
 -- * Scheduler monad
 
--- |Information needed to execute transactions in the form that is easy to use.
-class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Core.UA m, AccountOperations m) => SchedulerMonad m where
+class Monad m => StaticInformation m where
+  -- |Get the chain information for the current block.
+  getChainMetadata :: m ChainMetadata
 
-  tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
+  -- |Get a module interface, if available.
+  getModuleInterfaces :: ModuleRef -> m (Maybe Wasm.ModuleInterface)
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
+
+-- |Information needed to execute transactions in the form that is easy to use.
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m) => SchedulerMonad m where
+
+  -- |Notify the transaction log that a transaction had the given footprint. The
+  -- nature of the footprint will depend on the configuration, e.g., it could be
+  -- nothing, or the set of accounts affected by the transaction.
+  tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
 
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe Instance)
@@ -115,26 +114,7 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
-  commitModule :: Core.ModuleRef -> Interface -> ValueInterface -> Module -> m Bool
-
-  -- |Check whether we already cache the expression in a linked format.
-  -- It is valid for the implementation to always return 'Nothing', although this
-  -- will affect memory use since linked expressions will not be shared.
-  smTryGetLinkedExpr :: Core.ModuleRef -> Core.Name -> m (Maybe (LinkedExprWithDeps NoAnnot))
-
-  -- |Store the linked expression in the linked expresssion cache.
-  -- It is valid for this to be a no-op.
-  smPutLinkedExpr :: Core.ModuleRef -> Core.Name -> LinkedExprWithDeps NoAnnot -> m ()
-
-  -- |Try to get a linked contract init and receive methods.
-  -- It is valid for the implementation to always return 'Nothing', although this
-  -- will affect memory use since each contract instance will have a different
-  -- in-memory linked code.
-  smTryGetLinkedContract :: Core.ModuleRef -> Core.TyName -> m (Maybe (LinkedContractValue NoAnnot))
-
-  -- |Store a fully linked contract in the linked contracts cache.
-  -- It is valid for the implementation to be a no-op.
-  smPutLinkedContract :: Core.ModuleRef -> Core.TyName -> LinkedContractValue NoAnnot -> m ()
+  commitModule :: Wasm.ModuleInterface -> m Bool
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
@@ -288,13 +268,13 @@ class (CanRecordFootprint (Footprint (ATIStorage m)), StaticEnvironmentMonad Cor
 -- the state of the world during execution. Local state of contracts and amounts
 -- on contracts might need to be rolled back for various reasons, so we do not
 -- want to commit it to global state.
-class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
+class StaticInformation m => TransactionMonad m where
   -- |Execute the code in a temporarily modified environment. This is needed in
   -- nested calls to transactions which might end up failing at the end. Thus we
   -- keep track of changes locally first, and only commit them at the end.
   -- Instance keeps track of its own address hence we need not provide it
   -- separately.
-  withInstanceState :: Instance -> Value -> m a -> m a
+  withInstanceState :: Instance -> Wasm.ContractState -> m a -> m a
 
   -- |Transfer amount from the first address to the second and run the
   -- computation in the modified environment.
@@ -330,17 +310,6 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
-  -- |Link an expression into an expression ready to run.
-  -- This charges for the size of the linked expression. The linker is run with the current remaining
-  -- energy, and if that is not sufficient to pay for the size of the resulting expression, it will
-  -- abort when this limit is reached, and this function will reject the transaction with 'OutOfEnergy'
-  -- or outOfBlockEnergy.
-  -- The expression is part of the given module.
-  linkExpr :: Core.ModuleRef -> (UnlinkedExpr NoAnnot, UnlinkedTermSize) -> m (LinkedExpr NoAnnot)
-
-  -- |Link a contract's init, receive methods and implemented constraints.
-  linkContract :: Core.ModuleRef -> Core.TyName -> UnlinkedContractValue NoAnnot -> m (LinkedContractValue NoAnnot)
-
   {-# INLINE getCurrentAmount #-}
   getCurrentAmount :: Either Instance (Account m) -> m Amount
   getCurrentAmount (Left i) = getCurrentContractAmount i
@@ -367,6 +336,11 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
   -- is set to 0.
   rejectTransaction :: RejectReason -> m a
 
+  -- |Try to run the first computation. If it leads to `reject` for a logic reason then
+  -- try the second computation. If the left computation fails with out of energy then the
+  -- entire computation is aborted.
+  orElse :: m a -> m a -> m a
+
   -- |Fail transaction processing because we would have exceeded maximum block energy limit.
   outOfBlockEnergy :: m a
 
@@ -392,17 +366,15 @@ class StaticEnvironmentMonad Core.UA m => TransactionMonad m where
 
 -- |The set of changes to be commited on a successful transaction.
 data ChangeSet = ChangeSet
-    {_affectedTx :: !TransactionHash, -- transaction affected by this changeset
+    {_affectedTx :: !TransactionHash, -- ^Transaction affected by this changeset.
      _accountUpdates :: !(HMap.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
-    ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Value)) -- ^Contracts whose states changed.
-    ,_linkedExprs :: !(HMap.HashMap (Core.ModuleRef, Core.Name) (LinkedExprWithDeps NoAnnot)) -- ^Newly linked expressions.
-    ,_linkedContracts :: !(HMap.HashMap (Core.ModuleRef, Core.TyName) (LinkedContractValue NoAnnot))
+    ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HMap.empty HMap.empty
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -434,10 +406,10 @@ modifyAmountCS addr !amnt !cs = cs & (accountUpdates . ix addr . auAmount ) %~
 -- |Add or update the contract state in the changeset with the given value.
 -- |NB: If the instance is not yet in the changeset we assume that its balance is
 -- as listed in the given instance structure.
-addContractStatesToCS :: Instance -> Value -> ChangeSet -> ChangeSet
-addContractStatesToCS istance val cs =
-  cs & instanceUpdates . at addr %~ \case Just (amnt, _) -> Just (amnt, val)
-                                          Nothing -> Just (0, val)
+addContractStatesToCS :: Instance -> Wasm.ContractState -> ChangeSet -> ChangeSet
+addContractStatesToCS istance newState =
+  instanceUpdates . at addr %~ \case Just (amnt, _) -> Just (amnt, newState)
+                                     Nothing -> Just (0, newState)
   where addr = instanceAddress . instanceParameters $ istance
 
 -- |Add the given delta to the change set for the given contract instance.
@@ -628,7 +600,7 @@ defaultSuccess wtc = \ls events -> do
   (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
   chargeExecutionCost txHash senderAccount energyCost
   commitChanges (ls ^. changeSet)
-  return $ (TxSuccess events, energyCost, usedEnergy)
+  return (TxSuccess events, energyCost, usedEnergy)
 
 -- {-# INLINE evalLocalT #-}
 -- evalLocalT :: Monad m => LocalT a m a -> Energy -> m (Either RejectReason a)
@@ -645,27 +617,20 @@ defaultSuccess wtc = \ls events -> do
 liftLocal :: Monad m => m a -> LocalT r m a
 liftLocal m = LocalT (ContT (\k -> RWST (\r s -> m >>= \f -> runRWST (k f) r s)))
 
+
 instance MonadTrans (LocalT r) where
   {-# INLINE lift #-}
   lift = liftLocal
 
-instance StaticEnvironmentMonad Core.UA m => StaticEnvironmentMonad Core.UA (LocalT r m) where
+instance StaticInformation m => StaticInformation (LocalT r m) where
+  {-# INLINE getMaxBlockEnergy #-}
+  getMaxBlockEnergy = liftLocal getMaxBlockEnergy
+
   {-# INLINE getChainMetadata #-}
   getChainMetadata = liftLocal getChainMetadata
 
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces = liftLocal . getModuleInterfaces
-
-instance SchedulerMonad m => LinkerMonad NoAnnot (LocalT r m) where
-  {-# INLINE getExprInModule #-}
-  getExprInModule mref n = liftLocal $
-    getModuleInterfaces mref >>= \case
-      Nothing -> return Nothing
-      Just (_, viface) -> return $ HMap.lookup n (viDefs viface)
-
-  tryGetLinkedExpr mref n = liftLocal (smTryGetLinkedExpr mref n)
-
-  putLinkedExpr mref n linked = liftLocal (smPutLinkedExpr mref n linked)
 
 deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 
@@ -748,30 +713,6 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
       Just (delta, _) -> return $! applyAmountDelta delta amnt
       Nothing -> return amnt
 
-  linkExpr mref unlinked = withExternal (linkExprWithMaxSize mref unlinked)
-
-  linkContract mref cname unlinked = do
-    lCache <- use (changeSet . linkedContracts)
-    case HMap.lookup (mref, cname) lCache of
-      Nothing ->
-        liftLocal (smTryGetLinkedContract mref cname) >>= \case
-          Nothing -> do
-            cvInitMethod <- linkExprWithSize mref (Interfaces.cvInitMethod unlinked)
-            cvReceiveMethod <- linkExprWithSize mref (Interfaces.cvReceiveMethod unlinked)
-            cvImplements <- mapM (\iv -> do
-                                     ivSenders <- mapM (linkExprWithSize mref) (Interfaces.ivSenders iv)
-                                     ivGetters <- mapM (linkExprWithSize mref) (Interfaces.ivGetters iv)
-                                     return Interfaces.ImplementsValue{..}
-                                 ) (Interfaces.cvImplements unlinked)
-            let linked = Interfaces.ContractValue{..}
-            changeSet . linkedContracts %= (HMap.insert (mref, cname) linked)
-            return linked
-          Just cv -> return cv
-      Just cv -> return cv
-      where
-        -- like linkExpr above, but retains the size
-        linkExprWithSize mref' unlinked' = withExternal (fmap (fmap (\(a,b) -> ((a,b), b))) . linkExprWithMaxSize mref' unlinked')
-
   {-# INLINE getEnergy #-}
   getEnergy = do
     beLeft <- use blockEnergyLeft
@@ -794,6 +735,17 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE rejectTransaction #-}
   rejectTransaction OutOfEnergy = energyLeft .= 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
   rejectTransaction reason = LocalT (ContT (\_ -> return (Left (Just reason))))
+
+  {-# INLINE orElse #-}
+  orElse (LocalT l) (LocalT r) = LocalT $ ContT $ \k -> do
+     initChangeSet <- use changeSet
+     runContT l k >>= \case
+       Left (Just reason) | reason /= OutOfEnergy -> do
+         -- reset changeSet, the left computation will have no effect at all other than
+         -- energy use.
+         changeSet .= initChangeSet
+         runContT r k
+       x -> return x
 
   {-# INLINE outOfBlockEnergy #-}
   outOfBlockEnergy = LocalT (ContT (\_ -> return (Left Nothing)))
@@ -827,15 +779,3 @@ withExternal f = do
 -- not return a value. This is a convenience wrapper only.
 withExternalPure_ :: (ResourceMeasure r, TransactionMonad m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
-
-instance SchedulerMonad m => InterpreterMonad NoAnnot (LocalT r m) where
-  getCurrentContractState caddr = do
-    newStates <- use (changeSet . instanceUpdates)
-    liftLocal $! do
-      mistance <- getContractInstance caddr
-      case mistance of
-        Nothing -> return Nothing
-        Just i ->
-          case newStates ^. at caddr of
-            Nothing -> return $ Just (instanceImplements (instanceParameters i), instanceModel i)
-            Just (_, newmodel) -> return $ Just (instanceImplements (instanceParameters i), newmodel)

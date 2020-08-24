@@ -30,7 +30,6 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
 import Concordium.ID.Types
-import qualified Concordium.Types.Acorn.Core as Core
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
@@ -337,7 +336,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
             }
-        case (decode gdata, AE.eitherDecodeStrict bdata) of
+        case (runGet getExactVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
               let
                   finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
@@ -406,7 +405,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
             }
-        case decode gdata of
+        case runGet getExactVersionedGenesisData gdata of
             Right genData -> do
               let finconfig = NoFinalization
                   hconfig = NoHandler
@@ -875,12 +874,12 @@ getModuleSource cptr blockcstr cstr = do
         logm External LLDebug $ "Decoded module hash to : " ++ show mref -- base 16
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           mmodul <- runConsensusQuery c (Get.getModuleSource hash) mref
-          case mmodul :: Maybe (Core.Module Core.UA) of
+          case mmodul of
             Nothing -> do
               logm External LLTrace "Module not available."
               byteStringToCString BS.empty
             Just modul ->
-              let reply = P.runPut (Core.putModule modul)
+              let reply = encode modul
               in do
                 logm External LLTrace $ "Replying with data size = " ++ show (BS.length reply)
                 byteStringToCString reply

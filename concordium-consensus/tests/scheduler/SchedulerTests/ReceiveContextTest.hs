@@ -1,30 +1,22 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-| Test that the init context of a contract is passed correctly by the scheduler. -}
 module SchedulerTests.ReceiveContextTest where
-
--- Tests that the receive context in acorn is properly instantiated.
 
 import Test.Hspec
 import Test.HUnit
+import Lens.Micro.Platform
+import Control.Monad.IO.Class
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
-import qualified Acorn.Utils.Init as Init
-import Concordium.Scheduler.Runner
-import qualified Acorn.Parser.Runner as PR
 import qualified Concordium.Scheduler as Sch
-import qualified Acorn.Core as Core
+import Concordium.Scheduler.Runner
 
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
-import Concordium.GlobalState.Basic.BlockState.Instances as Ins
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-
-import Lens.Micro.Platform
-
-import qualified Data.Text.IO as TIO
-import qualified Data.Sequence as Seq
-
-import Control.Monad.IO.Class
+import Concordium.GlobalState.Basic.BlockState.Instances
+import Concordium.GlobalState.Basic.BlockState.Accounts
+import Concordium.Wasm
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -33,57 +25,42 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
-shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
-shouldReturnP action f = action >>= (`shouldSatisfy` f)
-
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 10000000 (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
 
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{..}
-  where slotNumber = 8
-        blockHeight = 13
-        finalizedHeight = 10
-        slotTime = dummySlotTime
+  where slotNumber = 111
+        blockHeight = 222
+        finalizedHeight = 333
+        slotTime = 444
 
-initialAmount :: Types.Amount
-initialAmount = 123
-
-transactionsInput :: [TransactionJSON]
-transactionsInput =
-    [TJSON { payload = DeployModule "ReceiveContextTest"
-           , metadata = makeDummyHeader alesAccount 1 1000000
-           , keys = [(0, alesKP)]
-           }
-    ,TJSON { payload = InitContract {amount = initialAmount
-                                    ,contractName = "Simple"
-                                    ,moduleName = "ReceiveContextTest"
-                                    ,parameter = "<13,18>"
-                                    }
-           , metadata = makeDummyHeader alesAccount 2 1000000
-           , keys = [(0, alesKP)]
-           }
-    ,TJSON { payload = Update {amount = 108
-                              ,address = Types.ContractAddress 0 0
-                              ,moduleName = "ReceiveContextTest"
-                              ,message = "Unit.Unit"
-                              }
-           , metadata = makeDummyHeader thomasAccount 1 10000
-           , keys = [(0, thomasKP)]
-           }
-    ]
-
+transactionInputs :: [TransactionJSON]
+transactionInputs = [
+  TJSON{
+      metadata = makeDummyHeader alesAccount 1 100000,
+      payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
+      keys = [(0, alesKP)]
+      },
+  TJSON{
+      metadata = makeDummyHeader alesAccount 2 100000,
+      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
+      keys = [(0, alesKP)]
+      },
+  TJSON{
+      metadata = makeDummyHeader alesAccount 3 100000,
+      payload = Update 9 (Types.ContractAddress 0 0) "receive_context" "",
+      keys = [(0, alesKP)]
+      }
+  ]
 
 type TestResult = ([(Types.BlockItem, Types.ValidResult)],
                    [(Types.Transaction, Types.FailureKind)],
                    [(Types.ContractAddress, Instance)])
 
-testReceiveContext :: PR.Context Core.UA IO TestResult
-testReceiveContext = do
-    let file = "test/contracts/ReceiveContextTest.acorn"
-    source <- liftIO $ TIO.readFile file
-    (_, _) <- PR.processModule file source -- execute only for effect on global state, i.e., load into cache
-    transactions <- processUngroupedTransactions transactionsInput
+testReceive :: IO TestResult
+testReceive = do
+    transactions <- processUngroupedTransactions transactionInputs
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             chainMeta
@@ -95,33 +72,29 @@ testReceiveContext = do
         _ -> return ()
     return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))
 
-assertTrue :: HasCallStack => String -> Bool -> Assertion
-assertTrue msg = assertEqual msg True
-
-checkReceiveContextResult :: TestResult -> Assertion
-checkReceiveContextResult (suc, fails, instances) = do
-  assertTrue "No failed transactions" (null fails)
-  assertTrue "No rejected transactions." (null reject)
-  assertEqual "Only a single instance." 1 (length instances)
-  checkLocalState (snd (head instances)) -- and the local state should match the receive context
+checkReceiveResult :: TestResult -> Assertion
+checkReceiveResult (suc, fails, instances) = do
+  assertEqual "There should be no failed transactions." [] fails
+  assertEqual "There should be no rejected transactions." [] reject
+  assertEqual "There should be 1 instance." 1 (length instances)
+  let model = contractState . instanceModel . snd . head $ instances
+  let receiveCtx = ReceiveContext{
+        invoker = alesAccount,
+        selfAddress = Types.ContractAddress 0 0,
+        selfBalance = 9, -- balance it was initialized with
+        sender = Types.AddressAccount alesAccount,
+        owner = alesAccount
+        }
+  let expectedState = Types.encodeChainMeta chainMeta <> encodeReceiveContext receiveCtx
+  assertEqual "Instance model is the chain metadata + receive context." model expectedState
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True
                     )
-                        suc
-    checkLocalState inst =
-      case Types.instanceModel inst of
-        Types.VConstructor _ (Types.VLiteral (Core.AAddress originAddr) Seq.:<|
-                              Types.VLiteral (Core.CAddress selfAddress) Seq.:<|
-                              Types.VLiteral (Core.AmountLiteral amount) Seq.:<| Seq.Empty) -> do
-            assertEqual "Origin address is correct." thomasAccount originAddr
-            -- because it is the first and only smart contract in the given state
-            assertEqual "Self address is 0,0" (Types.ContractAddress 0 0) selfAddress
-            assertEqual "Self balance is the initial amount." initialAmount amount
-        v -> assertFailure $ "Instance model not of the correct shape: " ++ show v
+             suc
 
 tests :: SpecWith ()
 tests =
-  describe "Receive context in smart contract calls." $
-    specify "Reading receive context metadata." $
-      PR.evalContext Init.initialContextData testReceiveContext >>= checkReceiveContextResult
+  describe "Receive context in transactions." $
+    specify "Passing receive context to contract." $
+      testReceive >>= checkReceiveResult
