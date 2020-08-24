@@ -294,6 +294,8 @@ class StaticInformation m => TransactionMonad m where
   -- given limit with a new amount.
   replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
 
+  addAmountFromEncrypted :: Account m -> Amount -> m ()
+
   -- |Add a new encrypted amount to an account, and return its index.
   -- This may assume this is the only update to encrypted amounts on the given account
   -- in this transaction.
@@ -307,7 +309,7 @@ class StaticInformation m => TransactionMonad m where
   -- in this transaction.
   --
   -- This should be used when transferring from public to encrypted balance.
-  addSelfEncryptedAmount :: Account m -> EncryptedAmount -> m ()
+  addSelfEncryptedAmount :: Account m -> Amount -> EncryptedAmount -> m ()
 
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
@@ -660,8 +662,8 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withAccountToAccountAmount #-}
   withAccountToAccountAmount fromAcc toAcc amount cont = do
     cs <- use changeSet
-    changeSet <~ (addAmountToCS toAcc (amountToDelta amount) cs >>= 
-                  addAmountToCS fromAcc (amountDiff 0 amount)) 
+    changeSet <~ (addAmountToCS toAcc (amountToDelta amount) cs >>=
+                  addAmountToCS fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withAccountToContractAmount #-}
@@ -687,14 +689,21 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     addr <- getAccountAddress acc
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= ReplaceUpTo{..}
 
+  addAmountFromEncrypted acc amount = do
+    cs <- use changeSet
+    cs' <- addAmountToCS acc (amountToDelta amount) cs
+    changeSet .= cs'
+
   addEncryptedAmount acc newAmount = do
     addr <- getAccountAddress acc
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= Add{..}
     nextIndex <- getAccountEncryptedAmountNextIndex acc
     return nextIndex
 
-  addSelfEncryptedAmount acc newAmount = do
+  addSelfEncryptedAmount acc transferredAmount newAmount = do
     addr <- getAccountAddress acc
+    cs <- use changeSet
+    changeSet <~ addAmountToCS acc (amountDiff 0 transferredAmount) cs
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= AddSelf{..}
 
   getCurrentAccount addr = do
