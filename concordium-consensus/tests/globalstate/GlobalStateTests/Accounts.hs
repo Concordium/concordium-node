@@ -8,6 +8,7 @@
 module GlobalStateTests.Accounts where
 
 import Prelude hiding (fail)
+import Control.Exception (bracket)
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
 import Control.Monad.IO.Class
@@ -251,7 +252,9 @@ actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegra
 tests :: Word -> Spec
 tests lvl = describe "GlobalStateTests.Accounts" $
             around (\kont ->
-                      withTempDirectory "." "blockstate" $ \dir ->
-                       createBlobStore (dir </> "blockstate.dat") >>= kont
+                      withTempDirectory "." "blockstate" $ \dir -> bracket
+                        (createBlobStore (dir </> "blockstate.dat"))
+                        closeBlobStore
+                        kont
                    ) $ do emptyTest
                           actionTest lvl
