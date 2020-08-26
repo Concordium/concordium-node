@@ -202,12 +202,12 @@ runWithIntermediateStates = do
                          (Types.perAccountTransactions txs)
   return (res, state)
 
-keysL :: L.LFMBTree (Maybe FullBakerInfo) -> [Types.BakerId]
-keysL t = let l = L.toList t in
-   [ i | (i, Just _) <- zip [0..] l ]
+keysL :: L.LFMBTree Types.BakerId (Maybe FullBakerInfo) -> [Types.BakerId]
+keysL t = let l = L.toAscPairList t in
+   [ i | (i, Just _) <- l ]
 
-getL :: L.LFMBTree (Maybe FullBakerInfo) -> Types.BakerId -> FullBakerInfo
-getL t (Types.BakerId bid) = fromJust $ join $ L.lookup bid t
+getL :: L.LFMBTree Types.BakerId (Maybe FullBakerInfo) -> Types.BakerId -> FullBakerInfo
+getL t bid = fromJust $ join $ L.lookup bid t
 
 tests :: Spec
 tests = do
@@ -245,11 +245,12 @@ tests = do
       -- first check that before the account was thomasAccount, and now it is alesAccount
       case (results !! 4, results !! 5) of
         ((_, _, bps4), ([(_,Types.TxSuccess [Types.BakerAccountUpdated 2 _])], [], bps5)) ->
-          keysL (bps5 ^. birkCurrentBakers . bakerMap) == [0,2] &&
-          let b2 = (bps5 ^. birkCurrentBakers . bakerMap) `getL` 2
-          in b2 ^. bakerInfo . bakerAccount == alesAccount &&
-             ((bps4 ^. birkCurrentBakers . bakerMap) `getL` 2) ^. bakerInfo . bakerAccount == thomasAccount
-        _ -> False
+          do
+            assertEqual "1" (keysL (bps5 ^. birkCurrentBakers . bakerMap)) [0,2]
+            let b2 = (bps5 ^. birkCurrentBakers . bakerMap) `getL` 2
+            assertEqual "2" (b2 ^. bakerInfo . bakerAccount) alesAccount
+            assertEqual "3" (((bps4 ^. birkCurrentBakers . bakerMap) `getL` 2) ^. bakerInfo . bakerAccount) thomasAccount
+        _ -> assertFailure "Not matched"
 
     specify "Update first baker's sign key." $
       case (results !! 5, results !! 6) of
