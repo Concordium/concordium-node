@@ -250,13 +250,13 @@ addBlock block = do
         deadBlock = do
             blockArriveDead $ getHash block
             return ResultStale
-        invalidBlock :: m UpdateResult
-        invalidBlock = do
-            logEvent Skov LLWarning $ "Block is not valid: " ++ show block
+        invalidBlock :: String -> m UpdateResult
+        invalidBlock reason = do
+            logEvent Skov LLWarning $ "Block is not valid (" ++ reason ++ "): " ++ show block
             blockArriveDead $ getHash block
             return ResultInvalid
         parent = blockPointer block
-        check q a = if q then a else invalidBlock
+        check reason q a = if q then a else invalidBlock reason
         tryAddLiveParent :: BlockPointerType m -> m UpdateResult
         tryAddLiveParent parentP = -- The parent block must be Alive or Finalized here.
             -- Determine if the block's finalized data is valid and if so what
@@ -293,17 +293,17 @@ addBlock block = do
                         _ -> return False
                     -- check that the finalized block at the previous index
                     -- is the last finalized block of the parent
-                    check (finOK && previousFinalized == Just (bpLastFinalizedHash  parentP)) $
+                    check "invalid finalization" (finOK && previousFinalized == Just (bpLastFinalizedHash  parentP)) $
                         -- Check that the finalized block at the given index
                         -- is actually the one named in the finalization record.
                         blockAtFinIndex finalizationIndex >>= \case
-                            Just fbp -> check (bpHash fbp == finBP) $
+                            Just fbp -> check "finalization inconsistency" (bpHash fbp == finBP) $
                                             tryAddParentLastFin parentP fbp
-                            Nothing -> invalidBlock
+                            Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
         tryAddParentLastFin :: BlockPointerType m -> BlockPointerType m -> m UpdateResult
         tryAddParentLastFin parentP lfBlockP =
             -- Check that the blockSlot is beyond the parent slot
-            check (blockSlot parentP < blockSlot block) $ do
+            check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
                 -- get Birk parameters from the __parent__ block. The baker must have existed in that
                 -- block's state in order that the current block is valid
                 bps <- getBirkParameters (blockSlot block) parentP
@@ -311,10 +311,10 @@ addBlock block = do
                 nonce <- birkLeadershipElectionNonce bps
                 elDiff <- getElectionDifficulty bps
                 case baker of
-                    Nothing -> invalidBlock
+                    Nothing -> invalidBlock $ "unknown baker " ++ show (blockBaker block)
                     Just (BakerInfo{..}, lotteryPower) ->
                         -- Check the block proof
-                        check (verifyProof
+                        check "invalid block proof" (verifyProof
                                     nonce
                                     elDiff
                                     (blockSlot block)
@@ -322,13 +322,13 @@ addBlock block = do
                                     lotteryPower
                                     (blockProof block)) $
                         -- The block nonce
-                        check (verifyBlockNonce
+                        check "invalid block nonce" (verifyBlockNonce
                                     nonce
                                     (blockSlot block)
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
                         -- And the block signature
-                        check (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
+                        check "invalid block signature" (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
                             bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
@@ -336,7 +336,7 @@ addBlock block = do
                             executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                 Left err -> do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
-                                    invalidBlock
+                                    invalidBlock "execution failure"
                                 Right result -> do
                                     -- Add the block to the tree
                                     blockP <- blockArrive block parentP lfBlockP result
