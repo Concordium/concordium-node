@@ -18,6 +18,10 @@ import Data.FixedByteString as FBS
 import Concordium.Types
 import Concordium.GlobalState.Finalization
 
+
+-- WIP placeholder file
+
+
 groupIntoSize :: (Show a, Integral a) => a -> String
 groupIntoSize s =
   let kb = s
@@ -55,7 +59,7 @@ checkFinalizationRecord tx = let bs = P.runPutLazy (put tx)
 testFinalizationRecord :: Int -> Property
 testFinalizationRecord size = forAll (resize size $ genFinalizationRecord) checkFinalizationRecord
 
+
 tests :: Spec
 tests = parallel $ do
-  specify ("FinalizationRecord serialization with size = 100.") $ withMaxSuccess 10000 $ testFinalizationRecord 100
-  specify ("FinalizationRecord serialization with size = 1000.") $ withMaxSuccess 10000 $ testFinalizationRecord 1000
+  specify ("Testing that all fields modify BlockHash") $ withMaxSuccess 10000 $ testFinalizationRecord 100
