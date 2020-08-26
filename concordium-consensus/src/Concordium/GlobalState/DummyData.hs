@@ -193,7 +193,7 @@ emptyBirkParameters = BasicBirkParameters {
   }
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters 0.5 0.000001 1000000
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.000001 1000000
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState
