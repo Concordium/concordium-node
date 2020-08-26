@@ -38,8 +38,8 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    100000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 alesAccount

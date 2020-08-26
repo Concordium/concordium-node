@@ -3,51 +3,56 @@ import Distribution.Simple
 import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Setup
 import Distribution.Simple.Utils
+import Distribution.System
 
 import System.Directory
 import System.Environment
 
 import Data.Maybe
 
-updateExtraLibDirs :: LocalBuildInfo -> IO LocalBuildInfo
-updateExtraLibDirs localBuildInfo = do
-    let packageDescription = localPkgDescr localBuildInfo
-        lib = fromJust $ library packageDescription
-        libBuild = libBuildInfo lib
-    dir <- getCurrentDirectory
-    return localBuildInfo {
-        localPkgDescr = packageDescription {
-            library = Just $ lib {
-                libBuildInfo = libBuild {
-                    extraLibDirs = (dir ++ "../smart-contracts/wasmer-interp/target/release") :
-                        extraLibDirs libBuild
-                }
-            }
-        }
-    }
-
--- copyExtLib :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
--- copyExtLib args flags pkg_descr lbi = do
---     let libPref = dynlibdir (configInstallDirs . configFlags $ lbi)
---     let verbosity = fromFlag $ copyVerbosity flags
-    
---     -- rawSystemExit verbosity "cp" ["rust-src/target/release/libec_vrf_ed25519.so",
--- --                                  "rust-src/target/release/libeddsa_ed25519.so",
--- --                                  "rust-src/target/release/libsha_2.so",
--- --                                  libPref]
 
 makeRust :: Args -> ConfigFlags -> IO HookedBuildInfo
 makeRust args flags = do
     let verbosity = fromFlag $ configVerbosity flags
     env <- getEnvironment
-    rawSystemExitWithEnv verbosity "cargo"
-        ["build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
-        (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
+    rawSystemExit verbosity "mkdir" ["-p", "../smart-contracts/lib"]
+
+    -- This way of determining the platform is not ideal.
+    case buildOS of
+        -- On Windows, we work around to build wasmer using the msvc toolchain
+        -- because it doesn't currently work with gnu.
+        Windows -> do
+            rawSystemExitWithEnv verbosity "rustup"
+                ["run", "stable-x86_64-pc-windows-msvc", "cargo", "build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
+                (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
+            -- Copy just the dynamic library, since it doesn't link with the static one.
+            rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll", "../smart-contracts/lib/"]
+        _ -> do
+            rawSystemExitWithEnv verbosity "cargo"
+                ["build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
+                (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
+            rawSystemExit verbosity "ln" ["-s", "-f", "../wasmer-interp/target/release/libwasmer_interp.a", "../smart-contracts/lib/"]
+            case buildOS of
+                OSX ->
+                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasmer-interp/target/release/libwasmer_interp.dylib", "../smart-contracts/lib/libwasmer_interp.dylib"]
+                _ ->
+                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasmer-interp/target/release/libwasmer_interp.so", "../smart-contracts/lib/libwasmer_interp.so"]
     return emptyHookedBuildInfo
+
+-- This is a quick and dirty hook to copy the wasmer_interp DLL on Windows.
+copyExtLib :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
+copyExtLib _ flags _ lbi = case hostPlatform lbi of
+    Platform _ Windows -> do
+        let verbosity = fromFlag $ copyVerbosity flags
+        let dest = fromPathTemplate $ bindir $ installDirTemplates lbi
+        notice verbosity $ "Copying wasmer_interp.dll to: " ++ dest
+        rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll", dest]
+    _ -> return ()
+
 
 main = defaultMainWithHooks simpleUserHooks
   {
     preConf = makeRust
-  , confHook = \a f -> confHook simpleUserHooks a f >>= updateExtraLibDirs
+  , postCopy = copyExtLib
   }
 

@@ -143,7 +143,7 @@ simpleTransfer m0 = do
         destAcct <- elements $ Map.keys $ _mAccounts m0
         amt <- fromIntegral <$> choose (0, 1000 :: Word)
         return (TJSON {
-            payload = Transfer {toaddress = AddressAccount destAcct, amount = amt},
+            payload = Transfer {toaddress = destAcct, amount = amt},
             metadata = makeDummyHeader srcAcct srcN energy,
             keys = [(0, srcKp)]
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
