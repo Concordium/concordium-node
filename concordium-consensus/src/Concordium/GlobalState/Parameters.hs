@@ -191,7 +191,9 @@ instance FromJSON GenesisAccount where
     gaAddress <- obj .: "address"
     gaVerifyKeys <- obj .: "accountKeys"
     gaBalance <- Amount <$> obj .: "balance"
-    gaCredential <- obj .: "credential"
+    Versioned{..} <- obj .: "credential"
+    unless (vVersion == 0) $ fail "Only V0 credentials supported in genesis."
+    gaCredential <- parseJSON vValue
     return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
