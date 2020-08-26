@@ -6,7 +6,6 @@ import qualified Data.Text as Text
 import qualified Data.Set as Set
 import Control.Monad
 import Data.Serialize
-import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 
@@ -16,7 +15,6 @@ import qualified Concordium.Wasm as Wasm
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 import Concordium.GlobalState.Basic.BlockState.Instances
-import Concordium.GlobalState.Instance
 
 import qualified Data.FixedByteString as FBS
 import qualified Data.ByteString as BS

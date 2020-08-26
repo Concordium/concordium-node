@@ -1,5 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-|
@@ -68,11 +66,13 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Data.Set (Set)
 
-
+-- |Index of the module in the module table. Reflects when the module was added
+-- to the table.
 type ModuleIndex = Word64
 
+-- |Module stored in block state.
 data Module = Module {
-    moduleInterface :: Wasm.ModuleInterface,
+    moduleInterface :: !Wasm.ModuleInterface,
     moduleIndex :: !ModuleIndex
 }
 
