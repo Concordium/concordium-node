@@ -66,10 +66,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Data.Set (Set)
 
-<<<<<<< HEAD
-
-=======
->>>>>>> statehashingv3
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
 type ModuleIndex = Word64
