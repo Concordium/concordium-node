@@ -24,12 +24,12 @@ import            SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = createBlockState $
-                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 100000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
 initialBlockState2 :: BlockState
 initialBlockState2 = createBlockState $
-                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 100000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
 -- Makes a random ED25519 keypair, using the integer to feed the randomization.

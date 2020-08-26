@@ -326,7 +326,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
-        case (decode gdata, AE.eitherDecodeStrict bdata) of
+        case (runGet getExactVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) ->
               if connStringLen /= 0 then do -- enable logging of transactions
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
@@ -387,7 +387,7 @@ startConsensusPassive ::
 startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
-        case decode gdata of
+        case runGet getExactVersionedGenesisData gdata of
             Right genData ->
               if connStringLen /= 0 then do
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
