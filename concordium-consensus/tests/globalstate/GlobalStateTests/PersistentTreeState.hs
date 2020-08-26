@@ -26,14 +26,6 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
-import Concordium.GlobalState.LMDB.Helpers
-
-import Control.Monad.State hiding (state)
-import Concordium.GlobalState
-import Concordium.GlobalState.DummyData
-import Concordium.Crypto.DummyData
-
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.LMDB
@@ -41,6 +33,7 @@ import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState
 import Concordium.ID.DummyData
 import Concordium.Logger
+import Concordium.GlobalState.LMDB.Helpers
 
 import Concordium.Types
 import Concordium.Types.HashableTo
