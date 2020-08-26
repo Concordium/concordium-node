@@ -96,7 +96,6 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            elDiff = 0.5
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
             gen = GenesisDataV1 0 1 genesisBakers seedState (bakerAccounts ++ [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount]) fps dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
