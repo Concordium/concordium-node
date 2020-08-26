@@ -30,7 +30,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState
-initialBlockState = blockStateWithAlesAccount 2000000000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 200000000000 Acc.emptyAccounts
 
 baker :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 alesAccount
@@ -39,7 +39,7 @@ baker = mkFullBaker 1 alesAccount
 -- This list includes all payload types to ensure that expiry is handled for
 -- all types of transactions.
 transactions :: Types.TransactionExpiryTime -> [TransactionJSON]
-transactions t = [TJSON { payload = Transfer { toaddress = Types.AddressAccount alesAccount, amount = 100 }
+transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount = 10000 }
                         , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
                         , keys = [(0, alesKP)]
                         }

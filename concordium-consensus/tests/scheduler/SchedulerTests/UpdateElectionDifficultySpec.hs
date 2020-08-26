@@ -21,8 +21,8 @@ import SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount
-    100000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 100000) Acc.emptyAccounts)
+    10000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
 
 -- | The initial election difficulty (NOTE: This value is used for verification,
 -- the difficulty is not set from this value).
@@ -44,7 +44,7 @@ testCases =
         in
           zip nonces legalElectionDifficulties <&> \(n, d) ->
           ( TJSON { payload = UpdateElectionDifficulty d
-                  , metadata = makeDummyHeader alesAccount n 10000
+                  , metadata = makeDummyHeader alesAccount n 100
                   , keys = [(0, alesKP)]
                   }
           , ( SuccessE [Types.ElectionDifficultyUpdated d]
@@ -66,14 +66,14 @@ testCases =
             -- given a list of nonces make transactions
             mkBodies = illegalElectionDifficulties <&> \d n ->
                            ( TJSON { payload = UpdateElectionDifficulty d
-                                   , metadata = makeDummyHeader alesAccount n 10000
+                                   , metadata = makeDummyHeader alesAccount n 100
                                    , keys = [(0, alesKP)]
                                    }
                            , (Reject Types.SerializationFailure, electionDifficultyNotChanged)
                            )
             lastTransactionResultPair =
                 (TJSON { payload = UpdateElectionDifficulty legalElectionDifficulty
-                      , metadata = makeDummyHeader thomasAccount 1 10000
+                      , metadata = makeDummyHeader thomasAccount 1 100
                       , keys = [(0, thomasKP)]
                       }
                 , (Reject Types.NotFromSpecialAccount, electionDifficultyNotChanged)
