@@ -19,6 +19,7 @@ import Control.Monad.Trans.Reader
 import qualified Data.ByteString as BS
 import Test.Hspec
 import Prelude hiding (lookup)
+import Data.Word
 
 abcHash, abcorrectHash :: H.Hash
 abcHash = H.hashOfHashes (H.hashOfHashes (H.hash "A") (H.hash "B")) (H.hash "C") -- "dbe11e36aa89a963103de7f8ad09c1100c06ccd5c5ad424ca741efb0689dc427"
@@ -29,12 +30,12 @@ testingFunction = do
   runBlobStoreTemp
     "."
     ( do
-        tree <- foldM (\acc v -> snd <$> append v acc) (empty :: LFMBTree HashedBufferedRef BS.ByteString) ["A", "B", "C"]
+        tree <- foldM (\acc v -> snd <$> append v acc) (empty :: LFMBTree Word64 HashedBufferedRef BS.ByteString) ["A", "B", "C"]
         testElements <- mapM (`lookup` tree) [0 .. 3]
         liftIO $ testElements `shouldBe` map Just ["A", "B", "C"] ++ [Nothing]
         h <- getHashM tree :: ReaderT BlobStore IO H.Hash
         liftIO $ h `shouldBe` abcHash
-        tree' <- loadRef =<< (storeRef tree :: ReaderT BlobStore IO (BlobRef (LFMBTree HashedBufferedRef BS.ByteString)))
+        tree' <- loadRef =<< (storeRef tree :: ReaderT BlobStore IO (BlobRef (LFMBTree Word64 HashedBufferedRef BS.ByteString)))
         testElements' <- mapM (`lookup` tree') [0 .. 3]
         liftIO $ testElements' `shouldBe` map Just ["A", "B", "C"] ++ [Nothing]
         h' <- getHashM tree' :: ReaderT BlobStore IO H.Hash
@@ -51,10 +52,10 @@ testingFunction2 = do
   runBlobStoreTemp
     "."
     ( do
-        tree <- foldM (\acc v -> snd <$> append v acc) (empty :: LFMBTree BufferedRef BS.ByteString) ["A", "B", "C"]
+        tree <- foldM (\acc v -> snd <$> append v acc) (empty :: LFMBTree Word64 BufferedRef BS.ByteString) ["A", "B", "C"]
         testElements <- mapM (`lookup` tree) [0 .. 3]
         liftIO $ testElements `shouldBe` map Just ["A", "B", "C"] ++ [Nothing]
-        tree' <- loadRef =<< (storeRef tree :: ReaderT BlobStore IO (BlobRef (LFMBTree BufferedRef BS.ByteString)))
+        tree' <- loadRef =<< (storeRef tree :: ReaderT BlobStore IO (BlobRef (LFMBTree Word64 BufferedRef BS.ByteString)))
         testElements' <- mapM (`lookup` tree') [0 .. 3]
         liftIO $ testElements' `shouldBe` map Just ["A", "B", "C"] ++ [Nothing]
         Just (_, tree'') <- update (\v -> return ((), v `BS.append` "orrect")) 2 tree'

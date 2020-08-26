@@ -54,21 +54,6 @@ data BasicBirkParameters = BasicBirkParameters {
     _birkSeedState :: !SeedState
 } deriving (Eq, Generic, Show)
 
--- | Subhashes and the top level hash for the BlockState
-data BlockStateHashes
-  = BlockStateHashes
-      {
-        hashOfBirkParamsAndCryptoParams :: H.Hash,
-        hashOfIPsAndARs :: H.Hash,
-        hashOfModulesAndBank :: H.Hash,
-        hashOfAccountsAndInstances :: H.Hash,
-        hashOfBirkCryptoIPsARs :: H.Hash,
-        hashOfModulesBankAccountsIntances :: H.Hash,
-        -- | The top level hash of the BlockState. Hash of hashOfIPsAndARs0 and hashOfIPsAndARs1
-        blockStateHash :: StateHash
-      }
-  deriving (Show, Eq)
-
 instance HashableTo H.Hash BasicBirkParameters where
     getHash BasicBirkParameters {..} = H.hashOfHashes bpH0 bpH2
       where
@@ -88,6 +73,21 @@ makeBirkParameters _birkElectionDifficulty _birkCurrentBakers prevEpochBakers lo
   where
     _birkPrevEpochBakers = makeHashed prevEpochBakers
     _birkLotteryBakers = makeHashed lotteryBakers
+
+-- | Subhashes and the top level hash for the BlockState
+data BlockStateHashes
+  = BlockStateHashes
+      {
+        hashOfBirkParamsAndCryptoParams :: H.Hash,
+        hashOfIPsAndARs :: H.Hash,
+        hashOfModulesAndBank :: H.Hash,
+        hashOfAccountsAndInstances :: H.Hash,
+        hashOfBirkCryptoIPsARs :: H.Hash,
+        hashOfModulesBankAccountsIntances :: H.Hash,
+        -- | The top level hash of the BlockState. Hash of hashOfIPsAndARs0 and hashOfIPsAndARs1
+        blockStateHash :: StateHash
+      }
+  deriving (Show, Eq)
 
 data BlockState = BlockState {
     _blockAccounts :: !Accounts.Accounts,
@@ -111,14 +111,14 @@ emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> BlockState
 emptyBlockState _blockBirkParameters cryptographicParameters = BlockState
           { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
             _blockHashes = makeBlockStateHashes'
-                             (getHash _blockBirkParameters)
-                             (getHash _blockCryptographicParameters)
-                             (getHash _blockIdentityProviders)
-                             (getHash _blockAnonymityRevokers)
-                             (getHash _blockModules)
-                             (getHash _blockBank)
-                             (getHash _blockAccounts)
-                             (getHash _blockInstances),
+                             _blockBirkParameters
+                             _blockCryptographicParameters
+                             _blockIdentityProviders
+                             _blockAnonymityRevokers
+                             _blockModules
+                             _blockBank
+                             _blockAccounts
+                             _blockInstances,
             ..
           }
     where
@@ -132,25 +132,24 @@ emptyBlockState _blockBirkParameters cryptographicParameters = BlockState
 
 -- | Given a block, calculates the top level hash, and subhashes
 makeBlockStateHashes :: BlockState -> BlockStateHashes
-makeBlockStateHashes BlockState {..} = makeBlockStateHashes' (getHash _blockBirkParameters) (getHash _blockCryptographicParameters) (getHash _blockIdentityProviders) (getHash _blockAnonymityRevokers) (getHash _blockModules) (getHash _blockBank) (getHash _blockAccounts) (getHash _blockInstances)
+makeBlockStateHashes BlockState {..} = makeBlockStateHashes' _blockBirkParameters _blockCryptographicParameters _blockIdentityProviders _blockAnonymityRevokers _blockModules _blockBank _blockAccounts _blockInstances
 
--- | Given the hashes of the components of a block combine them in the way defined in the specification.
 makeBlockStateHashes' ::
-  H.Hash -- ^ Hash of the birk parameters
-  -> H.Hash -- ^ Hash of the cryptographic parameters
-  -> H.Hash -- ^ Hash of the Identity Providers
-  -> H.Hash -- ^ Hash of the Anonymity Revokers
-  -> H.Hash -- ^ Hash of the Modules
-  -> H.Hash -- ^ Hash of the Bank Status
-  -> H.Hash -- ^ Hash of the Accounts
-  -> H.Hash -- ^ Hash of the Instances
+  BasicBirkParameters
+  -> Hashed CryptographicParameters
+  -> Hashed IPS.IdentityProviders
+  -> Hashed ARS.AnonymityRevokers
+  -> Modules.Modules
+  -> Hashed Rewards.BankStatus
+  -> Accounts.Accounts
+  -> Instances.Instances
   -> BlockStateHashes
 makeBlockStateHashes' birkParameters cryptoParams ips ars mods bank accs instances = BlockStateHashes {..}
     where
-      hashOfBirkParamsAndCryptoParams = H.hashOfHashes birkParameters cryptoParams
-      hashOfIPsAndARs = H.hashOfHashes ips ars
-      hashOfModulesAndBank = H.hashOfHashes mods bank
-      hashOfAccountsAndInstances = H.hashOfHashes accs instances
+      hashOfBirkParamsAndCryptoParams = H.hashOfHashes (getHash birkParameters) (getHash cryptoParams)
+      hashOfIPsAndARs = H.hashOfHashes (getHash ips) (getHash ars)
+      hashOfModulesAndBank = H.hashOfHashes (getHash mods) (getHash bank)
+      hashOfAccountsAndInstances = H.hashOfHashes (getHash accs) (getHash instances)
       hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
       hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
       blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
@@ -255,15 +254,15 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
 instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
 
-  getBakerStake bs bid = return $ bs ^? bakerMap . L.ixMaybe bid . bakerStake
+  getBakerStake bs bid = return $ bs ^? bakerMap . L.ix bid . traversed . bakerStake
 
   getBakerFromKey bs k = return $ bs ^. bakersByKey . at' k
 
   getTotalBakerStake bs = return $ bs ^. bakerTotalStake
 
-  getBakerInfo bs bid = return $ bs ^? bakerMap . L.ixMaybe bid . bakerInfo
+  getBakerInfo bs bid = return $ bs ^? bakerMap . L.ix bid . traversed . bakerInfo
 
-  getFullBakerInfos bks = return $ Map.fromAscList ([(BakerId i, v) | (i, Just v) <- L.toAscPairList $ _bakerMap bks])
+  getFullBakerInfos bks = return $ Map.fromAscList ([(i, v) | (i, Just v) <- L.toAscPairList $ _bakerMap bks])
 
 instance Monad m => BS.BirkParametersOperations (PureBlockStateMonad m) where
 
@@ -449,12 +448,8 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE freezeBlockState #-}
     freezeBlockState bs = do
       let bs' = bs & ((blockBirkParameters . birkCurrentBakersHash) ?~ getHash (bs ^. blockBirkParameters . birkCurrentBakers))
-          bs'' =
-            bs' & (blockBank %~ (makeHashed . _unhashed))
-                . (blockIdentityProviders %~ (makeHashed . _unhashed))
-                . (blockAnonymityRevokers %~ (makeHashed . _unhashed))
-          bs''' = bs'' & blockHashes .~ makeBlockStateHashes bs''
-      return (bs''', blockStateHash $ _blockHashes bs''')
+          bs'' = bs' & blockHashes .~ makeBlockStateHashes bs'
+      return bs''
 
     {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState _ = return ()
@@ -491,4 +486,4 @@ initialState _blockBirkParameters cryptoParams genesisAccounts ips anonymityRevo
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-    _blockHashes = makeBlockStateHashes' (getHash _blockBirkParameters) (getHash _blockCryptographicParameters) (getHash _blockIdentityProviders) (getHash _blockAnonymityRevokers) (getHash _blockModules) (getHash _blockBank) (getHash _blockAccounts) (getHash _blockInstances)
+    _blockHashes = makeBlockStateHashes' _blockBirkParameters _blockCryptographicParameters _blockIdentityProviders _blockAnonymityRevokers _blockModules _blockBank _blockAccounts _blockInstances

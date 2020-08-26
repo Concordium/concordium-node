@@ -364,7 +364,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Freeze a mutable block state instance. The mutable state instance will
     -- not be used afterwards and the implementation can thus avoid copying
     -- data.
-    freezeBlockState :: UpdatableBlockState m -> m (BlockState m, StateHash)
+    freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
 
     -- |Discard a mutable block state instance.  The mutable state instance will
     -- not be used afterwards.
