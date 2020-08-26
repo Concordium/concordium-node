@@ -61,7 +61,7 @@ emptyBakers = Bakers L.empty Map.empty 0 Set.empty
 bakersFromList :: [FullBakerInfo] -> (Bakers, [FullBakerInfo])
 bakersFromList bkrs = (
   Bakers {
-        _bakerMap = L.fromList $ map Just bakers,
+        _bakerMap = L.fromList $ map Just (reverse bakers),
         ..
       },
     duplicateBakers
