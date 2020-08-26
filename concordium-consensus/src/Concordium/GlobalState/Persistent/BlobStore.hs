@@ -286,6 +286,23 @@ instance (MHashableTo m H.Hash v) => MHashableTo m H.Hash (Nullable v) where
   getHashM Null = return $ H.hash "Nothing"
   getHashM (Some v) = (\h -> H.hash ("Just" <> H.hashToByteString h)) <$> getHashM v
 
+-- NOTE: As we have several "simple" reference types, we need a way to abstract over them. This is the purpose of the @Reference@ class.
+-- | An instance @Reference m ref a@ specifies how a value of type @a@ can be stored and retrieved over a reference type
+-- @ref@ in the monad @m@. The constraints on this typeclass are specially permissive and it is responsibility of the
+-- instances to refine those. This typeclass is specifically designed to be used by BufferedRef and HashedBufferedRef.
+class (Monad m) => Reference m ref a where
+  -- |Given a reference, write it to the disk and return the updated reference and the generated offset in the store
+  refFlush :: ref a -> m (ref a, BlobRef a)
+  -- |Given a reference, read the value and return the possibly updated reference (that now holds the value in memory)
+  refCache :: ref a -> m (a, ref a)
+  -- |Read the value from a given reference either accessing the store or returning it from memory.
+  refLoad :: ref a -> m a
+  -- |Create a reference to a value. This does not guarantee that the value will be written to the store, and most probably
+  -- it will just be stored in memory as cached.
+  refMake :: a -> m (ref a)
+  -- |Given a reference, flush the data and return an uncached reference.
+  refUncache :: ref a -> m (ref a)
+
 -- |A value that may exists purely on disk ('BRBlobbed'), purely in memory ('BRMemory'), or both ('BRCached').
 -- When the value is cached, the cached value must match the value stored on disk.
 data BufferedRef a
@@ -590,8 +607,8 @@ instance (MonadBlobStore m ref) => BlobStorable m ref PersistingAccountData
 
 data HashedBufferedRef a
   = HashedBufferedRef
-      { bufferedReference :: BufferedRef a,
-        bufferedHash :: Maybe H.Hash
+      { bufferedReference :: !(BufferedRef a),
+        bufferedHash :: !(Maybe H.Hash)
       }
 
 bufferHashed :: (MonadIO m) => Hashed a -> m (HashedBufferedRef a)
@@ -616,23 +633,6 @@ instance (MonadIO m, MonadBlobStore m BlobRef, BlobStorable m BlobRef a, MHashab
     (pt, br) <- storeUpdate p brm
     h <- getHashM . fst =<< cacheBufferedRef br
     return (pt, HashedBufferedRef br (Just h))
-
--- NOTE: As we have several "simple" reference types, we need a way to abstract over them. This is the purpose of the @Reference@ class.
--- | An instance @Reference m ref a@ specifies how a value of type @a@ can be stored and retrieved over a reference type
--- @ref@ in the monad @m@. The constraints on this typeclass are specially permissive and it is responsibility of the
--- instances to refine those. This typeclass is specifically designed to be used by BufferedRef and HashedBufferedRef.
-class (Monad m) => Reference m ref a where
-  -- |Given a reference, write it to the disk and return the updated reference and the generated offset in the store
-  refFlush :: ref a -> m (ref a, BlobRef a)
-  -- |Given a reference, read the value and return the possibly updated reference (that now holds the value in memory)
-  refCache :: ref a -> m (a, ref a)
-  -- |Read the value from a given reference either accessing the store or returning it from memory.
-  refLoad :: ref a -> m a
-  -- |Create a reference to a value. This does not guarantee that the value will be written to the store, and most probably
-  -- it will just be stored in memory as cached.
-  refMake :: a -> m (ref a)
-  -- |Given a reference, flush the data and return an uncached reference.
-  refUncache :: ref a -> m (ref a)
 
 instance (MHashableTo m H.Hash a, BlobStorable m BlobRef a, MonadIO m) => Reference m HashedBufferedRef a where
   refFlush ref = do

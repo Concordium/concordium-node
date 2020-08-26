@@ -79,7 +79,7 @@ sameAccount bAcc pAcc@PersistentAccount{..} = do
 sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
 sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
--- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^. accountAddress@ returns the account's address.
+-- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
 (^^.) :: (MonadIO m, MonadBlobStore m BlobRef)
       => PersistentAccount
       -> Getting b PersistingAccountData b

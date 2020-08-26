@@ -30,7 +30,7 @@ import Control.Monad.Reader.Class
 -- |Representation of the set of bakers on the chain.
 data PersistentBakers = PersistentBakers {
     -- |Baker information, indexed by 'BakerId'
-    _bakerMap :: !(LFMBTree HashedBufferedRef (Nullable (BufferedRef BakerInfo, Amount))),
+    _bakerMap :: !(LFMBTree BakerId HashedBufferedRef (Nullable (BufferedRef BakerInfo, Amount))),
     -- |The baker ids indexed by the keys
     _bakersByKey :: !(Map.Map BakerSignVerifyKey BakerId),
     -- |The total stake delegated to all bakers
@@ -57,7 +57,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef 
       mBakerMap <- load p
       return $ do
         _bakerMap <- mBakerMap
-        -- Since we only store the baker-ID-to-baker-info map and next baker ID in the persistent storage,
+        -- Since we only store the baker-ID-to-baker-info map in the persistent storage,
         -- to create a 'PersistentBakers' result we need to reconstruct the baker-signature-key-to-ID map, the total baker stake,
         -- and the set of aggregation keys. For that we fold over the baker IDs, collecting the above information
         -- using this 'collectBakerInfo' function.
@@ -78,14 +78,14 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef 
                   Set.insert _bakerAggregationVerifyKey aks
                 )
         list <- L.toAscPairList _bakerMap
-        (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) [(BakerId bid, b) | (bid, Some b) <- list]
+        (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) [(bid, b) | (bid, Some b) <- list]
         return PersistentBakers {..}
 
 -- |Convert an in-memory 'Basic.Bakers' value to a persistent 'PersistentBakers' value.
 -- The new object is not yet stored on disk.
 makePersistentBakers :: (MonadIO m, MonadReader r m, HasBlobStore r) => Basic.Bakers -> m PersistentBakers
 makePersistentBakers Basic.Bakers {..} = do
-    bm <- mapM toPersistentElem $ LB.toAscList _bakerMap
+    bm <- mapM toPersistentElem $ LB.toList _bakerMap
     _bakerMap <- L.fromAscList bm
     return PersistentBakers {..}
     where
@@ -120,8 +120,7 @@ createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAg
 updateBaker :: (MonadIO m, MonadReader r m, HasBlobStore r) => Basic.BakerUpdate -> PersistentBakers -> m (Maybe PersistentBakers)
 updateBaker Basic.BakerUpdate {..} !bakers = do
   let bInfoMap = bakers ^. bakerMap
-      BakerId bid = _buId
-  L.lookupNullable bid bInfoMap >>= \case
+  L.lookupNullable _buId bInfoMap >>= \case
     Nothing -> return $ Just bakers
     Just (binfoRef, stake) -> do
       binfo <- loadBufferedRef binfoRef
@@ -129,7 +128,7 @@ updateBaker Basic.BakerUpdate {..} !bakers = do
       case _buSignKey of
            Nothing -> do -- don't update the sign key, no clash possible
              newBakerInfoRef <- makeBufferedRef (binfo & bakerAccount .~ bacc)
-             updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) bid bInfoMap
+             updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) _buId bInfoMap
              case updated of
                Nothing -> return $ Just bakers
                Just (_, newBakerMap) -> return $ Just $ bakers & bakerMap .~ newBakerMap
@@ -140,7 +139,7 @@ updateBaker Basic.BakerUpdate {..} !bakers = do
                  return Nothing
                Nothing -> do -- fresh signing key
                  newBakerInfoRef <- makeBufferedRef (binfo & bakerSignatureVerifyKey .~ newSignKey)
-                 updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) bid bInfoMap
+                 updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) _buId bInfoMap
                  case updated of
                    Nothing -> return $ Just bakers
                    Just (_, newBakerMap) ->
@@ -154,7 +153,7 @@ updateBaker Basic.BakerUpdate {..} !bakers = do
 -- | Removes a baker from the 'PersistentBakers' data type and returns the resulting bakers plus a flag indicating whether
 -- the baker was successfully removed (i.e. whether the baker with the given ID was part of the bakers).
 removeBaker :: (MonadIO m, MonadReader r m, HasBlobStore r) => BakerId -> PersistentBakers -> m (Bool, PersistentBakers)
-removeBaker (BakerId bid) !bakers = do
+removeBaker bid !bakers = do
     let bInfoMap = bakers ^. bakerMap
     mBakerInfo <- L.lookupNullable bid bInfoMap
     case mBakerInfo of
@@ -171,7 +170,7 @@ removeBaker (BakerId bid) !bakers = do
                             & (bakerTotalStake %~ subtract stake))
 
 modifyStake :: (MonadIO m, MonadReader r m, HasBlobStore r) => Maybe BakerId -> AmountDelta -> PersistentBakers -> m PersistentBakers
-modifyStake (Just (BakerId bid)) delta bakers = do
+modifyStake (Just bid) delta bakers = do
     let bInfoMap = bakers ^. bakerMap
     updated <- L.update thisUpdate bid bInfoMap
     case updated of
