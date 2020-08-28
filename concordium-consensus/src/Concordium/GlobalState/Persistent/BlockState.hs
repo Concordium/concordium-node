@@ -92,15 +92,15 @@ makeBlockHashesM BlockStatePointers {..} = do
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash BlockStatePointers where
   getHashM bps = maybe (fmap Basic.blockStateHash (makeBlockHashesM bps)) (return . Basic.blockStateHash) (bspHashes bps)
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef BlockStatePointers where
-    storeUpdate p bsp0@BlockStatePointers{..} = do
-        (paccts, bspAccounts') <- storeUpdate p bspAccounts
-        (pinsts, bspInstances') <- storeUpdate p bspInstances
-        (pmods, bspModules') <- storeUpdate p bspModules
-        (pips, bspIdentityProviders') <- storeUpdate p bspIdentityProviders
-        (pars, bspAnonymityRevokers') <- storeUpdate p bspAnonymityRevokers
-        (pbps, bspBirkParameters') <- storeUpdate p bspBirkParameters
-        (pcryptps, bspCryptographicParameters') <- storeUpdate p bspCryptographicParameters
+instance (MonadIO m, MonadReader r m, HasBlobStore r, BlobStorable m (Nullable (BlobRef Accounts.RegIdHistory))) => BlobStorable m BlockStatePointers where
+    storeUpdate bsp0@BlockStatePointers{..} = do
+        (paccts, bspAccounts') <- storeUpdate bspAccounts
+        (pinsts, bspInstances') <- storeUpdate bspInstances
+        (pmods, bspModules') <- storeUpdate bspModules
+        (pips, bspIdentityProviders') <- storeUpdate bspIdentityProviders
+        (pars, bspAnonymityRevokers') <- storeUpdate bspAnonymityRevokers
+        (pbps, bspBirkParameters') <- storeUpdate bspBirkParameters
+        (pcryptps, bspCryptographicParameters') <- storeUpdate bspCryptographicParameters
         let putBSP = do
                 paccts
                 pinsts
@@ -120,16 +120,16 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef 
                     bspBirkParameters = bspBirkParameters',
                     bspCryptographicParameters = bspCryptographicParameters'
                 })
-    store p bsp = fst <$> storeUpdate p bsp
-    load p = do
-        maccts <- label "Accounts" $ load p
-        minsts <- label "Instances" $ load p
-        mmods <- label "Modules" $ load p
+    store bsp = fst <$> storeUpdate bsp
+    load = do
+        maccts <- label "Accounts" $ load
+        minsts <- label "Instances" $ load
+        mmods <- label "Modules" $ load
         bspBank <- makeHashed <$> label "Bank" get
-        mpips <- label "Identity providers" $ load p
-        mars <- label "Anonymity revokers" $ load p
-        mbps <- label "Birk parameters" $ load p
-        mcryptps <- label "Cryptographic parameters" $ load p
+        mpips <- label "Identity providers" $ load
+        mars <- label "Anonymity revokers" $ load
+        mbps <- label "Birk parameters" $ load
+        mcryptps <- label "Cryptographic parameters" $ load
         bspTransactionOutcomes <- label "Transaction outcomes" $ get
         return $! do
             bspAccounts <- maccts
@@ -157,7 +157,7 @@ instance Serialize PersistentModule where
     put PersistentModule{..} = put pmInterface <> put pmIndex
     get = PersistentModule <$> get <*> get
 
-instance (MonadBlobStore m ref) => BlobStorable m ref PersistentModule
+instance (MonadBlobStore m) => BlobStorable m PersistentModule
 
 data Modules = Modules {
     modules :: Trie.TrieN (BufferedBlobbed BlobRef) ModuleRef PersistentModule,
@@ -172,13 +172,13 @@ emptyModules = Modules {
         runningHash = H.hash ""
     }
 
-instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Modules where
-    storeUpdate p ms@Modules{..} = do
-        (pm, modules') <- storeUpdate p modules
+instance (HasBlobStore r, MonadReader r m, MonadBlobStore m, MonadIO m) => BlobStorable m Modules where
+    storeUpdate ms@Modules{..} = do
+        (pm, modules') <- storeUpdate modules
         return (pm >> put nextModuleIndex >> put runningHash, ms {modules = modules'})
-    store p m = fst <$> storeUpdate p m
-    load p = do
-        mmodules <- load p
+    store m = fst <$> storeUpdate m
+    load = do
+        mmodules <- load
         nextModuleIndex <- get
         runningHash <- get
         return $ do
@@ -225,11 +225,11 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash Pe
         bpH2 = H.hashOfHashes currentHash bpH1
     return $ H.hashOfHashes bpH0 bpH2
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef PersistentBirkParameters where
-    storeUpdate p bps@PersistentBirkParameters{..} = do
-        (ppebs, prevEpochBakers) <- storeUpdate p _birkPrevEpochBakers
-        (plbs, lotteryBakers) <- storeUpdate p _birkLotteryBakers
-        (pcbs, currBakers) <- storeUpdate p _birkCurrentBakers
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m PersistentBirkParameters where
+    storeUpdate bps@PersistentBirkParameters{..} = do
+        (ppebs, prevEpochBakers) <- storeUpdate _birkPrevEpochBakers
+        (plbs, lotteryBakers) <- storeUpdate _birkLotteryBakers
+        (pcbs, currBakers) <- storeUpdate _birkCurrentBakers
         let putBSP = do
                 put _birkElectionDifficulty
                 pcbs
@@ -241,12 +241,12 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef 
                     _birkPrevEpochBakers = prevEpochBakers,
                     _birkLotteryBakers = lotteryBakers
                 })
-    store p bps = fst <$> storeUpdate p bps
-    load p = do
+    store bps = fst <$> storeUpdate bps
+    load = do
         _birkElectionDifficulty <- label "Election difficulty" get
-        mcbs <- label "Current bakers" $ load p
-        mpebs <- label "Previous-epoch bakers" $ load p
-        mlbs <- label "Lottery bakers" $ load p
+        mcbs <- label "Current bakers" $ load
+        mpebs <- label "Previous-epoch bakers" $ load
+        mlbs <- label "Lottery bakers" $ load
         _birkSeedState <- label "Seed state" get
         return $! do
             _birkCurrentBakers <- mcbs
@@ -387,8 +387,8 @@ type MonadPersistentBlockState r m =
     MonadIO m,
     MonadReader r m,
     HasBlobStore r,
-    MonadBlobStore m BlobRef,
-    BlobStorable m BlobRef (Nullable (BufferedRef BakerInfo, Amount)),
+    MonadBlobStore m,
+    BlobStorable m (Nullable (BufferedRef BakerInfo, Amount)),
     MHashableTo (PersistentBlockStateMonad r m) H.Hash PersistentBakers
   )
 
