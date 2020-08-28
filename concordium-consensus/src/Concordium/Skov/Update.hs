@@ -329,7 +329,7 @@ addBlock block = do
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
                         -- And check baker key matches claimed key (may not be redundant if multiple keys could verify same signature?)
-                        check (_bakerSignatureVerifyKey == blockClaimedKey block) $
+                        check "Claimed baker sigining key did not match actual baker signing key" (_bakerSignatureVerifyKey == blockClaimedKey block) $
                         -- And the block signature
                         check "invalid block signature" (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                             let ts = blockTransactions block
@@ -343,10 +343,10 @@ addBlock block = do
                                 Right result -> do
                                     -- Check that the StateHash is correct
                                     stateHash <- getStateHash (_finalState result)
-                                    check (stateHash == blockStateHash block) $ do
+                                    check "Claimed stateHash did not match calculated stateHash"(stateHash == blockStateHash block) $ do
                                         -- Check that the TransactionOutcomeHash is correct
                                         tohash <- getTransactionOutcomesHash (_finalState result) 
-                                        check (tohash ==  blockTransactionOutcomesHash block) $ do
+                                        check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash"(tohash ==  blockTransactionOutcomesHash block) $ do
                                             -- Add the block to the tree
                                             blockP <- blockArrive block parentP lfBlockP result
                                             -- Notify of the block arrival (for finalization)
