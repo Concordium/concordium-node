@@ -133,35 +133,35 @@ type CanStoreLFMBTree r m ref v =
   ( MonadIO m, -- Will work with MonadIOs
     MonadReader r m,
     HasBlobStore r,
-    BlobStorable m BlobRef v,
+    BlobStorable m v,
     MHashableTo m H.Hash v, -- values                              must be storable in @BlobRef@s on the monad @m@
-    BlobStorable m BlobRef (ref v), -- references to values        must be storable in @Blobref@s on the monad @m@
-    BlobStorable m BlobRef (ref (T ref v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
+    BlobStorable m (ref v), -- references to values        must be storable in @Blobref@s on the monad @m@
+    BlobStorable m (ref (T ref v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
     Reference m ref v, -- references to values                           must be @Reference@
     Reference m ref (ref v), -- references to references                 must be @Reference@
     Reference m ref (T ref v), -- references to nodes                    must be @Reference@
     Reference m ref (ref (T ref v)) -- references to references to nodes must be @Reference@
   )
 
-instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
-  store p (Leaf ref) = do
-    pt <- store p ref
+instance CanStoreLFMBTree r m ref v => BlobStorable m (T ref v) where
+  store (Leaf ref) = do
+    pt <- store ref
     return (putWord8 0 >> pt)
-  store p (Node height left right) = do
-    l <- store p left
-    r <- store p right
+  store (Node height left right) = do
+    l <- store left
+    r <- store right
     return $ do
       putWord8 1
       putWord64be height
       l
       r
 
-  storeUpdate p (Leaf ref) = do
-    (pt, ref') <- storeUpdate p ref
+  storeUpdate (Leaf ref) = do
+    (pt, ref') <- storeUpdate ref
     return (putWord8 0 >> pt, Leaf ref')
-  storeUpdate p (Node height left right) = do
-    (leftp, left') <- storeUpdate p left
-    (rightp, right') <- storeUpdate p right
+  storeUpdate (Node height left right) = do
+    (leftp, left') <- storeUpdate left
+    (rightp, right') <- storeUpdate right
     return
       ( do
           putWord8 1
@@ -171,38 +171,38 @@ instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (T ref v) where
         Node height left' right'
       )
 
-  load p = do
+  load = do
     t <- getWord8
     case t of
       0 -> do
-        val <- load p
+        val <- load
         return (Leaf <$> val)
       _ -> do
         h <- getWord64be
-        left <- load p
-        right <- load p
+        left <- load
+        right <- load
         return (Node h <$> left <*> right)
 
-instance CanStoreLFMBTree r m ref v => BlobStorable m BlobRef (LFMBTree k ref v) where
-  store _ Empty = return (putWord64be 0)
-  store p (NonEmpty h t) = do
-    t' <- store p t
+instance CanStoreLFMBTree r m ref v => BlobStorable m (LFMBTree k ref v) where
+  store Empty = return (putWord64be 0)
+  store (NonEmpty h t) = do
+    t' <- store t
     return $ putWord64be h <> t'
 
-  storeUpdate _ t@Empty = return (putWord64be 0, t)
-  storeUpdate p (NonEmpty h t) = do
-    (pt, t') <- storeUpdate p t
+  storeUpdate t@Empty = return (putWord64be 0, t)
+  storeUpdate (NonEmpty h t) = do
+    (pt, t') <- storeUpdate t
     return
       ( putWord64be h <> pt,
         NonEmpty h t'
       )
 
-  load p = do
+  load = do
     s <- getWord64be
     case s of
       0 -> return . return $ Empty
       _ -> do
-        t <- load p
+        t <- load
         return (NonEmpty s <$> t)
 
 {-

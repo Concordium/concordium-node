@@ -44,17 +44,17 @@ makeLenses ''PersistentBakers
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash PersistentBakers where
   getHashM PersistentBakers {..} = getHashM _bakerMap
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef PersistentBakers where
-    storeUpdate p PersistentBakers{..} = do
-        (pInfoMap, bInfoMap) <- storeUpdate p _bakerMap
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m PersistentBakers where
+    storeUpdate PersistentBakers{..} = do
+        (pInfoMap, bInfoMap) <- storeUpdate _bakerMap
         let newBakers = PersistentBakers {
                 _bakerMap = bInfoMap,
                 ..
             }
         return (pInfoMap, newBakers)
-    store p a = fst <$> storeUpdate p a
-    load p = do
-      mBakerMap <- load p
+    store a = fst <$> storeUpdate a
+    load = do
+      mBakerMap <- load
       return $ do
         _bakerMap <- mBakerMap
         -- Since we only store the baker-ID-to-baker-info map in the persistent storage,

@@ -31,9 +31,9 @@ data PersistentAccount = PersistentAccount {
 
 makeLenses ''PersistentAccount
 
-instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef PersistentAccount where
-    storeUpdate p PersistentAccount{..} = do
-        (pAccData, accData) <- storeUpdate p _persistingData
+instance (MonadBlobStore m, MonadIO m) => BlobStorable m PersistentAccount where
+    storeUpdate PersistentAccount{..} = do
+        (pAccData, accData) <- storeUpdate _persistingData
         let persistentAcc = PersistentAccount {
                 _persistingData = accData,
                 ..
@@ -44,12 +44,12 @@ instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Persist
                     put _accountEncryptedAmount
                     pAccData
         return (putAccs, persistentAcc)
-    store p a = fst <$> storeUpdate p a
-    load p = do
+    store a = fst <$> storeUpdate a
+    load = do
         _accountNonce <- get
         _accountAmount <- get
         _accountEncryptedAmount <- get
-        mAccDataPtr <- load p
+        mAccDataPtr <- load
         return $ do
           _persistingData <- mAccDataPtr
           pData <- loadBufferedRef _persistingData
@@ -69,7 +69,7 @@ makePersistentAccount Transient.Account{..} = do
   return PersistentAccount {..}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
-sameAccount :: (MonadIO m, MonadBlobStore m BlobRef) => Transient.Account -> PersistentAccount -> m Bool
+sameAccount :: (MonadIO m, MonadBlobStore m) => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
@@ -80,7 +80,7 @@ sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
 sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
-(^^.) :: (MonadIO m, MonadBlobStore m BlobRef)
+(^^.) :: (MonadIO m, MonadBlobStore m)
       => PersistentAccount
       -> Getting b PersistingAccountData b
       -> m b
@@ -91,7 +91,7 @@ infixl 8 ^^.
 
 -- |Update a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- Used to implement '.~~' and '%~~'.
-setPAD :: (MonadIO m, MonadBlobStore m BlobRef)
+setPAD :: (MonadIO m, MonadBlobStore m)
           => (PersistingAccountData -> PersistingAccountData)
           -> PersistentAccount
           -> m PersistentAccount
@@ -104,7 +104,7 @@ setPAD f acc@PersistentAccount{..} = do
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
 -- account's stake delegate to 'Nothing'.
-(.~~) :: (MonadIO m, MonadBlobStore m BlobRef)
+(.~~) :: (MonadIO m, MonadBlobStore m)
       => ASetter PersistingAccountData PersistingAccountData a b
       -> b
       -> PersistentAccount
@@ -116,7 +116,7 @@ infixr 4 .~~
 
 -- |Modify a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountInstances %~~ Set.insert i@ inserts an instance @i@ to the set of an account's instances.
-(%~~) :: (MonadIO m, MonadBlobStore m BlobRef)
+(%~~) :: (MonadIO m, MonadBlobStore m)
       => ASetter PersistingAccountData PersistingAccountData a b
       -> (a -> b)
       -> PersistentAccount
