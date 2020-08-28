@@ -56,6 +56,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Control.Applicative
 import Control.Monad
+import Data.Kind (Type)
 
 -- | A BlobRef represents an offset on a file
 newtype BlobRef a = BlobRef Word64
@@ -179,6 +180,7 @@ writeBlobBS BlobStore{..} bs = mask $ \restore -> do
 -- | An instance `MonadBlobStore m ref` specifies that the monad `m` can
 -- store values under references of type `ref`.
 class (Monad m, forall a. Serialize (ref a)) => MonadBlobStore m ref where
+  type Ref m :: Type -> Type
   storeRaw :: BS.ByteString -> m (ref a)
   loadRaw :: ref a -> m BS.ByteString
   storeBlob :: (Serialize a) => a -> m (ref a)
@@ -191,6 +193,7 @@ class (Monad m, forall a. Serialize (ref a)) => MonadBlobStore m ref where
           Right v -> return v
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => MonadBlobStore m BlobRef where
+    type Ref m = BlobRef
     storeRaw b = do
         bs <- blobStore <$> ask
         liftIO $ writeBlobBS bs b
@@ -292,7 +295,7 @@ instance (MHashableTo m H.Hash v) => MHashableTo m H.Hash (Nullable v) where
 -- instances to refine those. This typeclass is specifically designed to be used by BufferedRef and HashedBufferedRef.
 class (Monad m) => Reference m ref a where
   -- |Given a reference, write it to the disk and return the updated reference and the generated offset in the store
-  refFlush :: ref a -> m (ref a, BlobRef a)
+  refFlush :: ref a -> m (ref a, Ref m a)
   -- |Given a reference, read the value and return the possibly updated reference (that now holds the value in memory)
   refCache :: ref a -> m (a, ref a)
   -- |Read the value from a given reference either accessing the store or returning it from memory.
