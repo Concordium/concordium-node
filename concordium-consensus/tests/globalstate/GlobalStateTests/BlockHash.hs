@@ -1,65 +1,184 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module GlobalStateTests.BlockHash where
 
 import Test.Hspec
-import Test.QuickCheck as QC
 
+import Concordium.Crypto.VRF as VRF
+
+import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
+import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Block as Block
+import Concordium.GlobalState.Finalization
+import Concordium.Wasm
+import Concordium.Types
+
+import Concordium.GlobalState.BakerInfo
+import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Crypto.BlsSignature as Bls
+import Concordium.Types.Transactions
+
+import Lens.Micro.Platform
+
+import           Data.ByteString.Builder
+import qualified Data.ByteString.Lazy          as L
+import           Data.ByteString               as BS
 import Data.Serialize
 
-import Control.Monad
-
-import qualified Data.Serialize.Put as P
-import qualified Data.Serialize.Get as G
-import Data.ByteString.Lazy as LBS
-import Concordium.Crypto.SHA256(Hash(..))
-import Concordium.Crypto.BlsSignature as Bls
 import Data.FixedByteString as FBS
+import Concordium.Crypto.SHA256 as Hash
 
-import Concordium.Types
-import Concordium.GlobalState.Finalization
+import           System.Random
+import qualified System.IO.Unsafe as UnsafeIO
+import Concordium.GlobalState.DummyData
+import Concordium.Types.DummyData
+import Concordium.Crypto.DummyData
+
+-- Helper functions for stub proof generation
+giveKeyPair :: VRF.KeyPair
+giveKeyPair = fst (VRF.randomKeyPair (mkStdGen 1))
+
+stringToByteString :: String -> BS.ByteString
+stringToByteString input =  L.toStrict $ toLazyByteString $ stringUtf8 input
+
+generateProofFromString :: String -> VRF.Proof
+generateProofFromString  input = proof
+  where
+    keys = giveKeyPair
+    proof =  UnsafeIO.unsafePerformIO $ VRF.prove keys (stringToByteString input)
+
+-- Helper to generate block finalization records
+genFinData :: FinalizationIndex -> BlockHash -> FinalizationProof -> BlockHeight -> BlockFinalizationData
+genFinData index bp proof delay =  BlockFinalizationData FinalizationRecord{..} 
+  where 
+    finalizationIndex = index
+    finalizationBlockPointer = bp
+    finalizationProof = proof
+    finalizationDelay = delay
+
+-- Values for default inputs to generate hash
+baker1 :: (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
+baker1 = mkFullBaker 1 alesAccount
+
+baker2 :: (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
+baker2 = mkFullBaker 2 thomasAccount
+
+slot :: Slot
+slot = 5
+
+parent :: BlockHash
+parent = dummyblockPointer
+
+bakerid :: BakerId
+bakerid = BakerId 1
+
+bakerSVK :: BakerSignVerifyKey
+bakerSVK = baker1 ^. _1 . bakerInfo . bakerSignatureVerifyKey
 
 
--- WIP placeholder file
+blockP :: BlockProof
+blockP = generateProofFromString "blocProof"
 
+nonce :: BlockNonce
+nonce = generateProofFromString "BlockNonce"
 
-groupIntoSize :: (Show a, Integral a) => a -> String
-groupIntoSize s =
-  let kb = s
-      nd = if kb > 0 then truncate (logBase 10 (fromIntegral kb) :: Double) else 0 :: Int
-  in if nd == 0 then show kb ++ "B"
-     else let lb = 10^nd :: Integer
-              ub = 10^(nd+1) :: Integer
-          in show lb ++ " -- " ++ show ub ++ "B"
+blockFinData :: BlockFinalizationData
+blockFinData = genFinData 1 dummyblockPointer emptyFinalizationProof 1
 
-genFinalizationRecord :: Gen FinalizationRecord
-genFinalizationRecord = do
-  finalizationIndex <- FinalizationIndex <$> arbitrary
-  finalizationBlockPointer <- BlockHashV0 . Hash . FBS.pack <$> vector 32
-  finalizationProof <- FinalizationProof <$> do
-    l <- choose (0,200) -- between 0 and 200 parties, inclusive
-    parties <- replicateM l $ do
-      party <- arbitrary
-      return party
-    return (parties, makesig l)
-  finalizationDelay <- BlockHeight <$> arbitrary
-  return FinalizationRecord{..}
-    where
-      -- TODO: simplistic way of generating some different signatures for different amount of signers.
-      --       Note that they are not generated randomly based on the seed.
-      makesig 0 = Bls.emptySignature
-      makesig n = Bls.aggregate Bls.emptySignature $ makesig (n-1)
+payload :: [BlockItem]
+payload = [makeTransferTransaction (alesKP, alesAccount)  thomasAccount 20 2]
 
+stateHash :: StateHash
+stateHash = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (0 :: Word)))))
 
-checkFinalizationRecord :: FinalizationRecord -> Property
-checkFinalizationRecord tx = let bs = P.runPutLazy (put tx)
-              in  case G.runGet get (LBS.toStrict bs) of
-                    Left err -> counterexample err False
-                    Right tx' -> QC.label (groupIntoSize (LBS.length bs)) $ tx === tx'
+transactionH :: TransactionOutcomesHash
+transactionH = TransactionOutcomesHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (0 :: Word)))))
 
-testFinalizationRecord :: Int -> Property
-testFinalizationRecord size = forAll (resize size $ genFinalizationRecord) checkFinalizationRecord
+defaultHash :: BlockHash
+defaultHash = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH
 
 
 tests :: Spec
-tests = parallel $ do
-  specify ("Testing that all fields modify BlockHash") $ withMaxSuccess 10000 $ testFinalizationRecord 100
+tests = do
+  describe "Testing all block fields modify BlockHash" $ do 
+    parallel $ do
+      specify ("Slot modifies BlockHash") $ 
+        let slot' = 8
+            hash' = Block.generateBlockHash slot' parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+      
+      specify ("Parent modifies BlockHash") $ 
+        let parent' = defaultHash
+            hash' = Block.generateBlockHash slot parent' bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("BakerID modifies BlockHash") $ 
+        let bakerid' = 8
+            hash' = Block.generateBlockHash slot parent bakerid' bakerSVK blockP nonce blockFinData payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("BakerSigVerifyKey modifies BlockHash") $ 
+        let bakerSVK' = baker2 ^. _1 . bakerInfo . bakerSignatureVerifyKey
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK' blockP nonce blockFinData payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("blockProof modifies BlockHash") $ 
+        let proof' = generateProofFromString "fakeProof"
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK proof' nonce blockFinData payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("BlockNonce modifies BlockHash") $ 
+        let nonce' = generateProofFromString "fakeNonce"
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce' blockFinData payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("Verifying that all fields of BlockFinalizationData contribute to hash") $
+        let 
+          hfindata = Hash.hashLazy . runPutLazy $ put blockFinData
+          blockFinData' = genFinData 2 dummyblockPointer emptyFinalizationProof 1
+          blockFinData'' = genFinData 1 defaultHash emptyFinalizationProof 1
+          blockFinData''' = genFinData 1 dummyblockPointer (FinalizationProof ([2], Bls.emptySignature)) 1
+          blockFinData'''' = genFinData 1 dummyblockPointer emptyFinalizationProof 2
+        in do
+          hfindata `shouldNotBe` (Hash.hashLazy . runPutLazy $ put blockFinData')
+          hfindata `shouldNotBe` (Hash.hashLazy . runPutLazy $ put blockFinData'')
+          hfindata `shouldNotBe` (Hash.hashLazy . runPutLazy $ put blockFinData''')
+          hfindata `shouldNotBe` (Hash.hashLazy . runPutLazy $ put blockFinData'''')
+
+      -- only need to change one argument. Other tests cover that each field of findata influences hash
+      specify ("BlockFinalizationData modifies BlockHash") $ 
+        let blockFinData' = genFinData 2 dummyblockPointer emptyFinalizationProof 1
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData' payload stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("Payload different transaction modifies BlockHash") $ 
+        let payload' = [makeTransferTransaction (alesKP, alesAccount)  thomasAccount 30 3]
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload' stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("Payload more transactions modifies BlockHash") $ 
+        let payload' = [makeTransferTransaction (alesKP, alesAccount)  thomasAccount 20 2, makeTransferTransaction (alesKP, alesAccount)  thomasAccount 20 2]
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload' stateHash transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("StateHash modifies BlockHash") $ 
+        let stateHash' = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (1 :: Word)))))
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash' transactionH
+        in do
+          defaultHash `shouldNotBe` hash'
+
+      specify ("TransactionOutcomesHash modifies BlockHash") $ 
+        let transactionH' = TransactionOutcomesHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (1 :: Word)))))
+            hash' = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce blockFinData payload stateHash transactionH'
+        in do
+          defaultHash `shouldNotBe` hash'
+
