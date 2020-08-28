@@ -13,6 +13,7 @@ import Control.Monad.IO.Class
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
+import Data.Foldable
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
@@ -21,7 +22,6 @@ import Concordium.Types
 import Concordium.Utils
 
 import qualified Concordium.Crypto.SHA256 as H
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LB
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
@@ -85,7 +85,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m BlobRef 
 -- The new object is not yet stored on disk.
 makePersistentBakers :: (MonadIO m, MonadReader r m, HasBlobStore r) => Basic.Bakers -> m PersistentBakers
 makePersistentBakers Basic.Bakers {..} = do
-    bm <- mapM toPersistentElem $ LB.toList _bakerMap
+    bm <- mapM toPersistentElem $ toList _bakerMap
     _bakerMap <- L.fromAscList bm
     return PersistentBakers {..}
     where
