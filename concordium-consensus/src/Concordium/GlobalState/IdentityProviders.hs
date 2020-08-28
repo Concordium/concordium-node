@@ -42,4 +42,4 @@ instance S.Serialize IdentityProviders where
     get = do
       l <- S.getWord32be
       ascList <- replicateM (fromIntegral l) S.get
-      return . IdentityProviders . Map.fromAscList $ ascList
+      return . IdentityProviders . Map.fromAscList $ ascList -- TODO js: once on top of Thomas' changes see https://gitlab.com/Concordium/consensus/globalstate-mockup/-/merge_requests/110#note_397883944
