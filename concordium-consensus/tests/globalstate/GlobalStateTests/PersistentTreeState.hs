@@ -5,7 +5,6 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
@@ -26,15 +25,13 @@ import Concordium.GlobalState.Classes
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.IdentityProviders
+import Concordium.GlobalState.LMDB.Helpers
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.GlobalState.TreeState
-import Concordium.ID.DummyData
 import Concordium.Logger
-import Concordium.GlobalState.LMDB.Helpers
-
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Exception
