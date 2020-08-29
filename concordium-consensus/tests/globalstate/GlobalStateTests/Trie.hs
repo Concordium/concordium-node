@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module GlobalStateTests.Trie where
 
@@ -7,6 +8,7 @@ import Data.Word
 import Control.Monad.IO.Class
 import Data.Proxy
 import Data.Serialize
+import Control.Monad.Reader.Class
 
 -- import Test.QuickCheck
 import Test.Hspec
@@ -20,7 +22,7 @@ newtype SerializeStorable v = SerStore v
   deriving newtype (Eq, Ord, Show, Serialize)
 
 -- Every @SerializeStorable@ value will be serialized with the default implementation
-instance (Serialize v, MonadBlobStore m ref) => BlobStorable m ref (SerializeStorable v)
+instance (Serialize v, Monad m, MonadIO m, HasBlobStore r, MonadReader r m) => BlobStorable m (SerializeStorable v)
 
 tests :: Spec
 tests = describe "GlobalStateTests.Trie" $
@@ -29,8 +31,8 @@ tests = describe "GlobalStateTests.Trie" $
             let e = Trie.empty :: Trie.TrieN (BufferedBlobbed BlobRef) Word64 (SerializeStorable String)
             e0 <- Trie.insert 27 (SerStore "Hello") e
             e1 <- Trie.insert 13 (SerStore "World") e0
-            (p, _e2) <- storeUpdate (Proxy :: Proxy BlobRef) e1
-            let (Right me2') = runGet (load (Proxy :: Proxy BlobRef)) (runPut p)
+            (p, _e2) <- storeUpdate e1
+            let (Right me2') = runGet load (runPut p)
             (e2' :: Trie.TrieN (CachedBlobbed BlobRef) Word64 (SerializeStorable String)) <- me2'
             r <- Trie.lookup 27 e2'
             liftIO $ r `shouldBe` Just (SerStore "Hello")
