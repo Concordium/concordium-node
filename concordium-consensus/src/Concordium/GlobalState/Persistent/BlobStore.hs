@@ -185,9 +185,8 @@ loadRaw r = do
         bs <- blobStore <$> ask
         liftIO $ readBlobBS bs r
 
--- |The @BlobStorable m ref a@ class defines how a value
--- of type @a@ may be stored as in a reference of type @ref a@
--- in the monad @m@.
+-- |The @BlobStorable r m a@ class defines how a value
+-- of type @a@ may be stored in monad @m@.
 --
 -- Where @a@ is an instance of 'Serialize', default implementations
 -- are provided for 'store' and 'load' that simply (de)serialize
@@ -213,20 +212,26 @@ class (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m a where
     storeUpdate :: a -> m (Put, a)
     storeUpdate v = (,v) <$> store v
 
-    storeRef :: a -> m (BlobRef a)
-    storeRef v = do
-        p <- runPut <$> store v
-        storeRaw p
-    storeUpdateRef :: a -> m (BlobRef a, a)
-    storeUpdateRef v = do
-        (p, v') <- storeUpdate v
-        (, v') <$> storeRaw (runPut p)
-    loadRef :: (HasCallStack) => (BlobRef a) -> m a
-    loadRef ref = do
-        bs <- loadRaw ref
-        case runGet load bs of
-            Left e -> error (e ++ " :: " ++ show bs)
-            Right !mv -> mv
+-- |Store a value in the blob store and return a reference to it.
+storeRef :: BlobStorable r m a => a -> m (BlobRef a)
+storeRef v = do
+    p <- runPut <$> store v
+    storeRaw p
+
+-- |Store a value in the blob store, returning a reference to it and
+-- an updated value.  (See 'storeUpdate'.)
+storeUpdateRef :: BlobStorable r m a => a -> m (BlobRef a, a)
+storeUpdateRef v = do
+    (p, v') <- storeUpdate v
+    (, v') <$> storeRaw (runPut p)
+
+-- |Load a value from a reference.
+loadRef :: (HasCallStack, BlobStorable r m a) => BlobRef a -> m a
+loadRef ref = do
+    bs <- loadRaw ref
+    case runGet load bs of
+        Left e -> error (e ++ " :: " ++ show bs)
+        Right !mv -> mv
 
 instance (MonadIO m, BlobStorable r m a, BlobStorable r m b) => BlobStorable r m (a, b) where
 
