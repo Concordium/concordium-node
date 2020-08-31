@@ -45,8 +45,7 @@ packages:
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
-extra-deps:
-- th-utilities-0.2.4.0
+extra-deps: []
 
 extra-lib-dirs:
 - ./crypto/lib
