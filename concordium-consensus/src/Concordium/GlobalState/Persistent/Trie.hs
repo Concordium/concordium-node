@@ -303,7 +303,7 @@ instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"
     show (TrieN _ t) = showFix showTrieFString t
 
-instance (BlobStorable g m (fix (TrieF k v)), BlobStorable g m v, MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => BlobStorable g m (TrieN fix k v) where
+instance (BlobStorable g m (fix (TrieF k v)), BlobStorable g m v, Base (fix (TrieF k v)) ~ TrieF k v) => BlobStorable g m (TrieN fix k v) where
     store EmptyTrieN = return (put (0 :: Int))
     store (TrieN size t) = do
         pt <- store t
