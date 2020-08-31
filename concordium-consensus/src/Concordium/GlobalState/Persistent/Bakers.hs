@@ -44,7 +44,7 @@ makeLenses ''PersistentBakers
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash PersistentBakers where
   getHashM PersistentBakers {..} = getHashM _bakerMap
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m PersistentBakers where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentBakers where
     storeUpdate PersistentBakers{..} = do
         (pInfoMap, bInfoMap) <- storeUpdate _bakerMap
         let newBakers = PersistentBakers {

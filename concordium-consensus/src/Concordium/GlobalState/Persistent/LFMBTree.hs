@@ -133,17 +133,17 @@ type CanStoreLFMBTree r m ref v =
   ( MonadIO m, -- Will work with MonadIOs
     MonadReader r m,
     HasBlobStore r,
-    BlobStorable m v,
+    BlobStorable r m v,
     MHashableTo m H.Hash v, -- values                              must be storable in @BlobRef@s on the monad @m@
-    BlobStorable m (ref v), -- references to values        must be storable in @Blobref@s on the monad @m@
-    BlobStorable m (ref (T ref v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
+    BlobStorable r m (ref v), -- references to values        must be storable in @Blobref@s on the monad @m@
+    BlobStorable r m (ref (T ref v)), -- references to nodes must be storable in @BlobRef@s on the monad @m@
     Reference m ref v, -- references to values                           must be @Reference@
     Reference m ref (ref v), -- references to references                 must be @Reference@
     Reference m ref (T ref v), -- references to nodes                    must be @Reference@
     Reference m ref (ref (T ref v)) -- references to references to nodes must be @Reference@
   )
 
-instance CanStoreLFMBTree r m ref v => BlobStorable m (T ref v) where
+instance CanStoreLFMBTree r m ref v => BlobStorable r m (T ref v) where
   store (Leaf ref) = do
     pt <- store ref
     return (putWord8 0 >> pt)
@@ -183,7 +183,7 @@ instance CanStoreLFMBTree r m ref v => BlobStorable m (T ref v) where
         right <- load
         return (Node h <$> left <*> right)
 
-instance CanStoreLFMBTree r m ref v => BlobStorable m (LFMBTree k ref v) where
+instance CanStoreLFMBTree r m ref v => BlobStorable r m (LFMBTree k ref v) where
   store Empty = return (putWord64be 0)
   store (NonEmpty h t) = do
     t' <- store t

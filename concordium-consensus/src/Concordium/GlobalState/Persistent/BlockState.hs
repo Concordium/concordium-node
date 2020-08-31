@@ -92,7 +92,7 @@ makeBlockHashesM BlockStatePointers {..} = do
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash BlockStatePointers where
   getHashM bps = maybe (fmap Basic.blockStateHash (makeBlockHashesM bps)) (return . Basic.blockStateHash) (bspHashes bps)
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r, BlobStorable m (Nullable (BlobRef Accounts.RegIdHistory))) => BlobStorable m BlockStatePointers where
+instance (MonadIO m, MonadReader r m, HasBlobStore r, BlobStorable r m (Nullable (BlobRef Accounts.RegIdHistory))) => BlobStorable r m BlockStatePointers where
     storeUpdate bsp0@BlockStatePointers{..} = do
         (paccts, bspAccounts') <- storeUpdate bspAccounts
         (pinsts, bspInstances') <- storeUpdate bspInstances
@@ -157,7 +157,7 @@ instance Serialize PersistentModule where
     put PersistentModule{..} = put pmInterface <> put pmIndex
     get = PersistentModule <$> get <*> get
 
-instance (MonadBlobStore m) => BlobStorable m PersistentModule
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentModule
 
 data Modules = Modules {
     modules :: Trie.TrieN (BufferedBlobbed BlobRef) ModuleRef PersistentModule,
@@ -172,7 +172,7 @@ emptyModules = Modules {
         runningHash = H.hash ""
     }
 
-instance (HasBlobStore r, MonadReader r m, MonadBlobStore m, MonadIO m) => BlobStorable m Modules where
+instance (HasBlobStore r, MonadReader r m, MonadIO m) => BlobStorable r m Modules where
     storeUpdate ms@Modules{..} = do
         (pm, modules') <- storeUpdate modules
         return (pm >> put nextModuleIndex >> put runningHash, ms {modules = modules'})
@@ -225,7 +225,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash Pe
         bpH2 = H.hashOfHashes currentHash bpH1
     return $ H.hashOfHashes bpH0 bpH2
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable m PersistentBirkParameters where
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentBirkParameters where
     storeUpdate bps@PersistentBirkParameters{..} = do
         (ppebs, prevEpochBakers) <- storeUpdate _birkPrevEpochBakers
         (plbs, lotteryBakers) <- storeUpdate _birkLotteryBakers
@@ -387,8 +387,7 @@ type MonadPersistentBlockState r m =
     MonadIO m,
     MonadReader r m,
     HasBlobStore r,
-    MonadBlobStore m,
-    BlobStorable m (Nullable (BufferedRef BakerInfo, Amount)),
+    BlobStorable r m (Nullable (BufferedRef BakerInfo, Amount)),
     MHashableTo (PersistentBlockStateMonad r m) H.Hash PersistentBakers
   )
 
