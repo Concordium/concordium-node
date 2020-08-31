@@ -396,15 +396,16 @@ allInstances (InstancesTree _ it) = mapReduceIT mfun it
         mfun (Left _) = return mempty
         mfun (Right inst) = return [inst]
 
-makePersistent :: MonadIO m => Transient.Instances -> m Instances
+makePersistent :: forall m. MonadIO m => Transient.Instances -> m Instances
 makePersistent (Transient.Instances Transient.Empty) = return InstancesEmpty
 makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
     where
+        conv :: Transient.IT -> m (BufferedBlobbed BlobRef IT)
         conv (Transient.Branch lvl fll vac hsh l r) = do
             l' <- conv l
             r' <- conv r
             makeBufferedBlobbed (Branch lvl fll vac hsh l' r')
-        conv (Transient.Leaf i) = Leaf <$> convInst i >>= makeBufferedBlobbed
+        conv (Transient.Leaf i) = convInst i >>= makeBufferedBlobbed . Leaf
         conv (Transient.VacantLeaf si) = makeBufferedBlobbed (VacantLeaf si)
         convInst Transient.Instance{instanceParameters=Transient.InstanceParameters{..}, ..} = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
