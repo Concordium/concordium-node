@@ -254,14 +254,14 @@ data Nullable v = Null | Some !v
 
 -- | Serialization is equivalent to that of the @ref@ as there
 -- is a special value for a null reference, i.e. @ref@ is @HasNull@
-instance (HasNull (ref a), Serialize (ref a)) => Serialize (Nullable (ref a)) where
-  put Null = put (refNull :: ref a)
+instance (HasNull ref, Serialize ref) => Serialize (Nullable ref) where
+  put Null = put (refNull :: ref)
   put (Some v) = put v
   get = do
       r <- get
       return $! if isNull r then Null else Some r
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r, HasNull (BlobRef a), Serialize (BlobRef a)) => BlobStorable r m (Nullable (BlobRef a))
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m (Nullable (BlobRef a))
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m (BlobRef a)
 
@@ -427,13 +427,9 @@ deriving instance (forall a. Serialize (ref a)) => Serialize (Blobbed ref f)
 -- @ref@
 instance (MonadIO m, MonadReader r m, HasBlobStore r, forall a. Serialize (ref a)) => BlobStorable r m (Blobbed ref f)
 
-instance (forall a. Serialize (Nullable (ref a))) => Serialize (Nullable (Blobbed ref f)) where
-    put = put . fmap unblobbed
-    get = fmap Blobbed <$> get
-
 -- If a monad can store references of type @ref@ and a reference is serializable and nullable,
 -- then it can store values of type @Nullable (Blobbed ref f)@ into references of type @ref@
-instance (MonadIO m, MonadReader r m, HasBlobStore r, forall a. Serialize (Nullable (ref a))) => BlobStorable r m (Nullable (Blobbed ref f))
+instance (MonadIO m, MonadReader r m, HasBlobStore r, forall a. HasNull (ref a), forall a. Serialize (ref a)) => BlobStorable r m (Nullable (Blobbed ref f))
 
 type instance Base (Blobbed ref f) = f
 
@@ -459,9 +455,9 @@ instance HasNull (Nullable a) where
     isNull Null = True
     isNull _ = False
 
-instance HasNull (Blobbed BlobRef a) where
+instance (forall b. HasNull (ref b)) => HasNull (Blobbed ref a) where
     refNull = Blobbed refNull
-    isNull (Blobbed r) = r == refNull
+    isNull (Blobbed r) = isNull r
 
 -- | The CachedBlobbed type is equivalent to @BufferedRef@ but defined as a fixed point over `f`
 --
@@ -477,14 +473,14 @@ cachedBlob (CBCached r _) = r
 type instance Base (CachedBlobbed ref f) = f
 
 instance (Monad m, BlobStorable r m (f (Blobbed BlobRef f)), Functor f) => MRecursive m (CachedBlobbed BlobRef f) where
-    -- Projecting the value of a CachedBlobed involves either projecting the value of the Blobbed field or returning the
+    -- Projecting the value of a CachedBlobbed involves either projecting the value of the Blobbed field or returning the
     -- cached value.
     mproject (CBUncached r) = fmap CBUncached <$> mproject r
     mproject (CBCached _ c) = pure c
 
 instance (Monad m, BlobStorable r m (f (Blobbed BlobRef f)), Functor f) => MCorecursive m (CachedBlobbed BlobRef f) where
     -- Embedding an (f (CachedBlobbed ref f)) value into a CachedBlobbed value requires extracting the Blobbed reference
-    -- and copying its embeded version to the Blobbed field of the CachedBlobbed value
+    -- and copying its embedded version to the Blobbed field of the CachedBlobbed value
     membed r = do
         b <- membed (fmap cachedBlob r)
         return (CBCached b r)
@@ -495,7 +491,7 @@ instance (forall a. Serialize (BlobRef a)) => Serialize (CachedBlobbed BlobRef f
 
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m (CachedBlobbed BlobRef f)
 
--- TODO (MRA) renam
+-- TODO (MRA) rename
 -- | A BufferedBlobbed is a fixed point over the functor `f`
 --
 -- It can contain either a CachedBlobbed value or both a Blobbed value and the recursive type.
@@ -516,7 +512,7 @@ makeBufferedBlobbed = makeLBMemory refNull
 type instance Base (BufferedBlobbed ref f) = f
 
 instance (Monad m, BlobStorable r m (f (Blobbed BlobRef f)), Functor f) => MRecursive m (BufferedBlobbed BlobRef f) where
-    -- projecting a BufferefBlobbed value either means projecting the cached reference or returning the in-memory value
+    -- projecting a BufferedBlobbed value either means projecting the cached reference or returning the in-memory value
     mproject (LBMemory _ r) = pure r
     mproject (LBCached c) = fmap LBCached <$> mproject c
     {-# INLINE mproject #-}
