@@ -112,6 +112,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.RemoveAccountKeys keyIdxs threshold))
     (TJSON meta (AddAccountKeys newKeys threshold) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
+    (TJSON meta TransferToEncrypted{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.TransferToEncrypted tteAmount))
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -203,6 +205,9 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                  | AddAccountKeys {
                      aakKeys :: !(Map.Map KeyIndex AccountVerificationKey),
                      aakThreshold :: !(Maybe SignatureThreshold)
+                     }
+                 | TransferToEncrypted {
+                     tteAmount :: !Amount
                      }
                  deriving(Show, Generic)
 

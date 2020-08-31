@@ -339,7 +339,7 @@ handleTransferToPublic wtc tpRemaining tpAmount index proof = do
         k ls senderAddress = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
-
+          commitChanges (ls ^. changeSet)
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = index,
@@ -381,6 +381,7 @@ handleTransferToEncrypted wtc toEncrypted = do
         k ls (senderAddress, encryptedAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
+          commitChanges (ls ^. changeSet)
 
           return (TxSuccess [EncryptedSelfAmountAdded{
                                 eaaAccount = senderAddress,
@@ -451,6 +452,7 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
         k ls (senderAddress, targetAccountIndex) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
+          commitChanges (ls ^. changeSet)
 
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
