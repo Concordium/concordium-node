@@ -47,7 +47,7 @@ type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData@GenesisDataV1{..} = return $ MTMBConfig rt genData blockS
   where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters dummyAuthorizations dummyChainParameters
-        birkParams = BS.makeBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
+        birkParams = BS.makeBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
