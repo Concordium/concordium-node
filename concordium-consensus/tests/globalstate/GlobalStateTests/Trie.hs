@@ -20,7 +20,7 @@ newtype SerializeStorable v = SerStore v
   deriving newtype (Eq, Ord, Show, Serialize)
 
 -- Every @SerializeStorable@ value will be serialized with the default implementation
-instance (Serialize v, MonadBlobStore r m) => BlobStorable r m (SerializeStorable v)
+instance (Serialize v, MonadBlobStore m) => BlobStorable m (SerializeStorable v)
 
 tests :: Spec
 tests = describe "GlobalStateTests.Trie" $

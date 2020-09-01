@@ -108,7 +108,7 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                     return (fromIntegral (v - 3))
             Stem <$> replicateM len getWord8 <*> get
 
-instance (BlobStorable g m r, BlobStorable g m (Nullable r), BlobStorable g m v) => BlobStorable g m (TrieF k v r) where
+instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => BlobStorable m (TrieF k v r) where
     storeUpdate (Branch vec) = do
         pvec <- mapM storeUpdate vec
         return $!! (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
@@ -303,7 +303,7 @@ instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"
     show (TrieN _ t) = showFix showTrieFString t
 
-instance (BlobStorable g m (fix (TrieF k v)), BlobStorable g m v, Base (fix (TrieF k v)) ~ TrieF k v) => BlobStorable g m (TrieN fix k v) where
+instance (BlobStorable m (fix (TrieF k v)), BlobStorable m v, Base (fix (TrieF k v)) ~ TrieF k v) => BlobStorable m (TrieN fix k v) where
     store EmptyTrieN = return (put (0 :: Int))
     store (TrieN size t) = do
         pt <- store t

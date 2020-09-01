@@ -31,7 +31,7 @@ data PersistentAccount = PersistentAccount {
 
 makeLenses ''PersistentAccount
 
-instance MonadBlobStore r m => BlobStorable r m PersistentAccount where
+instance MonadBlobStore m => BlobStorable m PersistentAccount where
     storeUpdate PersistentAccount{..} = do
         (pAccData, accData) <- storeUpdate _persistingData
         let persistentAcc = PersistentAccount {
@@ -69,7 +69,7 @@ makePersistentAccount Transient.Account{..} = do
   return PersistentAccount {..}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
-sameAccount :: MonadBlobStore r m => Transient.Account -> PersistentAccount -> m Bool
+sameAccount :: MonadBlobStore m => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
@@ -80,7 +80,7 @@ sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
 sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
-(^^.) :: MonadBlobStore r m
+(^^.) :: MonadBlobStore m
       => PersistentAccount
       -> Getting b PersistingAccountData b
       -> m b
@@ -91,7 +91,7 @@ infixl 8 ^^.
 
 -- |Update a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- Used to implement '.~~' and '%~~'.
-setPAD :: MonadBlobStore r m
+setPAD :: MonadBlobStore m
           => (PersistingAccountData -> PersistingAccountData)
           -> PersistentAccount
           -> m PersistentAccount
@@ -104,7 +104,7 @@ setPAD f acc@PersistentAccount{..} = do
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
 -- account's stake delegate to 'Nothing'.
-(.~~) :: MonadBlobStore r m
+(.~~) :: MonadBlobStore m
       => ASetter PersistingAccountData PersistingAccountData a b
       -> b
       -> PersistentAccount
@@ -116,7 +116,7 @@ infixr 4 .~~
 
 -- |Modify a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountInstances %~~ Set.insert i@ inserts an instance @i@ to the set of an account's instances.
-(%~~) :: MonadBlobStore r m
+(%~~) :: MonadBlobStore m
       => ASetter PersistingAccountData PersistingAccountData a b
       -> (a -> b)
       -> PersistentAccount
