@@ -2,7 +2,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Instances where
 

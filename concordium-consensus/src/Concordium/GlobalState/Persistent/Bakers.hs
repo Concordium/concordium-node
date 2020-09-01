@@ -3,7 +3,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Persistent.Bakers where

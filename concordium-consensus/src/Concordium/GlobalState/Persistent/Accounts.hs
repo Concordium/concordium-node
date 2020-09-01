@@ -3,7 +3,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Accounts where
 
