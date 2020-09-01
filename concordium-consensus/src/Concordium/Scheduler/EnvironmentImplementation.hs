@@ -216,6 +216,12 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
     schedulerBlockState .= s'
 
+  {-# INLINE notifyEncryptedBalanceChange #-}
+  notifyEncryptedBalanceChange !amntDiff = do
+    s <- use schedulerBlockState
+    s' <- lift (bsoNotifyEncryptedBalanceChange s amntDiff)
+    schedulerBlockState .= s'
+
   {-# INLINE getBakerAccountAddress #-}
   getBakerAccountAddress bid = do
     s <- use schedulerBlockState
