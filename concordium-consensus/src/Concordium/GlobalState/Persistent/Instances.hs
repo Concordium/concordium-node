@@ -14,7 +14,6 @@ import Data.Serialize
 import Data.Bits
 import qualified Data.Set as Set
 import Control.Exception
-import Control.Monad.Reader.Class
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -72,7 +71,7 @@ instance Serialize PersistentInstanceParameters where
         let pinstanceParameterHash = makeInstanceParameterHash pinstanceAddress pinstanceOwner pinstanceContractModule pinstanceInitName
         return PersistentInstanceParameters{..}
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentInstanceParameters
+instance MonadBlobStore r m => BlobStorable r m PersistentInstanceParameters
 
 
 -- |An instance of a smart contract.
@@ -95,7 +94,7 @@ instance Show PersistentInstance where
 instance HashableTo H.Hash PersistentInstance where
     getHash = pinstanceHash
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentInstance where
+instance MonadBlobStore r m => BlobStorable r m PersistentInstance where
     storeUpdate PersistentInstance{..} = do
         (pparams, newParameters) <- storeUpdate pinstanceParameters
         let putInst = do
@@ -283,11 +282,11 @@ instance Show Instances where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
 
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash Instances where
+instance MonadBlobStore r m => MHashableTo m H.Hash Instances where
   getHashM InstancesEmpty = return $ H.hash "EmptyInstances"
   getHashM (InstancesTree _ t) = getHash <$> mproject t
 
-instance (MonadIO m, HasBlobStore r, MonadReader r m) => BlobStorable r m Instances where
+instance (MonadBlobStore r m) => BlobStorable r m Instances where
     store InstancesEmpty = return (putWord8 0)
     store (InstancesTree s t) = do
         pt <- store t
@@ -307,14 +306,14 @@ instance (MonadIO m, HasBlobStore r, MonadReader r m) => BlobStorable r m Instan
 emptyInstances :: Instances
 emptyInstances = InstancesEmpty
 
-newContractInstance :: forall m a r. (MonadIO m, MonadReader r m, HasBlobStore r) => (ContractAddress -> m (a, PersistentInstance)) -> Instances -> m (a, Instances)
+newContractInstance :: forall m a r. MonadBlobStore r m => (ContractAddress -> m (a, PersistentInstance)) -> Instances -> m (a, Instances)
 newContractInstance fnew InstancesEmpty = do
         let ca = ContractAddress 0 0
         (res, newInst) <- fnew ca
         (res,) . InstancesTree 1 <$> membed (Leaf newInst)
 newContractInstance fnew (InstancesTree s it) = (\(res, it') -> (res, InstancesTree (s+1) it')) <$> newContractInstanceIT fnew it
 
-deleteContractInstance :: forall m r. (MonadIO m, MonadReader r m, HasBlobStore r) => ContractAddress -> Instances -> m Instances
+deleteContractInstance :: forall m r. MonadBlobStore r m => ContractAddress -> Instances -> m Instances
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
 deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree (s-1)) . membed) (contractIndex addr) =<< mproject it0
     where
@@ -342,7 +341,7 @@ deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree 
                 in dci newCont (i - 2^h) =<< mproject r
             | otherwise = return t0
 
-lookupContractInstance :: forall m r. (MonadIO m, MonadReader r m, HasBlobStore r) => ContractAddress -> Instances -> m (Maybe PersistentInstance)
+lookupContractInstance :: forall m r. MonadBlobStore r m => ContractAddress -> Instances -> m (Maybe PersistentInstance)
 lookupContractInstance _ InstancesEmpty = return Nothing
 lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< mproject it0
     where
@@ -357,7 +356,7 @@ lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< 
             | i < 2^(h+1) = lu (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-updateContractInstance :: forall m a r. (MonadIO m, MonadReader r m, HasBlobStore r) => (PersistentInstance -> m (a, PersistentInstance)) -> ContractAddress -> Instances -> m (Maybe (a, Instances))
+updateContractInstance :: forall m a r. MonadBlobStore r m => (PersistentInstance -> m (a, PersistentInstance)) -> ContractAddress -> Instances -> m (Maybe (a, Instances))
 updateContractInstance _ _ InstancesEmpty = return Nothing
 updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contractIndex addr) =<< mproject it0
     where
@@ -389,7 +388,7 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
                 in upd newCont (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-allInstances :: forall m r. (MonadIO m, MonadReader r m, HasBlobStore r) => Instances -> m [PersistentInstance]
+allInstances :: forall m r. MonadBlobStore r m => Instances -> m [PersistentInstance]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
     where
