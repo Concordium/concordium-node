@@ -14,6 +14,7 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
+import Concordium.Types
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -66,7 +67,7 @@ testAccountCreation = do
         _ -> return ()
     return (getResults ftAdded, ftFailedCredentials,
             map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount),
-            state ^. blockBank)
+            state ^. blockBank . unhashed)
 
 checkAccountCreationResult ::
   ([(Types.BlockItem, Types.ValidResult)],
