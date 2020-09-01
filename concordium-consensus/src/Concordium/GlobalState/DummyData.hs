@@ -1,8 +1,9 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+
 module Concordium.GlobalState.DummyData where
 
-import qualified Data.HashMap.Strict as HM
+import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -37,20 +38,17 @@ import Concordium.Types.DummyData
 
 {-# WARNING basicGenesisState "Do not use in production" #-}
 basicGenesisState :: GenesisData -> Basic.BlockState
-basicGenesisState genData = Basic.initialState
-                       (Basic.BasicBirkParameters {
-                            _birkCurrentBakers = genesisBakers genData,
-                            _birkPrevEpochBakers = genesisBakers genData,
-                            _birkLotteryBakers = genesisBakers genData,
-                            _birkSeedState = genesisSeedState genData
-                        })
-                       (genesisCryptographicParameters genData)
-                       (genesisAccounts genData)
-                       (genesisIdentityProviders genData)
-                       (genesisAnonymityRevokers genData)
-                       (genesisMintPerSlot genData)
-                       (genesisAuthorizations genData)
-                       (genesisChainParameters genData)
+basicGenesisState genData =
+  let bakers = genesisBakers genData
+      birkParams = makeBirkParameters bakers bakers bakers (genesisSeedState genData)
+   in Basic.initialState
+        birkParams
+        (genesisCryptographicParameters genData)
+        (genesisAccounts genData)
+        (genesisIdentityProviders genData)
+        (genesisAnonymityRevokers genData)
+        (genesisMintPerSlot genData)        (genesisAuthorizations genData)
+        (genesisChainParameters genData)
 
 -- kp :: Int -> Sig.KeyPair
 -- kp n = fst (Sig.randomKeyPair (mkStdGen n))
@@ -71,13 +69,12 @@ dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders =
   case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
     Left err -> error $ "Could not load identity provider test data: " ++ err
-    Right ips -> IdentityProviders (HM.fromList (map (\r -> (ipIdentity r, r)) ips))
-
+    Right ips -> IdentityProviders (Map.fromList (map (\r -> (ipIdentity r, r)) ips))
 
 {-# NOINLINE dummyArs #-}
 {-# WARNING dummyArs "Do not use in production." #-}
 dummyArs :: AnonymityRevokers
-dummyArs = 
+dummyArs =
   case unsafePerformIO (eitherReadAnonymityRevokers <$> BSL.readFile "testdata/anonymity_revokers.json") of
     Left err -> error $ "Could not load anonymity revoker data: " ++ err
     Right ars -> ars
@@ -108,7 +105,7 @@ dummyAuthorizations = Authorizations {
 makeFakeBakers :: Word -> [(FullBakerInfo, Account)]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = (FullBakerInfo (BakerInfo epk spk blspk accAddress) stake, account):mbs gen''' (bid+1)
+        mbs gen bid = (FullBakerInfo (BakerInfo epk spk blspk accAddress) stake, account):mbs gen''' (bid + 1)
             where
                 ((VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
                 (sk, gen'') = randomBlockKeyPair gen'
@@ -164,13 +161,13 @@ makeTestingGenesisData
   genesisMaxBlockEnergy
   genesisAuthorizations
   genesisChainParameters
-    = GenesisDataV1{..}
+    = GenesisDataV1 {..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList bakers)
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters =
-          FinalizationParameters{
+          FinalizationParameters {
            finalizationWaitingTime = 100,
            finalizationIgnoreFirstWait = False,
            finalizationOldStyleSkip = False,
@@ -180,17 +177,12 @@ makeTestingGenesisData
            finalizationDelayGrowFactor = 2,
            finalizationAllowZeroDelay = False,
            ..
-           }
+         }
         (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
 emptyBirkParameters :: BasicBirkParameters
-emptyBirkParameters = BasicBirkParameters {
-  _birkCurrentBakers = emptyBakers,
-  _birkPrevEpochBakers = emptyBakers,
-  _birkLotteryBakers = emptyBakers,
-  _birkSeedState = SeedState.genesisSeedState (Hash.hash "NONCE") 360
-  }
+emptyBirkParameters = makeBirkParameters emptyBakers emptyBakers emptyBakers (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
 
 dummyChainParameters :: ChainParameters
 dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.000001 1000000
@@ -200,9 +192,9 @@ createBlockState :: Accounts -> BlockState
 createBlockState accounts =
     emptyBlockState emptyBirkParameters dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
       (blockAccounts .~ accounts) .
-      (blockBank . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
-      (blockIdentityProviders .~ dummyIdentityProviders) .
-      (blockAnonymityRevokers .~ dummyArs)
+      (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
+      (blockIdentityProviders . unhashed .~ dummyIdentityProviders) .
+      (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
 blockStateWithAlesAccount :: Amount -> Accounts -> BlockState

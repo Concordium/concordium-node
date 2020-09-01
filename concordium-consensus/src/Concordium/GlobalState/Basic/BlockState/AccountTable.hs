@@ -1,5 +1,6 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Basic.BlockState.AccountTable where
 
 import Prelude hiding (lookup)
@@ -16,7 +17,7 @@ type AccountIndex = Word64
 data AccountTable = Empty | Tree !AT
 
 instance HashableTo H.Hash AccountTable where
-    getHash Empty = minBound
+    getHash Empty = H.hash "EmptyLFMBTree" -- this is the definition in the persistent implementation, I think it is acceptable to define it this way in the basic one
     getHash (Tree t) = getHash t
 
 data AT

@@ -1,6 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Rewards where
 
+import Concordium.Types.HashableTo
+import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.ID.Types
 
@@ -76,6 +79,18 @@ instance Serialize BankStatus where
         _executionCost <- get
         _mintedGTUPerSlot <- get
         return BankStatus{..}
+
+-- |Define the hash of Bankstatus, for use in hashing the blockstate.
+instance HashableTo H.Hash BankStatus where
+  getHash BankStatus{..} = H.hash $
+                           "total" <>
+                           encode _totalGTU <>
+                           "secret" <>
+                           encode _totalEncryptedGTU <>
+                           "central" <>
+                           encode _centralBankGTU <>
+                           "minted" <>
+                           encode _mintedGTUPerSlot
 
 makeLenses ''BankStatus
 

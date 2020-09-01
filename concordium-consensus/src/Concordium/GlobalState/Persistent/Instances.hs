@@ -1,6 +1,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Instances where
 
@@ -12,6 +14,7 @@ import Data.Serialize
 import Data.Bits
 import qualified Data.Set as Set
 import Control.Exception
+import Control.Monad.Reader.Class
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -69,7 +72,7 @@ instance Serialize PersistentInstanceParameters where
         let pinstanceParameterHash = makeInstanceParameterHash pinstanceAddress pinstanceOwner pinstanceContractModule pinstanceInitName
         return PersistentInstanceParameters{..}
 
-instance (MonadBlobStore m ref) => BlobStorable m ref PersistentInstanceParameters
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentInstanceParameters
 
 
 -- |An instance of a smart contract.
@@ -92,17 +95,17 @@ instance Show PersistentInstance where
 instance HashableTo H.Hash PersistentInstance where
     getHash = pinstanceHash
 
-instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef PersistentInstance where
-    storeUpdate p PersistentInstance{..} = do
-        (pparams, newParameters) <- storeUpdate p pinstanceParameters
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistentInstance where
+    storeUpdate PersistentInstance{..} = do
+        (pparams, newParameters) <- storeUpdate pinstanceParameters
         let putInst = do
                 pparams
                 put pinstanceModel
                 put pinstanceAmount
         return (putInst, PersistentInstance{pinstanceParameters = newParameters, ..})
-    store p pinst = fst <$> storeUpdate p pinst
-    load p = do
-        rparams <- load p
+    store pinst = fst <$> storeUpdate pinst
+    load = do
+        rparams <- load
         pinstanceModel <- get
         pinstanceAmount <- get
         return $ do
@@ -186,10 +189,10 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (BlobStorable m BlobRef r, MonadIO m) => BlobStorable m BlobRef (IT r) where
-    storeUpdate p (Branch {..}) = do
-        (pl, l') <- storeUpdate p branchLeft
-        (pr, r') <- storeUpdate p branchRight
+instance (BlobStorable g m r, MonadIO m) => BlobStorable g m (IT r) where
+    storeUpdate (Branch {..}) = do
+        (pl, l') <- storeUpdate branchLeft
+        (pr, r') <- storeUpdate branchRight
         let putBranch = do
                 putWord8 $ conditionalSetBit 0 branchFull $
                         conditionalSetBit 1 branchHasVacancies $ 0
@@ -198,21 +201,21 @@ instance (BlobStorable m BlobRef r, MonadIO m) => BlobStorable m BlobRef (IT r) 
                 pl
                 pr
         return (putBranch, Branch{branchLeft = l', branchRight = r', ..})
-    storeUpdate p (Leaf i) = do
-        (pinst, i') <- storeUpdate p i
+    storeUpdate (Leaf i) = do
+        (pinst, i') <- storeUpdate i
         return (putWord8 8 >> pinst, Leaf i')
-    storeUpdate _ v@(VacantLeaf si) = return (putWord8 9 >> put si, v)
-    store p v = fst <$> storeUpdate p v
-    load p = do
+    storeUpdate v@(VacantLeaf si) = return (putWord8 9 >> put si, v)
+    store v = fst <$> storeUpdate v
+    load = do
         tag <- getWord8
         if tag < 8 then do
             hgt <- getWord8
             hsh <- get
-            ml <- load p
-            mr <- load p
+            ml <- load
+            mr <- load
             return $ Branch hgt (testBit tag 0) (testBit tag 1) hsh <$> ml <*> mr
         else if tag == 8 then
-            fmap Leaf <$> load p
+            fmap Leaf <$> load
         else -- tag == 9
             return . VacantLeaf <$> get
 
@@ -280,34 +283,38 @@ instance Show Instances where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
 
-instance (MonadBlobStore m BlobRef, MonadIO m) => BlobStorable m BlobRef Instances where
-    store _ InstancesEmpty = return (putWord8 0)
-    store p (InstancesTree s t) = do
-        pt <- store p t
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => MHashableTo m H.Hash Instances where
+  getHashM InstancesEmpty = return $ H.hash "EmptyInstances"
+  getHashM (InstancesTree _ t) = getHash <$> mproject t
+
+instance (MonadIO m, HasBlobStore r, MonadReader r m) => BlobStorable r m Instances where
+    store InstancesEmpty = return (putWord8 0)
+    store (InstancesTree s t) = do
+        pt <- store t
         return (putWord8 1 >> put s >> pt)
-    storeUpdate _ i@InstancesEmpty = return (putWord8 0, i)
-    storeUpdate p (InstancesTree s t) = do
-        (pt, t') <- storeUpdate p t
+    storeUpdate i@InstancesEmpty = return (putWord8 0, i)
+    storeUpdate (InstancesTree s t) = do
+        (pt, t') <- storeUpdate t
         return (putWord8 1 >> put s >> pt, InstancesTree s t')
-    load p = do
+    load = do
         tag <- getWord8
         if tag == 0 then
             return (return InstancesEmpty)
         else do
             s <- get
-            fmap (InstancesTree s) <$> load p
+            fmap (InstancesTree s) <$> load
 
 emptyInstances :: Instances
 emptyInstances = InstancesEmpty
 
-newContractInstance :: forall m a. (MonadBlobStore m BlobRef, MonadIO m) => (ContractAddress -> m (a, PersistentInstance)) -> Instances -> m (a, Instances)
+newContractInstance :: forall m a r. (MonadIO m, MonadReader r m, HasBlobStore r) => (ContractAddress -> m (a, PersistentInstance)) -> Instances -> m (a, Instances)
 newContractInstance fnew InstancesEmpty = do
         let ca = ContractAddress 0 0
         (res, newInst) <- fnew ca
         (res,) . InstancesTree 1 <$> membed (Leaf newInst)
 newContractInstance fnew (InstancesTree s it) = (\(res, it') -> (res, InstancesTree (s+1) it')) <$> newContractInstanceIT fnew it
 
-deleteContractInstance :: forall m. (MonadBlobStore m BlobRef, MonadIO m) => ContractAddress -> Instances -> m Instances
+deleteContractInstance :: forall m r. (MonadIO m, MonadReader r m, HasBlobStore r) => ContractAddress -> Instances -> m Instances
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
 deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree (s-1)) . membed) (contractIndex addr) =<< mproject it0
     where
@@ -335,7 +342,7 @@ deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree 
                 in dci newCont (i - 2^h) =<< mproject r
             | otherwise = return t0
 
-lookupContractInstance :: forall m. (MonadBlobStore m BlobRef, MonadIO m) => ContractAddress -> Instances -> m (Maybe PersistentInstance)
+lookupContractInstance :: forall m r. (MonadIO m, MonadReader r m, HasBlobStore r) => ContractAddress -> Instances -> m (Maybe PersistentInstance)
 lookupContractInstance _ InstancesEmpty = return Nothing
 lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< mproject it0
     where
@@ -350,7 +357,7 @@ lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< 
             | i < 2^(h+1) = lu (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-updateContractInstance :: forall m a. (MonadBlobStore m BlobRef, MonadIO m) => (PersistentInstance -> m (a, PersistentInstance)) -> ContractAddress -> Instances -> m (Maybe (a, Instances))
+updateContractInstance :: forall m a r. (MonadIO m, MonadReader r m, HasBlobStore r) => (PersistentInstance -> m (a, PersistentInstance)) -> ContractAddress -> Instances -> m (Maybe (a, Instances))
 updateContractInstance _ _ InstancesEmpty = return Nothing
 updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contractIndex addr) =<< mproject it0
     where
@@ -382,22 +389,23 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
                 in upd newCont (i - 2^h) =<< mproject r
             | otherwise = return Nothing
 
-allInstances :: forall m. (MonadBlobStore m BlobRef, MonadIO m) => Instances -> m [PersistentInstance]
+allInstances :: forall m r. (MonadIO m, MonadReader r m, HasBlobStore r) => Instances -> m [PersistentInstance]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
     where
         mfun (Left _) = return mempty
         mfun (Right inst) = return [inst]
 
-makePersistent :: MonadIO m => Transient.Instances -> m Instances
+makePersistent :: forall m. MonadIO m => Transient.Instances -> m Instances
 makePersistent (Transient.Instances Transient.Empty) = return InstancesEmpty
 makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
     where
+        conv :: Transient.IT -> m (BufferedBlobbed BlobRef IT)
         conv (Transient.Branch lvl fll vac hsh l r) = do
             l' <- conv l
             r' <- conv r
             makeBufferedBlobbed (Branch lvl fll vac hsh l' r')
-        conv (Transient.Leaf i) = Leaf <$> convInst i >>= makeBufferedBlobbed
+        conv (Transient.Leaf i) = convInst i >>= makeBufferedBlobbed . Leaf
         conv (Transient.VacantLeaf si) = makeBufferedBlobbed (VacantLeaf si)
         convInst Transient.Instance{instanceParameters=Transient.InstanceParameters{..}, ..} = do
             pIParams <- makeBufferedRef $ PersistentInstanceParameters{
