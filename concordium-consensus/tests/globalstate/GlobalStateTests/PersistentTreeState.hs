@@ -37,7 +37,6 @@ import Concordium.Types.HashableTo
 import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
-import Control.Monad.State hiding (state)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
