@@ -171,6 +171,10 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- account and should be rewarded because of it.
   notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
 
+  -- |Notify the state that an amount has been transferred from public to
+  -- encrypted or vice-versa.
+  notifyEncryptedBalanceChange :: AmountDelta -> m ()
+
   -- |Convert the given energy amount into an amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
   -- TODO: In this setup the exchange rate is determined by the blockchain, and
@@ -388,12 +392,13 @@ data ChangeSet = ChangeSet
     {_affectedTx :: !TransactionHash, -- ^Transaction affected by this changeset.
      _accountUpdates :: !(HMap.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
+    ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty 0
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -693,6 +698,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     cs <- use changeSet
     cs' <- addAmountToCS acc (amountToDelta amount) cs
     changeSet .= cs'
+    changeSet . encryptedChange += amountDiff 0 amount
 
   addEncryptedAmount acc newAmount = do
     addr <- getAccountAddress acc
@@ -705,6 +711,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     cs <- use changeSet
     changeSet <~ addAmountToCS acc (amountDiff 0 transferredAmount) cs
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= AddSelf{..}
+    changeSet . encryptedChange += amountToDelta transferredAmount
 
   getCurrentAccount addr = do
     liftLocal (getAccount addr) >>= \case
