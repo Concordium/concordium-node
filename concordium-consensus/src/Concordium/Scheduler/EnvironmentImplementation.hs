@@ -23,7 +23,7 @@ import Concordium.Scheduler.Types
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
-import Concordium.GlobalState.Basic.BlockState (BlockState, PureBlockStateMonad(..))
+import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
 import Concordium.GlobalState.TreeState hiding (BlockState)
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Types as GS
