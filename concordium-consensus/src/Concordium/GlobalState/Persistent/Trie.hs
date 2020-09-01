@@ -108,15 +108,15 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                     return (fromIntegral (v - 3))
             Stem <$> replicateM len getWord8 <*> get
 
-instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m ref v) => BlobStorable m ref (TrieF k v r) where
-    storeUpdate p (Branch vec) = do
-        pvec <- mapM (storeUpdate p) vec
+instance (BlobStorable g m r, BlobStorable g m (Nullable r), BlobStorable g m v) => BlobStorable g m (TrieF k v r) where
+    storeUpdate (Branch vec) = do
+        pvec <- mapM storeUpdate vec
         return $!! (putWord8 1 >> sequence_ (fst <$> pvec), Branch (snd <$> pvec))
-    storeUpdate p (Tip v) = do
-        (pv, v') <- storeUpdate p v
+    storeUpdate (Tip v) = do
+        (pv, v') <- storeUpdate v
         return $!! (putWord8 2 >> pv, Tip v')
-    storeUpdate p (Stem l r) = do
-        (pr, r') <- storeUpdate p r
+    storeUpdate (Stem l r) = do
+        (pr, r') <- storeUpdate r
         let putter = do
                 let len = length l
                 if len <= 251 then
@@ -127,20 +127,20 @@ instance (BlobStorable m ref r, BlobStorable m ref (Nullable r), BlobStorable m 
                 forM_ l putWord8
                 pr
         return $!! (putter, Stem l r')
-    store p t = fst <$> storeUpdate p t
-    load p = getWord8 >>= \case
+    store t = fst <$> storeUpdate t
+    load = getWord8 >>= \case
         0 -> fail "Empty trie"
         1 -> do
-            branchms <- replicateM 256 (load p)
+            branchms <- replicateM 256 load
             return $! Branch . V.fromList <$> sequence branchms
-        2 -> fmap Tip <$> load p
+        2 -> fmap Tip <$> load
         v -> do
             len <- if v == 255 then
                     fromIntegral <$> getWord64be
                 else
                     return (fromIntegral (v - 3))
             l <- replicateM len getWord8
-            r <- load p
+            r <- load
             return $! (Stem l <$> r)
 
 
@@ -303,23 +303,23 @@ instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show EmptyTrieN = "EmptyTrieN"
     show (TrieN _ t) = showFix showTrieFString t
 
-instance (MonadBlobStore m ref, BlobStorable m ref (fix (TrieF k v)), BlobStorable m ref v, MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => BlobStorable m ref (TrieN fix k v) where
-    store _ EmptyTrieN = return (put (0 :: Int))
-    store p (TrieN size t) = do
-        pt <- store p t
+instance (BlobStorable g m (fix (TrieF k v)), BlobStorable g m v, Base (fix (TrieF k v)) ~ TrieF k v) => BlobStorable g m (TrieN fix k v) where
+    store EmptyTrieN = return (put (0 :: Int))
+    store (TrieN size t) = do
+        pt <- store t
         return $! (put size >> pt)
-    storeUpdate _ v@EmptyTrieN = return (put (0 :: Int), v)
-    storeUpdate p (TrieN size t) = do
-        (pt, t') <- storeUpdate p t
+    storeUpdate v@EmptyTrieN = return (put (0 :: Int), v)
+    storeUpdate (TrieN size t) = do
+        (pt, t') <- storeUpdate t
         let bs = put size >> pt
             nt = TrieN size t'
         return $!! (bs, nt)
-    load p = do
+    load = do
         size <- get
         if size == 0 then
             return (return EmptyTrieN)
         else do
-            mt <- load p
+            mt <- load
             return $! (TrieN size <$> mt)
 
 -- |The empty trie.
