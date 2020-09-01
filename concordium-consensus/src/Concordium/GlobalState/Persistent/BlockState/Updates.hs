@@ -20,8 +20,8 @@ data UpdateQueue e = UpdateQueue {
         uqQueue :: !(Seq.Seq (TransactionTime, BufferedRef (StoreSerialized e)))
     }
 
-instance (MonadBlobStore r m, Serialize e)
-        => BlobStorable r m (UpdateQueue e) where
+instance (MonadBlobStore m, Serialize e)
+        => BlobStorable m (UpdateQueue e) where
     storeUpdate uq@UpdateQueue{..} = do
         l <- forM uqQueue $ \(t, r) -> do
             (pr, r') <- storeUpdate r
@@ -57,7 +57,7 @@ makePersistentUpdateQueue Basic.UpdateQueue{..} = do
     return UpdateQueue{..}
 
 -- |Add an update event to an update queue, incrementing the sequence number.
-enqueue :: (MonadBlobStore r m, Serialize e)
+enqueue :: (MonadBlobStore m, Serialize e)
     => TransactionTime -> e -> BufferedRef (UpdateQueue e) -> m (BufferedRef (UpdateQueue e))
 enqueue !t !e q = do
         UpdateQueue{..} <- loadBufferedRef q
@@ -78,8 +78,8 @@ data PendingUpdates = PendingUpdates {
         pMicroGTUPerEuroQueue :: !(BufferedRef (UpdateQueue ExchangeRate))
     }
 
-instance (MonadBlobStore r m)
-        => BlobStorable r m PendingUpdates where
+instance (MonadBlobStore m)
+        => BlobStorable m PendingUpdates where
     storeUpdate PendingUpdates{..} = do
             (pAQ, aQ) <- storeUpdate pAuthorizationQueue
             (pPrQ, prQ) <- storeUpdate pProtocolQueue
@@ -130,8 +130,8 @@ data Updates = Updates {
         pendingUpdates :: !PendingUpdates
     }
 
-instance (MonadBlobStore r m)
-        => BlobStorable r m Updates where
+instance (MonadBlobStore m)
+        => BlobStorable m Updates where
     storeUpdate Updates{..} = do
         (pCA, cA) <- storeUpdate currentAuthorizations
         (pCPU, cPU) <- storeUpdate currentProtocolUpdate
@@ -190,7 +190,7 @@ processValueUpdates t uq noUpdate doUpdate = case ql of
     where
         (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue uq)
 
-processAuthorizationUpdates :: (MonadBlobStore r m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processAuthorizationUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
 processAuthorizationUpdates t bu = do
         u@Updates{..} <- loadBufferedRef bu
         authQueue <- loadBufferedRef (pAuthorizationQueue pendingUpdates)
@@ -201,7 +201,7 @@ processAuthorizationUpdates t bu = do
                     pendingUpdates = pendingUpdates{pAuthorizationQueue = newpAuthQueue}
                 }
 
-processElectionDifficultyUpdates :: (MonadBlobStore r m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processElectionDifficultyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
 processElectionDifficultyUpdates t bu = do
         u@Updates{..} <- loadBufferedRef bu
         oldQ <- loadBufferedRef (pElectionDifficultyQueue pendingUpdates)
@@ -215,7 +215,7 @@ processElectionDifficultyUpdates t bu = do
                     pendingUpdates = pendingUpdates{pElectionDifficultyQueue = newpQ}
                 }
 
-processEuroPerEnergyUpdates :: (MonadBlobStore r m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processEuroPerEnergyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
 processEuroPerEnergyUpdates t bu = do
         u@Updates{..} <- loadBufferedRef bu
         oldQ <- loadBufferedRef (pEuroPerEnergyQueue pendingUpdates)
@@ -229,7 +229,7 @@ processEuroPerEnergyUpdates t bu = do
                     pendingUpdates = pendingUpdates{pEuroPerEnergyQueue = newpQ}
                 }
 
-processMicroGTUPerEuroUpdates :: (MonadBlobStore r m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processMicroGTUPerEuroUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
 processMicroGTUPerEuroUpdates t bu = do
         u@Updates{..} <- loadBufferedRef bu
         oldQ <- loadBufferedRef (pMicroGTUPerEuroQueue pendingUpdates)
@@ -244,7 +244,7 @@ processMicroGTUPerEuroUpdates t bu = do
                 }
 
 
-processProtocolUpdates :: (MonadBlobStore r m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processProtocolUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
 processProtocolUpdates t bu = do
         u@Updates{..} <- loadBufferedRef bu
         protQueue <- loadBufferedRef (pProtocolQueue pendingUpdates)
@@ -263,14 +263,14 @@ processProtocolUpdates t bu = do
                         pendingUpdates = pendingUpdates {pProtocolQueue = newpProtQueue}
                     }
 
-processUpdateQueues :: (MonadBlobStore r m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processUpdateQueues :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
 processUpdateQueues t = processAuthorizationUpdates t
         >=> processProtocolUpdates t
         >=> processElectionDifficultyUpdates t
         >=> processEuroPerEnergyUpdates t
         >=> processMicroGTUPerEuroUpdates t
 
-futureElectionDifficulty :: (MonadBlobStore r m) => BufferedRef Updates -> Timestamp -> m ElectionDifficulty
+futureElectionDifficulty :: (MonadBlobStore m) => BufferedRef Updates -> Timestamp -> m ElectionDifficulty
 futureElectionDifficulty uref ts = do
         Updates{..} <- loadBufferedRef uref
         oldQ <- loadBufferedRef (pElectionDifficultyQueue pendingUpdates)
@@ -279,7 +279,7 @@ futureElectionDifficulty uref ts = do
                 return $ cp ^. cpElectionDifficulty
         processValueUpdates ts oldQ getCurED (\newEDp _ -> unStoreSerialized <$> loadBufferedRef newEDp)
 
-lookupNextUpdateSequenceNumber :: (MonadBlobStore r m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
+lookupNextUpdateSequenceNumber :: (MonadBlobStore m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
 lookupNextUpdateSequenceNumber uref uty = do
         Updates{..} <- loadBufferedRef uref
         case uty of
@@ -289,7 +289,7 @@ lookupNextUpdateSequenceNumber uref uty = do
             UpdateEuroPerEnergy -> uqNextSequenceNumber <$> loadBufferedRef (pEuroPerEnergyQueue pendingUpdates)
             UpdateMicroGTUPerEuro -> uqNextSequenceNumber <$> loadBufferedRef (pMicroGTUPerEuroQueue pendingUpdates)
         
-enqueueUpdate :: (MonadBlobStore r m) => TransactionTime -> UpdatePayload -> BufferedRef Updates -> m (BufferedRef Updates)
+enqueueUpdate :: (MonadBlobStore m) => TransactionTime -> UpdatePayload -> BufferedRef Updates -> m (BufferedRef Updates)
 enqueueUpdate effectiveTime payload uref = do
         u@Updates{pendingUpdates = p@PendingUpdates{..}} <- loadBufferedRef uref
         newPendingUpdates <- case payload of
