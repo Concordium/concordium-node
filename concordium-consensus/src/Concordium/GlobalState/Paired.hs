@@ -421,6 +421,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoNotifyExecutionCost bs1 amt
         bs2' <- coerceBSMR $ bsoNotifyExecutionCost bs2 amt
         return (bs1', bs2')
+    bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
+        bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt
+        bs2' <- coerceBSMR $ bsoNotifyEncryptedBalanceChange bs2 amt
+        return (bs1', bs2')
     bsoNotifyIdentityIssuerCredential (bs1, bs2) idid = do
         bs1' <- coerceBSML $ bsoNotifyIdentityIssuerCredential bs1 idid
         bs2' <- coerceBSMR $ bsoNotifyIdentityIssuerCredential bs2 idid

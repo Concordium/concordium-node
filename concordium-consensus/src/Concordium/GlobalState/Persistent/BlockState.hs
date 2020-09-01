@@ -616,6 +616,12 @@ doNotifyExecutionCost pbs amnt = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & Rewards.executionCost +~ amnt}
 
+doNotifyEncryptedBalanceChange :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> AmountDelta -> m PersistentBlockState
+doNotifyEncryptedBalanceChange pbs amntDiff = do
+        bsp <- loadPBS pbs
+        storePBS pbs bsp{bspBank = bspBank bsp & Rewards.totalEncryptedGTU %~ applyAmountDelta amntDiff}
+
+
 doNotifyIdentityIssuerCredential :: (MonadIO m, MonadBlobStore m BlobRef) => PersistentBlockState -> ID.IdentityProviderIdentity -> m PersistentBlockState
 doNotifyIdentityIssuerCredential pbs idk = do
         bsp <- loadPBS pbs
@@ -786,6 +792,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlockStateOperations (P
     bsoModifyAccount = doModifyAccount
     bsoModifyInstance = doModifyInstance
     bsoNotifyExecutionCost = doNotifyExecutionCost
+    bsoNotifyEncryptedBalanceChange = doNotifyEncryptedBalanceChange
     bsoNotifyIdentityIssuerCredential = doNotifyIdentityIssuerCredential
     bsoGetExecutionCost = doGetExecutionCost
     bsoGetBlockBirkParameters = doGetBlockBirkParameters
@@ -815,6 +822,7 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlockStateOperations (P
     {-# INLINE bsoNotifyExecutionCost #-}
     {-# INLINE bsoNotifyIdentityIssuerCredential #-}
     {-# INLINE bsoGetExecutionCost #-}
+    {-# INLINE bsoNotifyEncryptedBalanceChange #-}
     {-# INLINE bsoGetBlockBirkParameters #-}
     {-# INLINE bsoAddBaker #-}
     {-# INLINE bsoUpdateBaker #-}

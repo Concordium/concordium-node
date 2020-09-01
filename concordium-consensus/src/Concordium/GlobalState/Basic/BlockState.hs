@@ -274,7 +274,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =
-      return . snd $ bs & blockBank . Rewards.executionCost <%~ (+ amnt)
+      return $ bs & blockBank . Rewards.executionCost %~ (+ amnt)
+
+    {-# INLINE bsoNotifyEncryptedBalanceChange #-}
+    bsoNotifyEncryptedBalanceChange bs amntDiff =
+      return $ bs & blockBank . Rewards.totalEncryptedGTU %~ (applyAmountDelta amntDiff)
 
     bsoNotifyIdentityIssuerCredential bs idk =
       let updatedRewards = HashMap.alter (Just . maybe 1 (+1)) idk (bs ^. blockBank . Rewards.identityIssuersRewards) in

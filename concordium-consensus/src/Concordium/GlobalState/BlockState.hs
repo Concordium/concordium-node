@@ -288,6 +288,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Notify the block state that the given amount was spent on execution.
   bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
+  -- |Notify that some amount was transferred from/to encrypted balance of some account.
+  bsoNotifyEncryptedBalanceChange :: UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+
+
   -- |Notify the block state that the given identity issuer's credential was
   -- used by a sender of the transaction.
   bsoNotifyIdentityIssuerCredential :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (UpdatableBlockState m)
@@ -500,6 +504,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+  bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
   bsoGetBlockBirkParameters = lift . bsoGetBlockBirkParameters
@@ -529,6 +534,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoNotifyExecutionCost #-}
   {-# INLINE bsoNotifyIdentityIssuerCredential #-}
   {-# INLINE bsoGetExecutionCost #-}
+  {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetBlockBirkParameters #-}
   {-# INLINE bsoAddBaker #-}
   {-# INLINE bsoUpdateBaker #-}
