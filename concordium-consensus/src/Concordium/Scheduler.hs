@@ -331,6 +331,7 @@ handleTransferToPublic wtc tpRemaining tpAmount index proof = do
           -- if the proof is valid we need to
           -- - add the decrypted amount to the balance
           -- - replace some encrypted amounts on the sender's account
+          -- TODO js: join this two functions in one
           replaceEncryptedAmount senderAccount index tpRemaining
           addAmountFromEncrypted senderAccount tpAmount
 
@@ -367,7 +368,7 @@ handleTransferToEncrypted wtc toEncrypted = do
           tickEnergy Cost.encryptedAmountTransfer
 
           -- check that the sender actually owns the amount it claims to be transferred
-          senderamount <- getCurrentAmount (Right senderAccount)
+          senderamount <- getCurrentAccountAmount senderAccount
           unless (senderamount >= toEncrypted) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) toEncrypted)
 
           -- compute the encrypted amount
