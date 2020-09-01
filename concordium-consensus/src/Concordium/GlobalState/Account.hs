@@ -3,6 +3,7 @@
 module Concordium.GlobalState.Account where
 
 import Control.Monad
+import Data.Word
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
@@ -17,6 +18,10 @@ import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
+
+-- FIXME: Figure out where to put this constant.
+maxNumIncoming :: Int
+maxNumIncoming = 32
 
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data PersistingAccountData = PersistingAccountData {
@@ -49,22 +54,32 @@ data AccountEncryptedAmount = AccountEncryptedAmount {
   -- FIXME: Limit the number of amounts that can be in this list.
   -- If a new amount is added that exceeds the limit, the first two amounts should be aggregated
   -- into one, and start-index increased.
-  -- The limit should be a runtime parameter.
-  _incomingEncryptedAmounts :: !(Seq.Seq EncryptedAmount)
+  -- The limit should be a genesis parameter.
+  _incomingEncryptedAmounts :: !(Seq.Seq EncryptedAmount),
+  -- |If 'Just', the number of incoming amounts that have been aggregated. In
+  -- that case the number is always >= 2.
+  _numAggregated :: !(Maybe Word32)
 } deriving(Eq, Show)
 
 instance AE.ToJSON AccountEncryptedAmount where
-  toJSON AccountEncryptedAmount{..} = AE.object [
+  toJSON AccountEncryptedAmount{..} = AE.object $ [
     "selfAmount" AE..= _selfAmount,
     "startIndex" AE..= _startIndex,
     "incomingAmounts" AE..= _incomingEncryptedAmounts
-    ]
+    ] ++ aggregated
+    where aggregated = case _numAggregated of
+            Nothing -> []
+            Just n -> ["numAggregated" AE..= n]
 
 instance AE.FromJSON AccountEncryptedAmount where
   parseJSON = AE.withObject "AccountEncryptedAmount" $ \obj -> do
     _selfAmount <- obj AE..: "selfAmount"
     _startIndex <- obj AE..: "startIndex"
     _incomingEncryptedAmounts <- obj AE..: "incomingAmounts"
+    _numAggregated <- obj AE..:? "numAggregated"
+    case _numAggregated of
+      Nothing -> return ()
+      Just n -> unless (n >= 2) $ fail "numAggregated must be at least 2, if present."
     return AccountEncryptedAmount{..}
 
 -- |Initial encrypted amount on a newly created account.
@@ -72,7 +87,8 @@ initialAccountEncryptedAmount :: AccountEncryptedAmount
 initialAccountEncryptedAmount = AccountEncryptedAmount{
   _selfAmount = mempty,
   _startIndex = 0,
-  _incomingEncryptedAmounts = Seq.empty
+  _incomingEncryptedAmounts = Seq.empty,
+  _numAggregated = Nothing
 }
 
 instance Serialize AccountEncryptedAmount where
@@ -80,21 +96,39 @@ instance Serialize AccountEncryptedAmount where
     put _selfAmount <>
     put _startIndex <>
     putWord32be (fromIntegral (Seq.length _incomingEncryptedAmounts)) <>
-    mapM_ put _incomingEncryptedAmounts
-  
+    mapM_ put _incomingEncryptedAmounts <>
+    case _numAggregated of
+      Nothing -> putWord32be 0
+      Just n -> putWord32be n
+
   get = do
     _selfAmount <- get
     _startIndex <- get
     len <- getWord32be
     _incomingEncryptedAmounts <- Seq.fromList <$> replicateM (fromIntegral len) get
-    return AccountEncryptedAmount{..}
+    mNumAggregated <- getWord32be
+    case mNumAggregated of
+      0 -> return AccountEncryptedAmount{_numAggregated = Nothing,..}
+      n | n >= 2 -> return AccountEncryptedAmount{_numAggregated = Just n,..}
+      _ -> fail "numAggregated must be at least 2, if non-zero."
 
 makeLenses ''AccountEncryptedAmount
 
 -- | Add an encrypted amount to the end of the list.
--- This is used when an incoming transfer is added to the account.
+-- This is used when an incoming transfer is added to the account. If this would
+-- go over the threshold for the maximum number of incoming amounts then
+-- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
-addIncomingEncryptedAmount newAmount = incomingEncryptedAmounts %~ (Seq.|> newAmount)
+addIncomingEncryptedAmount newAmount old =
+  if Seq.length (_incomingEncryptedAmounts old ) >= maxNumIncoming then
+    case _incomingEncryptedAmounts old of
+      x Seq.:<| y Seq.:<| rest ->
+        old{_incomingEncryptedAmounts = ((x <> y) Seq.<| rest) Seq.|> newAmount,
+            _numAggregated = Just (maybe 2 (+1) (_numAggregated old)),
+            _startIndex = _startIndex old + 1
+            }
+      _ -> error "Cannot happen due to check above."
+  else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
 
 -- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
@@ -107,13 +141,15 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
   AccountEncryptedAmount{
     _selfAmount = newAmount,
     _startIndex = newStartIndex,
-    _incomingEncryptedAmounts = newEncryptedAmounts
+    _incomingEncryptedAmounts = newEncryptedAmounts,
+    _numAggregated = newNumAggregated
   }
   where (newStartIndex, toDrop) = 
           if newIndex > _startIndex 
           then (newIndex, fromIntegral (newIndex - _startIndex)) 
           else (_startIndex, 0)
         newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
+        newNumAggregated = if toDrop > 0 then Nothing else _numAggregated
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
