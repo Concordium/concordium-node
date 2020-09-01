@@ -6,6 +6,7 @@ import Data.Proxy
 import qualified Data.ByteString.Lazy as BSL
 import System.IO.Unsafe
 import Control.Monad.IO.Class
+import qualified Data.Map.Strict as Map
 
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
@@ -18,11 +19,13 @@ import Concordium.GlobalState
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Basic.BlockState as BS
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
+import Concordium.Types
 
 import Test.Hspec
 
@@ -44,7 +47,7 @@ type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData@GenesisDataV1{..} = return $ MTMBConfig rt genData blockS
   where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters dummyAuthorizations dummyChainParameters
-        birkParams = BS.BasicBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState
+        birkParams = BS.makeBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
@@ -72,13 +75,13 @@ setup nBakers = do
         inst
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        (_bakerMap genesisBakers)
+        (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
         (genesisTotalGTU genData)
   let initialPassiveState =
         initialPassiveFinalizationState
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        (_bakerMap genesisBakers)
+        (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
         (genesisTotalGTU genData)
   let finInstances = map (makeFinalizationInstance . fst) bakers
   (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))

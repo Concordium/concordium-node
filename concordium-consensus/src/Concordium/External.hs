@@ -218,7 +218,7 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 
 genesisState :: GenesisData -> Basic.BlockState
 genesisState GenesisDataV1{..} = Basic.initialState
-                       (Basic.BasicBirkParameters
+                       (Basic.makeBirkParameters
                             genesisBakers
                             genesisBakers
                             genesisBakers
@@ -968,7 +968,7 @@ getBlocksAtHeight cptr height = do
     logm External LLDebug "Received blocks at height request."
     blocks <- runConsensusQuery c Get.getBlocksAtHeight (fromIntegral height)
     logm External LLTrace $ "Replying with: " ++ show blocks
-    jsonValueToCString blocks  
+    jsonValueToCString blocks
 
 getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 getAllIdentityProviders cptr blockcstr = do
