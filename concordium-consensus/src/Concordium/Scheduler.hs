@@ -345,6 +345,10 @@ handleTransferToPublic wtc tpRemaining tpAmount index proof = do
                                 earAccount = senderAddress,
                                 earUpToIndex = index,
                                 earNewAmount = tpRemaining
+                                },
+                              AmountAddedByDecryption{
+                                aabdAccount = senderAddress,
+                                aabdAmount = tpAmount
                                 }],
                    energyCost,
                    usedEnergy)
@@ -386,7 +390,8 @@ handleTransferToEncrypted wtc toEncrypted = do
 
           return (TxSuccess [EncryptedSelfAmountAdded{
                                 eaaAccount = senderAddress,
-                                eaaNewAmount = encryptedAmount
+                                eaaNewAmount = encryptedAmount,
+                                eaaAmount = toEncrypted
                                 }],
                    energyCost,
                    usedEnergy)
