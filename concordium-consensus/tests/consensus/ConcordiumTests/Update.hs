@@ -186,8 +186,8 @@ dirtyStateHash ::  BakedBlock -> BakedBlock
 dirtyStateHash BakedBlock{..} = BakedBlock{bbStateHash = stubStateHash, ..}
 
 
-dirtyClaimedKey :: BakedBlock -> BakedBlock
-dirtyClaimedKey BakedBlock{..}= BakedBlock{bbFields = BlockFields{bfBlockClaimedKey = fakeKey,..}, ..}
+dirtyBakerKey :: BakedBlock -> BakedBlock
+dirtyBakerKey BakedBlock{..}= BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeKey,..}, ..}
     where
         BlockFields{..} = bbFields
         baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
@@ -261,6 +261,6 @@ test = describe "Concordium.Update: " $ do
     it "Block with incorrect StateHash should be rejected" $ withInitialStates (runTest dirtyStateHash) 
     it "Block with incorrect earlier Slot Number should be rejected" $ withInitialStates (runTest dirtySlot1) 
     it "Block with incorrect later Slot Number should be rejected" $ withInitialStates (runTest dirtySlot2) 
-    it "Block with Claimed key different from BakerKey should be rejected" $ withInitialStates (runTest dirtyClaimedKey) 
+    it "Block with Claimed key different from BakerKey should be rejected" $ withInitialStates (runTest dirtyBakerKey) 
     it "Duplicate Block should be rejected" $ withInitialStates (runTestDupe)
 

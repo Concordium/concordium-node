@@ -329,7 +329,7 @@ addBlock block = do
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
                         -- And check baker key matches claimed key (may not be redundant if multiple keys could verify same signature?)
-                        check "Claimed baker sigining key did not match actual baker signing key" (_bakerSignatureVerifyKey == blockClaimedKey block) $
+                        check "Claimed baker sigining key did not match actual baker signing key" (_bakerSignatureVerifyKey == blockBakerKey block) $
                         -- And the block signature
                         check "invalid block signature" (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
                             let ts = blockTransactions block
@@ -429,7 +429,7 @@ doStoreBlock pb@GB.PendingBlock{..} = do
         Just _ -> return ResultDuplicate
     where
         -- FIXME: what error value should be returned here? Maybe a new one?
-        checkClaimedSignature b a = if verifyBlockSignature (blockClaimedKey b) b then a else do
+        checkClaimedSignature b a = if verifyBlockSignature (blockBakerKey b) b then a else do
             logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key: " 
             return ResultInvalid
 
