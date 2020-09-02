@@ -20,12 +20,8 @@ import Concordium.Crypto.EncryptedTransfers
 
 import SchedulerTests.TestUtils
 
-import Data.Aeson
-import Data.Sequence as Seq
-
 import Lens.Micro.Platform
 
-import Debug.Trace
 import Concordium.Crypto.FFIDataTypes (ElgamalSecond, ElgamalSecondSecret)
 import Data.Word (Word64)
 import System.IO.Unsafe (unsafePerformIO)
