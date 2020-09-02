@@ -194,7 +194,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     receiveTime <- currentTime
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
     stateHash <- getStateHash (_finalState result)
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId (bakerSignPublicKey ident) electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
