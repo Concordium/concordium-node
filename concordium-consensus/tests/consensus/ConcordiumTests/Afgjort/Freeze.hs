@@ -13,21 +13,22 @@ import Concordium.Afgjort.Types
 import Concordium.Afgjort.Freeze
 import qualified Concordium.Afgjort.PartySet as PS
 import qualified Concordium.Afgjort.PartyMap as PM
+import qualified Concordium.Types as T
 
 import Test.QuickCheck
 import Test.Hspec
 
 blockA :: Val
-blockA = H.hash "A"
+blockA = T.BlockHashV0 (H.hash "A")
 
 blockB :: Val
-blockB = H.hash "B"
+blockB = T.BlockHashV0 (H.hash "B")
 
 blockC :: Val
-blockC = H.hash "C"
+blockC = T.BlockHashV0 (H.hash "C")
 
 blockD :: Val
-blockD = H.hash "D"
+blockD = T.BlockHashV0 (H.hash "D")
 
 blocks :: [Val]
 blocks = [blockA, blockB, blockC, blockD]
