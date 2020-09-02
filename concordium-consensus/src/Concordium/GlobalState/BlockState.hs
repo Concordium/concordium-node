@@ -203,6 +203,12 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     -- |Get the outcome of a transaction in the given block.
     getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
 
+    -- |Get the transactionOutcomesHash of a given block.
+    getTransactionOutcomesHash :: BlockState m -> m (TransactionOutcomesHash)
+
+    -- |Get the stateHash of a given block.
+    getStateHash :: BlockState m -> m (StateHash)
+
     -- |Get all transaction outcomes for this block.
     getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
 
@@ -403,6 +409,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getBlockBirkParameters = lift . getBlockBirkParameters
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
+  getTransactionOutcomesHash = lift . getTransactionOutcomesHash
+  getStateHash = lift . getStateHash
   getOutcomes = lift . getOutcomes
   getSpecialOutcomes = lift . getSpecialOutcomes
   getAllIdentityProviders s = lift $ getAllIdentityProviders s
@@ -417,6 +425,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getRewardStatus #-}
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
+  {-# INLINE getTransactionOutcomesHash #-}
   {-# INLINE getSpecialOutcomes #-}
   {-# INLINE getAllIdentityProviders #-}
   {-# INLINE getAllAnonymityRevokers #-}

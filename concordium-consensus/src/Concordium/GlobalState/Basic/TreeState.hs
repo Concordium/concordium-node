@@ -131,8 +131,8 @@ instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
 
 instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
           => TS.TreeStateMonad (PureTreeStateMonad bs m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = do
-        return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    makePendingBlock key slot parent bid ck pf n lastFin trs statehash transactionOutcomesHash time = do
+        return $ makePendingBlock (signBlock key slot parent bid ck pf n lastFin trs statehash transactionOutcomesHash) time
     getBlockStatus bh = use (blockTable . at' bh)
     makeLiveBlock block parent lastFin st () arrTime energy = do
             let blockP = makeBasicBlockPointer block parent lastFin st arrTime energy

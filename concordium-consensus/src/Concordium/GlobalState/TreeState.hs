@@ -28,6 +28,7 @@ import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
+import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.AccountTransactionIndex
 
 data BlockStatus bp pb =
@@ -82,11 +83,14 @@ class (Eq (BlockPointerType m),
         -> Slot             -- ^Block slot (must be non-zero)
         -> BlockHash        -- ^Hash of parent block
         -> BakerId          -- ^Identifier of block baker
+        -> BakerSignVerifyKey -- ^Claimed signing key in the block
         -> BlockProof       -- ^Block proof
         -> BlockNonce       -- ^Block nonce
         -> BlockFinalizationData
                             -- ^Finalization data
         -> [BlockItem]      -- ^List of transactions
+        -> StateHash                  -- ^Statehash of the block.
+        -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
         -> UTCTime          -- ^Block receive time
         -> m PendingBlock
 
@@ -306,7 +310,7 @@ class (Eq (BlockPointerType m),
     getRuntimeParameters :: m RuntimeParameters
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
-    makePendingBlock key slot parent bid pf n lastFin trs = lift . makePendingBlock key slot parent bid pf n lastFin trs
+    makePendingBlock key slot parent bid ck pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid ck pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
     markDead = lift . markDead
