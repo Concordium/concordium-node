@@ -295,7 +295,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
 
     updateAccountAmount (acc1, acc2) amnt = do
         acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
-        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt) 
+        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
         assert ((getHash acc1 :: H.Hash) == getHash acc2) $
           return (acc1', acc2')
 
