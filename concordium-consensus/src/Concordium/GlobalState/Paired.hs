@@ -570,9 +570,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         TreeStateMonad (GSMR rc r rs s m),
         ATIStorage (GSMR rc r rs s m) ~ ())
         => TreeStateMonad (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
-    makePendingBlock sk sl parent bid ck bp bn lf trs sthash trouthash brtime = do
-      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid ck bp bn lf trs sthash trouthash brtime
-      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid ck bp bn lf trs sthash trouthash brtime
+    makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
+      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
+      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
       assert (pb1 == pb2) $ return pb1
 
     getFinalizedAtHeight bHeight = do
