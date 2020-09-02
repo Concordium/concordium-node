@@ -29,6 +29,7 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import Prelude hiding(mod, exp)
+import Concordium.Crypto.EncryptedTransfers
 
 -- |Sign a transaction with the given list of keys.
 signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.BareTransaction
@@ -114,6 +115,11 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
     (TJSON meta TransferToEncrypted{..} keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.TransferToEncrypted tteAmount))
+    (TJSON meta EncryptedAmountTransfer{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.EncryptedAmountTransfer{..})
+    (TJSON meta TransferToPublic{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.TransferToPublic{..})
+
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.BareTransaction]
 processTransactions = mapM transactionHelper
@@ -208,6 +214,13 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                      }
                  | TransferToEncrypted {
                      tteAmount :: !Amount
+                     }
+                 | EncryptedAmountTransfer {
+                     eatTo :: !AccountAddress,
+                     eatData :: !EncryptedAmountTransferData
+                     }
+                 | TransferToPublic {
+                     ttpData :: !SecToPubAmountTransferData
                      }
                  deriving(Show, Generic)
 

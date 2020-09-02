@@ -266,7 +266,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
 
   -- |Get cryptographic parameters for the current state.
-  getCrypoParams :: m CryptographicParameters
+  getCryptoParams :: m CryptographicParameters
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
