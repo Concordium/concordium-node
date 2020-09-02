@@ -204,10 +204,10 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
 
     -- |Get the transactionOutcomesHash of a given block.
-    getTransactionOutcomesHash :: BlockState m -> m (TransactionOutcomesHash)
+    getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
 
     -- |Get the stateHash of a given block.
-    getStateHash :: BlockState m -> m (StateHash)
+    getStateHash :: BlockState m -> m StateHash
 
     -- |Get all transaction outcomes for this block.
     getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
