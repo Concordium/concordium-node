@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DefaultSignatures #-}
@@ -18,6 +19,7 @@ import Control.Monad.Cont hiding (cont)
 
 import Lens.Micro.Platform
 
+import Concordium.Logger
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
@@ -91,7 +93,7 @@ class Monad m => StaticInformation m where
   getMaxBlockEnergy :: m Energy
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m) => SchedulerMonad m where
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m) => SchedulerMonad m where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be
@@ -826,3 +828,21 @@ withExternal f = do
 -- not return a value. This is a convenience wrapper only.
 withExternalPure_ :: (ResourceMeasure r, TransactionMonad m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
+
+
+-- |Helper function to log when a transaction was invalid.
+{-# INLINE logInvalidBlockItem #-}
+logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
+logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
+  logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
+logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ cred) ++ " was invalid with reason " ++ show fk
+
+{-# INLINE logInvalidTransaction #-}
+logInvalidTransaction :: SchedulerMonad m => Transaction -> FailureKind -> m ()
+logInvalidTransaction WithMetadata{..} fk =
+  logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
+
+logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
+logInvalidCredential WithMetadata{..} fk =
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ wmdData) ++ " was invalid with reason " ++ show fk

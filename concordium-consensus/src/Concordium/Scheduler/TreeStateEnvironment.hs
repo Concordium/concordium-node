@@ -13,6 +13,7 @@ import qualified Data.Kind as DK
 import Control.Monad
 
 import Concordium.Types
+import Concordium.Logger
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
@@ -37,7 +38,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w)
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger)
 
 deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state, BlockStateOperations m, Footprint (ATIStorage m) ~ w)
@@ -96,6 +97,7 @@ deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState 
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad m,
+              MonadLogger m,
               BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
 
 runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
@@ -141,7 +143,7 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
 executeFrom :: forall m .
-  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
   => BlockHash -- ^Hash of the block we are executing. Used only for commiting transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -194,7 +196,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock :: forall m .
-  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m)
+  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing

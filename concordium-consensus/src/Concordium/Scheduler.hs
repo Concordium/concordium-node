@@ -1391,8 +1391,10 @@ filterTransactions :: forall m . (SchedulerMonad m)
                    -> m FilteredTransactions
 filterTransactions maxSize GroupedTransactions{..} = do
   maxEnergy <- getMaxBlockEnergy
-
-  runNext maxEnergy 0 emptyFilteredTransactions credentialDeployments perAccountTransactions
+  ftTrans <- runNext maxEnergy 0 emptyFilteredTransactions credentialDeployments perAccountTransactions
+  forM_ (ftFailed ftTrans) $ uncurry logInvalidTransaction
+  forM_ (ftFailedCredentials ftTrans) $ uncurry logInvalidCredential
+  return ftTrans
   where
         -- Run next credential deployment or transaction group, depending on arrival time.
         runNext :: Energy -- ^Maximum block energy
@@ -1538,7 +1540,9 @@ runTransactions = go []
                 markEnergyUsed (tsEnergyCost summary)
                 tlNotifyAccountEffect fp summary
                 go ((bi, summary):valid) ts
-              (Just (TxInvalid reason), _) -> return (Left (Just reason))
+              (Just (TxInvalid reason), _) -> do
+                logInvalidBlockItem bi reason
+                return (Left (Just reason))
               (Nothing, _) -> return (Left Nothing)
 
           go valid [] = return (Right (reverse valid))
@@ -1570,7 +1574,9 @@ execTransactions = go
               markEnergyUsed (tsEnergyCost summary)
               tlNotifyAccountEffect fp summary
               go ts
-            (Just (TxInvalid reason), _) -> return (Left (Just reason))
+            (Just (TxInvalid reason), _) -> do
+              logInvalidBlockItem bi reason
+              return (Left (Just reason))
         go [] = return (Right ())
 
         predispatch :: BlockItem -> m (Maybe TxResult)
