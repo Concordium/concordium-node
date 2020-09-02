@@ -313,8 +313,8 @@ instance (MonadReader ContextState m,
     s <- use schedulerBlockState
     lift (bsoGetAnonymityRevokers s arIds)
 
-  {-# INLINE getCrypoParams #-}
-  getCrypoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
+  {-# INLINE getCryptoParams #-}
+  getCryptoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
 
 deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
 

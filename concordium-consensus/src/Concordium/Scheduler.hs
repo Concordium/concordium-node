@@ -74,6 +74,7 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
+import Debug.Trace
 
 -- |Check that there exists a valid credential in the context of the given chain
 -- metadata.
@@ -282,13 +283,13 @@ dispatch msg = do
                      handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndices rakThreshold
 
                    EncryptedAmountTransfer{..} ->
-                     handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatRemainingAmount eatTransferAmount eatIndex eatProof
+                     handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData
 
                    TransferToEncrypted{..} ->
                      handleTransferToEncrypted (mkWTC TTTransferToEncrypted) tteAmount
 
                    TransferToPublic{..} ->
-                     handleTransferToPublic (mkWTC TTTransferToEncrypted) ttpRemainingAmount ttpAmount ttpIndex ttpProof
+                     handleTransferToPublic (mkWTC TTTransferToEncrypted) ttpData
 
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
@@ -298,13 +299,10 @@ dispatch msg = do
 handleTransferToPublic ::
   SchedulerMonad m
   => WithDepositContext m
-  -> EncryptedAmount
-  -> Amount
-  -> EncryptedAmountAggIndex
-  -> TransferToPublicProof
+  -> SecToPubAmountTransferData
   -> m (Maybe TransactionSummary)
-handleTransferToPublic wtc tpRemaining tpAmount index proof = do
-  cryptoParams <- getCrypoParams
+handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
+  cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -318,11 +316,10 @@ handleTransferToPublic wtc tpRemaining tpAmount index proof = do
           tickEnergy Cost.encryptedAmountTransfer --FIXME js: should be other cost
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount index
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
-          let transferData = prepareTransferToPublicBytes tpRemaining (_amount tpAmount) index proof
           senderPK <- getAccountEncryptionKey senderAccount
           let valid = verifySecretToPublicTransferProof cryptoParams senderPK senderAmount transferData
 
@@ -332,23 +329,24 @@ handleTransferToPublic wtc tpRemaining tpAmount index proof = do
           -- - add the decrypted amount to the balance
           -- - replace some encrypted amounts on the sender's account
           -- TODO js: join this two functions in one
-          replaceEncryptedAmount senderAccount index tpRemaining
-          addAmountFromEncrypted senderAccount tpAmount
+          replaceEncryptedAmount senderAccount stpatdIndex stpatdRemainingAmount
+          addAmountFromEncrypted senderAccount $ Amount stpatdTransferAmount
 
           return senderAddress
 
         k ls senderAddress = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
+          notifyEncryptedBalanceChange $ AmountDelta $ - toInteger stpatdTransferAmount
           commitChanges (ls ^. changeSet)
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
-                                earUpToIndex = index,
-                                earNewAmount = tpRemaining
+                                earUpToIndex = stpatdIndex,
+                                earNewAmount = stpatdRemainingAmount
                                 },
                               AmountAddedByDecryption{
                                 aabdAccount = senderAddress,
-                                aabdAmount = tpAmount
+                                aabdAmount = Amount stpatdTransferAmount
                                 }],
                    energyCost,
                    usedEnergy)
@@ -360,7 +358,7 @@ handleTransferToEncrypted ::
   -> Amount
   -> m (Maybe TransactionSummary)
 handleTransferToEncrypted wtc toEncrypted = do
-  cryptoParams <- getCrypoParams
+  cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -386,6 +384,7 @@ handleTransferToEncrypted wtc toEncrypted = do
         k ls (senderAddress, encryptedAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
+          notifyEncryptedBalanceChange $ AmountDelta $ toInteger toEncrypted
           commitChanges (ls ^. changeSet)
 
           return (TxSuccess [EncryptedSelfAmountAdded{
@@ -400,13 +399,10 @@ handleEncryptedAmountTransfer ::
   SchedulerMonad m
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
-  -> EncryptedAmount -- ^ Remaining amount.
-  -> EncryptedAmount -- ^ Amount to transfer.
-  -> EncryptedAmountAggIndex -- ^ Index indicating which amounts were used in the transfer.
-  -> EncryptedAmountTransferProof -- ^ Proof of validity of the transfer.
+  -> EncryptedAmountTransferData
   -> m (Maybe TransactionSummary)
-handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index proof = do
-  cryptoParams <- getCrypoParams
+handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransferData{..} = do
+  cryptoParams <- getCryptoParams
   withDeposit wtc (c cryptoParams) k
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
@@ -432,11 +428,10 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
           tickEnergy Cost.encryptedAmountTransfer
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount index
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
-          let transferData = prepareEncryptedAmountTransferBytes remainingAmount transferAmount index proof
           receiverPK <- getAccountEncryptionKey targetAccount
           senderPK <- getAccountEncryptionKey senderAccount
           let valid = verifyEncryptedTransferProof cryptoParams receiverPK senderPK senderAmount transferData
@@ -449,9 +444,9 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
           -- We do this by first replacing on the sender's account, and then adding.
           -- This order only has an effect if the sender and receiver accounts are the same.
 
-          replaceEncryptedAmount senderAccount index remainingAmount
+          replaceEncryptedAmount senderAccount eatdIndex eatdRemainingAmount
           -- The index that the new amount on the receiver's account will get
-          targetAccountIndex <- addEncryptedAmount targetAccount transferAmount
+          targetAccountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
 
           return (senderAddress, targetAccountIndex)
 
@@ -462,13 +457,13 @@ handleEncryptedAmountTransfer wtc toAddress remainingAmount transferAmount index
 
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
-                                earUpToIndex = index,
-                                earNewAmount = remainingAmount
+                                earUpToIndex = eatdIndex,
+                                earNewAmount = eatdRemainingAmount
                                 },
                              NewEncryptedAmount{
                                 neaAccount = toAddress,
                                 neaNewIndex = targetAccountIndex,
-                                neaEncryptedAmount = transferAmount
+                                neaEncryptedAmount = eatdTransferAmount
                                 }
                             ],
                    energyCost,
@@ -1082,7 +1077,7 @@ handleDeployCredential cdi cdiHash = do
             getArInfos (OrdMap.keys (ID.cdvArData cdv)) >>= \case
               Nothing -> return $ Just (TxInvalid UnsupportedAnonymityRevokers)
               Just arsInfos -> do
-                cryptoParams <- getCrypoParams
+                cryptoParams <- getCryptoParams
                 -- we have two options. One is that we are deploying a credential on an existing account.
                 case ID.cdvAccount cdv of
                   ID.ExistingAccount aaddr ->
