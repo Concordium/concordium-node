@@ -195,7 +195,7 @@ broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putVersionedBlockV0 block
+            let blockbs = runPut $ putVersionedBlockV1 block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
