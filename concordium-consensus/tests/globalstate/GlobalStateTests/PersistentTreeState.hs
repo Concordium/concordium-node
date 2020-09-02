@@ -43,6 +43,13 @@ import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
 import System.FilePath ((</>))
 import System.IO.Temp
+import qualified Concordium.Crypto.BlockSignature as Sig
+import qualified Concordium.Types.Transactions as Trns
+
+-- FIXME: temporary import for stubbing types for hashing state
+import Data.FixedByteString as FBS
+import Concordium.Crypto.SHA256
+
 import System.Random
 import Test.Hspec
 
@@ -92,7 +99,9 @@ testFinalizeABlock = do
   proof1 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof1"
   proof2 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
-  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] now
+  -- FIXME: Statehash is stubbed out with a placeholder hash
+  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 (Sig.verifyKey . fst $ randomBlockKeyPair (mkStdGen 1)) proof1 proof2 NoFinalizationData [] (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (getHash Trns.emptyTransactionOutcomes) now
+  
   now' <- liftIO $ getCurrentTime
   blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
@@ -131,7 +140,8 @@ testFinalizeABlock = do
   liftIO $ lfin `shouldBe` genesisBlock
   -- add another block with different lfin and parent
   now'' <- liftIO $ getCurrentTime
-  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 NoFinalizationData [] now''
+  --FIXME:  statehash is stubbed out with a palceholder stash
+  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0  (Sig.verifyKey . fst $ randomBlockKeyPair (mkStdGen 1)) proof1 proof2 NoFinalizationData [] (StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))) (getHash Trns.emptyTransactionOutcomes) now''
   now''' <- liftIO $ getCurrentTime
   blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0

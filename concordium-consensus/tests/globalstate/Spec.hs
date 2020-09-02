@@ -10,6 +10,7 @@ import qualified GlobalStateTests.Trie(tests)
 import qualified GlobalStateTests.LFMBTree(tests)
 import qualified GlobalStateTests.PersistentTreeState(tests)
 import qualified GlobalStateTests.Accounts(tests)
+import qualified GlobalStateTests.BlockHash(tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -23,6 +24,7 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
+  GlobalStateTests.BlockHash.tests
   GlobalStateTests.LFMBTree.tests
   GlobalStateTests.Accounts.tests lvl
   GlobalStateTests.Trie.tests
