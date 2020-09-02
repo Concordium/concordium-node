@@ -158,7 +158,7 @@ instance BlockData (BlockPointer ati p s) where
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature key = verifyBlockSignature key . _bpBlock
-    putBlockV0 = putBlockV0 . _bpBlock
+    putBlockV1 = putBlockV1 . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
@@ -166,7 +166,7 @@ instance BlockData (BlockPointer ati p s) where
     {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
-    {-# INLINE putBlockV0 #-}
+    {-# INLINE putBlockV1 #-}
 
 instance BlockPointerData (BlockPointer ati p s) where
     bpHash = _bpHash . _bpInfo
