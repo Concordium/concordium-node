@@ -44,7 +44,7 @@ merge :: forall m . (BlockPointerData (BlockPointerType m))
       -> Seq.Seq (BlockPointerType m)
       -> [(MessageType, ByteString)]
 merge Proxy = go
-  where encodeBlock b = (MessageBlock, runPut (putVersionedBlockV0 b))
+  where encodeBlock b = (MessageBlock, runPut (putVersionedBlockV1 b))
         encodeFinRec fr = (MessageFinalizationRecord, runPut (putVersionedFinalizationRecordV0 fr))
         -- Note: since the returned list can be truncated, we have to be careful about the
         -- order that finalization records are interleaved with blocks.
