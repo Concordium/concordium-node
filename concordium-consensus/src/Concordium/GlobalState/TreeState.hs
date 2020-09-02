@@ -28,7 +28,6 @@ import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
-import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.GlobalState.AccountTransactionIndex
 
 data BlockStatus bp pb =

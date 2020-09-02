@@ -33,7 +33,6 @@ import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (cdvRegId)
-import Concordium.Types.HashableTo
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L

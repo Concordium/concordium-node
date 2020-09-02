@@ -28,7 +28,6 @@ import Concordium.Types.Execution
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.ID.Types as ID
 
-import Concordium.Types.HashableTo
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as BB
 import Concordium.GlobalState.Persistent.BlobStore
