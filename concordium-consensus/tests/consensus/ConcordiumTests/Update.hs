@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings, TypeFamilies #-}
-{-# OPTIONS_GHC -Wno-deprecations #-}
+{-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.Update where
 
 import Control.Monad
