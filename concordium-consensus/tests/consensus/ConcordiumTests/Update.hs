@@ -49,6 +49,7 @@ import Concordium.Types
 import Data.FixedByteString as FBS
 
 import qualified Concordium.GlobalState.DummyData as Dummy
+import qualified Concordium.Types.DummyData as DummyTypes
 
 -- Setup dummy values for stubbing environment 
 
@@ -118,7 +119,6 @@ makeBaker initAmount bid = resize 0x20000000 $ do
 createInitStates :: IO (BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
-        finMemberAmount = bakerAmount * 10 ^ (6 :: Int)
     baker1 <- generate $ makeBaker bakerAmount 0
     baker2 <- generate $ makeBaker bakerAmount 1
     let bis = baker1 : [baker2] 
@@ -185,14 +185,22 @@ dirtyTransactionHash BakedBlock{..} = BakedBlock{bbTransactionOutcomesHash = stu
 dirtyStateHash ::  BakedBlock -> BakedBlock
 dirtyStateHash BakedBlock{..} = BakedBlock{bbStateHash = stubStateHash, ..}
 
--- dirtyBlockHash :: BakedBlock -> BakedBlock
--- dirtyBlockHash block@BakedBlock{..} = BakedBlock{bbTransactionOutcomesHash = stubTransactionHash, ..} 
 
--- dirtyClaimedKey :: BakedBlock -> BakedBlock
--- dirtyClaimedKey block@BakedBlock{..} = BakedBlock{bbTransactionOutcomesHash = stubTransactionHash, ..}
+dirtyClaimedKey :: BakedBlock -> BakedBlock
+dirtyClaimedKey BakedBlock{..} block2 = BakedBlock{bbFields = BlockFields{bfBlockClaimedKey = fakeKey,..}, ..}
+    where
+        BlockFields{..} = bbFields
+        baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
+        fakeKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
 
-dirtySlot :: BakedBlock -> BakedBlock
-dirtySlot BakedBlock{..} = BakedBlock{bbSlot = 1, ..} 
+
+-- Claims earlier slot than reality
+dirtySlot1 :: BakedBlock -> BakedBlock
+dirtySlot1 BakedBlock{..} = BakedBlock{bbSlot = 1, ..} 
+
+-- Claims later slot than reality
+dirtySlot2 :: BakedBlock -> BakedBlock
+dirtySlot2 BakedBlock{..} = BakedBlock{bbSlot = 3, ..} 
 
 
 -- Sanity check test, to make sure that an undirtied block doesn't fail to be stored
@@ -200,7 +208,7 @@ runSanityCheck :: BakerState
         -- ^Initial state for the first baker
         -> BakerState
         -> IO ()
-runSanityCheck (bid1, fi1, fs1) (bid2, fi2, fs2) = do
+runSanityCheck (bid1, fi1, fs1) (_, fi2, fs2) = do
             -- baker1 bakes some blocks to create tree
             (block1, fs1', _) <- myRunSkovT (bake bid1 1) dummyHandlers fi1 fs1
             (block2, _, _) <- myRunSkovT (bake bid1 2) dummyHandlers fi1 fs1'
@@ -229,10 +237,30 @@ runTest dirtyFunc (bid1, fi1, fs1) (_, fi2, fs2) = do
                     failStore (dirtyFunc block2)
                     ) dummyHandlers fi2 fs2
 
+-- Tests sending duplicate blocks
+runTestDupe :: BakerState
+        -- ^Initial state for the first baker
+        -> BakerState
+        -> IO ()
+runTestDupe (bid1, fi1, fs1) (_, fi2, fs2) = do
+            -- baker1 bakes some blocks to create tree
+            (block1, fs1', _) <- myRunSkovT (bake bid1 1) dummyHandlers fi1 fs1
+            (block2, _, _) <- myRunSkovT (bake bid1 2) dummyHandlers fi1 fs1'
+            void $ myRunSkovT (do
+                    -- Baker 2 adds both blocks to his tree
+                    store block1
+                    store block2
+                    failstore block2
+                    ) dummyHandlers fi2 fs2
+
 
 test :: Spec
 test = describe "Concordium.Update: " $ do
     it "Un-dirtied Baked Block should not be rejected" $ withInitialStates runSanityCheck
     it "Block with incorrect TransactionHash should be rejected" $ withInitialStates (runTest dirtyTransactionHash) 
     it "Block with incorrect StateHash should be rejected" $ withInitialStates (runTest dirtyStateHash) 
-    it "Block with incorrect Slot Number should be rejected" $ withInitialStates (runTest dirtySlot) 
+    it "Block with incorrect earlier Slot Number should be rejected" $ withInitialStates (runTest dirtySlot1) 
+    it "Block with incorrect later Slot Number should be rejected" $ withInitialStates (runTest dirtySlot2) 
+    it "Block with Claimed key different from BakerKey should be rejected" $ withInitialStates (runTest dirtyClaimedKey) 
+    it "Duplicate Block should be rejected" $ withInitialStates (runTestDupe)
+
