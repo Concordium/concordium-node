@@ -250,7 +250,7 @@ runTestDupe (bid1, fi1, fs1) (_, fi2, fs2) = do
                     -- Baker 2 adds both blocks to his tree
                     store block1
                     store block2
-                    failstore block2
+                    failStore block2
                     ) dummyHandlers fi2 fs2
 
 
