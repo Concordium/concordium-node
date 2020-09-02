@@ -22,9 +22,6 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.GlobalState.Finalization
 
--- FIXME: temporary import to stub hashes for gensis
-import Data.FixedByteString as FBS
-
 hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
@@ -381,7 +378,7 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> Slot                       -- ^Block slot (must be non-zero)
     -> BlockHash                  -- ^Hash of parent block
     -> BakerId                    -- ^Identifier of block baker
-    -> BakerSignVerifyKey         -- ^Claimed Baker public Key
+    -- -> BakerSignVerifyKey         -- ^Claimed Baker public Key
     -> BlockProof                 -- ^Block proof
     -> BlockNonce                 -- ^Block nonce
     -> BlockFinalizationData      -- ^Finalization data
@@ -389,13 +386,14 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> StateHash                  -- ^Statehash of the block.
     -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
     -> BakedBlock
-signBlock key slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
+signBlock key slot parent baker proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         -- Generate hash on the unsigned block, and sign the hash
         let sig = Sig.sign key (Hash.hashToByteString (v0BlockHash preBlockHash))
         preBlock $! sig
     where
+        bakerKey = Sig.verifyKey key
         preBlock = BakedBlock slot (BlockFields parent baker bakerKey proof bnonce finData) transactions stateHash transactionOutcomesHash
         preBlockHash = generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
 

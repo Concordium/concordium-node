@@ -83,7 +83,6 @@ class (Eq (BlockPointerType m),
         -> Slot             -- ^Block slot (must be non-zero)
         -> BlockHash        -- ^Hash of parent block
         -> BakerId          -- ^Identifier of block baker
-        -> BakerSignVerifyKey -- ^Claimed signing key in the block
         -> BlockProof       -- ^Block proof
         -> BlockNonce       -- ^Block nonce
         -> BlockFinalizationData
@@ -310,7 +309,7 @@ class (Eq (BlockPointerType m),
     getRuntimeParameters :: m RuntimeParameters
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
-    makePendingBlock key slot parent bid ck pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid ck pf n lastFin trs statehash transactionOutcomesHash
+    makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
     markDead = lift . markDead
