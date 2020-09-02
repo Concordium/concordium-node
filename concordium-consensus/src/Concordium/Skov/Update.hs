@@ -328,10 +328,9 @@ addBlock block = do
                                     (blockSlot block)
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
-                        -- And check baker key matches claimed key (may not be redundant if multiple keys could verify same signature?)
-                        check "Claimed baker sigining key did not match actual baker signing key" (_bakerSignatureVerifyKey == blockBakerKey block) $
-                        -- And the block signature
-                        check "invalid block signature" (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
+                        -- And check baker key matches claimed key.
+                        -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
+                        check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
                             bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
@@ -428,9 +427,8 @@ doStoreBlock pb@GB.PendingBlock{..} = do
                 addBlock block1
         Just _ -> return ResultDuplicate
     where
-        -- FIXME: what error value should be returned here? Maybe a new one?
-        checkClaimedSignature b a = if verifyBlockSignature (blockBakerKey b) b then a else do
-            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key: " 
+        checkClaimedSignature b a = if verifyBlockSignature b then a else do
+            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: " 
             return ResultInvalid
 
 -- |Store a block that is baked by this node in the tree.  The block
