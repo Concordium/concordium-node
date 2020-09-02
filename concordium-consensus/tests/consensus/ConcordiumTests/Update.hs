@@ -42,7 +42,7 @@ import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
-import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters, dummyCryptographicParameters)
+import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
 
 import Concordium.Types
 
@@ -52,7 +52,13 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Types.DummyData as DummyTypes
 
 -- Setup dummy values for stubbing environment 
-
+{-# NOINLINE dummyCryptographicParameters #-}
+dummyCryptographicParameters :: CryptographicParameters
+dummyCryptographicParameters =
+    fromMaybe
+        (error "Could not read cryptographic parameters.")
+        (unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
+        
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
