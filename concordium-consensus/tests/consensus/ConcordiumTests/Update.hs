@@ -187,7 +187,7 @@ dirtyStateHash BakedBlock{..} = BakedBlock{bbStateHash = stubStateHash, ..}
 
 
 dirtyClaimedKey :: BakedBlock -> BakedBlock
-dirtyClaimedKey BakedBlock{..} block2 = BakedBlock{bbFields = BlockFields{bfBlockClaimedKey = fakeKey,..}, ..}
+dirtyClaimedKey BakedBlock{..}= BakedBlock{bbFields = BlockFields{bfBlockClaimedKey = fakeKey,..}, ..}
     where
         BlockFields{..} = bbFields
         baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
