@@ -125,9 +125,9 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
         blockTransactions l
     blockTransactionOutcomesHash (PairBlockData (l, r)) = assert (blockTransactionOutcomesHash l == blockTransactionOutcomesHash r) $ blockTransactionOutcomesHash l
     blockStateHash (PairBlockData (l, r)) = assert (blockStateHash l == blockStateHash r) $ blockStateHash l 
-    verifyBlockSignature k (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature k r) $ vbsl
+    verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) $ vbsl
         where
-            vbsl = verifyBlockSignature k l
+            vbsl = verifyBlockSignature l
     putBlockV1 (PairBlockData (l, _)) = putBlockV1 l
 
 instance (HashableTo BlockHash l, HashableTo BlockHash r) => HashableTo BlockHash (PairBlockData l r) where

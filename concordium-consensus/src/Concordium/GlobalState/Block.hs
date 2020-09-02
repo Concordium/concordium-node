@@ -99,9 +99,9 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |The hash of the state after executing this block
     blockStateHash :: b -> StateHash
     blockSignature :: b -> Maybe BlockSignature
-    -- |Determine if the block is signed by the given key
+    -- |Determine if the block is signed by the key given in the block
     -- (always 'True' for genesis block)
-    verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
+    verifyBlockSignature :: b -> Bool
     -- |Provides a pure serialization of the block according to V1 format.
     --
     -- This means that if some IO is needed for serializing the block (as
@@ -219,7 +219,7 @@ instance BlockData BakedBlock where
     {-# INLINE blockTransactionOutcomesHash #-}
     blockTransactions = bbTransactions
     blockSignature = Just . bbSignature
-    verifyBlockSignature key b = Sig.verify key (Hash.hashToByteString (v0BlockHash (getHash b))) (bbSignature b)
+    verifyBlockSignature b = Sig.verify (bfBlockBakerKey (bbFields b)) (Hash.hashToByteString (v0BlockHash (getHash b))) (bbSignature b)
     {-# INLINE putBlockV1 #-}
     putBlockV1 = putBakedBlockV1
 
@@ -266,8 +266,8 @@ instance BlockData Block where
     blockSignature GenesisBlock{} = Nothing
     blockSignature (NormalBlock bb) = blockSignature bb
 
-    verifyBlockSignature _ GenesisBlock{} = True
-    verifyBlockSignature key (NormalBlock bb) = verifyBlockSignature key bb
+    verifyBlockSignature GenesisBlock{} = True
+    verifyBlockSignature (NormalBlock bb) = verifyBlockSignature bb
 
     putBlockV1 (GenesisBlock gd) = put genesisSlot <> put gd
     putBlockV1 (NormalBlock bb) = putBakedBlockV1 bb
@@ -324,7 +324,7 @@ instance BlockData PendingBlock where
     blockStateHash = blockStateHash . pbBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
     blockSignature = blockSignature . pbBlock
-    verifyBlockSignature key = verifyBlockSignature key . pbBlock
+    verifyBlockSignature = verifyBlockSignature . pbBlock
     putBlockV1 = putBlockV1 . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
