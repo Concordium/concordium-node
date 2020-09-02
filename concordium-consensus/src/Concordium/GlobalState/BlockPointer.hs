@@ -157,7 +157,7 @@ instance BlockData (BlockPointer ati p s) where
     blockStateHash = blockStateHash . _bpBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
-    verifyBlockSignature key = verifyBlockSignature key . _bpBlock
+    verifyBlockSignature = verifyBlockSignature . _bpBlock
     putBlockV1 = putBlockV1 . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
