@@ -75,7 +75,6 @@ bakerid = BakerId 1
 bakerSVK :: BakerSignVerifyKey
 bakerSVK = baker1 ^. _1 . bakerInfo . bakerSignatureVerifyKey
 
-
 blockP :: BlockProof
 blockP = generateProofFromString "blocProof"
 

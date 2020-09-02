@@ -29,7 +29,7 @@ hashGenesisData :: GenesisData -> Hash
 hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
 instance HashableTo BlockHash BakedBlock where
-    getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockClaimedKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
+    getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
 
 generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
     -> BlockHash                  -- ^Hash of parent block
@@ -42,7 +42,7 @@ generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
     -> StateHash                  -- ^Statehash of the block.
     -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
     -> BlockHash
-generateBlockHash slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash 
+generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash 
     = BlockHashV0 topHash
     where
         topHash = Hash.hashOfHashes transactionOutcomes h1
@@ -55,7 +55,7 @@ generateBlockHash slot parent baker claimedKey proof bnonce finData transactions
             put slot
             put parent
             put baker
-            put claimedKey
+            put bakerKey
             put proof
             put bnonce
             putWord64be (fromIntegral (length transactions))
@@ -75,7 +75,7 @@ class BlockMetadata d where
     -- |The identifier of the block's baker
     blockBaker :: d -> BakerId
     -- |The public Signing key the block claims it was signed with
-    blockClaimedKey :: d -> BakerSignVerifyKey
+    blockBakerKey :: d -> BakerSignVerifyKey
     -- |The proof that the baker was entitled to bake this block
     blockProof :: d -> BlockProof
     -- |The block nonce
@@ -130,7 +130,7 @@ data BlockFields = BlockFields {
     -- |The identity of the block baker
     bfBlockBaker :: !BakerId,
     -- |The public Signing key the block claims it was signed with
-    bfBlockClaimedKey :: !BakerSignVerifyKey,
+    bfBlockBakerKey :: !BakerSignVerifyKey,
     -- |The proof that the baker was entitled to bake this block
     bfBlockProof :: !BlockProof,
     -- |The block nonce
@@ -144,8 +144,8 @@ instance BlockMetadata BlockFields where
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker
     {-# INLINE blockBaker #-}
-    blockClaimedKey = bfBlockClaimedKey
-    {-# INLINE blockClaimedKey #-}
+    blockBakerKey = bfBlockBakerKey
+    {-# INLINE blockBakerKey #-}
     blockProof = bfBlockProof
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce
@@ -188,8 +188,8 @@ instance BlockMetadata BakedBlock where
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker . bbFields
     {-# INLINE blockBaker #-}
-    blockClaimedKey = bfBlockClaimedKey . bbFields
-    {-# INLINE blockClaimedKey #-}
+    blockBakerKey = bfBlockBakerKey . bbFields
+    {-# INLINE blockBakerKey #-}
     blockProof = bfBlockProof . bbFields
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce . bbFields
@@ -202,7 +202,7 @@ blockBodyV1 b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
-        put (blockClaimedKey b)
+        put (blockBakerKey b)
         put (blockProof b)
         put (blockNonce b)
         put (blockFinalizationData b)
@@ -263,7 +263,7 @@ instance BlockData Block where
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
     -- FIXME: replace stub, and move into gendata 
-    blockStateHash GenesisBlock{} = StateHashV0 (Hash (FBS.pack (replicate 32 (fromIntegral (0 :: Word)))))
+    blockStateHash GenesisBlock{} = StateHashV0 minBound
     blockStateHash (NormalBlock bb) = blockStateHash bb
 
     blockSignature GenesisBlock{} = Nothing
@@ -311,8 +311,8 @@ instance BlockMetadata PendingBlock where
     {-# INLINE blockPointer #-}
     blockBaker = bfBlockBaker . bbFields . pbBlock
     {-# INLINE blockBaker #-}
-    blockClaimedKey = bfBlockClaimedKey . bbFields . pbBlock
-    {-# INLINE blockClaimedKey #-}
+    blockBakerKey = bfBlockBakerKey . bbFields . pbBlock
+    {-# INLINE blockBakerKey #-}
     blockProof = bfBlockProof . bbFields . pbBlock
     {-# INLINE blockProof #-}
     blockNonce = bfBlockNonce . bbFields . pbBlock
@@ -363,7 +363,7 @@ getBlockV1 arrivalTime = do
     else do
         bfBlockPointer <- get
         bfBlockBaker <- get
-        bfBlockClaimedKey <- get
+        bfBlockBakerKey <- get
         bfBlockProof <- get
         bfBlockNonce <- get
         bfBlockFinalizationData <- get
@@ -389,15 +389,15 @@ signBlock :: BakerSignPrivateKey           -- ^Key for signing the new block
     -> StateHash                  -- ^Statehash of the block.
     -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
     -> BakedBlock
-signBlock key slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash
+signBlock key slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         -- Generate hash on the unsigned block, and sign the hash
         let sig = Sig.sign key (Hash.hashToByteString (v0BlockHash preBlockHash))
         preBlock $! sig
     where
-        preBlock = BakedBlock slot (BlockFields parent baker claimedKey proof bnonce finData) transactions stateHash transactionOutcomesHash
-        preBlockHash = generateBlockHash slot parent baker claimedKey proof bnonce finData transactions stateHash transactionOutcomesHash
+        preBlock = BakedBlock slot (BlockFields parent baker bakerKey proof bnonce finData) transactions stateHash transactionOutcomesHash
+        preBlockHash = generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash
 
 deserializeExactVersionedPendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializeExactVersionedPendingBlock blockBS rectime =

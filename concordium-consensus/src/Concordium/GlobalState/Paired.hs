@@ -103,7 +103,7 @@ newtype PairBlockMetadata l r = PairBlockMetadata (l, r)
 instance (BlockMetadata l, BlockMetadata r) => BlockMetadata (PairBlockMetadata l r) where
     blockPointer (PairBlockMetadata (l, r)) = assert (blockPointer l == blockPointer r) $ blockPointer l
     blockBaker (PairBlockMetadata (l, r)) = assert (blockBaker l == blockBaker r) $ blockBaker l
-    blockClaimedKey (PairBlockMetadata (l, r)) = assert (blockClaimedKey l == blockClaimedKey r) $ blockClaimedKey l
+    blockBakerKey (PairBlockMetadata (l, r)) = assert (blockBakerKey l == blockBakerKey r) $ blockBakerKey l
     blockProof (PairBlockMetadata (l, r)) = assert (blockProof l == blockProof r) $ blockProof l
     blockNonce (PairBlockMetadata (l, r)) = assert (blockNonce l == blockNonce r) $ blockNonce l
     blockFinalizationData (PairBlockMetadata (l, r)) = assert (blockFinalizationData l == blockFinalizationData r) $ blockFinalizationData l
