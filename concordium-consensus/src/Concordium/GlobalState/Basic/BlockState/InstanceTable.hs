@@ -51,8 +51,8 @@ instance HashableTo H.Hash IT where
     getHash (VacantLeaf si) = H.hash $ runPut $ put si
 
 instance HashableTo H.Hash InstanceTable where
-    -- The hash of the empty tree is defined arbitrarily to be the hash of the empty string
-    getHash Empty = H.hash ""
+    -- The hash of the empty tree is defined arbitrarily to be the hash of the string "EmptyInstances"
+    getHash Empty = H.hash "EmptyInstances"
     getHash (Tree _ t) = getHash t
 
 -- |A fold over the leaves of an 'IT'
