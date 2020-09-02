@@ -105,7 +105,7 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- |Determine if the block is signed by the given key
     -- (always 'True' for genesis block)
     verifyBlockSignature :: Sig.VerifyKey -> b -> Bool
-    -- |Provides a pure serialization of the block according to V0 format.
+    -- |Provides a pure serialization of the block according to V1 format.
     --
     -- This means that if some IO is needed for serializing the block (as
     -- in the case of the Persistent blocks), it will not be done and we
@@ -115,7 +115,7 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
     -- FIXME: Having this method here is likely not what we want, but I'm keeping it
     -- right now since it is most consistent for the moment and changing it will require
     -- changing some other abstractions.
-    putBlockV0 :: b -> Put
+    putBlockV1 :: b -> Put
 
 class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPendingData b where
     -- |Time at which the block was received
@@ -197,8 +197,8 @@ instance BlockMetadata BakedBlock where
     blockFinalizationData = bfBlockFinalizationData . bbFields
     {-# INLINE blockFinalizationData #-}
 
-blockBodyV0 :: (BlockMetadata b, BlockData b) => b -> Put
-blockBodyV0 b = do
+blockBodyV1 :: (BlockMetadata b, BlockData b) => b -> Put
+blockBodyV1 b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
@@ -223,15 +223,15 @@ instance BlockData BakedBlock where
     blockTransactions = bbTransactions
     blockSignature = Just . bbSignature
     verifyBlockSignature key b = Sig.verify key (Hash.hashToByteString (v0BlockHash (getHash b))) (bbSignature b)
-    {-# INLINE putBlockV0 #-}
-    putBlockV0 = putBakedBlockV0
+    {-# INLINE putBlockV1 #-}
+    putBlockV1 = putBakedBlockV1
 
--- |Serialize a normal (non-genesis) block according to the V0 format.
+-- |Serialize a normal (non-genesis) block according to the V1 format.
 --
 -- NB: This function does not record the version directly, use
--- 'putVersionedBlockV0' if that is needed.
-putBakedBlockV0 :: BakedBlock -> Put
-putBakedBlockV0 b = blockBodyV0 b >> put (bbSignature b)
+-- 'putVersionedBlockV1' if that is needed.
+putBakedBlockV1 :: BakedBlock -> Put
+putBakedBlockV1 b = blockBodyV1 b >> put (bbSignature b)
 
 -- |Representation of a block
 --
@@ -272,16 +272,16 @@ instance BlockData Block where
     verifyBlockSignature _ GenesisBlock{} = True
     verifyBlockSignature key (NormalBlock bb) = verifyBlockSignature key bb
 
-    putBlockV0 (GenesisBlock gd) = put genesisSlot <> put gd
-    putBlockV0 (NormalBlock bb) = putBakedBlockV0 bb
+    putBlockV1 (GenesisBlock gd) = put genesisSlot <> put gd
+    putBlockV1 (NormalBlock bb) = putBakedBlockV1 bb
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE putBlockV0 #-}
+    {-# INLINE putBlockV1 #-}
 
--- |Serialize a block according to V0 format, also prepending the version.
-putVersionedBlockV0 :: BlockData b => b -> Put
-putVersionedBlockV0 b = putVersion 0 <> putBlockV0 b
+-- |Serialize a block according to V1 format, also prepending the version.
+putVersionedBlockV1 :: BlockData b => b -> Put
+putVersionedBlockV1 b = putVersion 1 <> putBlockV1 b
 
 -- |A baked block, pre-hashed with its arrival time.
 --
@@ -328,13 +328,13 @@ instance BlockData PendingBlock where
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
     blockSignature = blockSignature . pbBlock
     verifyBlockSignature key = verifyBlockSignature key . pbBlock
-    putBlockV0 = putBlockV0 . pbBlock
+    putBlockV1 = putBlockV1 . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
     {-# INLINE blockStateHash #-}
     {-# INLINE blockTransactionOutcomesHash #-}
-    {-# INLINE putBlockV0 #-}
+    {-# INLINE putBlockV1 #-}
 
 instance BlockPendingData PendingBlock where
     blockReceiveTime = pbReceiveTime
@@ -345,19 +345,19 @@ instance HashableTo BlockHash PendingBlock where
 -- |Deserialize a versioned block. Read the version and decide how to parse the
 -- remaining data based on the version.
 --
--- Currently only supports version 0
+-- Currently only supports version 1
 getExactVersionedBlock :: TransactionTime -> Get Block
 getExactVersionedBlock time = do
     version <- get :: Get Version
     case version of
-      0 -> getBlockV0 time
+      1 -> getBlockV1 time
       n -> fail $ "Unsupported block version: " ++ (show n)
 
--- |Deserialize a block according to the version 0 format.
+-- |Deserialize a block according to the version 1 format.
 --
 -- NB: This does not check transaction signatures.
-getBlockV0 :: TransactionTime -> Get Block
-getBlockV0 arrivalTime = do
+getBlockV1 :: TransactionTime -> Get Block
+getBlockV1 arrivalTime = do
     sl <- get
     if sl == 0 then GenesisBlock <$> get
     else do
@@ -404,11 +404,11 @@ deserializeExactVersionedPendingBlock blockBS rectime =
     case runGet (getExactVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
-        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
+        Right (NormalBlock block1) -> Right $! makePendingBlock block1 rectime
 
-deserializePendingBlockV0 :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
-deserializePendingBlockV0 blockBS rectime =
-    case runGet (getBlockV0 (utcTimeToTransactionTime rectime)) blockBS of
+deserializePendingBlockV1 :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
+deserializePendingBlockV1 blockBS rectime =
+    case runGet (getBlockV1 (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
-        Right (NormalBlock block0) -> Right $! makePendingBlock block0 rectime
+        Right (NormalBlock block1) -> Right $! makePendingBlock block1 rectime
