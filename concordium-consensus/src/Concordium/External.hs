@@ -65,7 +65,7 @@ jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
 withBlockReference :: BlockHash -> (BlockReference -> IO a) -> IO a
-withBlockReference (Hash.Hash fbs) = FBS.withPtrReadOnly fbs
+withBlockReference (BlockHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 
 -- |Use a 'TransactionHash' as a 'Ptr Word8'. The pointer may not be valid after
 -- the function has returned.
@@ -75,7 +75,7 @@ withTxReference (TransactionHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.
 blockReferenceToBlockHash :: BlockReference -> IO BlockHash
-blockReferenceToBlockHash src = Hash.Hash <$> FBS.create cp
+blockReferenceToBlockHash src = BlockHashV0 <$> Hash.Hash <$> FBS.create cp 
     where
         cp dest = copyBytes dest src (FBS.fixedLength (undefined :: Hash.DigestSize))
 
