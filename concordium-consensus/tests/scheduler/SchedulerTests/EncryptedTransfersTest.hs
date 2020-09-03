@@ -102,7 +102,7 @@ createSecToPubTransferData secret aggAmount amount = unsafeDupablePerformIO $ ma
 
 -- Transaction 1. Pub to sec (1000)
 encryptedAmount1000 :: EncryptedAmount
-encryptedAmount1000 = encryptAmount (initialBlockState ^. blockCryptographicParameters . unhashed) 1000
+encryptedAmount1000 = encryptAmountZeroRandomness (initialBlockState ^. blockCryptographicParameters . unhashed) 1000
 
 
 
