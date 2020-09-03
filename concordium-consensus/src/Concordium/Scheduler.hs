@@ -312,13 +312,13 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- the expensive operations start now, so we charge.
 
           -- After we've checked all of that, we charge.
-          tickEnergy Cost.encryptedAmountTransfer --FIXME js: should be other cost
+          tickEnergy Cost.secToPubTransfer
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex
 
           -- and then we start validating the proof. This is the most expensive
-          -- part of the validation by far, the rest only being lookups.
+          -- part of the validation by far, the rest only being lookups and a little bit of addition.
           senderPK <- getAccountEncryptionKey senderAccount
           let valid = verifySecretToPublicTransferProof cryptoParams senderPK senderAmount transferData
 
@@ -366,7 +366,7 @@ handleTransferToEncrypted wtc toEncrypted = do
         c cryptoParams = do
           senderAddress <- getAccountAddress senderAccount
 
-          tickEnergy Cost.encryptedAmountTransfer
+          tickEnergy Cost.pubToSecTransfer
 
           -- check that the sender actually owns the amount it claims to be transferred
           senderamount <- getCurrentAccountAmount senderAccount
