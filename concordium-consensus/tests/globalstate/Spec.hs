@@ -7,6 +7,7 @@ import Test.Hspec
 import qualified GlobalStateTests.Instances(tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec(tests)
 import qualified GlobalStateTests.Trie(tests)
+import qualified GlobalStateTests.LFMBTree(tests)
 import qualified GlobalStateTests.PersistentTreeState(tests)
 import qualified GlobalStateTests.Accounts(tests)
 
@@ -22,6 +23,7 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
+  GlobalStateTests.LFMBTree.tests
   GlobalStateTests.Accounts.tests lvl
   GlobalStateTests.Trie.tests
   GlobalStateTests.PersistentTreeState.tests

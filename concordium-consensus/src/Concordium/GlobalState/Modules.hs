@@ -32,6 +32,8 @@ instance Show Modules where
 instance HashableTo H.Hash Modules where
     getHash = _runningHash
 
+instance Monad m => MHashableTo m H.Hash Modules where
+
 -- |The empty collection of modules
 emptyModules :: Modules
 emptyModules = Modules Map.empty 0 (H.hash "")
