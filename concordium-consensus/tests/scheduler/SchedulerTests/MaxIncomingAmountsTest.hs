@@ -86,7 +86,7 @@ numberOfTransactions = fromIntegral maxNumIncoming + 2
 
 -- Transaction 1. Pub to sec (1000)
 encryptedAmount1000 :: EncryptedAmount
-encryptedAmount1000 = encryptAmount (initialBlockState ^. blockCryptographicParameters . unhashed) 1000
+encryptedAmount1000 = encryptAmountZeroRandomness (initialBlockState ^. blockCryptographicParameters . unhashed) 1000
 
 -- Initial transfer transaction
 encryptedTransferData1 :: EncryptedAmountTransferData
