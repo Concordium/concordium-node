@@ -374,7 +374,7 @@ handleTransferToEncrypted wtc toEncrypted = do
           unless (senderamount >= toEncrypted) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) toEncrypted)
 
           -- compute the encrypted amount
-          let encryptedAmount = encryptAmount cryptoParams (_amount toEncrypted)
+          let encryptedAmount = encryptAmountZeroRandomness cryptoParams (_amount toEncrypted)
 
           -- We have to subtract the amount and update the self encrypted amount
           addSelfEncryptedAmount senderAccount toEncrypted encryptedAmount
