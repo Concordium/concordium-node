@@ -74,7 +74,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-import Debug.Trace
 
 -- |Check that there exists a valid credential in the context of the given chain
 -- metadata.
@@ -289,7 +288,7 @@ dispatch msg = do
                      handleTransferToEncrypted (mkWTC TTTransferToEncrypted) tteAmount
 
                    TransferToPublic{..} ->
-                     handleTransferToPublic (mkWTC TTTransferToEncrypted) ttpData
+                     handleTransferToPublic (mkWTC TTTransferToPublic) ttpData
 
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.

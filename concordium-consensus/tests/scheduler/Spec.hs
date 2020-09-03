@@ -16,26 +16,26 @@ import qualified SchedulerTests.TransactionGroupingSpec2(tests)
 import qualified SchedulerTests.UpdateElectionDifficultySpec(tests)
 import qualified SchedulerTests.SimpleTransferSpec(tests)
 import qualified SchedulerTests.UpdateAccountKeys(tests)
-import qualified SchedulerTests.EncryptedAmountTransferSpec(tests)
+import qualified SchedulerTests.EncryptedTransfersTest(tests)
 
 import Test.Hspec
 
 main :: IO ()
 main = hspec $ do
-         -- SchedulerTests.SimpleTransfersTest.tests
-         -- SchedulerTests.ChainMetatest.tests
-         -- SchedulerTests.InitContextTest.tests
-         -- SchedulerTests.ReceiveContextTest.tests
-         -- SchedulerTests.TrySendTest.tests
-         -- SchedulerTests.FibonacciSelfMessageTest.tests
-         -- SchedulerTests.AccountTransactionSpecs.tests
-         -- SchedulerTests.BakerTransactions.tests
-         -- SchedulerTests.Delegation.tests
-         -- SchedulerTests.CredentialTest.tests
-         -- SchedulerTests.TransactionExpirySpec.tests
-         -- SchedulerTests.BlockEnergyLimitSpec.tests
-         -- SchedulerTests.TransactionGroupingSpec2.tests
-         -- SchedulerTests.UpdateElectionDifficultySpec.tests
-         -- SchedulerTests.SimpleTransferSpec.tests
-         -- SchedulerTests.UpdateAccountKeys.tests
-         SchedulerTests.EncryptedAmountTransferSpec.tests
+         SchedulerTests.SimpleTransfersTest.tests
+         SchedulerTests.ChainMetatest.tests
+         SchedulerTests.InitContextTest.tests
+         SchedulerTests.ReceiveContextTest.tests
+         SchedulerTests.TrySendTest.tests
+         SchedulerTests.FibonacciSelfMessageTest.tests
+         SchedulerTests.AccountTransactionSpecs.tests
+         SchedulerTests.BakerTransactions.tests
+         SchedulerTests.Delegation.tests
+         SchedulerTests.CredentialTest.tests
+         SchedulerTests.TransactionExpirySpec.tests
+         SchedulerTests.BlockEnergyLimitSpec.tests
+         SchedulerTests.TransactionGroupingSpec2.tests
+         SchedulerTests.UpdateElectionDifficultySpec.tests
+         SchedulerTests.SimpleTransferSpec.tests
+         SchedulerTests.UpdateAccountKeys.tests
+         SchedulerTests.EncryptedTransfersTest.tests
