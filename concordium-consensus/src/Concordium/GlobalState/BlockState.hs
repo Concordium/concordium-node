@@ -152,7 +152,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m EncryptedAmount
   getAccountEncryptedAmountAtIndex acc index = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
-    if index >= _startIndex && fromIntegral (Seq.length _incomingEncryptedAmounts) < index - _startIndex then
+    if index >= _startIndex && fromIntegral (Seq.length _incomingEncryptedAmounts) >= index - _startIndex then
       let toTake = Seq.take (fromIntegral (index - _startIndex)) _incomingEncryptedAmounts
       in return $! foldl' aggregateAmounts _selfAmount toTake
     else return _selfAmount
