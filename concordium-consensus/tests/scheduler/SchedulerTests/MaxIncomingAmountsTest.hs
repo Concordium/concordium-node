@@ -1,4 +1,3 @@
-{-# LANGUAGE ParallelListComp #-}
 module SchedulerTests.MaxIncomingAmountsTest where
 
 {-
@@ -104,7 +103,7 @@ allTxs = iterate makeNext (encryptedTransferData1, 990)
 -- Infinite list of transaction specs that before `maxNumIncoming` transactions considers that transferred amounts are added to the incoming amounts and after that it checks that the initial incoming amounts are being automatically aggregated.
 transactions :: [(Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))]
 transactions =
-  [ makeNormalTransaction x idx | (x, _) <- normal | idx <- [1..] ] ++ [ makeInterestingTransaction tx (fromIntegral idx) | (tx, _) <- interesting  | idx <- [maxNumIncoming + 1..] ]
+  [ makeNormalTransaction x idx | (idx, (x, _)) <- zip [1..] normal ] ++ [ makeInterestingTransaction tx (fromIntegral idx) | (idx, (tx, _)) <- zip [maxNumIncoming + 1..] interesting ]
  where
        (normal, interesting) = splitAt maxNumIncoming allTxs
 
