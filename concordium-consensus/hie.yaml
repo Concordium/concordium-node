@@ -1,0 +1,226 @@
+cradle:
+  multi:
+    - path: "./"
+      config:
+        cradle:
+          multi:
+            - path: "./Concordium/Setup.hs"
+              config:
+                cradle:
+                  direct:
+                    arguments:
+                      - "-package Cabal"
+                      - "-package base"
+
+            - path: "./scheduler/Setup.hs"
+              config:
+                cradle:
+                  direct:
+                    arguments:
+                      - "-package Cabal"
+                      - "-package base"
+                      - "-package directory"
+
+            - path: "./globalstate-mockup/globalstate/Setup.hs"
+              config:
+                cradle:
+                  direct:
+                    arguments:
+                      - "-package Cabal"
+                      - "-package base"
+
+            - path: "./globalstate-types/Setup.hs"
+              config:
+                cradle:
+                  direct:
+                    arguments:
+                      - "-package Cabal"
+                      - "-package base"
+
+            - path: "./crypto/Setup.hs"
+              config:
+                cradle:
+                  direct:
+                    arguments:
+                      - "-package Cabal"
+                      - "-package base"
+                      - "-package directory"
+
+            - path: "./globalstate-mockup/deps/haskell-lmdb/Setup.hs"
+              config:
+                cradle:
+                  direct:
+                    arguments:
+                      - "-package Cabal"
+                      - "-package base"
+
+            - path: "./Concordium/src"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "Concordium:lib"
+
+            - path: "./Concordium/app"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "Concordium:exe:Concordium-exe"
+
+            - path: "./Concordium/catchup"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "Concordium:exe:Concordium-catchup"
+
+            - path: "./Concordium/deterministic-runner"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "Concordium:exe:deterministic-runner"
+
+            - path: "./Concordium/genesis/"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "Concordium:exe:genesis"
+
+            - path: "./Concordium/test"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "Concordium:test:Concordium-test"
+
+            - path: "./scheduler/src"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "scheduler:lib"
+
+            - path: "./scheduler/test"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "scheduler:test:scheduler-test"
+
+            - path: "./scheduler/app"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "scheduler:exe:scheduler-exe"
+
+            - path: "./crypto/haskell-src"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:lib"
+
+            - path: "./crypto/haskell-tests"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:test:tests"
+
+            - path: "./crypto/haskell-tests/PerformanceTests/BlsPerf.hs"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:bench:bls-perf"
+
+            - path: "./crypto/haskell-tests/PerformanceTests/Ed25519DlogPerf.hs"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:bench:ed25519dlog-perf"
+
+            - path: "./crypto/haskell-tests/PerformanceTests/Ed25519Perf.hs"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:bench:ed25519-perf"
+
+            - path: "./crypto/haskell-tests/PerformanceTests/SHA256Perf.hs"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:bench:sha256-perf"
+
+            - path: "./crypto/haskell-tests/PerformanceTests/VerifyCredentialPerf.hs"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "concordium-crypto:bench:verify-credential-perf"
+
+            - path: "./globalstate-mockup/globalstate/src"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "globalstate:lib"
+
+            - path: "./globalstate-mockup/globalstate/test"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "globalstate:test:globalstate-test"
+
+            - path: "./globalstate-mockup/deps/haskell-lmdb/hsrc_lib"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "lmdb:lib"
+
+            - path: "./globalstate-types/src"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "globalstate-types:lib"
+
+            - path: "./globalstate-types/MPFRTest/app/Main.hs"
+              config:
+                cradle:
+                  none: {}
+
+            - path: "./globalstate-types/test"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "globalstate-types:test:types-test"
+
+            - path: "./wasm/src"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "wasm:lib"
+
+            - path: "./wasm/tests"
+              config:
+                cradle:
+                  stack:
+                    - path: "./"
+                      component: "wasm:test:test"
+
+            - path: "./wasm/exec/Main.hs"
+              config:
+                cradle:
+                  none: {}
