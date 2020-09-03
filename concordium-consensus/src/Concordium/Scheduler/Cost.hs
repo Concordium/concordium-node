@@ -222,4 +222,14 @@ removeAccountKeys _n = 0
 -- |Cost of an encrypted amount transfer validation.
 -- FIXME: After we have benchmarked proof checking update this.
 encryptedAmountTransfer :: Energy
-encryptedAmountTransfer = 10000
+encryptedAmountTransfer = 30000
+
+-- |Cost of an public to secret transfer
+-- FIXME: After we have benchmarked proof checking update this.
+pubToSecTransfer :: Energy
+pubToSecTransfer = 100
+
+-- |Cost of secret to public transfer.
+-- FIXME: After we have benchmarked proof checking update this.
+secToPubTransfer :: Energy
+secToPubTransfer = 20000
