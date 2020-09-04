@@ -51,6 +51,7 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.Types
+import Concordium.Types.Updates
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -593,10 +594,16 @@ instance MonadBlobStore r m => BlobStorable r m EncryptedAmount
 -- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
 instance MonadBlobStore r m => BlobStorable r m [EncryptedAmount]
 instance MonadBlobStore r m => BlobStorable r m PersistingAccountData
+instance MonadBlobStore r m => BlobStorable r m Authorizations
+instance MonadBlobStore r m => BlobStorable r m ProtocolUpdate
+instance MonadBlobStore r m => BlobStorable r m ExchangeRate
+instance MonadBlobStore r m => BlobStorable r m ElectionDifficulty
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)
 instance (MonadBlobStore r m, Serialize a) => BlobStorable r m (StoreSerialized a)
+deriving newtype instance HashableTo h a => HashableTo h (StoreSerialized a)
+deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized a)
 
 data HashedBufferedRef a
   = HashedBufferedRef
@@ -608,6 +615,11 @@ bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed val h) = do
   br <- makeBRMemory refNull val
   return $ HashedBufferedRef br (Just h)
+
+makeHashedBufferedRef :: (MonadIO m, MHashableTo m H.Hash a) => a -> m (HashedBufferedRef a)
+makeHashedBufferedRef val = do
+  h <- getHashM val
+  bufferHashed (Hashed val h)
 
 instance (BlobStorable r m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (HashedBufferedRef a) where
   getHashM ref = maybe (getHashM =<< refLoad ref) return (bufferedHash ref)
@@ -647,3 +659,17 @@ instance (Monad m, BlobStorable r m a, MHashableTo m H.Hash a) => Reference m Ha
   refUncache ref = do
     br <- uncacheBuffered (bufferedReference ref)
     return $ ref {bufferedReference = br}
+
+instance (BlobStorable r m a, MHashableTo m H.Hash a) => BlobStorable r m (Nullable (HashedBufferedRef a)) where
+    store Null = return $ put (refNull :: BlobRef a)
+    store (Some v) = store v
+    load = do
+        (r :: BlobRef a) <- get
+        if isNull r then
+            return (pure Null)
+        else
+            fmap Some <$> load
+    storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+    storeUpdate (Some v) = do
+        (r, v') <- storeUpdate v
+        return (r, Some v')

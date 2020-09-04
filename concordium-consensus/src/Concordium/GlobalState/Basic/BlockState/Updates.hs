@@ -1,12 +1,17 @@
-{-# LANGUAGE TemplateHaskell, BangPatterns #-}
+{-# LANGUAGE TemplateHaskell, BangPatterns, DeriveFunctor, OverloadedStrings #-}
 module Concordium.GlobalState.Basic.BlockState.Updates where
 
+import qualified Data.ByteString as BS
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Semigroup
+import Data.Serialize
 import Lens.Micro.Platform
 
+import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Types.Updates
+import Concordium.Utils.Serialization
 
 import Concordium.GlobalState.Parameters
 
@@ -15,8 +20,14 @@ data UpdateQueue e = UpdateQueue {
     _uqNextSequenceNumber :: !UpdateSequenceNumber,
     -- |Pending updates, in ascending order of effective time.
     _uqQueue :: ![(TransactionTime, e)]
-} deriving (Show)
+} deriving (Show, Functor)
 makeLenses ''UpdateQueue
+
+instance HashableTo H.Hash e => HashableTo H.Hash (UpdateQueue e) where
+    getHash UpdateQueue{..} = H.hash $ runPut $ do
+        put _uqNextSequenceNumber
+        putLength $ length _uqQueue
+        mapM_ (\(t, e) -> put t >> put (getHash e :: H.Hash)) _uqQueue
 
 emptyUpdateQueue :: UpdateQueue e
 emptyUpdateQueue = UpdateQueue {
@@ -30,7 +41,7 @@ enqueue !t !e = (uqNextSequenceNumber +~ 1)
             . (uqQueue %~ \q -> let !r = takeWhile ((< t) . fst) q in r ++ [(t, e)])
 
 data PendingUpdates = PendingUpdates {
-    _pAuthorizationQueue :: !(UpdateQueue Authorizations),
+    _pAuthorizationQueue :: !(UpdateQueue (Hashed Authorizations)),
     _pProtocolQueue :: !(UpdateQueue ProtocolUpdate),
     _pElectionDifficultyQueue :: !(UpdateQueue ElectionDifficulty),
     _pEuroPerEnergyQueue :: !(UpdateQueue ExchangeRate),
@@ -38,19 +49,43 @@ data PendingUpdates = PendingUpdates {
 } deriving (Show)
 makeLenses ''PendingUpdates
 
+instance HashableTo H.Hash PendingUpdates where
+    getHash PendingUpdates{..} = H.hash $
+            hsh _pAuthorizationQueue
+            <> hsh _pProtocolQueue
+            <> hsh _pElectionDifficultyQueue
+            <> hsh _pEuroPerEnergyQueue
+            <> hsh _pMicroGTUPerEuroQueue
+        where
+            hsh :: HashableTo H.Hash a => a -> BS.ByteString
+            hsh = H.hashToByteString . getHash
+
 emptyPendingUpdates :: PendingUpdates
 emptyPendingUpdates = PendingUpdates emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue
 
 data Updates = Updates {
-    _currentAuthorizations :: !Authorizations,
+    _currentAuthorizations :: !(Hashed Authorizations),
     _currentProtocolUpdate :: !(Maybe ProtocolUpdate),
     _currentParameters :: !ChainParameters,
     _pendingUpdates :: !PendingUpdates
 } deriving (Show)
 makeClassy ''Updates
 
+instance HashableTo H.Hash Updates where
+    getHash Updates{..} = H.hash $
+            hsh _currentAuthorizations
+            <> case _currentProtocolUpdate of
+                    Nothing -> "\x00"
+                    Just cpu -> "\x01" <> hsh cpu
+            <> hsh _currentParameters
+            <> hsh _pendingUpdates
+        where
+            hsh :: HashableTo H.Hash a => a -> BS.ByteString
+            hsh = H.hashToByteString . getHash
+
 initialUpdates :: Authorizations -> ChainParameters -> Updates
-initialUpdates _currentAuthorizations _currentParameters = Updates {
+initialUpdates initialAuthorizations _currentParameters = Updates {
+        _currentAuthorizations = makeHashed initialAuthorizations,
         _currentProtocolUpdate = Nothing,
         _pendingUpdates = emptyPendingUpdates,
         ..
@@ -121,7 +156,7 @@ lookupNextUpdateSequenceNumber u UpdateEuroPerEnergy = u ^. pendingUpdates . pEu
 lookupNextUpdateSequenceNumber u UpdateMicroGTUPerEuro = u ^. pendingUpdates . pMicroGTUPerEuroQueue . uqNextSequenceNumber
 
 enqueueUpdate :: TransactionTime -> UpdatePayload -> Updates -> Updates
-enqueueUpdate effectiveTime (AuthorizationUpdatePayload auths) = pendingUpdates . pAuthorizationQueue %~ enqueue effectiveTime auths
+enqueueUpdate effectiveTime (AuthorizationUpdatePayload auths) = pendingUpdates . pAuthorizationQueue %~ enqueue effectiveTime (makeHashed auths)
 enqueueUpdate effectiveTime (ProtocolUpdatePayload protUp) = pendingUpdates . pProtocolQueue %~ enqueue effectiveTime protUp
 enqueueUpdate effectiveTime (ElectionDifficultyUpdatePayload edUp) = pendingUpdates . pElectionDifficultyQueue %~ enqueue effectiveTime edUp
 enqueueUpdate effectiveTime (EuroPerEnergyUpdatePayload epeUp) = pendingUpdates . pEuroPerEnergyQueue %~ enqueue effectiveTime epeUp

@@ -731,8 +731,8 @@ doProcessUpdateQueues pbs ts = do
 doGetCurrentAuthorizations :: MonadBlobStore r m => PersistentBlockState -> m Authorizations
 doGetCurrentAuthorizations pbs = do
         bsp <- loadPBS pbs
-        u <- loadBufferedRef (bspUpdates bsp)
-        unStoreSerialized <$> loadBufferedRef (currentAuthorizations u)
+        u <- refLoad (bspUpdates bsp)
+        unStoreSerialized <$> refLoad (currentAuthorizations u)
 
 doEnqueueUpdate :: MonadBlobStore r m => PersistentBlockState -> TransactionTime -> UpdatePayload -> m PersistentBlockState
 doEnqueueUpdate pbs effectiveTime payload = do
