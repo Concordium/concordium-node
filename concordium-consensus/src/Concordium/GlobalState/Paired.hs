@@ -103,6 +103,7 @@ newtype PairBlockMetadata l r = PairBlockMetadata (l, r)
 instance (BlockMetadata l, BlockMetadata r) => BlockMetadata (PairBlockMetadata l r) where
     blockPointer (PairBlockMetadata (l, r)) = assert (blockPointer l == blockPointer r) $ blockPointer l
     blockBaker (PairBlockMetadata (l, r)) = assert (blockBaker l == blockBaker r) $ blockBaker l
+    blockBakerKey (PairBlockMetadata (l, r)) = assert (blockBakerKey l == blockBakerKey r) $ blockBakerKey l
     blockProof (PairBlockMetadata (l, r)) = assert (blockProof l == blockProof r) $ blockProof l
     blockNonce (PairBlockMetadata (l, r)) = assert (blockNonce l == blockNonce r) $ blockNonce l
     blockFinalizationData (PairBlockMetadata (l, r)) = assert (blockFinalizationData l == blockFinalizationData r) $ blockFinalizationData l
@@ -122,10 +123,12 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
         _ -> error "blockFields do not match"
     blockTransactions (PairBlockData (l, r)) = assert (blockTransactions l == blockTransactions r) $
         blockTransactions l
-    verifyBlockSignature k (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature k r) $ vbsl
+    blockTransactionOutcomesHash (PairBlockData (l, r)) = assert (blockTransactionOutcomesHash l == blockTransactionOutcomesHash r) $ blockTransactionOutcomesHash l
+    blockStateHash (PairBlockData (l, r)) = assert (blockStateHash l == blockStateHash r) $ blockStateHash l 
+    verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) $ vbsl
         where
-            vbsl = verifyBlockSignature k l
-    putBlockV0 (PairBlockData (l, _)) = putBlockV0 l
+            vbsl = verifyBlockSignature l
+    putBlockV1 (PairBlockData (l, _)) = putBlockV1 l
 
 instance (HashableTo BlockHash l, HashableTo BlockHash r) => HashableTo BlockHash (PairBlockData l r) where
     getHash (PairBlockData (l, r)) = assert ((getHash l :: BlockHash) == getHash r) $ getHash l
@@ -216,6 +219,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getTransactionOutcome (ls, rs) th = do
         a1 <- coerceBSML (getTransactionOutcome ls th)
         a2 <- coerceBSMR (getTransactionOutcome rs th)
+        assert (a1 == a2) $ return a1
+    getTransactionOutcomesHash (ls, rs) = do
+        a1 <- coerceBSML (getTransactionOutcomesHash ls)
+        a2 <- coerceBSMR (getTransactionOutcomesHash rs)
+        assert (a1 == a2) $ return a1
+    getStateHash (ls, rs) = do
+        a1 <- coerceBSML (getStateHash ls)
+        a2 <- coerceBSMR (getStateHash rs)
         assert (a1 == a2) $ return a1
     getOutcomes (ls, rs) = do
         a1 <- coerceBSML (getOutcomes ls)
@@ -559,9 +570,9 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         TreeStateMonad (GSMR rc r rs s m),
         ATIStorage (GSMR rc r rs s m) ~ ())
         => TreeStateMonad (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
-    makePendingBlock sk sl parent bid bp bn lf trs brtime = do
-      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs brtime
-      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs brtime
+    makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
+      pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
+      pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
       assert (pb1 == pb2) $ return pb1
 
     getFinalizedAtHeight bHeight = do

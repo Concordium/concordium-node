@@ -414,8 +414,8 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
           PerAccountDBOperations (PersistentTreeStateMonad ati bs m),
           MonadState (SkovPersistentData ati bs) m)
          => TS.TreeStateMonad (PersistentTreeStateMonad ati bs m) where
-    makePendingBlock key slot parent bid pf n lastFin trs time = do
-        return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs) time
+    makePendingBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash time = do
+        return $! makePendingBlock (signBlock key slot parent bid pf n lastFin trs stateHash transactionOutcomesHash) time
     getBlockStatus bh = do
       st <- use (blockTable . at' bh)
       case st of
