@@ -39,7 +39,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Skov
 import Concordium.Skov.Update (updateFocusBlockTo)
 
-import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult)
+import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..))
 import Concordium.Scheduler.Types(FilteredTransactions(..))
 
 import Concordium.Logger
@@ -207,10 +207,13 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     bps <- updateSeedState (UEP.updateSeedState slot nonce) birkParams
+    -- Results = {_energyUsed, _finalState, _transactionLog}
     (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
-    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) receiveTime
+    transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
+    stateHash <- getStateHash (_finalState result)
+    pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
     newbp <- storeBakedBlock pb
                          bb
                          lastFinal
