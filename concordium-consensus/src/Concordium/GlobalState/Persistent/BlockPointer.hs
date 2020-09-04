@@ -70,7 +70,7 @@ makeGenesisPersistentBlockPointer :: (MonadIO m) =>
 makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
   let _bpReceiveTime = timestampToUTCTime (genesisTime genData)
       b = GenesisBlock genData
-      _bpHash = Hash.hashLazy . runPutLazy $ put genesisSlot <> put genData
+      _bpHash = BlockHashV0 . Hash.hashLazy . runPutLazy $ put genesisSlot <> put genData
   _bpParent <- emptyWeak
   _bpLastFinalized <- emptyWeak
   return $ BlockPointer {
