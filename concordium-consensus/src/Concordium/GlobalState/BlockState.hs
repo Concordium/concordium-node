@@ -45,6 +45,7 @@ import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 
+import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Updates
@@ -75,6 +76,18 @@ type ModuleIndex = Word64
 data Module = Module {
     moduleInterface :: !Wasm.ModuleInterface,
     moduleIndex :: !ModuleIndex
+}
+
+data BlockStateHashInputs = BlockStateHashInputs {
+    bshBirkParameters :: H.Hash,
+    bshCryptographicParameters :: H.Hash,
+    bshIdentityProviders :: H.Hash,
+    bshAnonymityRevokers :: H.Hash,
+    bshModules :: H.Hash,
+    bshBankStatus :: H.Hash,
+    bshAccounts :: H.Hash,
+    bshInstances :: H.Hash,
+    bshUpdates :: H.Hash
 }
 
 class (BlockStateTypes m,  Monad m) => BakerQuery m where
@@ -220,11 +233,6 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
     -- |Get the next sequence number for a particular update type.
     getNextUpdateSequenceNumber :: BlockState m -> UpdateType -> m UpdateSequenceNumber
-{-
-    -- |Get the access structure for the given update type.
-    getCurrentAuthorization :: UpdateType -> BlockState m -> m AccessStructure
-    getCurrentAuthorization = undefined
--}
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -363,7 +371,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
-  -- |Enqueue an update to take effect at the specificied time.
+  -- |Enqueue an update to take effect at the specified time.
   bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
 
 -- | Block state storage operations

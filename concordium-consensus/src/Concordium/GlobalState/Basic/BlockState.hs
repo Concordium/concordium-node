@@ -439,7 +439,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoProcessUpdateQueues bs ts = return $! bs & blockUpdates %~ processUpdateQueues ts
 
     {-# INLINE bsoGetCurrentAuthorizations #-}
-    bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations
+    bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations . unhashed
 
     {-# INLINE bsoGetNextUpdateSequenceNumber #-}
     bsoGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty

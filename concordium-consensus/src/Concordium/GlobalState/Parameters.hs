@@ -20,6 +20,8 @@ import Lens.Micro.Platform
 
 import Concordium.Common.Version
 import Concordium.Types
+import Concordium.Types.HashableTo
+import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.BakerInfo
@@ -80,6 +82,11 @@ instance Serialize ChainParameters where
     put _cpEuroPerEnergy
     put _cpMicroGTUPerEuro
   get = makeChainParameters <$> get <*> get <*> get
+
+instance HashableTo Hash.Hash ChainParameters where
+  getHash = Hash.hash . encode
+
+instance Monad m => MHashableTo m Hash.Hash ChainParameters
 
 instance FromJSON ChainParameters where
   parseJSON = withObject "ChainParameters" $ \v ->
