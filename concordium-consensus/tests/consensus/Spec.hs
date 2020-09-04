@@ -15,6 +15,7 @@ import qualified ConcordiumTests.Konsensus (tests)
 import qualified ConcordiumTests.CatchUp (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
 import qualified ConcordiumTests.FinalizationRecover(test)
+import qualified ConcordiumTests.Update(test)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -28,6 +29,7 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
+    ConcordiumTests.Update.test
     ConcordiumTests.Afgjort.Types.tests lvl
     ConcordiumTests.Afgjort.CSS.tests lvl
     ConcordiumTests.Afgjort.CSS.NominationSet.tests lvl

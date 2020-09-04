@@ -21,6 +21,7 @@ import Concordium.Afgjort.WMVBA
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.SHA256 as H
+import qualified Concordium.Types as T
 
 import Concordium.Crypto.DummyData
 
@@ -113,7 +114,7 @@ runWMVBATest me baid nparties keys = go myInstance initialWMVBAState
 
 
 blockA :: Val
-blockA = H.hash "A"
+blockA = T.BlockHashV0 (H.hash "A")
 
 testData1 :: BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput]
 testData1 baid v keys = inputs
@@ -203,10 +204,10 @@ createAggSigTest = do
         wi = WMVBAInstance baid 17 5 pWeight 16 undefined 0 undefined pubKeys undefined
     val <- H.hash . BS.pack <$> arbitrary
     let
-        toSign = (witnessMessage baid val)
+        toSign = (witnessMessage baid (T.BlockHashV0 (val)))
         (_, signatures) = makePartiesAndSignatures keys toSign culpritIxs
         culprits = PS.fromList pWeight culpritIxs
-        (proof, bad) = createAggregateSig wi val (PM.fromList pWeight signatures) PS.empty
+        (proof, bad) = createAggregateSig wi (T.BlockHashV0 (val)) (PM.fromList pWeight signatures) PS.empty
     case proof of
       Just (good, sig) -> return $ (bad === culprits .&&. Bls.verifyAggregate toSign (pubKeys <$> good) sig)
       Nothing -> return $ property False
