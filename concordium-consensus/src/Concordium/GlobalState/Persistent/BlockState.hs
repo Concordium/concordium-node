@@ -89,10 +89,10 @@ makeBlockHashesM BlockStatePointers {..} = do
       hashOfAccountsAndInstances = H.hashOfHashes accountsHash instancesHash
       hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
       hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
-      blockStateHash = H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances
+      blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
   return Basic.BlockStateHashes {..}
 
-instance MonadBlobStore r m => MHashableTo m H.Hash BlockStatePointers where
+instance MonadBlobStore r m => MHashableTo m StateHash BlockStatePointers where
   getHashM bps = maybe (fmap Basic.blockStateHash (makeBlockHashesM bps)) (return . Basic.blockStateHash) (bspHashes bps)
 
 instance (MonadBlobStore r m, BlobStorable r m (Nullable (BlobRef Accounts.RegIdHistory))) => BlobStorable r m BlockStatePointers where
@@ -332,7 +332,7 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
       hashOfAccountsAndInstances = H.hashOfHashes accountsHash instancesHash
       hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
       hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
-      blockStateHash = H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances
+      blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
   let bspHashes = Just Basic.BlockStateHashes {..}
 
   bsp <- makeBufferedRef $ BlockStatePointers
@@ -678,10 +678,24 @@ doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! bspTransactionOutcomes bsp ^? ix transHash
 
+doGetTransactionOutcomesHash :: MonadBlobStore r m => PersistentBlockState -> PersistentBlockStateMonad r m TransactionOutcomesHash 
+doGetTransactionOutcomesHash pbs =  do
+    bsp <- loadPBS pbs
+    return $! getHash (bspTransactionOutcomes bsp)
+
 doSetTransactionOutcomes :: MonadBlobStore r m => PersistentBlockState -> [TransactionSummary] -> PersistentBlockStateMonad r m PersistentBlockState
 doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
+
+-- Must be called on a frozen blockstate, as hashes are not evaluated until then.
+doGetStateHash :: MonadBlobStore r m => PersistentBlockState -> PersistentBlockStateMonad r m StateHash
+doGetStateHash pbs  = do
+        bsp <- loadPBS pbs
+        return $! case (bspHashes bsp) of
+                Nothing -> error "called doGetStateHash on a persistent blockstate where bspHashes was Nothing"
+                Just hashes' -> Basic.blockStateHash hashes'
+        
 
 doNotifyExecutionCost :: MonadBlobStore r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m PersistentBlockState
 doNotifyExecutionCost pbs amnt = do
@@ -788,6 +802,8 @@ instance MonadBlobStore r m => BlockStateQuery (PersistentBlockStateMonad r m) w
     getBlockBirkParameters = doGetBlockBirkParameters
     getRewardStatus = doGetRewardStatus
     getTransactionOutcome = doGetTransactionOutcome
+    getTransactionOutcomesHash = doGetTransactionOutcomesHash
+    getStateHash = doGetStateHash
     getSpecialOutcomes = doGetSpecialOutcomes
     getOutcomes = doGetOutcomes
     getAllIdentityProviders = doGetAllIdentityProvider
