@@ -37,6 +37,7 @@ import Concordium.TimeMonad
 import Concordium.Skov.Statistics
 import Data.Maybe (fromMaybe)
 
+
 -- |Determine if one block is an ancestor of another.
 -- A block is considered to be an ancestor of itself.
 isAncestorOf :: BlockPointerMonad m => BlockPointerType m -> BlockPointerType m -> m Bool
@@ -332,8 +333,9 @@ addBlock block = do
                                     (blockSlot block)
                                     _bakerElectionVerifyKey
                                     (blockNonce block)) $
-                        -- And the block signature
-                        check "invalid block signature" (verifyBlockSignature _bakerSignatureVerifyKey block) $ do
+                        -- And check baker key matches claimed key.
+                        -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
+                        check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
                             bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
@@ -342,24 +344,30 @@ addBlock block = do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock "execution failure"
                                 Right result -> do
-                                    -- Add the block to the tree
-                                    blockP <- blockArrive block parentP lfBlockP result
-                                    -- Notify of the block arrival (for finalization)
-                                    finalizationBlockArrival blockP
-                                    onBlock blockP
-                                    -- Process finalization records
-                                    -- Handle any blocks that are waiting for this one
-                                    children <- takePendingChildren (getHash block)
-                                    forM_ children $ \childpb -> do
-                                        childStatus <- getBlockStatus (getHash childpb)
-                                        let
-                                            isPending Nothing = True
-                                            isPending (Just (BlockPending _)) = True
-                                            isPending _ = False
-                                        when (isPending childStatus) $ addBlock childpb >>= \case
-                                            ResultSuccess -> onPendingLive
-                                            _ -> return ()
-                                    return ResultSuccess
+                                    -- Check that the StateHash is correct
+                                    stateHash <- getStateHash (_finalState result)
+                                    check "Claimed stateHash did not match calculated stateHash"(stateHash == blockStateHash block) $ do
+                                        -- Check that the TransactionOutcomeHash is correct
+                                        tohash <- getTransactionOutcomesHash (_finalState result) 
+                                        check "Claimed transactionOutcomesHash did not match actual transactionOutcomesHash"(tohash ==  blockTransactionOutcomesHash block) $ do
+                                            -- Add the block to the tree
+                                            blockP <- blockArrive block parentP lfBlockP result
+                                            -- Notify of the block arrival (for finalization)
+                                            finalizationBlockArrival blockP
+                                            onBlock blockP
+                                            -- Process finalization records
+                                            -- Handle any blocks that are waiting for this one
+                                            children <- takePendingChildren (getHash block)
+                                            forM_ children $ \childpb -> do
+                                                childStatus <- getBlockStatus (getHash childpb)
+                                                let
+                                                    isPending Nothing = True
+                                                    isPending (Just (BlockPending _)) = True
+                                                    isPending _ = False
+                                                when (isPending childStatus) $ addBlock childpb >>= \case
+                                                    ResultSuccess -> onPendingLive
+                                                    _ -> return ()
+                                            return ResultSuccess
 
 -- |Add a valid, live block to the tree.
 -- This is used by 'addBlock' and 'doStoreBakedBlock', and should not
@@ -406,7 +414,9 @@ doStoreBlock pb@GB.PendingBlock{..} = do
         BakedBlock{..} = pbBlock
     oldBlock <- getBlockStatus cbp
     case oldBlock of
-        Nothing -> do
+        Nothing ->  
+            -- Check that the claimed key matches the signature/blockhash
+            checkClaimedSignature pb $ do
             -- The block is new, so we have some work to do.
             logEvent Skov LLDebug $ "Received block " ++ show pb
             txList <- sequence <$> forM (blockTransactions pb) (\tr -> fst <$> doReceiveTransactionInternal tr (blockSlot pb))
@@ -420,6 +430,10 @@ doStoreBlock pb@GB.PendingBlock{..} = do
                 updateReceiveStatistics block1
                 addBlock block1
         Just _ -> return ResultDuplicate
+    where
+        checkClaimedSignature b a = if verifyBlockSignature b then a else do
+            logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: " 
+            return ResultInvalid
 
 -- |Store a block that is baked by this node in the tree.  The block
 -- is presumed to be valid.
