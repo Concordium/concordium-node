@@ -411,7 +411,7 @@ makeAsyncRunner logm bkr config = do
         _ <- forkIO (msgLoop `catch` \(e :: SomeException) -> (logm Runner LLError ("Message loop exited with exception: " ++ show e) >> Prelude.putStrLn ("// **** " ++ show e)))
         return (inChan, outChan, sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putVersionedBlockV0 block
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putVersionedBlockV1 block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ putVersionedFPMV0 finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ putVersionedFinalizationRecordV0 finRec
 
@@ -479,11 +479,11 @@ readBlocks lbs tm logm f syncRunner = do
         logm External LLError $ "Error deserializing header: " ++ err
         return ResultSerializationFail
       Right (version, rest)
-          | version == 0 -> loopV0 rest
+          | version == 1 -> loopV1 rest
           | otherwise -> do
               logm External LLError $ "Unsupported version: " ++ show version
               return ResultSerializationFail
-  where loopV0 rest
+  where loopV1 rest
             | LBS.null rest = return ResultSuccess -- we've reached the end of the file
             | otherwise =
                 case runGetLazyState blockGetter rest of
@@ -491,14 +491,14 @@ readBlocks lbs tm logm f syncRunner = do
                     logm External LLError $ "Error reading block bytes: " ++ err
                     return ResultSerializationFail
                   Right (blockBS, remainingBS) -> do
-                    result <- importBlockV0 blockBS tm logm f syncRunner
+                    result <- importBlockV1 blockBS tm logm f syncRunner
                     case result of
-                      ResultSuccess -> loopV0 remainingBS
+                      ResultSuccess -> loopV1 remainingBS
                       ResultPendingBlock -> do
                         -- this shouldn't happen
                         logm External LLWarning $ "Imported pending block."
-                        loopV0 remainingBS
-                      ResultDuplicate -> loopV0 remainingBS
+                        loopV1 remainingBS
+                      ResultDuplicate -> loopV1 remainingBS
                       err -> do -- stop processing at first error that we encounter.
                         logm External LLError $ "Error importing block: " ++ show err
                         return err
@@ -506,14 +506,14 @@ readBlocks lbs tm logm f syncRunner = do
           len <- getWord64be
           getByteString (fromIntegral len)
 
-importBlockV0 :: ByteString
+importBlockV1 :: ByteString
               -> UTCTime
               -> LogMethod IO
               -> (t -> PendingBlock -> IO UpdateResult)
               -> t
               -> IO UpdateResult
-importBlockV0 blockBS tm logm f syncRunner =
-  case deserializePendingBlockV0 blockBS tm of
+importBlockV1 blockBS tm logm f syncRunner =
+  case deserializePendingBlockV1 blockBS tm of
     Left err -> do
       logm External LLError $ "Can't deserialize block: " ++ show err
       return ResultSerializationFail
