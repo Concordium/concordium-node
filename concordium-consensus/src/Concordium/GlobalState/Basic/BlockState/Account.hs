@@ -19,6 +19,7 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types
+import Concordium.ID.Parameters
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Account
 
@@ -52,11 +53,11 @@ instance S.Serialize Account where
 instance HashableTo Hash.Hash Account where
   getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
 
--- |Create an empty account with the given public key, address and credential.
-newAccount :: AccountKeys -> AccountAddress -> CredentialDeploymentValues -> Account
-newAccount _accountVerificationKeys _accountAddress credential = Account {
+-- |Create an empty account with the given public key, encryption key, address and credential.
+newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> Account
+newAccount cryptoParams _accountVerificationKeys _accountAddress credential = Account {
         _accountPersisting = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey (cdvRegId credential),
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (cdvRegId credential),
         _accountCredentials = [credential],
         _accountMaxCredentialValidTo = pValidTo (cdvPolicy credential),
         _accountStakeDelegate = Nothing,

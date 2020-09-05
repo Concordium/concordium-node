@@ -844,9 +844,9 @@ instance MonadPersistentBlockState r m => AccountOperations (PersistentBlockStat
 
   getAccountInstances acc = acc ^^. accountInstances
 
-  createNewAccount _accountVerificationKeys _accountAddress cdv = do
+  createNewAccount cryptoParams _accountVerificationKeys _accountAddress cdv = do
       let pData = PersistingAccountData {
-                    _accountEncryptionKey = ID.makeEncryptionKey (ID.cdvRegId cdv),
+                    _accountEncryptionKey = ID.makeEncryptionKey cryptoParams (ID.cdvRegId cdv),
                     _accountCredentials = [cdv],
                     _accountMaxCredentialValidTo = ID.pValidTo (ID.cdvPolicy cdv),
                     _accountStakeDelegate = Nothing,

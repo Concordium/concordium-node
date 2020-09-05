@@ -66,6 +66,7 @@ import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
+import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
 import Concordium.Crypto.EncryptedTransfers
 
@@ -167,7 +168,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountInstances :: Account m -> m (Set ContractAddress)
 
   -- |Create an empty account with the given public key, address and credential.
-  createNewAccount :: AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
+  createNewAccount :: GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
 
   -- |Update the public account balance
   updateAccountAmount :: Account m -> Amount -> m (Account m)
@@ -479,7 +480,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountStakeDelegate = lift . getAccountStakeDelegate
   getAccountInstances = lift . getAccountInstances
-  createNewAccount ks addr = lift . createNewAccount ks addr
+  createNewAccount gc ks addr = lift . createNewAccount gc ks addr
   updateAccountAmount acc = lift . updateAccountAmount acc
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}

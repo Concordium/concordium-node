@@ -3,13 +3,11 @@
 module Concordium.GlobalState.Account where
 
 import Control.Monad
-import Data.Word
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Maybe
 import Data.Serialize
-import qualified Data.Aeson as AE
 import Lens.Micro.Platform
 
 import Concordium.Utils

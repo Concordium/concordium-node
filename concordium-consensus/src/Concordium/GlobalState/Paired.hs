@@ -287,9 +287,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ais2 <- coerceBSMR (getAccountInstances acc2)
         assert (ais1 == ais2) $ return ais1
 
-    createNewAccount keys addr regId = do
-        acc1 <- coerceBSML (createNewAccount keys addr regId)
-        acc2 <- coerceBSMR (createNewAccount keys addr regId)
+    createNewAccount gc keys addr regId = do
+        acc1 <- coerceBSML (createNewAccount gc keys addr regId)
+        acc2 <- coerceBSMR (createNewAccount gc keys addr regId)
         assert ((getHash acc1 :: H.Hash) == getHash acc2) $
           return (acc1, acc2)
 

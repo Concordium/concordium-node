@@ -336,7 +336,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
 
         mkAccount GenesisAccount{..} =
           let cdv = ID.cdiValues gaCredential in
-          newAccount gaVerifyKeys gaAddress cdv
+          newAccount genesisCryptographicParameters gaVerifyKeys gaAddress cdv
                 & accountAmount .~ gaBalance
         -- special accounts will have some special privileges during beta.
         genesisControlAccounts = map mkAccount gpControlAccounts

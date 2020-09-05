@@ -243,7 +243,7 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountInstances acc = return $ acc ^. accountInstances
 
-  createNewAccount keys addr regId = return $ newAccount keys addr regId
+  createNewAccount gc keys addr regId = return $ newAccount gc keys addr regId
 
   updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
 
