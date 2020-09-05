@@ -180,7 +180,7 @@ blockStateWithAlesAccount alesAmount otherAccounts =
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
 mkAccount :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
-mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+mkAccount key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
 
@@ -189,7 +189,7 @@ mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAm
 -- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
 mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
-mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential addr dummyLowValidTo dummyCreatedAt
 
@@ -198,7 +198,7 @@ mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr
 -- The keys are indexed in ascending order starting from 0
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
 mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
-mkAccountMultipleKeys keys threshold addr amount = newAccount (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
+mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
   where
     cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
 
@@ -210,7 +210,7 @@ makeFakeBakerAccount bid =
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
-    acct = newAccount (makeSingletonAC vfKey) address credential
+    acct = newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
@@ -218,6 +218,6 @@ makeFakeBakerAccount bid =
 
 createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
 createCustomAccount amount kp address =
-    newAccount (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
+    newAccount dummyCryptographicParameters (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
         & (accountAmount .~ amount)
   where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt

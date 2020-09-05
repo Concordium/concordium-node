@@ -17,6 +17,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
+import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.DummyData
@@ -96,13 +97,13 @@ data AccountAction
 randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
 randomizeAccount _accountAddress _accountVerificationKeys = do
   let cred = dummyCredential _accountAddress dummyMaxValidTo dummyCreatedAt
-  let a0 = newAccount _accountVerificationKeys _accountAddress cred
+  let a0 = newAccount dummyCryptographicParameters _accountVerificationKeys _accountAddress cred
   nonce <- Nonce <$> arbitrary
   amt <- Amount <$> arbitrary
   return $ a0 & accountNonce .~ nonce & accountAmount .~ amt
 
 randomCredential :: Gen ID.CredentialRegistrationID
-randomCredential = ID.RegIdCred . generateElgamalSecondFromSeed <$> arbitrary
+randomCredential = ID.RegIdCred . generateGroupElementFromSeed dummyCryptographicParameters <$> arbitrary
 
 randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)
