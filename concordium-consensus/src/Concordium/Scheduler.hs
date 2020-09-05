@@ -329,14 +329,14 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- - replace some encrypted amounts on the sender's account
           -- TODO js: join this two functions in one
           replaceEncryptedAmount senderAccount stpatdIndex stpatdRemainingAmount
-          addAmountFromEncrypted senderAccount $ Amount stpatdTransferAmount
+          addAmountFromEncrypted senderAccount stpatdTransferAmount
 
           return senderAddress
 
         k ls senderAddress = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
-          notifyEncryptedBalanceChange $ AmountDelta $ - toInteger stpatdTransferAmount
+          notifyEncryptedBalanceChange $ amountDiff 0 stpatdTransferAmount
           commitChanges (ls ^. changeSet)
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
@@ -345,7 +345,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
                                 },
                               AmountAddedByDecryption{
                                 aabdAccount = senderAddress,
-                                aabdAmount = Amount stpatdTransferAmount
+                                aabdAmount = stpatdTransferAmount
                                 }],
                    energyCost,
                    usedEnergy)
@@ -373,7 +373,7 @@ handleTransferToEncrypted wtc toEncrypted = do
           unless (senderamount >= toEncrypted) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) toEncrypted)
 
           -- compute the encrypted amount
-          let encryptedAmount = encryptAmountZeroRandomness cryptoParams (_amount toEncrypted)
+          let encryptedAmount = encryptAmountZeroRandomness cryptoParams toEncrypted
 
           -- We have to subtract the amount and update the self encrypted amount
           addSelfEncryptedAmount senderAccount toEncrypted encryptedAmount
@@ -1108,7 +1108,7 @@ handleDeployCredential cdi cdiHash = do
                       let accountKeys = ID.makeAccountKeys keys threshold
                       let aaddr = ID.addressFromRegId regId
                       -- Create the account with the credential, but don't yet add it to the state
-                      account <- createNewAccount accountKeys aaddr cdv
+                      account <- createNewAccount cryptoParams accountKeys aaddr cdv
                       -- this check is extremely unlikely to fail (it would amount to a hash collision since
                       -- we checked regIdEx above already).
                       accExistsAlready <- isJust <$> getAccount aaddr
