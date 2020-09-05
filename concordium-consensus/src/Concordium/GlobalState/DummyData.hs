@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Concordium.GlobalState.DummyData where
@@ -25,7 +25,9 @@ import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
 
 import Concordium.Types
 import System.Random
+import Data.FileEmbed
 import qualified Data.ByteString.Lazy.Char8 as BSL
+import qualified Data.ByteString as BS
 import System.IO.Unsafe
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Crypto.DummyData
@@ -51,10 +53,13 @@ basicGenesisState genData =
 -- proofKP :: Int -> VRF.KeyPair
 -- proofKP n = fst (VRF.randomKeyPair (mkStdGen n))
 
+cryptoParamsFileContents :: BS.ByteString
+cryptoParamsFileContents = $(makeRelativeToProject "testdata/global.json" >>= embedFile)
+
 {-# WARNING dummyCryptographicParameters "Do not use in production" #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "testdata/global.json") of
+  case getExactVersionedCryptographicParameters (BSL.fromStrict cryptoParamsFileContents) of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
