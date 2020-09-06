@@ -167,7 +167,8 @@ removeBaker bid !bakers = do
             return (True, bakers
                             & (bakerMap .~ newBakerMap)
                             & bakersByKey . at' (bkr ^. bakerSignatureVerifyKey) .~ Nothing -- remove the baker by key as well.
-                            & (bakerTotalStake %~ subtract stake))
+                            & (bakerTotalStake %~ subtract stake)
+                            & aggregationKeys %~ Set.delete (bkr ^. bakerAggregationVerifyKey))
 
 modifyStake :: (MonadIO m, MonadReader r m, HasBlobStore r) => Maybe BakerId -> AmountDelta -> PersistentBakers -> m PersistentBakers
 modifyStake (Just bid) delta bakers = do
