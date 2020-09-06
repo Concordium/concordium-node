@@ -87,6 +87,8 @@ class (Eq (BlockPointerType m),
         -> BlockFinalizationData
                             -- ^Finalization data
         -> [BlockItem]      -- ^List of transactions
+        -> StateHash                  -- ^Statehash of the block.
+        -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
         -> UTCTime          -- ^Block receive time
         -> m PendingBlock
 
@@ -306,7 +308,7 @@ class (Eq (BlockPointerType m),
     getRuntimeParameters :: m RuntimeParameters
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
-    makePendingBlock key slot parent bid pf n lastFin trs = lift . makePendingBlock key slot parent bid pf n lastFin trs
+    makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
     markDead = lift . markDead

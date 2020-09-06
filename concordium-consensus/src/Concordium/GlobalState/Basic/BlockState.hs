@@ -151,9 +151,9 @@ makeBlockStateHashes' birkParameters cryptoParams ips ars mods bank accs instanc
       hashOfAccountsAndInstances = H.hashOfHashes (getHash accs) (getHash instances)
       hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
       hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
-      blockStateHash = H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances
+      blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
 
-instance HashableTo H.Hash BlockState where
+instance HashableTo StateHash BlockState where
     getHash BlockState {..} = blockStateHash _blockHashes
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
@@ -205,6 +205,12 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getTransactionOutcome #-}
     getTransactionOutcome bs trh =
         return $ bs ^? blockTransactionOutcomes . ix trh
+
+    {-# INLINE getTransactionOutcomesHash #-}
+    getTransactionOutcomesHash bs = return (getHash $ _blockTransactionOutcomes $ bs)
+    
+    {-# INLINE getStateHash #-}
+    getStateHash bs = return (blockStateHash $ _blockHashes $ bs)
 
     {-# INLINE getOutcomes #-}
     getOutcomes bs =
