@@ -169,7 +169,7 @@ main = do
                          finalizationAllowZeroDelay = True,
                          finalizationIgnoreFirstWait = True
                      }
-                     dummyCryptographicParameters
+                     Dummy.dummyCryptographicParameters
                      dummyIdentityProviders
                      dummyArs
                      [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] (Energy maxBound)

@@ -98,7 +98,7 @@ initialiseStatesDictator n = do
             elDiff = 0.5
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
