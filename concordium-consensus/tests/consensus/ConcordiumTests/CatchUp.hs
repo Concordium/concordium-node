@@ -186,9 +186,9 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                             testList (Set.insert (getHash bp) knownBlocks) knownFin' rs
                         testList _ _ _ = error "Serialization failure"
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
-                    -- * A block is not sent before its parent
-                    -- * A block is not sent before finalization of its last finalized block
-                    -- * A finalization record is not sent before the block it finalizes
+                    -- - A block is not sent before its parent
+                    -- - A block is not sent before finalization of its last finalized block
+                    -- - A finalization record is not sent before the block it finalizes
                     -- Furthermore, check that the finalization records + the requestor's finalized blocks
                     -- add up to the respondent's finalized blocks.
                     testList reqLive reqFin l
