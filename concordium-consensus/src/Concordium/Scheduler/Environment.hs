@@ -300,7 +300,10 @@ class StaticInformation m => TransactionMonad m where
   -- given limit with a new amount.
   replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
 
-  addAmountFromEncrypted :: Account m -> Amount -> m ()
+  -- |Replace encrypted amounts on an account up to (but not including) the
+  -- given limit with a new amount, as well as adding the given amount to the
+  -- public balance of the account
+  addAmountFromEncrypted :: Account m -> Amount -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
 
   -- |Add a new encrypted amount to an account, and return its index.
   -- This may assume this is the only update to encrypted amounts on the given account
@@ -696,7 +699,8 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     addr <- getAccountAddress acc
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= ReplaceUpTo{..}
 
-  addAmountFromEncrypted acc amount = do
+  addAmountFromEncrypted acc amount aggIndex newAmount = do
+    replaceEncryptedAmount acc aggIndex newAmount
     cs <- use changeSet
     cs' <- addAmountToCS acc (amountToDelta amount) cs
     changeSet .= cs'
