@@ -28,7 +28,6 @@ import System.Random
 import Data.FileEmbed
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.ByteString as BS
-import System.IO.Unsafe
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
@@ -63,20 +62,23 @@ dummyCryptographicParameters =
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
-{-# NOINLINE dummyIdentityProviders #-}
+ipsFileContents :: BS.ByteString
+ipsFileContents = $(makeRelativeToProject "testdata/identity_providers.json" >>= embedFile)
+
 {-# WARNING dummyIdentityProviders "Do not use in production." #-}
 dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders =
-  case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
+  case eitherReadIdentityProviders (BSL.fromStrict ipsFileContents) of
     Left err -> error $ "Could not load identity provider test data: " ++ err
     Right ips -> ips
 
+arsFileContents :: BS.ByteString
+arsFileContents = $(makeRelativeToProject "testdata/anonymity_revokers.json" >>= embedFile)
 
-{-# NOINLINE dummyArs #-}
 {-# WARNING dummyArs "Do not use in production." #-}
 dummyArs :: AnonymityRevokers
 dummyArs =
-  case unsafePerformIO (eitherReadAnonymityRevokers <$> BSL.readFile "testdata/anonymity_revokers.json") of
+  case eitherReadAnonymityRevokers (BSL.fromStrict arsFileContents) of
     Left err -> error $ "Could not load anonymity revoker data: " ++ err
     Right ars -> ars
 
