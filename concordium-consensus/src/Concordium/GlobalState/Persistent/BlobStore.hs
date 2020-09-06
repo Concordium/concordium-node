@@ -585,9 +585,8 @@ instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m BakerI
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m BakerInfo
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m Word64
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m BS.ByteString
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m EncryptedAmount
--- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
-instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m [EncryptedAmount]
+-- TODO (MRA) this is ad-hoc and should be replaced so that the list inside it is stored more efficiently.
+instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m AccountEncryptedAmount
 instance (MonadIO m, MonadReader r m, HasBlobStore r) => BlobStorable r m PersistingAccountData
 
 data HashedBufferedRef a

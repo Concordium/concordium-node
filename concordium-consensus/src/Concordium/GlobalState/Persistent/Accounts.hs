@@ -228,10 +228,10 @@ updateAccount :: (MonadIO m, MonadReader r m, HasBlobStore r) => AccountUpdate -
 updateAccount !upd !acc = do
   let pDataRef = acc ^. persistingData
   pData <- loadBufferedRef pDataRef
-  let newEncryptedAmount = case upd ^. auEncrypted of
-                                Empty -> acc ^. accountEncryptedAmount
-                                Add ea -> ea:(acc ^. accountEncryptedAmount)
-                                Replace ea -> [ea]
+  let newEncryptedAmount = foldr updateSingle (acc ^. accountEncryptedAmount) (upd ^. auEncrypted)
+      updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
+      updateSingle Add{..} = addIncomingEncryptedAmount newAmount
+      updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountEncryptedAmount .~ newEncryptedAmount

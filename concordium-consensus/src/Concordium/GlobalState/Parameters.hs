@@ -130,17 +130,35 @@ genesisTotalGTU :: GenesisData -> Amount
 genesisTotalGTU GenesisData{..} =
   sum (_accountAmount <$> (genesisAccounts ++ genesisControlAccounts))
 
-readIdentityProviders :: BSL.ByteString -> Maybe [IpInfo]
-readIdentityProviders = AE.decode
+readIdentityProviders :: BSL.ByteString -> Maybe IdentityProviders
+readIdentityProviders bs = do
+  v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+  guard (vVersion v == 0)
+  return (vValue v)
 
 readAnonymityRevokers :: BSL.ByteString -> Maybe AnonymityRevokers
-readAnonymityRevokers = AE.decode
+readAnonymityRevokers bs = do
+  v <- AE.decode bs
+   -- We only support Version 0 at this point for testing. When we support more
+   -- versions we'll have to decode in a dependent manner, first reading the
+   -- version, and then decoding based on that.
+  guard (vVersion v == 0)
+  return (vValue v)
 
-eitherReadIdentityProviders :: BSL.ByteString -> Either String [IpInfo]
-eitherReadIdentityProviders = AE.eitherDecode
+eitherReadIdentityProviders :: BSL.ByteString -> Either String IdentityProviders
+eitherReadIdentityProviders bs = do
+  v <- AE.eitherDecode bs
+  unless (vVersion v == 0) $ Left $ "Incorrect version: " ++ show (vVersion v)
+  return (vValue v)
 
 eitherReadAnonymityRevokers :: BSL.ByteString -> Either String AnonymityRevokers
-eitherReadAnonymityRevokers = AE.eitherDecode
+eitherReadAnonymityRevokers bs = do
+  v <- AE.eitherDecode bs
+  unless (vVersion v == 0) $ Left $ "Incorrect version: " ++ show (vVersion v)
+  return (vValue v)
 
 getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 getExactVersionedCryptographicParameters bs = do
@@ -190,7 +208,7 @@ instance FromJSON GenesisAccount where
   parseJSON = withObject "GenesisAccount" $ \obj -> do
     gaAddress <- obj .: "address"
     gaVerifyKeys <- obj .: "accountKeys"
-    gaBalance <- Amount <$> obj .: "balance"
+    gaBalance <- obj .: "balance"
     Versioned{..} <- obj .: "credential"
     unless (vVersion == 0) $ fail "Only V0 credentials supported in genesis."
     gaCredential <- parseJSON vValue
@@ -239,7 +257,7 @@ instance FromJSON GenesisParameters where
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
         gpControlAccounts <- v .:? "controlAccounts" .!= []
-        gpMintPerSlot <- Amount <$> v .: "mintPerSlot"
+        gpMintPerSlot <-  v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         return GenesisParameters{..}
 
@@ -318,7 +336,7 @@ parametersToGenesisData GenesisParameters{..} = GenesisData{..}
 
         mkAccount GenesisAccount{..} =
           let cdv = ID.cdiValues gaCredential in
-          newAccount gaVerifyKeys gaAddress cdv
+          newAccount genesisCryptographicParameters gaVerifyKeys gaAddress cdv
                 & accountAmount .~ gaBalance
         -- special accounts will have some special privileges during beta.
         genesisControlAccounts = map mkAccount gpControlAccounts

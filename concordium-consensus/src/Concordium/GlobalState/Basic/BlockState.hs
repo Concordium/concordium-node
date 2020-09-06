@@ -243,11 +243,13 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
 
+  getAccountEncryptionKey acc = return $ acc ^. accountEncryptionKey
+
   getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
 
   getAccountInstances acc = return $ acc ^. accountInstances
 
-  createNewAccount keys addr regId = return $ newAccount keys addr regId
+  createNewAccount gc keys addr regId = return $ newAccount gc keys addr regId
 
   updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
 
@@ -357,7 +359,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoNotifyExecutionCost #-}
     bsoNotifyExecutionCost bs amnt =
-      return . snd $ bs & blockBank . unhashed . Rewards.executionCost <%~ (+ amnt)
+      return $! bs & blockBank . unhashed . Rewards.executionCost %~ (+ amnt)
+
+    {-# INLINE bsoNotifyEncryptedBalanceChange #-}
+    bsoNotifyEncryptedBalanceChange bs amntDiff =
+      return $! bs & blockBank . unhashed . Rewards.totalEncryptedGTU %~ (applyAmountDelta amntDiff)
 
     bsoNotifyIdentityIssuerCredential bs idk =
       let updatedRewards = HashMap.alter (Just . maybe 1 (+ 1)) idk (bs ^. blockBank . unhashed . Rewards.identityIssuersRewards) in

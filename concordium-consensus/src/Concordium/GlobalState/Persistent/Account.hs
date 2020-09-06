@@ -22,7 +22,7 @@ data PersistentAccount = PersistentAccount {
   ,_accountAmount :: !Amount
   -- |List of encrypted amounts on the account.
   -- TODO (MRA) create bufferedref list
-  ,_accountEncryptedAmount :: ![EncryptedAmount]
+  ,_accountEncryptedAmount :: !AccountEncryptedAmount
   -- |A pointer to account data that changes rarely
   ,_persistingData :: !(BufferedRef PersistingAccountData)
   -- |A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
