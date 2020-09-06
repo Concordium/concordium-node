@@ -5,12 +5,9 @@ module ConcordiumTests.Update where
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State
-import qualified Data.ByteString.Lazy as BSL
-import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Lens.Micro.Platform
-import System.IO.Unsafe
 import System.Random
 
 import Test.QuickCheck
@@ -31,7 +28,6 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
@@ -50,18 +46,7 @@ import Data.FixedByteString as FBS
 
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Types.DummyData as DummyTypes
-
--- Setup dummy values for stubbing environment 
-{-# NOINLINE dummyCryptographicParameters #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-    fromMaybe
-        (error "Could not read cryptographic parameters.")
-        (unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
         
-dummyArs :: AnonymityRevokers
-dummyArs = emptyAnonymityRevokers
-
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
@@ -125,7 +110,7 @@ createInitStates = do
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
         elDiff = 1
         bakerAccounts = map (\(_, _, acc) -> acc) bis
-        gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+        gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters Dummy.dummyCryptographicParameters emptyIdentityProviders Dummy.dummyArs 10 $ Energy maxBound
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig

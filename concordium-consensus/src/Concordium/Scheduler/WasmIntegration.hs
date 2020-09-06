@@ -85,7 +85,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                         if outPtr == nullPtr then return Nothing
                         else do
                           len <- peek outputLenPtr
-                          bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr)
+                          bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
         wasmBytes = imWasmSource . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encode initCtx
@@ -155,7 +155,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                           if outPtr == nullPtr then return Nothing
                           else do
                             len <- peek outputLenPtr
-                            bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr)
+                            bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
         wasmBytes = imWasmSource . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
