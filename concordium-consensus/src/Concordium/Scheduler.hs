@@ -327,9 +327,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- if the proof is valid we need to
           -- - add the decrypted amount to the balance
           -- - replace some encrypted amounts on the sender's account
-          -- TODO js: join this two functions in one
-          replaceEncryptedAmount senderAccount stpatdIndex stpatdRemainingAmount
-          addAmountFromEncrypted senderAccount stpatdTransferAmount
+          addAmountFromEncrypted senderAccount stpatdTransferAmount stpatdIndex stpatdRemainingAmount
 
           return senderAddress
 
@@ -383,7 +381,7 @@ handleTransferToEncrypted wtc toEncrypted = do
         k ls (senderAddress, encryptedAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
-          notifyEncryptedBalanceChange $ AmountDelta $ toInteger toEncrypted
+          notifyEncryptedBalanceChange $ amountToDelta toEncrypted
           commitChanges (ls ^. changeSet)
 
           return (TxSuccess [EncryptedSelfAmountAdded{
@@ -441,7 +439,8 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- - update the receiver account with an additional amount
           -- - replace some encrypted amounts on the sender's account
           -- We do this by first replacing on the sender's account, and then adding.
-          -- This order only has an effect if the sender and receiver accounts are the same.
+          -- The order does not matter since we disallow encrypted transfer from
+          -- the account to itself.
 
           replaceEncryptedAmount senderAccount eatdIndex eatdRemainingAmount
           -- The index that the new amount on the receiver's account will get
