@@ -33,7 +33,6 @@ codegen-units = 1
 # Internal dependencies
 consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
 concordium-dns = { package = "concordium-dns", path = "deps/internal/concordium-dns" }
-ec_vrf_ed25519_sha256 = { package = "ec_vrf_ed25519_sha256", path = "deps/internal/consensus/crypto/rust-src/ec_vrf_ed25519_sha256" }
 concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
 crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common" }
 

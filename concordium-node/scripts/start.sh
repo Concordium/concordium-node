@@ -495,7 +495,7 @@ elif [ "$MODE" == "local_wallet_proxy" ]; then
     then
         ARGS="$ARGS --drop-account $WALLET_PROXY_ACCOUNT_FILE"
     else
-        ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account.json"
+        ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account-0.json"
     fi
     if [ -n "$WALLET_PROXY_GLOBAL_JSON" ]; 
     then

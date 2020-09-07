@@ -32,21 +32,20 @@ RUN chmod +x /build-project/start.sh
 
 RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/target/debug/node-collector-backend /build-project/
 
-### Wallet-proxy - DISABLED AS THIS IS BROKEN
-#FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.12 as wallet-proxy-build
-#WORKDIR /
-#ENV STACK_ROOT /.stack
-#RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-#RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
-#WORKDIR /wallet-proxy
-#RUN git checkout e762d1120c211ec115c452bf4302a923d8772422
-#RUN ( cd deps/simple-client && ./build-deps.sh )
-#RUN mkdir -p /libs
-#RUN cp deps/simple-client/extra-libs/*.so /libs
-#ENV LD_LIBRARY_PATH=/libs
-#RUN stack build --copy-bins --ghc-options -j4 --local-bin-path target
-#RUN mkdir -p /bins
-#RUN cp target/wallet-proxy-exe /bins/wallet-proxy
+## Wallet-proxy
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.12 as wallet-proxy-build
+WORKDIR /
+ENV STACK_ROOT /.stack
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch encrypted-amounts git@gitlab.com:Concordium/tools/wallet-proxy.git
+WORKDIR /wallet-proxy
+RUN ( cd deps/simple-client && ./build-deps.sh )
+RUN mkdir -p /libs
+RUN cp deps/simple-client/extra-libs/*.so /libs
+ENV LD_LIBRARY_PATH=/libs
+RUN stack build --copy-bins --ghc-options -j4 --local-bin-path target
+RUN mkdir -p /bins
+RUN cp target/wallet-proxy-exe /bins/wallet-proxy
 
 FROM ubuntu:20.04
 
@@ -66,7 +65,7 @@ COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/node-collector-backend /node-collector-backend 
-#COPY --from=wallet-proxy-build /wallet-proxy/target/wallet-proxy-exe /wallet-proxy
-#COPY --from=wallet-proxy-build /libs/* /usr/lib/
+COPY --from=wallet-proxy-build /wallet-proxy/target/wallet-proxy-exe /wallet-proxy
+COPY --from=wallet-proxy-build /libs/* /usr/lib/
 
 ENTRYPOINT ["/start.sh"]
