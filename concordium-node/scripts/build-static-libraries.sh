@@ -173,7 +173,7 @@ subsection "Pre-check in crypto libs: OK"
 #############################################################################################################################
 section "Build the project in default mode"
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all --extra-lib-dirs $(pwd)/crypto/rust-src/target/release --extra-lib-dirs $(pwd)/smart-contracts/wasmer-interp/target/release
 
 subsection "Project built: OK"
 
@@ -192,7 +192,7 @@ section "Build the project with smart contracts"
 
 sed -i 's/globalstate-types +disable-smart-contracts/globalstate-types -disable-smart-contracts/g' cabal.project.freeze
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all --extra-lib-dirs $(pwd)/crypto/rust-src/target/release --extra-lib-dirs $(pwd)/smart-contracts/wasmer-interp/target/release
 
 subsection "Project build: OK"
 
@@ -211,6 +211,7 @@ section "Build the rust utility binaries"
 
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
+cp $(pwd)/smart-contracts/wasmer-interp/target/release/*.so /binaries/lib/
 (
     cd crypto/rust-bins &&
     cargo build --release
