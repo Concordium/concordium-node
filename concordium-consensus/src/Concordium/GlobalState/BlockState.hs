@@ -150,13 +150,13 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   --
   -- At each index, the 'selfAmounts' is always included, hence if the index is
   -- out of bounds we simply return the 'selfAmounts'
-  getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m EncryptedAmount
+  getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m (Maybe EncryptedAmount)
   getAccountEncryptedAmountAtIndex acc index = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
     if index >= _startIndex && fromIntegral (Seq.length _incomingEncryptedAmounts) >= index - _startIndex then
       let toTake = Seq.take (fromIntegral (index - _startIndex)) _incomingEncryptedAmounts
-      in return $! foldl' aggregateAmounts _selfAmount toTake
-    else return _selfAmount
+      in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
+    else return Nothing
 
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
