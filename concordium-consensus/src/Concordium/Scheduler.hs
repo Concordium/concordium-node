@@ -315,7 +315,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           tickEnergy Cost.secToPubTransfer
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups and a little bit of addition.
@@ -425,8 +425,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           tickEnergy Cost.encryptedAmountTransfer
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex
-
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
           receiverPK <- getAccountEncryptionKey targetAccount
