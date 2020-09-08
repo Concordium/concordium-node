@@ -83,7 +83,7 @@ instance (MonadReader r m, HasBlobStore r, MHashableTo m H.Hash PersistentAccoun
   getHashM Accounts {..} = getHashM accountTable
 
 -- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
--- to a further (committed) history.
+-- to a further (committed) history. Committed here means written to persistent storage.
 data RegIdHistory = RegIdHistory ![ID.CredentialRegistrationID] !(Nullable (BlobRef RegIdHistory))
     deriving (Generic)
 
