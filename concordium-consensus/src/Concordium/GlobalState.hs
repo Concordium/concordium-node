@@ -370,10 +370,10 @@ class GlobalStateConfig c where
 
 instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig = ()
-    type GSState MemoryTreeMemoryBlockConfig = SkovData BS.BlockState
+    type GSState MemoryTreeMemoryBlockConfig = SkovData BS.HashedBlockState
     type GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
-      return ((), initialSkovData rtparams gendata bs, NoLogContext)
+      return ((), initialSkovData rtparams gendata (BS.hashBlockState bs), NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
 
 -- |Configuration that uses the Haskell implementation of tree state and the
@@ -381,7 +381,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
-    type GSState MemoryTreeDiskBlockConfig = SkovData PersistentBlockState
+    type GSState MemoryTreeDiskBlockConfig = SkovData HashedPersistentBlockState
     initialiseGlobalState (MTDBConfig rtparams gendata bs) = liftIO $ do
         pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         let pbsc = PersistentBlockStateContext {..}
@@ -395,7 +395,7 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
 
 instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSLogContext DiskTreeDiskBlockConfig = NoLogContext
-    type GSState DiskTreeDiskBlockConfig = SkovPersistentData () PersistentBlockState
+    type GSState DiskTreeDiskBlockConfig = SkovPersistentData () HashedPersistentBlockState
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
 
     initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
@@ -426,7 +426,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         closeSkovPersistentData st
 
 instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
-    type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump PersistentBlockState
+    type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump HashedPersistentBlockState
     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
     type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
     initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do

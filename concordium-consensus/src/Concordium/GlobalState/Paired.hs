@@ -537,9 +537,9 @@ instance (MonadLogger m,
         p1 <- coerceBSML $ saveBlockState bs1
         p2 <- coerceBSMR $ saveBlockState bs2
         return $ (p1, p2)
-    loadBlockState (p1, p2) = do
-        bs1 <- coerceBSML $ loadBlockState p1
-        bs2 <- coerceBSMR $ loadBlockState p2
+    loadBlockState h(p1, p2) = do
+        bs1 <- coerceBSML $ loadBlockState h p1
+        bs2 <- coerceBSMR $ loadBlockState h p2
         return (bs1, bs2)
 
 {-# INLINE coerceGSML #-}
