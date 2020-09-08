@@ -636,8 +636,11 @@ instance (Monad m, BlobStorable r m a, MHashableTo m H.Hash a) => Reference m Ha
 
   refCache ref = do
     (val, br) <- cacheBufferedRef (bufferedReference ref)
-    h <- getHashM val
-    return (val, ref {bufferedReference = br, bufferedHash = bufferedHash ref <|> Just h})
+    case bufferedHash ref of
+      Nothing -> do
+        h <- getHashM val
+        return (val, ref {bufferedReference = br, bufferedHash = Just h})
+      theHash@(Just _) -> return (val, ref {bufferedReference = br, bufferedHash = theHash})
 
   refUncache ref = do
     br <- uncacheBuffered (bufferedReference ref)
