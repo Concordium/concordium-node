@@ -315,13 +315,12 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           tickEnergy Cost.secToPubTransfer
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
 
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups and a little bit of addition.
           senderPK <- getAccountEncryptionKey senderAccount
-          unless (isJust senderAmount) $ rejectTransaction InvalidIndexOnEncryptedTransfer
-          let valid = verifySecretToPublicTransferProof cryptoParams senderPK (fromJust senderAmount) transferData
+          let valid = verifySecretToPublicTransferProof cryptoParams senderPK senderAmount transferData
 
           unless valid $ rejectTransaction InvalidTransferToPublicProof
 
@@ -426,13 +425,12 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           tickEnergy Cost.encryptedAmountTransfer
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
-          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex
-          unless (isJust senderAmount) $ rejectTransaction InvalidIndexOnEncryptedTransfer
+          senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
           -- and then we start validating the proof. This is the most expensive
           -- part of the validation by far, the rest only being lookups.
           receiverPK <- getAccountEncryptionKey targetAccount
           senderPK <- getAccountEncryptionKey senderAccount
-          let valid = verifyEncryptedTransferProof cryptoParams receiverPK senderPK (fromJust senderAmount) transferData
+          let valid = verifyEncryptedTransferProof cryptoParams receiverPK senderPK senderAmount transferData
 
           unless valid $ rejectTransaction InvalidEncryptedAmountTransferProof
 
