@@ -78,6 +78,8 @@ data Module = Module {
     moduleIndex :: !ModuleIndex
 }
 
+-- |The hashes of the block state components, which are combined
+-- to produce a 'StateHash'.
 data BlockStateHashInputs = BlockStateHashInputs {
     bshBirkParameters :: H.Hash,
     bshCryptographicParameters :: H.Hash,
@@ -89,6 +91,22 @@ data BlockStateHashInputs = BlockStateHashInputs {
     bshInstances :: H.Hash,
     bshUpdates :: H.Hash
 }
+
+-- |Construct a 'StateHash' from the component hashes.
+makeBlockStateHash :: BlockStateHashInputs -> StateHash
+makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
+  H.hashOfHashes
+    (H.hashOfHashes
+      (H.hashOfHashes
+        (H.hashOfHashes bshBirkParameters bshCryptographicParameters)
+        (H.hashOfHashes bshIdentityProviders bshAnonymityRevokers)
+      )
+      (H.hashOfHashes
+        (H.hashOfHashes bshModules bshBankStatus)  
+        (H.hashOfHashes bshAccounts bshInstances)
+      )
+    )
+    bshUpdates
 
 class (BlockStateTypes m,  Monad m) => BakerQuery m where
 
@@ -388,6 +406,9 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- changes to it must not affect 'BlockState', but an efficient
     -- implementation should expect that only a small subset of the state will
     -- change, and thus a variant of copy-on-write should be used.
+    --
+    -- Thawing a block state resets the execution cost to 0 and the
+    -- identity issuers to be rewarded to the empty set.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
     -- |Freeze a mutable block state instance. The mutable state instance will
@@ -412,8 +433,8 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- |Load a block state from a reference.
-    loadBlockState :: BlockStateRef m -> m (BlockState m)
+    -- |Load a block state from a reference, given its state hash.
+    loadBlockState :: StateHash -> BlockStateRef m -> m (BlockState m)
 
 instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
     getSeedState = lift . getSeedState
@@ -565,7 +586,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
-    loadBlockState = lift . loadBlockState
+    loadBlockState hsh = lift . loadBlockState hsh
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}

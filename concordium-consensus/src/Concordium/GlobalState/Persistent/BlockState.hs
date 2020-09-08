@@ -68,12 +68,32 @@ data BlockStatePointers = BlockStatePointers {
     bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
     bspBirkParameters :: !PersistentBirkParameters,
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
+    bspUpdates :: !(BufferedRef Updates),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
-    bspTransactionOutcomes :: !Transactions.TransactionOutcomes,
-    bspHashes :: !(Maybe Basic.BlockStateHashes),
-    bspUpdates :: !(BufferedRef Updates)
+    bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
 
+data HashedPersistentBlockState = HashedPersistentBlockState {
+    hpbsPointers :: !PersistentBlockState,
+    hpbsHash :: !StateHash
+}
+
+hashBlockState :: MonadBlobStore r m => PersistentBlockState -> m HashedPersistentBlockState
+hashBlockState hpbsPointers = do
+        rbsp <- liftIO $ readIORef hpbsPointers
+        bsp <- refLoad rbsp
+        hpbsHash <- getHashM bsp
+        return HashedPersistentBlockState{..}
+
+{-
+-- |Update the 'bspHash' component of the 'BlockStatePointers' to reflect
+-- the correct value based on the components.
+recomputeBlockHashes :: MonadBlobStore r m => BlockStatePointers -> m BlockStatePointers
+recomputeBlockHashes bsp@BlockStatePointers{..} = do
+
+    return bsp{bspHash = makeBlockStateHash BlockStateHashInputs{..}}
+-}
+{-
 makeBlockHashesM :: MonadBlobStore r m => BlockStatePointers -> m Basic.BlockStateHashes
 makeBlockHashesM BlockStatePointers {..} = do
   birkHash <- getHashM bspBirkParameters
@@ -91,9 +111,20 @@ makeBlockHashesM BlockStatePointers {..} = do
       hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
       blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
   return Basic.BlockStateHashes {..}
+-}
 
 instance MonadBlobStore r m => MHashableTo m StateHash BlockStatePointers where
-  getHashM bps = maybe (fmap Basic.blockStateHash (makeBlockHashesM bps)) (return . Basic.blockStateHash) (bspHashes bps)
+    getHashM BlockStatePointers{..} = do
+        bshBirkParameters <- getHashM bspBirkParameters
+        bshCryptographicParameters <- getHashM bspCryptographicParameters
+        bshIdentityProviders <- getHashM bspIdentityProviders
+        bshAnonymityRevokers <- getHashM bspAnonymityRevokers
+        bshModules <- getHashM bspModules
+        let bshBankStatus = getHash bspBank
+        bshAccounts <- getHashM bspAccounts
+        bshInstances <- getHashM bspInstances
+        bshUpdates <- getHashM bspUpdates
+        return $ makeBlockStateHash BlockStateHashInputs{..}
 
 instance (MonadBlobStore r m, BlobStorable r m (Nullable (BlobRef Accounts.RegIdHistory))) => BlobStorable r m BlockStatePointers where
     storeUpdate bsp0@BlockStatePointers{..} = do
@@ -147,7 +178,6 @@ instance (MonadBlobStore r m, BlobStorable r m (Nullable (BlobRef Accounts.RegId
             bspBirkParameters <- mbps
             bspCryptographicParameters <- mcryptps
             bspUpdates <- mUpdates
-            let bspHashes = Nothing
             return $! BlockStatePointers{..}
 
 data PersistentModule = PersistentModule {
@@ -270,7 +300,7 @@ makePersistentBirkParameters Basic.BasicBirkParameters{..} = do
         lotteryBakers
         _birkSeedState
 
-makePersistent :: MonadBlobStore r m  => Basic.BlockState -> m PersistentBlockState
+makePersistent :: MonadBlobStore r m  => Basic.BlockState -> m HashedPersistentBlockState
 makePersistent Basic.BlockState{..} = do
   persistentBlockInstances <- Instances.makePersistent _blockInstances
   persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
@@ -293,10 +323,10 @@ makePersistent Basic.BlockState{..} = do
           bspBirkParameters = persistentBirkParameters,
           bspCryptographicParameters = cryptographicParameters,
           bspTransactionOutcomes = _blockTransactionOutcomes,
-          bspUpdates = updates,
-          bspHashes = Just _blockHashes
+          bspUpdates = updates
         }
-  liftIO $ newIORef $! bsp
+  bps <- liftIO $ newIORef $! bsp
+  hashBlockState bps
 
 initialPersistentState :: MonadBlobStore r m => Basic.BasicBirkParameters
              -> CryptographicParameters
@@ -306,7 +336,7 @@ initialPersistentState :: MonadBlobStore r m => Basic.BasicBirkParameters
              -> Amount
              -> Authorizations
              -> ChainParameters
-             -> m PersistentBlockState
+             -> m HashedPersistentBlockState
 initialPersistentState bps cps accts ips ars amt auths chainParams = makePersistent $ Basic.initialState bps cps accts ips ars amt auths chainParams
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
@@ -318,22 +348,6 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
   bspUpdates <- refMake =<< initialUpdates auths chainParams
-  -- calculate hashes
-  birkHash <- getHashM bspBirkParameters
-  cryptoHash <- getHashM cryptographicParameters
-  ipsHash <- getHashM identityProviders
-  arsHash <- getHashM anonymityRevokers
-  modulesHash <- getHashM modules
-  accountsHash <- getHashM Accounts.emptyAccounts
-  instancesHash <- getHashM Instances.emptyInstances
-  let hashOfBirkParamsAndCryptoParams = H.hashOfHashes birkHash cryptoHash
-      hashOfIPsAndARs = H.hashOfHashes ipsHash arsHash
-      hashOfModulesAndBank = H.hashOfHashes modulesHash (getHash Rewards.emptyBankStatus)
-      hashOfAccountsAndInstances = H.hashOfHashes accountsHash instancesHash
-      hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
-      hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
-      blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
-  let bspHashes = Just Basic.BlockStateHashes {..}
 
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
@@ -688,15 +702,6 @@ doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
 
--- Must be called on a frozen blockstate, as hashes are not evaluated until then.
-doGetStateHash :: MonadBlobStore r m => PersistentBlockState -> PersistentBlockStateMonad r m StateHash
-doGetStateHash pbs  = do
-        bsp <- loadPBS pbs
-        return $! case (bspHashes bsp) of
-                Nothing -> error "called doGetStateHash on a persistent blockstate where bspHashes was Nothing"
-                Just hashes' -> Basic.blockStateHash hashes'
-        
-
 doNotifyExecutionCost :: MonadBlobStore r m => PersistentBlockState -> Amount -> PersistentBlockStateMonad r m PersistentBlockState
 doNotifyExecutionCost pbs amnt = do
         bsp <- loadPBS pbs
@@ -754,7 +759,7 @@ doEnqueueUpdate pbs effectiveTime payload = do
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
 
-data PersistentBlockStateContext = PersistentBlockStateContext {
+newtype PersistentBlockStateContext = PersistentBlockStateContext {
     pbscBlobStore :: BlobStore
 }
 
@@ -765,9 +770,10 @@ newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad {runPersiste
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger)
 
 type instance BlockStatePointer PersistentBlockState = BlobRef BlockStatePointers
+type instance BlockStatePointer HashedPersistentBlockState = BlobRef BlockStatePointers
 
 instance BlockStateTypes (PersistentBlockStateMonad r m) where
-    type BlockState (PersistentBlockStateMonad r m) = PersistentBlockState
+    type BlockState (PersistentBlockStateMonad r m) = HashedPersistentBlockState
     type UpdatableBlockState (PersistentBlockStateMonad r m) = PersistentBlockState
     type BirkParameters (PersistentBlockStateMonad r m) = PersistentBirkParameters
     type Bakers (PersistentBlockStateMonad r m) = PersistentBakers
@@ -793,23 +799,23 @@ instance MonadBlobStore r m => BirkParametersOperations (PersistentBlockStateMon
     updateSeedState f bps = return $ bps & birkSeedState %~ f
 
 instance MonadBlobStore r m => BlockStateQuery (PersistentBlockStateMonad r m) where
-    getModule = doGetModule
-    getAccount = doGetAccount
-    getContractInstance = doGetInstance
-    getModuleList = doGetModuleList
-    getAccountList = doAccountList
-    getContractInstanceList = doContractInstanceList
-    getBlockBirkParameters = doGetBlockBirkParameters
-    getRewardStatus = doGetRewardStatus
-    getTransactionOutcome = doGetTransactionOutcome
-    getTransactionOutcomesHash = doGetTransactionOutcomesHash
-    getStateHash = doGetStateHash
-    getSpecialOutcomes = doGetSpecialOutcomes
-    getOutcomes = doGetOutcomes
-    getAllIdentityProviders = doGetAllIdentityProvider
-    getAllAnonymityRevokers = doGetAllAnonymityRevokers
-    getElectionDifficulty = doGetElectionDifficulty
-    getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
+    getModule = doGetModule . hpbsPointers
+    getAccount = doGetAccount . hpbsPointers
+    getContractInstance = doGetInstance . hpbsPointers
+    getModuleList = doGetModuleList . hpbsPointers
+    getAccountList = doAccountList . hpbsPointers
+    getContractInstanceList = doContractInstanceList . hpbsPointers
+    getBlockBirkParameters = doGetBlockBirkParameters . hpbsPointers
+    getRewardStatus = doGetRewardStatus . hpbsPointers
+    getTransactionOutcome = doGetTransactionOutcome . hpbsPointers
+    getTransactionOutcomesHash = doGetTransactionOutcomesHash . hpbsPointers
+    getStateHash = return . hpbsHash
+    getSpecialOutcomes = doGetSpecialOutcomes . hpbsPointers
+    getOutcomes = doGetOutcomes . hpbsPointers
+    getAllIdentityProviders = doGetAllIdentityProvider . hpbsPointers
+    getAllAnonymityRevokers = doGetAllAnonymityRevokers . hpbsPointers
+    getElectionDifficulty = doGetElectionDifficulty . hpbsPointers
+    getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -958,38 +964,36 @@ instance MonadBlobStore r m => BlockStateOperations (PersistentBlockStateMonad r
 
 instance MonadBlobStore r m => BlockStateStorage (PersistentBlockStateMonad r m) where
     {-# INLINE thawBlockState #-}
-    thawBlockState pbs = do
-            bsp <- loadPBS pbs
+    thawBlockState HashedPersistentBlockState{..} = do
+            bsp <- loadPBS hpbsPointers
             pbsp <- makeBufferedRef bsp {
                         bspBank = bspBank bsp & unhashed . Rewards.executionCost .~ 0 & unhashed . Rewards.identityIssuersRewards .~ HM.empty
                     }
             liftIO $ newIORef $! pbsp
 
     {-# INLINE freezeBlockState #-}
-    freezeBlockState pbs = do
-      bs <- loadPBS pbs
-      hashes <- makeBlockHashesM bs
-      _ <- storePBS pbs (bs {bspHashes = Just hashes})
-      return pbs
+    freezeBlockState pbs = hashBlockState pbs
 
     {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
     {-# INLINE purgeBlockState #-}
-    purgeBlockState pbs = liftIO $ writeIORef pbs (error "Block state purged")
+    purgeBlockState pbs = liftIO $ writeIORef (hpbsPointers pbs) (error "Block state purged")
 
     {-# INLINE archiveBlockState #-}
-    archiveBlockState pbs = do
-        inner <- liftIO $ readIORef pbs
+    archiveBlockState HashedPersistentBlockState{..} = do
+        inner <- liftIO $ readIORef hpbsPointers
         inner' <- uncacheBuffered inner
-        liftIO $ writeIORef pbs inner'
+        liftIO $ writeIORef hpbsPointers inner'
 
-    saveBlockState pbs = do
-        inner <- liftIO $ readIORef pbs
+    saveBlockState HashedPersistentBlockState{..} = do
+        inner <- liftIO $ readIORef hpbsPointers
         (inner', ref) <- flushBufferedRef inner
-        liftIO $ writeIORef pbs inner'
+        liftIO $ writeIORef hpbsPointers inner'
         bs <- blobStore <$> ask
         liftIO $ flushBlobStore bs
         return ref
 
-    loadBlockState = liftIO . newIORef . BRBlobbed
+    loadBlockState hpbsHash ref = do
+        hpbsPointers <- liftIO $ newIORef $ BRBlobbed ref
+        return HashedPersistentBlockState{..}

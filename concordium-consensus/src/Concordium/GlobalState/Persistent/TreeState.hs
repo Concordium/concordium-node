@@ -246,7 +246,7 @@ loadSkovPersistentData :: forall ati . CanExtend (ATIValues ati)
                        -> GenesisData
                        -> PBS.PersistentBlockStateContext
                        -> (ATIValues ati, ATIContext ati)
-                       -> LogIO (SkovPersistentData ati PBS.PersistentBlockState)
+                       -> LogIO (SkovPersistentData ati PBS.HashedPersistentBlockState)
 loadSkovPersistentData rp _genesisData pbsc atiPair = do
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
@@ -310,9 +310,9 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
         }
 
   where
-    makeBlockPointer :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.PersistentBlockState)
+    makeBlockPointer :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.HashedPersistentBlockState)
     makeBlockPointer StoredBlock{..} = do
-      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState sbState)) pbsc
+      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
 -- |Close the database associated with a 'SkovPersistentData'.
@@ -405,7 +405,7 @@ constructBlock :: (MonadIO m,
                    CanExtend (ATIStorage m))
                => StoredBlock (TS.BlockStatePointer bs) -> m (PersistentBlockPointer (ATIStorage m) bs)
 constructBlock StoredBlock{..} = do
-  bstate <- loadBlockState sbState
+  bstate <- loadBlockState (blockStateHash sbBlock) sbState
   makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
 instance (MonadLogger (PersistentTreeStateMonad ati bs m),
