@@ -53,7 +53,6 @@ import Concordium.Types
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
-import Control.Applicative
 import Control.Monad
 
 -- | A BlobRef represents an offset on a file
