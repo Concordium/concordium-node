@@ -37,7 +37,7 @@ FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.12 a
 WORKDIR /
 ENV STACK_ROOT /.stack
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch encrypted-amounts git@gitlab.com:Concordium/tools/wallet-proxy.git
+RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch master git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
