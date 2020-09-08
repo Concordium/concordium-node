@@ -62,12 +62,12 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
 -- The timeout and effective time are based on the supplied timestamp
 -- (which is assumed to be the current time).
 difficultyUpdateTransactions :: Timestamp -> [BlockItem]
-difficultyUpdateTransactions (Timestamp ts) = [u 1 0.99 60 120, u 2 0.1 120 180, u 3 0.9 120 200, u 4 0.1 120 201, u 5 0.8 120 202, u 6 0.2 120 203]
+difficultyUpdateTransactions (Timestamp ts) = [u 1 0.99 60 120, u 2 0.1 120 180, u 3 0.9 120 200, u 4 0.1 120 201, u 5 0.8 120 202, u 6 0.27 120 0]
     where
         u sn diff expire eff = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
                 RawUpdateInstruction {
                     ruiSeqNumber = sn,
-                    ruiEffectiveTime = fromIntegral (ts `div` 1000) + eff,
+                    ruiEffectiveTime = if eff == 0 then 0 else fromIntegral (ts `div` 1000) + eff,
                     ruiTimeout = fromIntegral (ts `div` 1000) + expire,
                     ruiPayload = ElectionDifficultyUpdatePayload (makeElectionDifficulty diff)
                 }
