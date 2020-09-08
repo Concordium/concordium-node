@@ -354,7 +354,7 @@ instance BlobStorable r m a => BlobStorable r m (Nullable (BufferedRef a)) where
         if isNull r then
             return (pure Null)
         else
-            fmap Some <$> load
+            return $ pure $ Some $ BRBlobbed r
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
         (r, v') <- storeUpdate v
@@ -415,7 +415,11 @@ instance (BlobStorable r m a, BlobStorable r m b) => BlobStorable r m (Nullable 
     (r :: BlobRef a) <- get
     if isNull r
       then return (pure Null)
-      else fmap Some <$> load
+      else do
+        bval <- load
+        return $ do
+          binner <- bval
+          pure $ Some (BRBlobbed r, binner)
   storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
   storeUpdate (Some v) = do
     (r, v') <- storeUpdate v
