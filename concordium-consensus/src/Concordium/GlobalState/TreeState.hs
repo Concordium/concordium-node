@@ -409,13 +409,13 @@ readHeader :: LBS.ByteString -> Either String (Version, LBS.ByteString)
 readHeader = S.runGetLazyState S.get
 
 
-readBlocks :: (Show a) => LBS.ByteString
+readBlocksV1 :: (Show a) => LBS.ByteString
            -> UTCTime
            -> LogMethod IO
            -> LogSource
            -> (PendingBlock -> IO (ImportingResult a))
            -> IO (ImportingResult a)
-readBlocks lbs tm logm logLvl continuation = do
+readBlocksV1 lbs tm logm logLvl continuation = do
   case readHeader lbs of
       Left err -> do
         logm logLvl LLError $ "Error deserializing header: " ++ err
