@@ -44,6 +44,9 @@ import Data.Ratio
 import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
+import Data.Set (Set)
+import qualified Data.Sequence as Seq
+import Data.Foldable (foldl')
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -65,8 +68,9 @@ import Concordium.GlobalState.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
+import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
-import Data.Set (Set)
+import Concordium.Crypto.EncryptedTransfers
 
 -- |Index of the module in the module table. Reflects when the module was added
 -- to the table.
@@ -155,8 +159,36 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountKeys
 
-  -- |Get the list of encrypted amounts on the account
-  getAccountEncryptedAmount :: Account m -> m [EncryptedAmount]
+  -- |Get the current encrypted amount on the account.
+  getAccountEncryptedAmount :: Account m -> m AccountEncryptedAmount
+
+  -- |Get the public key used to receive encrypted amounts.
+  getAccountEncryptionKey :: Account m -> m ID.AccountEncryptionKey
+
+  -- |Get the next index of the encrypted amount for this account. Next here refers
+  -- to the index a newly added encrypted amount will receive.
+  -- This has a default implementation in terms of 'getAccountEncryptedAmount',
+  -- but it could be replaced by more efficient implementations for, e.g.,
+  -- the persistent instance
+  getAccountEncryptedAmountNextIndex :: Account m -> m EncryptedAmountIndex
+  getAccountEncryptedAmountNextIndex acc = do
+    AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
+    return $! addToAggIndex _startIndex (fromIntegral (Seq.length _incomingEncryptedAmounts))
+
+  -- |Get an encrypted amount at index, if possible.
+  -- This has a default implementation in terms of `getAccountEncryptedAmount`.
+  -- The implementation's complexity is linear in the difference between the start index of the current
+  -- encrypted amount on the account, and the given index.
+  --
+  -- At each index, the 'selfAmounts' is always included, hence if the index is
+  -- out of bounds we simply return the 'selfAmounts'
+  getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m (Maybe EncryptedAmount)
+  getAccountEncryptedAmountAtIndex acc index = do
+    AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
+    if index >= _startIndex && fromIntegral (Seq.length _incomingEncryptedAmounts) >= index - _startIndex then
+      let toTake = Seq.take (fromIntegral (index - _startIndex)) _incomingEncryptedAmounts
+      in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
+    else return Nothing
 
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
@@ -168,7 +200,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountInstances :: Account m -> m (Set ContractAddress)
 
   -- |Create an empty account with the given public key, address and credential.
-  createNewAccount :: AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
+  createNewAccount :: GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
 
   -- |Update the public account balance
   updateAccountAmount :: Account m -> Amount -> m (Account m)
@@ -301,6 +333,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Notify the block state that the given amount was spent on execution.
   bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
+  -- |Notify that some amount was transferred from/to encrypted balance of some account.
+  bsoNotifyEncryptedBalanceChange :: UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
+
 
   -- |Notify the block state that the given identity issuer's credential was
   -- used by a sender of the transaction.
@@ -503,9 +539,10 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
+  getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountStakeDelegate = lift . getAccountStakeDelegate
   getAccountInstances = lift . getAccountInstances
-  createNewAccount ks addr = lift . createNewAccount ks addr
+  createNewAccount gc ks addr = lift . createNewAccount gc ks addr
   updateAccountAmount acc = lift . updateAccountAmount acc
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}
@@ -530,6 +567,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
+  bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
   bsoGetBlockBirkParameters = lift . bsoGetBlockBirkParameters
@@ -562,6 +600,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoNotifyExecutionCost #-}
   {-# INLINE bsoNotifyIdentityIssuerCredential #-}
   {-# INLINE bsoGetExecutionCost #-}
+  {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetBlockBirkParameters #-}
   {-# INLINE bsoAddBaker #-}
   {-# INLINE bsoUpdateBaker #-}

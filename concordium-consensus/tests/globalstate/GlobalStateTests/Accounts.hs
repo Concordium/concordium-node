@@ -10,12 +10,14 @@ module GlobalStateTests.Accounts where
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
+import Concordium.Crypto.FFIDataTypes
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
+import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.DummyData
@@ -93,13 +95,13 @@ data AccountAction
 randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
 randomizeAccount _accountAddress _accountVerificationKeys = do
   let cred = dummyCredential _accountAddress dummyMaxValidTo dummyCreatedAt
-  let a0 = newAccount _accountVerificationKeys _accountAddress cred
+  let a0 = newAccount dummyCryptographicParameters _accountVerificationKeys _accountAddress cred
   nonce <- Nonce <$> arbitrary
   amt <- Amount <$> arbitrary
   return $ a0 & accountNonce .~ nonce & accountAmount .~ amt
 
 randomCredential :: Gen ID.CredentialRegistrationID
-randomCredential = ID.RegIdCred . FBS.pack <$> vectorOf 42 arbitrary
+randomCredential = ID.RegIdCred . generateGroupElementFromSeed dummyCryptographicParameters <$> arbitrary
 
 randomActions :: Gen [AccountAction]
 randomActions = sized (ra Set.empty Set.empty)
