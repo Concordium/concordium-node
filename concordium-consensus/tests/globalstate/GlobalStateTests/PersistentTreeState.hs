@@ -1,7 +1,6 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -42,12 +41,7 @@ import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
 import System.FilePath ((</>))
 import System.IO.Temp
-import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Types.Transactions as Trns
-
--- FIXME: temporary import for stubbing types for hashing state
-import Data.FixedByteString as FBS
-import Concordium.Crypto.SHA256
 
 import System.Random
 import Test.Hspec
