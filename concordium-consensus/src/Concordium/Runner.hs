@@ -20,14 +20,13 @@ import Control.Monad.IO.Class
 import Data.Time.Clock
 import System.IO.Error
 
-import Concordium.Common.Version
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable)
+import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable, readBlocksV1, ImportingResult(..))
 
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -417,6 +416,12 @@ makeAsyncRunner logm bkr config = do
 
         catchUpLimit = 100
 
+-- * Importing an existing database
+
+-- This part has to be in sync with the current serialization version of the blocks and the
+-- database must have been exported using the same version as the expected one. Versions are
+-- right now incompatible.
+
 -- |Handle an exception that happended during block import
 handleImportException :: LogMethod IO -> IOException -> IO UpdateResult
 handleImportException logm e =
@@ -427,7 +432,32 @@ handleImportException logm e =
       logm External LLError $ "An IO exception occurred during import phase: " ++ show e
       return ResultInvalid
 
--- | Given a file path in the third argument, it will deserialize each block in the file
+
+-- The function Concordium.GlobalState.TreeState.readBlocksV1 uses an internal type for signaling errors
+-- that is either Success, SerializationFail or another error that we provide using the continuation.
+-- For this purpose, the following two functions wrap and unwrap errors generated if the consistency of the
+-- tree is compromised into that `ImportingResult` used in the tree state function.
+
+importingResultToUpdateResult :: Monad m
+                              => (LogSource -> LogLevel -> String -> m ())
+                              -> LogSource
+                              -> UpdateResult
+                              -> m (ImportingResult UpdateResult)
+importingResultToUpdateResult logm logLvl = \case
+  ResultSuccess -> return Success
+  ResultSerializationFail -> return SerializationFail
+  e@ResultPendingBlock -> do
+    logm logLvl LLWarning $ "Imported pending block."
+    return $ OtherError e
+  e -> return $ OtherError e
+
+updateResultToImportingResult :: ImportingResult UpdateResult -> UpdateResult
+updateResultToImportingResult = \case
+  Success -> ResultSuccess
+  SerializationFail -> ResultSerializationFail
+  OtherError e -> e
+
+-- | Given a file path in the second argument, it will deserialize each block in the file
 -- and import it into the active global state.
 syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
                  => SyncRunner c
@@ -439,7 +469,9 @@ syncImportBlocks syncRunner filepath =
     -- loading the whole file into it. We need to do that lazily.
     lbs <- LBS.readFile filepath
     now <- getCurrentTime
-    readBlocks lbs now logm syncReceiveBlock syncRunner
+    -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
+    -- a value back we unwrap it.
+    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -454,67 +486,8 @@ syncPassiveImportBlocks syncRunner filepath =
     -- loading the whole file into it. We need to do that lazily.
     lbs <- LBS.readFile filepath
     now <- getCurrentTime
-    readBlocks lbs now logm syncPassiveReceiveBlock syncRunner
+    -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
+    -- a value back we unwrap it.
+    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner
-
--- |Read the header of the export file.
--- The header consists of
---
--- - version number that determines the format of all the subsequent blocks in the file.
---
--- The function returns, if successfull, the version, and the unconsumed input.
-readHeader :: LBS.ByteString -> Either String (Version, LBS.ByteString)
-readHeader = runGetLazyState get
-
-readBlocks :: LBS.ByteString
-           -> UTCTime
-           -> LogMethod IO
-           -> (t -> PendingBlock -> IO UpdateResult)
-           -> t
-           -> IO UpdateResult
-readBlocks lbs tm logm f syncRunner = do
-  case readHeader lbs of
-      Left err -> do
-        logm External LLError $ "Error deserializing header: " ++ err
-        return ResultSerializationFail
-      Right (version, rest)
-          | version == 1 -> loopV1 rest
-          | otherwise -> do
-              logm External LLError $ "Unsupported version: " ++ show version
-              return ResultSerializationFail
-  where loopV1 rest
-            | LBS.null rest = return ResultSuccess -- we've reached the end of the file
-            | otherwise =
-                case runGetLazyState blockGetter rest of
-                  Left err -> do
-                    logm External LLError $ "Error reading block bytes: " ++ err
-                    return ResultSerializationFail
-                  Right (blockBS, remainingBS) -> do
-                    result <- importBlockV1 blockBS tm logm f syncRunner
-                    case result of
-                      ResultSuccess -> loopV1 remainingBS
-                      ResultPendingBlock -> do
-                        -- this shouldn't happen
-                        logm External LLWarning $ "Imported pending block."
-                        loopV1 remainingBS
-                      ResultDuplicate -> loopV1 remainingBS
-                      err -> do -- stop processing at first error that we encounter.
-                        logm External LLError $ "Error importing block: " ++ show err
-                        return err
-        blockGetter = do
-          len <- getWord64be
-          getByteString (fromIntegral len)
-
-importBlockV1 :: ByteString
-              -> UTCTime
-              -> LogMethod IO
-              -> (t -> PendingBlock -> IO UpdateResult)
-              -> t
-              -> IO UpdateResult
-importBlockV1 blockBS tm logm f syncRunner =
-  case deserializePendingBlockV1 blockBS tm of
-    Left err -> do
-      logm External LLError $ "Can't deserialize block: " ++ show err
-      return ResultSerializationFail
-    Right block -> f syncRunner block
