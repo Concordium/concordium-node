@@ -3,17 +3,17 @@ module DatabaseExporter.CommandLineParser where
 import Options.Applicative
 
 data Config = Config
-    { dbPath     :: FilePath
+    { dbPath     :: Maybe FilePath
     , exportPath :: FilePath
     , readingMode :: Bool
     }
 
 config :: Parser Config
 config = Config
-      <$> strOption
-          ( long "dbpath"
-         <> metavar "PATH"
-         <> help "Database path" )
+      <$> optional (strOption
+                    ( long "dbpath"
+                      <> metavar "PATH"
+                      <> help "Database path" ))
       <*> strOption
           ( long "exportpath"
          <> metavar "PATH"
