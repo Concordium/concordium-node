@@ -3,8 +3,6 @@ module ConcordiumTests.FinalizationRecover where
 
 import Control.Monad
 import Data.Proxy
-import qualified Data.ByteString.Lazy as BSL
-import System.IO.Unsafe
 import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
@@ -12,7 +10,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 import Concordium.Logger
 import Concordium.Skov.MonadImplementations
-import Concordium.Startup hiding (dummyCryptographicParameters)
+import Concordium.Startup
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -24,19 +22,13 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
+import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.Types
 
 import Test.Hspec
 
 -- Test that 'recoverFinalizationState' recovers the initial finalization state
 -- when initialized from genesis state.
-
-{-# NOINLINE dummyCryptographicParameters #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
-    Nothing -> error "Could not read cryptographic parameters."
-    Just params -> params
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
@@ -45,7 +37,7 @@ dummyArs = emptyAnonymityRevokers
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData@GenesisData{..} = return $ MTMBConfig rt genData blockS
-  where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters
+  where blockS = BS.emptyBlockState birkParams Dummy.dummyCryptographicParameters
         birkParams = BS.makeBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
@@ -56,7 +48,7 @@ genesis nBakers =
     1000
     0.5
     defaultFinalizationParameters
-    dummyCryptographicParameters
+    Dummy.dummyCryptographicParameters
     emptyIdentityProviders
     dummyArs
     []

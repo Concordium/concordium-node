@@ -20,9 +20,6 @@ import Data.Functor.Identity
 import Data.Ratio
 import Data.Word
 
-import qualified Data.ByteString.Lazy as BSL
-import System.IO.Unsafe
-
 import Concordium.Crypto.SHA256
 
 import Concordium.Afgjort.Finalize.Types
@@ -63,10 +60,9 @@ import Concordium.Afgjort.FinalizationQueue
 import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
+import Concordium.Startup
 
 import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState)
-
-import Concordium.Startup (makeBakerAccountKP, defaultFinalizationParameters)
 
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
@@ -79,13 +75,6 @@ import Test.Hspec
 isActiveCurrentRound :: FinalizationCurrentRound -> Bool
 isActiveCurrentRound (ActiveCurrentRound _) = True
 isActiveCurrentRound _ = False
-
-{-# NOINLINE dummyCryptographicParameters #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
-    Nothing -> error "Could not read cryptographic parameters."
-    Just params -> params
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -542,7 +531,7 @@ createInitStates bis maxFinComSize specialAccounts = do
             elDiff = 0.5
             seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts specialAccounts (finalizationParameters maxFinComSize) dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts specialAccounts (finalizationParameters maxFinComSize) Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig

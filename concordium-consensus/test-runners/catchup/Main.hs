@@ -207,7 +207,7 @@ main = do
     let (gen, bis) =
           makeGenesisData now n 100 0.5
             defaultFinalizationParameters{finalizationMinimumSkip = 1}
-            dummyCryptographicParameters
+            Dummy.dummyCryptographicParameters
             dummyIdentityProviders
             emptyArs
             [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] (Energy maxBound)

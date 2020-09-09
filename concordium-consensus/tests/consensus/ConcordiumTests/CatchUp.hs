@@ -98,7 +98,7 @@ initialiseStatesDictator n = do
             elDiff = 0.5
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
@@ -186,9 +186,9 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                             testList (Set.insert (getHash bp) knownBlocks) knownFin' rs
                         testList _ _ _ = error "Serialization failure"
                     -- Check that blocks and finalization records are ordered correctly in the following sense:
-                    -- * A block is not sent before its parent
-                    -- * A block is not sent before finalization of its last finalized block
-                    -- * A finalization record is not sent before the block it finalizes
+                    -- - A block is not sent before its parent
+                    -- - A block is not sent before finalization of its last finalized block
+                    -- - A finalization record is not sent before the block it finalizes
                     -- Furthermore, check that the finalization records + the requestor's finalized blocks
                     -- add up to the respondent's finalized blocks.
                     testList reqLive reqFin l

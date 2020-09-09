@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE DefaultSignatures #-}
@@ -18,12 +19,15 @@ import Control.Monad.Cont hiding (cont)
 
 import Lens.Micro.Platform
 
+import Concordium.Logger
+import Concordium.Crypto.EncryptedTransfers
+import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.Account (AccountUpdate(..), auAmount, emptyAccountUpdate)
+import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
 import Concordium.GlobalState.AccountTransactionIndex
@@ -89,7 +93,7 @@ class Monad m => StaticInformation m where
   getMaxBlockEnergy :: m Energy
 
 -- |Information needed to execute transactions in the form that is easy to use.
-class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m) => SchedulerMonad m where
+class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m) => SchedulerMonad m where
 
   -- |Notify the transaction log that a transaction had the given footprint. The
   -- nature of the footprint will depend on the configuration, e.g., it could be
@@ -168,6 +172,10 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- |Notify that an identity provider had a valid credential on the sender's
   -- account and should be rewarded because of it.
   notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
+
+  -- |Notify the state that an amount has been transferred from public to
+  -- encrypted or vice-versa.
+  notifyEncryptedBalanceChange :: AmountDelta -> m ()
 
   -- |Convert the given energy amount into an amount of GTU. The exchange
   -- rate can vary depending on the current state of the blockchain.
@@ -258,7 +266,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   getArInfos :: [ID.ArIdentity] -> m (Maybe [ArInfo])
 
   -- |Get cryptographic parameters for the current state.
-  getCrypoParams :: m CryptographicParameters
+  getCryptoParams :: m CryptographicParameters
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -287,6 +295,30 @@ class StaticInformation m => TransactionMonad m where
   -- |Transfer an amount from the first instance to the second and run the
   -- computation in the modified environment.
   withContractToContractAmount :: Instance -> Instance -> Amount -> m a -> m a
+
+  -- |Replace encrypted amounts on an account up to (but not including) the
+  -- given limit with a new amount.
+  replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
+
+  -- |Replace encrypted amounts on an account up to (but not including) the
+  -- given limit with a new amount, as well as adding the given amount to the
+  -- public balance of the account
+  addAmountFromEncrypted :: Account m -> Amount -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
+
+  -- |Add a new encrypted amount to an account, and return its index.
+  -- This may assume this is the only update to encrypted amounts on the given account
+  -- in this transaction.
+  --
+  -- This should be used on the receiver's account when an encrypted amount is
+  -- sent to it.
+  addEncryptedAmount :: Account m -> EncryptedAmount -> m EncryptedAmountIndex
+
+  -- |Add an encrypted amount to the self-balance of an account.
+  -- This may assume this is the only update to encrypted amounts on the given account
+  -- in this transaction.
+  --
+  -- This should be used when transferring from public to encrypted balance.
+  addSelfEncryptedAmount :: Account m -> Amount -> EncryptedAmount -> m ()
 
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
@@ -365,12 +397,13 @@ data ChangeSet = ChangeSet
     {_affectedTx :: !TransactionHash, -- ^Transaction affected by this changeset.
      _accountUpdates :: !(HMap.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
+    ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty 0
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -639,8 +672,8 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE withAccountToAccountAmount #-}
   withAccountToAccountAmount fromAcc toAcc amount cont = do
     cs <- use changeSet
-    changeSet <~ (addAmountToCS toAcc (amountToDelta amount) cs >>= 
-                  addAmountToCS fromAcc (amountDiff 0 amount)) 
+    changeSet <~ (addAmountToCS toAcc (amountToDelta amount) cs >>=
+                  addAmountToCS fromAcc (amountDiff 0 amount))
     cont
 
   {-# INLINE withAccountToContractAmount #-}
@@ -661,6 +694,30 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS toAcc (amountToDelta amount)
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
+
+  replaceEncryptedAmount acc aggIndex newAmount = do
+    addr <- getAccountAddress acc
+    changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= ReplaceUpTo{..}
+
+  addAmountFromEncrypted acc amount aggIndex newAmount = do
+    replaceEncryptedAmount acc aggIndex newAmount
+    cs <- use changeSet
+    cs' <- addAmountToCS acc (amountToDelta amount) cs
+    changeSet .= cs'
+    changeSet . encryptedChange += amountDiff 0 amount
+
+  addEncryptedAmount acc newAmount = do
+    addr <- getAccountAddress acc
+    changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= Add{..}
+    nextIndex <- getAccountEncryptedAmountNextIndex acc
+    return nextIndex
+
+  addSelfEncryptedAmount acc transferredAmount newAmount = do
+    addr <- getAccountAddress acc
+    cs <- use changeSet
+    changeSet <~ addAmountToCS acc (amountDiff 0 transferredAmount) cs
+    changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= AddSelf{..}
+    changeSet . encryptedChange += amountToDelta transferredAmount
 
   getCurrentAccount addr = do
     liftLocal (getAccount addr) >>= \case
@@ -775,3 +832,21 @@ withExternal f = do
 -- not return a value. This is a convenience wrapper only.
 withExternalPure_ :: (ResourceMeasure r, TransactionMonad m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
+
+
+-- |Helper function to log when a transaction was invalid.
+{-# INLINE logInvalidBlockItem #-}
+logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
+logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
+  logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
+logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ cred) ++ " was invalid with reason " ++ show fk
+
+{-# INLINE logInvalidTransaction #-}
+logInvalidTransaction :: SchedulerMonad m => Transaction -> FailureKind -> m ()
+logInvalidTransaction WithMetadata{..} fk =
+  logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
+
+logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
+logInvalidCredential WithMetadata{..} fk =
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ wmdData) ++ " was invalid with reason " ++ show fk
