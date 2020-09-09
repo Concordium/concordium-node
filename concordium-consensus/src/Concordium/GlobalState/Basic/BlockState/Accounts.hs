@@ -96,10 +96,10 @@ updateAccount !upd
     maybeUpdate (Just x) f = f x
     updateNonce = maybeUpdate (upd ^. auNonce) (accountNonce .~)
     updateAmount = maybeUpdate (upd ^. auAmount) $ \d -> accountAmount %~ applyAmountDelta d
-    updateEncryptedAmount = case upd ^. auEncrypted of
-      Empty -> id
-      Add ea -> accountEncryptedAmount %~ (ea:)
-      Replace ea -> accountEncryptedAmount .~ [ea]
+    updateEncryptedAmount acc = foldr updateSingle acc (upd ^. auEncrypted)
+    updateSingle AddSelf{..} = accountEncryptedAmount %~ addToSelfEncryptedAmount newAmount
+    updateSingle Add{..} = accountEncryptedAmount %~ addIncomingEncryptedAmount newAmount
+    updateSingle ReplaceUpTo{..} = accountEncryptedAmount %~ replaceUpTo aggIndex newAmount
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.
