@@ -291,6 +291,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         amnts2 <- coerceBSMR (getAccountEncryptedAmount acc2)
         assert (amnts1 == amnts2) $ return amnts1
 
+    getAccountEncryptionKey (acc1, acc2) = do
+        k1 <- coerceBSML (getAccountEncryptionKey acc1)
+        k2 <- coerceBSMR (getAccountEncryptionKey acc2)
+        assert (k1 == k2) $ return k1
+
     getAccountStakeDelegate (acc1, acc2) = do
         bid1 <- coerceBSML (getAccountStakeDelegate acc1)
         bid2 <- coerceBSMR (getAccountStakeDelegate acc2)
@@ -301,9 +306,9 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ais2 <- coerceBSMR (getAccountInstances acc2)
         assert (ais1 == ais2) $ return ais1
 
-    createNewAccount keys addr regId = do
-        acc1 <- coerceBSML (createNewAccount keys addr regId)
-        acc2 <- coerceBSMR (createNewAccount keys addr regId)
+    createNewAccount gc keys addr regId = do
+        acc1 <- coerceBSML (createNewAccount gc keys addr regId)
+        acc2 <- coerceBSMR (createNewAccount gc keys addr regId)
         assert ((getHash acc1 :: H.Hash) == getHash acc2) $
           return (acc1, acc2)
 
@@ -425,6 +430,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoNotifyExecutionCost (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoNotifyExecutionCost bs1 amt
         bs2' <- coerceBSMR $ bsoNotifyExecutionCost bs2 amt
+        return (bs1', bs2')
+    bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
+        bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt
+        bs2' <- coerceBSMR $ bsoNotifyEncryptedBalanceChange bs2 amt
         return (bs1', bs2')
     bsoNotifyIdentityIssuerCredential (bs1, bs2) idid = do
         bs1' <- coerceBSML $ bsoNotifyIdentityIssuerCredential bs1 idid

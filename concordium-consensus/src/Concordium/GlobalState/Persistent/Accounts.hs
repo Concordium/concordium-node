@@ -81,7 +81,7 @@ instance MonadBlobStore r m => MHashableTo m H.Hash Accounts where
   getHashM Accounts {..} = getHashM accountTable
 
 -- |This history of used registration ids, consisting of a list of (uncommitted) ids, and a pointer
--- to a further (committed) history.
+-- to a further (committed) history. Committed here means written to persistent storage.
 data RegIdHistory = RegIdHistory ![ID.CredentialRegistrationID] !(Nullable (BlobRef RegIdHistory))
     deriving (Generic)
 
@@ -226,10 +226,10 @@ updateAccount :: MonadBlobStore r m => AccountUpdate -> PersistentAccount -> m P
 updateAccount !upd !acc = do
   let pDataRef = acc ^. persistingData
   pData <- loadBufferedRef pDataRef
-  let newEncryptedAmount = case upd ^. auEncrypted of
-                                Empty -> acc ^. accountEncryptedAmount
-                                Add ea -> ea:(acc ^. accountEncryptedAmount)
-                                Replace ea -> [ea]
+  let newEncryptedAmount = foldr updateSingle (acc ^. accountEncryptedAmount) (upd ^. auEncrypted)
+      updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
+      updateSingle Add{..} = addIncomingEncryptedAmount newAmount
+      updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountEncryptedAmount .~ newEncryptedAmount

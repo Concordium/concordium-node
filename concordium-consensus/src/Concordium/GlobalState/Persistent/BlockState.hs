@@ -707,6 +707,11 @@ doNotifyExecutionCost pbs amnt = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspBank = bspBank bsp & unhashed . Rewards.executionCost +~ amnt}
 
+doNotifyEncryptedBalanceChange :: MonadBlobStore r m => PersistentBlockState -> AmountDelta -> m PersistentBlockState
+doNotifyEncryptedBalanceChange pbs amntDiff = do
+        bsp <- loadPBS pbs
+        storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.totalEncryptedGTU %~ applyAmountDelta amntDiff}
+
 doNotifyIdentityIssuerCredential :: MonadBlobStore r m => PersistentBlockState -> ID.IdentityProviderIdentity -> PersistentBlockStateMonad r m PersistentBlockState
 doNotifyIdentityIssuerCredential pbs idk = do
         bsp <- loadPBS pbs
@@ -874,14 +879,16 @@ instance MonadBlobStore r m => AccountOperations (PersistentBlockStateMonad r m)
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
+  
+  getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
   getAccountStakeDelegate acc = acc ^^. accountStakeDelegate
 
   getAccountInstances acc = acc ^^. accountInstances
 
-  createNewAccount _accountVerificationKeys _accountAddress cdv = do
+  createNewAccount cryptoParams _accountVerificationKeys _accountAddress cdv = do
       let pData = PersistingAccountData {
-                    _accountEncryptionKey = ID.makeEncryptionKey (ID.cdvRegId cdv),
+                    _accountEncryptionKey = ID.makeEncryptionKey cryptoParams (ID.cdvRegId cdv),
                     _accountCredentials = [cdv],
                     _accountMaxCredentialValidTo = ID.pValidTo (ID.cdvPolicy cdv),
                     _accountStakeDelegate = Nothing,
@@ -890,7 +897,7 @@ instance MonadBlobStore r m => AccountOperations (PersistentBlockStateMonad r m)
                   }
           _accountNonce = minNonce
           _accountAmount = 0
-          _accountEncryptedAmount = []
+          _accountEncryptedAmount = initialAccountEncryptedAmount
       _persistingData <- makeBufferedRef pData
       let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
       return $ PersistentAccount {..}
@@ -911,6 +918,7 @@ instance MonadBlobStore r m => BlockStateOperations (PersistentBlockStateMonad r
     bsoModifyAccount = doModifyAccount
     bsoModifyInstance = doModifyInstance
     bsoNotifyExecutionCost = doNotifyExecutionCost
+    bsoNotifyEncryptedBalanceChange = doNotifyEncryptedBalanceChange
     bsoNotifyIdentityIssuerCredential = doNotifyIdentityIssuerCredential
     bsoGetExecutionCost = doGetExecutionCost
     bsoGetBlockBirkParameters = doGetBlockBirkParameters
@@ -943,6 +951,7 @@ instance MonadBlobStore r m => BlockStateOperations (PersistentBlockStateMonad r
     {-# INLINE bsoNotifyExecutionCost #-}
     {-# INLINE bsoNotifyIdentityIssuerCredential #-}
     {-# INLINE bsoGetExecutionCost #-}
+    {-# INLINE bsoNotifyEncryptedBalanceChange #-}
     {-# INLINE bsoGetBlockBirkParameters #-}
     {-# INLINE bsoAddBaker #-}
     {-# INLINE bsoUpdateBaker #-}

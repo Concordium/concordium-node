@@ -55,7 +55,6 @@ import Concordium.Types.Updates
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
-import Control.Applicative
 import Control.Monad
 
 -- | A BlobRef represents an offset on a file
@@ -359,7 +358,7 @@ instance BlobStorable r m a => BlobStorable r m (Nullable (BufferedRef a)) where
         if isNull r then
             return (pure Null)
         else
-            fmap Some <$> load
+            return $ pure $ Some $ BRBlobbed r
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
         (r, v') <- storeUpdate v
@@ -420,7 +419,11 @@ instance (BlobStorable r m a, BlobStorable r m b) => BlobStorable r m (Nullable 
     (r :: BlobRef a) <- get
     if isNull r
       then return (pure Null)
-      else fmap Some <$> load
+      else do
+        bval <- load
+        return $ do
+          binner <- bval
+          pure $ Some (BRBlobbed r, binner)
   storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
   storeUpdate (Some v) = do
     (r, v') <- storeUpdate v
@@ -590,9 +593,8 @@ instance MonadBlobStore r m => BlobStorable r m BakerId
 instance MonadBlobStore r m => BlobStorable r m BakerInfo
 instance MonadBlobStore r m => BlobStorable r m Word64
 instance MonadBlobStore r m => BlobStorable r m BS.ByteString
-instance MonadBlobStore r m => BlobStorable r m EncryptedAmount
 -- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
-instance MonadBlobStore r m => BlobStorable r m [EncryptedAmount]
+instance MonadBlobStore r m => BlobStorable r m AccountEncryptedAmount
 instance MonadBlobStore r m => BlobStorable r m PersistingAccountData
 instance MonadBlobStore r m => BlobStorable r m Authorizations
 instance MonadBlobStore r m => BlobStorable r m ProtocolUpdate
@@ -653,8 +655,11 @@ instance (Monad m, BlobStorable r m a, MHashableTo m H.Hash a) => Reference m Ha
 
   refCache ref = do
     (val, br) <- cacheBufferedRef (bufferedReference ref)
-    h <- getHashM val
-    return (val, ref {bufferedReference = br, bufferedHash = bufferedHash ref <|> Just h})
+    case bufferedHash ref of
+      Nothing -> do
+        h <- getHashM val
+        return (val, ref {bufferedReference = br, bufferedHash = Just h})
+      theHash@(Just _) -> return (val, ref {bufferedReference = br, bufferedHash = theHash})
 
   refUncache ref = do
     br <- uncacheBuffered (bufferedReference ref)
