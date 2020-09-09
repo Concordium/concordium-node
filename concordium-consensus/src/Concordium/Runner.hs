@@ -26,7 +26,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable, readBlocks, ImportingResult(..))
+import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable, readBlocksV1, ImportingResult(..))
 
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -416,6 +416,12 @@ makeAsyncRunner logm bkr config = do
 
         catchUpLimit = 100
 
+-- * Importing an existing database
+
+-- This part has to be in sync with the current serialization version of the blocks and the
+-- database must have been exported using the same version as the expected one. Versions are
+-- right now incompatible.
+
 -- |Handle an exception that happended during block import
 handleImportException :: LogMethod IO -> IOException -> IO UpdateResult
 handleImportException logm e =
@@ -425,6 +431,12 @@ handleImportException logm e =
     else do
       logm External LLError $ "An IO exception occurred during import phase: " ++ show e
       return ResultInvalid
+
+
+-- The function Concordium.GlobalState.TreeState.readBlocksV1 uses an internal type for signaling errors
+-- that is either Success, SerializationFail or another error that we provide using the continuation.
+-- For this purpose, the following two functions wrap and unwrap errors generated if the consistency of the
+-- tree is compromised into that `ImportingResult` used in the tree state function.
 
 importingResultToUpdateResult :: Monad m
                               => (LogSource -> LogLevel -> String -> m ())
@@ -445,7 +457,7 @@ updateResultToImportingResult = \case
   SerializationFail -> ResultSerializationFail
   OtherError e -> e
 
--- | Given a file path in the third argument, it will deserialize each block in the file
+-- | Given a file path in the second argument, it will deserialize each block in the file
 -- and import it into the active global state.
 syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
                  => SyncRunner c
@@ -457,7 +469,9 @@ syncImportBlocks syncRunner filepath =
     -- loading the whole file into it. We need to do that lazily.
     lbs <- LBS.readFile filepath
     now <- getCurrentTime
-    updateResultToImportingResult <$> readBlocks lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
+    -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
+    -- a value back we unwrap it.
+    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -472,6 +486,8 @@ syncPassiveImportBlocks syncRunner filepath =
     -- loading the whole file into it. We need to do that lazily.
     lbs <- LBS.readFile filepath
     now <- getCurrentTime
-    updateResultToImportingResult <$> readBlocks lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
+    -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
+    -- a value back we unwrap it.
+    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner
