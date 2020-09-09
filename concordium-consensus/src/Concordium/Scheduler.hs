@@ -1122,8 +1122,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       else do
         -- Check that the signatures use the appropriate keys and are valid.
         auths <- getUpdateAuthorizations
-        if checkUpdateAuthorizationKeys auths uiPayload (OrdMap.keysSet (updateInstructionSignatures uiSignatures))
-            && checkUpdateInstructionSignatures auths ui then do
+        if checkAuthorizedUpdate auths ui then do
           enqueueUpdate (updateEffectiveTime uiHeader) uiPayload
           tsIndex <- bumpTransactionIndex
           return $ TxValid TransactionSummary {
