@@ -33,6 +33,7 @@ module DatabaseExporter (
   readExportedDatabaseV1
   ) where
 
+import           Concordium.Logger
 import           Concordium.Common.Version
 import           Concordium.GlobalState.Block
 import           Concordium.GlobalState.BlockPointer
@@ -117,7 +118,7 @@ readExportedDatabaseV1 h = do
     tm <- liftIO getCurrentTime
     lbs <- LBS.hGetContents h -- file is automatically closed after EOF is reached
     putStrLn "Starting database processing"
-    result <- readBlocksV1 lbs tm (\_ _ -> putStrLn) undefined (const $ return Success) :: IO (ImportingResult ())
+    result <- readBlocksV1 lbs tm (\_ src str-> putStrLn $ show src ++ ": " ++ str) GlobalState (const $ return Success) :: IO (ImportingResult ())
     case result of
       SerializationFail -> putStrLn "Error."
       _ -> putStrLn "Done."

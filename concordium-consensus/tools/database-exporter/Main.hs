@@ -4,15 +4,16 @@ import DatabaseExporter.CommandLineParser
 import DatabaseExporter
 import Options.Applicative
 import Control.Monad.Reader
-import Data.Maybe
+import Data.Functor.Identity
 
 main :: IO ()
 main = do
-  conf <- execParser opts
-  if readingMode conf then readExportedDatabaseV1 =<< initialReadingHandle (exportPath conf)
-  else do
-      database <- initialDatabase (fromMaybe (error "Database path not defined. Please provide the `--dbpath` argument") $ dbPath conf)
-      file <- initialHandle (exportPath conf)
+  Identity conf <- execParser opts
+  case conf of
+    Check file -> readExportedDatabaseV1 =<< initialReadingHandle file
+    Export db filepath -> do
+      database <- initialDatabase db
+      file <- initialHandle filepath
       runReaderT exportDatabaseV1 (ReadEnv database file)
  where opts = info (config <**> helper)
         (fullDesc
