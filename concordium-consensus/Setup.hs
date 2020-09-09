@@ -22,11 +22,13 @@ makeRust args flags = do
         -- On Windows, we work around to build wasmer using the msvc toolchain
         -- because it doesn't currently work with gnu.
         Windows -> do
+            notice verbosity "Calling 'cargo build'"
             rawSystemExitWithEnv verbosity "rustup"
                 ["run", "stable-x86_64-pc-windows-msvc", "cargo", "build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
                 (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
             -- Copy just the dynamic library, since it doesn't link with the static one.
-            rawSystemExit verbosity "cp" ["../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll", "../smart-contracts/lib/"]
+            notice verbosity "Copying wasmer_interp.dll"
+            rawSystemExit verbosity "cp" ["-u", "../smart-contracts/wasmer-interp/target/release/wasmer_interp.dll", "../smart-contracts/lib/"]
         _ -> do
             rawSystemExitWithEnv verbosity "cargo"
                 ["build", "--release", "--manifest-path", "../smart-contracts/wasmer-interp/Cargo.toml"]
