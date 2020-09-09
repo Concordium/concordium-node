@@ -30,7 +30,7 @@ groupIntoSize s =
 genFinalizationRecord :: Gen FinalizationRecord
 genFinalizationRecord = do
   finalizationIndex <- FinalizationIndex <$> arbitrary
-  finalizationBlockPointer <- Hash . FBS.pack <$> vector 32
+  finalizationBlockPointer <- BlockHashV0 . Hash . FBS.pack <$> vector 32
   finalizationProof <- FinalizationProof <$> do
     l <- choose (0,200) -- between 0 and 200 parties, inclusive
     parties <- replicateM l $ do

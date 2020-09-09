@@ -71,12 +71,12 @@ data StoredBlock st = StoredBlock {
 instance S.Serialize st => S.Serialize (StoredBlock st) where
   put StoredBlock{..} = S.put sbFinalizationIndex <>
           S.put sbInfo <>
-          putBlockV0 sbBlock <>
+          putBlockV1 sbBlock <>
           S.put sbState
   get = do
           sbFinalizationIndex <- S.get
           sbInfo <- S.get
-          sbBlock <- getBlockV0 (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
+          sbBlock <- getBlockV1 (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
           sbState <- S.get
           return StoredBlock{..}
 
@@ -85,7 +85,7 @@ newtype BlockStore st = BlockStore MDB_dbi'
 instance S.Serialize st => MDBDatabase (BlockStore st) where
   type DBKey (BlockStore st) = BlockHash
   type DBValue (BlockStore st) = StoredBlock st
-  encodeKey _ = hashToByteString
+  encodeKey _ = hashToByteString . v0BlockHash
 
 newtype FinalizationRecordStore = FinalizationRecordStore MDB_dbi'
 
@@ -121,7 +121,7 @@ instance MDBDatabase FinalizedByHeightStore where
   type DBKey FinalizedByHeightStore = BlockHeight
 
   type DBValue FinalizedByHeightStore = BlockHash
-  encodeValue _ = LBS.fromStrict . hashToByteString
+  encodeValue _ = LBS.fromStrict . hashToByteString . v0BlockHash
 
 -- |Values used by the LMDBStoreMonad to manage the database.
 -- Sometimes we only want read access

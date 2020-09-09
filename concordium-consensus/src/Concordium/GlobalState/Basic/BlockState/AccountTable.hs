@@ -9,7 +9,7 @@ import Data.Bits
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.GlobalState.Basic.BlockState.Account hiding (Empty)
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.Types.HashableTo
 
 type AccountIndex = Word64

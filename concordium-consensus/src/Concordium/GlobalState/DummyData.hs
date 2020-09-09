@@ -1,9 +1,8 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Concordium.GlobalState.DummyData where
 
-import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -29,8 +28,9 @@ import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
 
 import Concordium.Types
 import System.Random
+import Data.FileEmbed
 import qualified Data.ByteString.Lazy.Char8 as BSL
-import System.IO.Unsafe
+import qualified Data.ByteString as BS
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
@@ -56,26 +56,33 @@ basicGenesisState genData =
 -- proofKP :: Int -> VRF.KeyPair
 -- proofKP n = fst (VRF.randomKeyPair (mkStdGen n))
 
+cryptoParamsFileContents :: BS.ByteString
+cryptoParamsFileContents = $(makeRelativeToProject "testdata/global.json" >>= embedFile)
+
 {-# WARNING dummyCryptographicParameters "Do not use in production" #-}
 dummyCryptographicParameters :: CryptographicParameters
 dummyCryptographicParameters =
-  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "testdata/global.json") of
+  case getExactVersionedCryptographicParameters (BSL.fromStrict cryptoParamsFileContents) of
     Nothing -> error "Could not read cryptographic parameters."
     Just params -> params
 
-{-# NOINLINE dummyIdentityProviders #-}
+ipsFileContents :: BS.ByteString
+ipsFileContents = $(makeRelativeToProject "testdata/identity_providers.json" >>= embedFile)
+
 {-# WARNING dummyIdentityProviders "Do not use in production." #-}
 dummyIdentityProviders :: IdentityProviders
 dummyIdentityProviders =
-  case unsafePerformIO (eitherReadIdentityProviders <$> BSL.readFile "testdata/identity_providers.json") of
+  case eitherReadIdentityProviders (BSL.fromStrict ipsFileContents) of
     Left err -> error $ "Could not load identity provider test data: " ++ err
-    Right ips -> IdentityProviders (Map.fromList (map (\r -> (ipIdentity r, r)) ips))
+    Right ips -> ips
 
-{-# NOINLINE dummyArs #-}
+arsFileContents :: BS.ByteString
+arsFileContents = $(makeRelativeToProject "testdata/anonymity_revokers.json" >>= embedFile)
+
 {-# WARNING dummyArs "Do not use in production." #-}
 dummyArs :: AnonymityRevokers
 dummyArs =
-  case unsafePerformIO (eitherReadAnonymityRevokers <$> BSL.readFile "testdata/anonymity_revokers.json") of
+  case eitherReadAnonymityRevokers (BSL.fromStrict arsFileContents) of
     Left err -> error $ "Could not load anonymity revoker data: " ++ err
     Right ars -> ars
 
@@ -205,7 +212,7 @@ blockStateWithAlesAccount alesAmount otherAccounts =
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
 mkAccount :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
-mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+mkAccount key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
 
@@ -214,7 +221,7 @@ mkAccount key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAm
 -- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
 mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
-mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr cred & accountAmount .~ amnt
+mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential addr dummyLowValidTo dummyCreatedAt
 
@@ -223,7 +230,7 @@ mkAccountExpiredCredential key addr amnt = newAccount (makeSingletonAC key) addr
 -- The keys are indexed in ascending order starting from 0
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
 mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
-mkAccountMultipleKeys keys threshold addr amount = newAccount (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
+mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
   where
     cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
 
@@ -235,7 +242,7 @@ makeFakeBakerAccount bid =
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
-    acct = newAccount (makeSingletonAC vfKey) address credential
+    acct = newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
@@ -243,6 +250,6 @@ makeFakeBakerAccount bid =
 
 createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
 createCustomAccount amount kp address =
-    newAccount (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
+    newAccount dummyCryptographicParameters (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
         & (accountAmount .~ amount)
   where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt

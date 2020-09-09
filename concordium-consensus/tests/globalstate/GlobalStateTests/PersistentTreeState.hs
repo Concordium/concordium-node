@@ -40,22 +40,24 @@ import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
 import System.FilePath ((</>))
 import System.IO.Temp
+import qualified Concordium.Types.Transactions as Trns
+
 import System.Random
 import Test.Hspec
 
 type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g LogIO)
 
-type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState)
+type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.HashedPersistentBlockState)
 
 type Test = TestM ()
 
 instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
   globalStateContext = id
 
-instance HasGlobalState (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState) where
+instance HasGlobalState (SkovPersistentData () PBS.HashedPersistentBlockState) (SkovPersistentData () PBS.HashedPersistentBlockState) where
   globalState = id
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.HashedPersistentBlockState)
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
@@ -66,7 +68,7 @@ createGlobalState dbDir = do
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.HashedPersistentBlockState) -> IO ()
 destroyGlobalState (c, s) =
   shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
@@ -90,7 +92,9 @@ testFinalizeABlock = do
   proof1 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof1"
   proof2 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
-  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] now
+  -- FIXME: Statehash is stubbed out with a placeholder hash
+  pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now
+  
   now' <- liftIO $ getCurrentTime
   blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
   let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
@@ -129,7 +133,8 @@ testFinalizeABlock = do
   liftIO $ lfin `shouldBe` genesisBlock
   -- add another block with different lfin and parent
   now'' <- liftIO $ getCurrentTime
-  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0 proof1 proof2 NoFinalizationData [] now''
+  --FIXME:  statehash is stubbed out with a palceholder stash
+  pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0  proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now''
   now''' <- liftIO $ getCurrentTime
   blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
   let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0

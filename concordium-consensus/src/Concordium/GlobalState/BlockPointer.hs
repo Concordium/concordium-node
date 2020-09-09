@@ -7,7 +7,7 @@ import Data.Word
 import Data.Hashable
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Block
-import qualified Concordium.Crypto.SHA256 as Hash
+-- import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
@@ -68,7 +68,7 @@ instance Hashable BasicBlockPointerData where
 instance Show BasicBlockPointerData where
     show = show . _bpHash
 
-instance HashableTo Hash.Hash BasicBlockPointerData where
+instance HashableTo BlockHash BasicBlockPointerData where
     {-# INLINE getHash #-}
     getHash = _bpHash
 
@@ -147,22 +147,26 @@ instance Hashable (BlockPointer ati p s) where
 instance Show (BlockPointer ati p s) where
     show = show . _bpInfo
 
-instance HashableTo Hash.Hash (BlockPointer ati p s) where
+instance HashableTo BlockHash (BlockPointer ati p s) where
     getHash = getHash . _bpInfo
 
 instance BlockData (BlockPointer ati p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
+    blockStateHash = blockStateHash . _bpBlock
+    blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
-    verifyBlockSignature key = verifyBlockSignature key . _bpBlock
-    putBlockV0 = putBlockV0 . _bpBlock
+    verifyBlockSignature = verifyBlockSignature . _bpBlock
+    putBlockV1 = putBlockV1 . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
+    {-# INLINE blockStateHash #-}
+    {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
-    {-# INLINE putBlockV0 #-}
+    {-# INLINE putBlockV1 #-}
 
 instance BlockPointerData (BlockPointer ati p s) where
     bpHash = _bpHash . _bpInfo

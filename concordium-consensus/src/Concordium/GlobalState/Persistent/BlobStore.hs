@@ -51,10 +51,10 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.Types
+import Concordium.Types.Updates
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
-import Control.Applicative
 import Control.Monad
 
 -- | A BlobRef represents an offset on a file
@@ -365,7 +365,7 @@ instance BlobStorable m a => BlobStorable m (Nullable (BufferedRef a)) where
         if isNull r then
             return (pure Null)
         else
-            fmap Some <$> load
+            return $ pure $ Some $ BRBlobbed r
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
         (r, v') <- storeUpdate v
@@ -426,7 +426,11 @@ instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (Buffe
     (r :: BlobRef a) <- get
     if isNull r
       then return (pure Null)
-      else fmap Some <$> load
+      else do
+        bval <- load
+        return $ do
+          binner <- bval
+          pure $ Some (BRBlobbed r, binner)
   storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
   storeUpdate (Some v) = do
     (r, v') <- storeUpdate v
@@ -596,14 +600,19 @@ instance MonadBlobStore m => BlobStorable m BakerId
 instance MonadBlobStore m => BlobStorable m BakerInfo
 instance MonadBlobStore m => BlobStorable m Word64
 instance MonadBlobStore m => BlobStorable m BS.ByteString
-instance MonadBlobStore m => BlobStorable m EncryptedAmount
 -- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
-instance MonadBlobStore m => BlobStorable m [EncryptedAmount]
+instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance MonadBlobStore m => BlobStorable m PersistingAccountData
+instance MonadBlobStore m => BlobStorable m Authorizations
+instance MonadBlobStore m => BlobStorable m ProtocolUpdate
+instance MonadBlobStore m => BlobStorable m ExchangeRate
+instance MonadBlobStore m => BlobStorable m ElectionDifficulty
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)
 instance (MonadBlobStore m, Serialize a) => BlobStorable m (StoreSerialized a)
+deriving newtype instance HashableTo h a => HashableTo h (StoreSerialized a)
+deriving newtype instance MHashableTo m h a => MHashableTo m h (StoreSerialized a)
 
 data HashedBufferedRef a
   = HashedBufferedRef
@@ -615,6 +624,11 @@ bufferHashed :: MonadIO m => Hashed a -> m (HashedBufferedRef a)
 bufferHashed (Hashed val h) = do
   br <- makeBRMemory refNull val
   return $ HashedBufferedRef br (Just h)
+
+makeHashedBufferedRef :: (MonadIO m, MHashableTo m H.Hash a) => a -> m (HashedBufferedRef a)
+makeHashedBufferedRef val = do
+  h <- getHashM val
+  bufferHashed (Hashed val h)
 
 instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (HashedBufferedRef a) where
   getHashM ref = maybe (getHashM =<< refLoad ref) return (bufferedHash ref)
@@ -648,9 +662,26 @@ instance (Monad m, BlobStorable m a, MHashableTo m H.Hash a) => Reference m Hash
 
   refCache ref = do
     (val, br) <- cacheBufferedRef (bufferedReference ref)
-    h <- getHashM val
-    return (val, ref {bufferedReference = br, bufferedHash = bufferedHash ref <|> Just h})
+    case bufferedHash ref of
+      Nothing -> do
+        h <- getHashM val
+        return (val, ref {bufferedReference = br, bufferedHash = Just h})
+      theHash@(Just _) -> return (val, ref {bufferedReference = br, bufferedHash = theHash})
 
   refUncache ref = do
     br <- uncacheBuffered (bufferedReference ref)
     return $ ref {bufferedReference = br}
+
+instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a)) where
+    store Null = return $ put (refNull :: BlobRef a)
+    store (Some v) = store v
+    load = do
+        (r :: BlobRef a) <- get
+        if isNull r then
+            return (pure Null)
+        else
+            fmap Some <$> load
+    storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+    storeUpdate (Some v) = do
+        (r, v') <- storeUpdate v
+        return (r, Some v')

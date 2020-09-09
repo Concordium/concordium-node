@@ -1,10 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
-
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Account where
 
 import Control.Monad
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
 import Data.Maybe
 import Data.Serialize
 import Lens.Micro.Platform
@@ -12,8 +13,13 @@ import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
+import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
+
+-- FIXME: Figure out where to put this constant.
+maxNumIncoming :: Int
+maxNumIncoming = 32
 
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data PersistingAccountData = PersistingAccountData {
@@ -28,6 +34,48 @@ data PersistingAccountData = PersistingAccountData {
 } deriving (Show, Eq)
 
 makeClassy ''PersistingAccountData
+
+-- | Add an encrypted amount to the end of the list.
+-- This is used when an incoming transfer is added to the account. If this would
+-- go over the threshold for the maximum number of incoming amounts then
+-- aggregate the first two incoming amounts.
+addIncomingEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+addIncomingEncryptedAmount newAmount old =
+  if Seq.length (_incomingEncryptedAmounts old ) >= maxNumIncoming then
+    case _incomingEncryptedAmounts old of
+      x Seq.:<| y Seq.:<| rest ->
+        old{_incomingEncryptedAmounts = ((x <> y) Seq.<| rest) Seq.|> newAmount,
+            _numAggregated = Just (maybe 2 (+1) (_numAggregated old)),
+            _startIndex = _startIndex old + 1
+            }
+      _ -> error "Cannot happen due to check above."
+  else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
+
+-- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
+-- This is used when an account is transfering from from an encrypted balance, and the newly added
+-- amount is the remaining balance that was not used.
+--
+-- As mentioned above, the whole 'selfBalance' must always be used in any
+-- outgoing action of the account.
+replaceUpTo :: EncryptedAmountAggIndex -> EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+replaceUpTo newIndex newAmount AccountEncryptedAmount{..} = 
+  AccountEncryptedAmount{
+    _selfAmount = newAmount,
+    _startIndex = newStartIndex,
+    _incomingEncryptedAmounts = newEncryptedAmounts,
+    _numAggregated = newNumAggregated
+  }
+  where (newStartIndex, toDrop) = 
+          if newIndex > _startIndex 
+          then (newIndex, fromIntegral (newIndex - _startIndex)) 
+          else (_startIndex, 0)
+        newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
+        newNumAggregated = if toDrop > 0 then Nothing else _numAggregated
+
+-- | Add the given encrypted amount to 'selfAmount'
+-- This is used when the account is transferring from public to secret balance.
+addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
+addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
@@ -49,7 +97,7 @@ instance Serialize PersistingAccountData where
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> [EncryptedAmount] -> PersistingAccountData -> Hash.Hash
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> PersistingAccountData -> Hash.Hash
 makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put pd
 
@@ -68,13 +116,31 @@ setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at
 setThreshold :: HasPersistingAccountData d => SignatureThreshold -> d -> d
 setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })
 
-data EncryptedAmountUpdate = Replace !EncryptedAmount -- ^Replace the encrypted amount, such as when compressing.
-                           | Add !EncryptedAmount     -- ^Add an encrypted amount to the list of encrypted amounts.
-                           | Empty                    -- ^Do nothing to the encrypted amount.
+data EncryptedAmountUpdate = 
+  -- |Replace encrypted amounts less than the given index,
+  -- by appending the new amount at the end of the list of encrypted amounts.
+  -- This is used when sending an encrypted amount, as well as when transferring
+  -- from the encrypted to public balance.
+  ReplaceUpTo {
+    aggIndex :: !EncryptedAmountAggIndex,
+    newAmount :: !EncryptedAmount
+  }
+  -- |Add an encrypted amount to the end of the list of encrypted amounts.
+  -- This is used when receiving an encrypted amount.
+  | Add {
+    newAmount :: !EncryptedAmount
+  }
+  -- |Add an encrypted amount to the self balance, aggregating to what is already there.
+  -- This is used when an account is transferring from public to secret balance.
+  | AddSelf {
+    newAmount :: !EncryptedAmount
+    }
+  deriving(Eq, Show)
 
 data AccountKeysUpdate =
     RemoveKeys !(Set.Set KeyIndex) -- Removes the keys at the specified indexes from the account
   | SetKeys !(Map.Map KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
+  deriving(Eq)
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -84,19 +150,19 @@ data AccountUpdate = AccountUpdate {
   ,_auNonce :: !(Maybe Nonce)
   -- |Optionally an update to the account amount.
   ,_auAmount :: !(Maybe AmountDelta)
-  -- |Optionally an update to the encrypted amounts.
-  ,_auEncrypted :: !EncryptedAmountUpdate
+  -- |Optionally an update the encrypted amount.
+  ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally a new credential.
   ,_auCredential :: !(Maybe CredentialDeploymentValues)
   -- |Optionally an update to the account keys
   ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
   -- |Optionally update the signature threshold
   ,_auSignThreshold :: !(Maybe SignatureThreshold)
-}
+} deriving(Eq)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Empty Nothing Nothing Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- |Optionally add a credential to an account.
 {-# INLINE updateCredential #-}
