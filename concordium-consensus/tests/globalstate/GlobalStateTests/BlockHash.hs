@@ -6,11 +6,8 @@ import Test.Hspec
 
 import Concordium.Crypto.VRF as VRF
 
-import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
-import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Block as Block
 import Concordium.GlobalState.Finalization
-import Concordium.Wasm
 import Concordium.Types
 
 import Concordium.GlobalState.BakerInfo
@@ -49,12 +46,8 @@ generateProofFromString  input = proof
 
 -- Helper to generate block finalization records
 genFinData :: FinalizationIndex -> BlockHash -> FinalizationProof -> BlockHeight -> BlockFinalizationData
-genFinData index bp proof delay =  BlockFinalizationData FinalizationRecord{..} 
-  where 
-    finalizationIndex = index
-    finalizationBlockPointer = bp
-    finalizationProof = proof
-    finalizationDelay = delay
+genFinData finalizationIndex finalizationBlockPointer finalizationProof finalizationDelay
+        = BlockFinalizationData FinalizationRecord{..}
 
 -- Values for default inputs to generate hash
 baker1 :: (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
