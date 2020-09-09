@@ -249,7 +249,7 @@ initialState = do
                                 (maxBakerId + 1) -- Number of bakers
                                 1000 -- Slot time is 1 second, to match time
                                 defaultFinalizationParameters
-                                dummyCryptographicParameters
+                                Dummy.dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]

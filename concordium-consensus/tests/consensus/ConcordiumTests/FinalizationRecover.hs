@@ -3,8 +3,6 @@ module ConcordiumTests.FinalizationRecover where
 
 import Control.Monad
 import Data.Proxy
-import qualified Data.ByteString.Lazy as BSL
-import System.IO.Unsafe
 import Control.Monad.IO.Class
 import qualified Data.Map.Strict as Map
 
@@ -12,7 +10,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 import Concordium.Logger
 import Concordium.Skov.MonadImplementations
-import Concordium.Startup hiding (dummyCryptographicParameters)
+import Concordium.Startup
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -24,20 +22,13 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
-import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
+import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.Types
 
 import Test.Hspec
 
 -- Test that 'recoverFinalizationState' recovers the initial finalization state
 -- when initialized from genesis state.
-
-{-# NOINLINE dummyCryptographicParameters #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json") of
-    Nothing -> error "Could not read cryptographic parameters."
-    Just params -> params
 
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
@@ -46,7 +37,7 @@ dummyArs = emptyAnonymityRevokers
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rt genData@GenesisDataV1{..} = return $ MTMBConfig rt genData blockS
-  where blockS = BS.emptyBlockState birkParams dummyCryptographicParameters dummyAuthorizations dummyChainParameters
+  where blockS = BS.emptyBlockState birkParams Dummy.dummyCryptographicParameters Dummy.dummyAuthorizations Dummy.dummyChainParameters
         birkParams = BS.makeBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
@@ -56,13 +47,13 @@ genesis nBakers =
     nBakers
     1000
     defaultFinalizationParameters
-    dummyCryptographicParameters
+    Dummy.dummyCryptographicParameters
     emptyIdentityProviders
     dummyArs
     []
     1234
-    dummyAuthorizations
-    dummyChainParameters
+    Dummy.dummyAuthorizations
+    Dummy.dummyChainParameters
 
 makeFinalizationInstance :: BakerIdentity -> FinalizationInstance
 makeFinalizationInstance (BakerIdentity k1 k2 k3) = FinalizationInstance k1 k2 k3

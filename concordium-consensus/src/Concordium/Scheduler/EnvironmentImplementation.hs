@@ -15,11 +15,12 @@ import Data.Functor.Identity
 import Lens.Micro.Platform
 
 import Control.Monad.Reader
-import Control.Monad.Writer.Strict(MonadWriter, tell, censor, listen)
+import Control.Monad.Writer.Strict(MonadWriter, tell, censor, listen, pass)
 import Control.Monad.Trans.RWS.Strict hiding (ask, get, put, tell, censor, listen)
 import Control.Monad.State.Class
 
 import Concordium.Scheduler.Types
+import Concordium.Logger
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
@@ -72,7 +73,8 @@ newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
               Monad,
               MonadReader r,
               MonadState state,
-              MonadWriter w)
+              MonadWriter w,
+              MonadLogger)
 
 instance MonadTrans (BSOMonadWrapper r w s) where
     {-# INLINE lift #-}
@@ -110,7 +112,8 @@ instance (MonadReader ContextState m,
           CanRecordFootprint w,
           CanExtend (ATIStorage m),
           Footprint (ATIStorage m) ~ w,
-          MonadWriter w m
+          MonadWriter w m,
+          MonadLogger m
          )
          => SchedulerMonad (BSOMonadWrapper ContextState w state m) where
 
@@ -210,6 +213,12 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
     schedulerBlockState .= s'
 
+  {-# INLINE notifyEncryptedBalanceChange #-}
+  notifyEncryptedBalanceChange !amntDiff = do
+    s <- use schedulerBlockState
+    s' <- lift (bsoNotifyEncryptedBalanceChange s amntDiff)
+    schedulerBlockState .= s'
+
   {-# INLINE getBakerAccountAddress #-}
   getBakerAccountAddress bid = do
     s <- use schedulerBlockState
@@ -292,8 +301,8 @@ instance (MonadReader ContextState m,
     s <- use schedulerBlockState
     lift (bsoGetAnonymityRevokers s arIds)
 
-  {-# INLINE getCrypoParams #-}
-  getCrypoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
+  {-# INLINE getCryptoParams #-}
+  getCryptoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
 
   {-# INLINE getUpdateAuthorizations #-}
   getUpdateAuthorizations = lift . bsoGetCurrentAuthorizations =<< use schedulerBlockState
@@ -315,17 +324,27 @@ deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r w 
 
 -- Pure block state scheduler state
 type PBSSS = NoLogSchedulerState (PureBlockStateMonad Identity)
-type RWSTBS m a = RWST ContextState () PBSSS m a
+-- newtype wrapper to forget the automatic writer instance so we can repurpose it for logging.
+newtype RWSTBS m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] PBSSS m a}
+  deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS, MonadTrans)
+
+instance Monad m => MonadWriter () (RWSTBS m) where
+  tell _ = return ()
+  listen = fmap (,())
+  pass = fmap fst
 
 -- |Basic implementation of the scheduler that does no transaction logging.
 newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWSTBS (PureBlockStateMonad Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS)
-    deriving (StaticInformation, AccountOperations)
-      via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity)))
+    deriving (StaticInformation, AccountOperations, MonadLogger)
+      via (BSOMonadWrapper ContextState () PBSSS (MGSTrans RWSTBS (PureBlockStateMonad Identity)))
+
+instance Monad m => MonadLogger (RWSTBS m) where
+  logEvent source level event = RWSTBS (RWST (\_ s -> return ((), s, [(source, level, event)])))
 
 deriving via (PureBlockStateMonad Identity) instance GS.BlockStateTypes SchedulerImplementation
 
-deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans (RWST ContextState () PBSSS) (PureBlockStateMonad Identity))) instance
+deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans RWSTBS (PureBlockStateMonad Identity))) instance
   SchedulerMonad SchedulerImplementation
 
 instance ATITypes SchedulerImplementation where
@@ -336,17 +355,25 @@ runSI sc cd energy gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runScheduler sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
+        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
   in (a, s)
+
+-- |Same as the previous method, but retain the logs of the run.
+runSIWithLogs :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS, [(LogSource, LogLevel, String)])
+runSIWithLogs sc cd energy gs =
+  runIdentity $
+  runPureBlockStateMonad $
+  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
+
 
 execSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> PBSSS
 execSI sc cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runScheduler sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
+       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
 
 evalSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> a
 evalSI sc cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runScheduler sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
+       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))

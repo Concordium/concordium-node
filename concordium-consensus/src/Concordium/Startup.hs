@@ -9,9 +9,6 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 import System.Random
 import Lens.Micro.Platform
 
-import qualified Data.ByteString.Lazy.Char8 as BSL
-import System.IO.Unsafe
-
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -30,6 +27,7 @@ import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
+import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 
 makeBakers :: Word -> [((BakerIdentity, FullBakerInfo), Account)]
@@ -53,7 +51,8 @@ makeBakerAccountKP bid amount =
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
-    acct = newAccount (makeSingletonAC vfKey) address credential
+    acct = newAccount dummyCryptographicParameters
+                (makeSingletonAC vfKey) address credential
                 & accountAmount .~ amount
                 & accountStakeDelegate ?~ bid
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
@@ -110,11 +109,3 @@ makeGenesisData
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         (bakers, bakerAccounts) = unzip (makeBakers nBakers)
         genesisAccounts = bakerAccounts ++ additionalAccounts
-
-
-{-# WARNING dummyCryptographicParameters "Do not use in production" #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-  case unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "scheduler/testdata/global.json") of
-    Nothing -> error "Could not read cryptographic parameters."
-    Just params -> params

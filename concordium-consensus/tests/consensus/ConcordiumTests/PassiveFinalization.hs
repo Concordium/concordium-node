@@ -5,12 +5,9 @@ module ConcordiumTests.PassiveFinalization where
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans.State
-import qualified Data.ByteString.Lazy as BSL
-import Data.Maybe (fromMaybe)
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Lens.Micro.Platform
-import System.IO.Unsafe
 import System.Random
 
 import Test.QuickCheck
@@ -34,7 +31,6 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
@@ -60,16 +56,6 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 -- finalization-message buffer and create finalization proofs from them. This is necessary
 -- for cases where finalization messages are received out of order (i.e. messages for a later
 -- finalization round arrive before the messages for an earlier finalization round).
-
-{-# NOINLINE dummyCryptographicParameters #-}
-dummyCryptographicParameters :: CryptographicParameters
-dummyCryptographicParameters =
-    fromMaybe
-        (error "Could not read cryptographic parameters.")
-        (unsafePerformIO (getExactVersionedCryptographicParameters <$> BSL.readFile "../scheduler/testdata/global.json"))
-
-dummyArs :: AnonymityRevokers
-dummyArs = emptyAnonymityRevokers
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -308,7 +294,7 @@ createInitStates additionalFinMembers = do
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations cps
+        gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters Dummy.dummyCryptographicParameters emptyIdentityProviders Dummy.dummyArs 10 (Energy maxBound) dummyAuthorizations cps
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
