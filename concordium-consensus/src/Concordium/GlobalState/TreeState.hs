@@ -30,6 +30,13 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.GlobalState.AccountTransactionIndex
 
+import qualified Data.ByteString.Lazy as LBS
+import Data.ByteString
+import Concordium.Logger
+import Data.Serialize as S
+import Concordium.Common.Version (Version)
+import qualified Concordium.GlobalState.Block as B
+
 data BlockStatus bp pb =
     BlockAlive !bp
     | BlockDead
@@ -389,3 +396,62 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
 
 deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
 deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+
+data ImportingResult a = SerializationFail | Success | OtherError a deriving (Show)
+
+-- |Read the header of the export file.
+-- The header consists of
+--
+-- - version number that determines the format of all the subsequent blocks in the file.
+--
+-- The function returns, if successfull, the version, and the unconsumed input.
+readHeader :: LBS.ByteString -> Either String (Version, LBS.ByteString)
+readHeader = S.runGetLazyState S.get
+
+
+readBlocksV1 :: (Show a) => LBS.ByteString
+           -> UTCTime
+           -> LogMethod IO
+           -> LogSource
+           -> (PendingBlock -> IO (ImportingResult a))
+           -> IO (ImportingResult a)
+readBlocksV1 lbs tm logm logLvl continuation = do
+  case readHeader lbs of
+      Left err -> do
+        logm logLvl LLError $ "Error deserializing header: " ++ err
+        return SerializationFail
+      Right (version, rest)
+          | version == 1 -> loopV1 rest
+          | otherwise -> do
+              logm logLvl LLError $ "Unsupported version: " ++ show version
+              return SerializationFail
+  where loopV1 rest
+            | LBS.null rest = return Success -- we've reached the end of the file
+            | otherwise =
+                case S.runGetLazyState blockGetter rest of
+                  Left err -> do
+                    logm logLvl LLError $ "Error reading block bytes: " ++ err
+                    return SerializationFail
+                  Right (blockBS, remainingBS) -> do
+                    result <- importBlockV1 blockBS tm logm logLvl continuation
+                    case result of
+                      Success -> loopV1 remainingBS
+                      err -> do -- stop processing at first error that we encounter.
+                        logm External LLError $ "Error importing block: " ++ show err
+                        return err
+        blockGetter = do
+          len <- S.getWord64be
+          S.getByteString (fromIntegral len)
+
+importBlockV1 :: ByteString
+              -> UTCTime
+              -> LogMethod IO
+              -> LogSource
+              -> (PendingBlock -> IO (ImportingResult a))
+              -> IO (ImportingResult a)
+importBlockV1 blockBS tm logm logLvl continuation =
+  case B.deserializePendingBlockV1 blockBS tm of
+    Left err -> do
+      logm logLvl LLError $ "Can't deserialize block: " ++ show err
+      return SerializationFail
+    Right block -> continuation block
