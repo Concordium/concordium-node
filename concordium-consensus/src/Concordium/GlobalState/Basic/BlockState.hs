@@ -95,7 +95,8 @@ makeLenses ''BasicBirkParameters
 makeClassy ''BlockState
 makeLenses ''HashedBlockState
 
-instance HasBlockState HashedBlockState where blockState = unhashedBlockState
+instance HasBlockState HashedBlockState where
+    blockState = unhashedBlockState
 
 instance HashableTo StateHash HashedBlockState where
     getHash = _blockStateHash
