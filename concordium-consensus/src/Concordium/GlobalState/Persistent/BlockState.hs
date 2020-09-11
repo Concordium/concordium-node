@@ -85,34 +85,6 @@ hashBlockState hpbsPointers = do
         hpbsHash <- getHashM bsp
         return HashedPersistentBlockState{..}
 
-{-
--- |Update the 'bspHash' component of the 'BlockStatePointers' to reflect
--- the correct value based on the components.
-recomputeBlockHashes :: MonadBlobStore r m => BlockStatePointers -> m BlockStatePointers
-recomputeBlockHashes bsp@BlockStatePointers{..} = do
-
-    return bsp{bspHash = makeBlockStateHash BlockStateHashInputs{..}}
--}
-{-
-makeBlockHashesM :: MonadBlobStore r m => BlockStatePointers -> m Basic.BlockStateHashes
-makeBlockHashesM BlockStatePointers {..} = do
-  birkHash <- getHashM bspBirkParameters
-  cryptoHash <- getHashM bspCryptographicParameters
-  ipsHash <- getHashM bspIdentityProviders
-  arsHash <- getHashM bspAnonymityRevokers
-  modulesHash <- getHashM bspModules
-  accountsHash <- getHashM bspAccounts
-  instancesHash <- getHashM bspInstances
-  let hashOfBirkParamsAndCryptoParams = H.hashOfHashes birkHash cryptoHash
-      hashOfIPsAndARs = H.hashOfHashes ipsHash arsHash
-      hashOfModulesAndBank = H.hashOfHashes modulesHash (getHash bspBank)
-      hashOfAccountsAndInstances = H.hashOfHashes accountsHash instancesHash
-      hashOfBirkCryptoIPsARs = H.hashOfHashes hashOfBirkParamsAndCryptoParams hashOfIPsAndARs
-      hashOfModulesBankAccountsIntances = H.hashOfHashes hashOfModulesAndBank hashOfAccountsAndInstances
-      blockStateHash = StateHashV0 (H.hashOfHashes hashOfBirkCryptoIPsARs hashOfModulesBankAccountsIntances)
-  return Basic.BlockStateHashes {..}
--}
-
 instance MonadBlobStore r m => MHashableTo m StateHash BlockStatePointers where
     getHashM BlockStatePointers{..} = do
         bshBirkParameters <- getHashM bspBirkParameters
