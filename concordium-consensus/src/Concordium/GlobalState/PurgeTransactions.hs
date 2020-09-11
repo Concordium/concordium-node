@@ -65,7 +65,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         -- A transaction is too old if its arrival predates the oldest allowed
         -- arrival time, or if its expiry time has passed.
         tooOld tx = biArrivalTime tx < oldestArrivalTime
-                    || transactionExpired (thExpiry (btrHeader (wmdData tx))) currentTime
+                    || transactionExpired (thExpiry (atrHeader (wmdData tx))) currentTime
         tooOldCU tx = biArrivalTime tx < oldestArrivalTime
                     || transactionExpired (updateTimeout (uiHeader (wmdData tx))) currentTime
         -- Determine if an entry in the transaction hash table indicates that a
