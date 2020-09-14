@@ -10,7 +10,10 @@ static A: System = System;
 use failure::Fallible;
 use mio::Poll;
 use parking_lot::Mutex as ParkingMutex;
-use rkv::{Manager, Rkv};
+use rkv::{
+    backend::{Lmdb, LmdbEnvironment},
+    Manager, Rkv,
+};
 
 use concordium_common::{spawn_or_die, QueueMsg};
 use consensus_rust::{
@@ -121,10 +124,10 @@ async fn main() -> Fallible<()> {
     let data_dir_path = app_prefs.get_user_app_dir();
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
         .expect("Can't get genesis data or private data. Aborting");
-    let gs_kvs_handle = Manager::singleton()
+    let gs_kvs_handle = Manager::<LmdbEnvironment>::singleton()
         .write()
         .expect("Can't write to the kvs manager for GlobalState purposes!")
-        .get_or_create(data_dir_path.as_ref(), Rkv::new)
+        .get_or_create(data_dir_path.as_ref(), Rkv::new::<Lmdb>)
         .expect("Can't load the GlobalState kvs environment!");
 
     if let Err(e) = gs_kvs_handle.write().unwrap().set_map_size(1024 * 1024 * 256) {

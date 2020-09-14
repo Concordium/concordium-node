@@ -14,7 +14,7 @@ extern crate log;
 use concordium_common::{read_or_die, spawn_or_die, write_or_die};
 use futures::prelude::*;
 use gotham::{
-    handler::{HandlerFuture, IntoHandlerError, IntoResponse},
+    handler::{HandlerError, HandlerFuture, IntoResponse},
     helpers::http::response::{create_empty_response, create_response},
     middleware::state::StateMiddleware,
     pipeline::{single::single_pipeline, single_middleware},
@@ -252,11 +252,17 @@ fn nodes_post_handler(mut state: State) -> Pin<Box<HandlerFuture>> {
                     }
                     Err(e) => {
                         error!("Can't parse client data: {}", e);
-                        future::err((state, e.into_handler_error()))
+                        future::err((
+                            state,
+                            HandlerError::from(e).with_status(StatusCode::INTERNAL_SERVER_ERROR),
+                        ))
                     }
                 }
             }
-            Err(e) => future::err((state, e.into_handler_error())),
+            Err(e) => future::err((
+                state,
+                HandlerError::from(e).with_status(StatusCode::INTERNAL_SERVER_ERROR),
+            )),
         })
         .boxed()
 }

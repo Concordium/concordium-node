@@ -157,9 +157,7 @@ impl DeduplicationQueueSha256 {
     /// Hash an input given as a byte slice
     fn hash(&self, input: &[u8]) -> [u8; 32] {
         use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.input(&input);
-        hasher.result().into()
+        Sha256::digest(input).into()
     }
 }
 
