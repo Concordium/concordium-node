@@ -27,6 +27,7 @@ import Concordium.GlobalState.AnonymityRevokers
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 import Concordium.Types
 import Concordium.Runner
@@ -205,12 +206,15 @@ main = do
     let n = 3
     now <- currentTimestamp
     let (gen, bis) =
-          makeGenesisData now n 100 0.5
+          makeGenesisData now n 100
             defaultFinalizationParameters{finalizationMinimumSkip = 1}
             Dummy.dummyCryptographicParameters
             dummyIdentityProviders
             emptyArs
-            [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] (Energy maxBound)
+            [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
+            (Energy maxBound)
+            dummyAuthorizations
+            (makeChainParameters (makeElectionDifficulty 0.5) 1 1)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

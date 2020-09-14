@@ -51,6 +51,7 @@ import Concordium.Startup
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 import System.Directory
 
@@ -247,13 +248,14 @@ initialState = do
                                 0 -- Start at time 0, to match time
                                 (maxBakerId + 1) -- Number of bakers
                                 1000 -- Slot time is 1 second, to match time
-                                0.2 -- Election difficulty
                                 defaultFinalizationParameters
                                 Dummy.dummyCryptographicParameters
                                 dummyIdentityProviders
                                 dummyArs
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
+                                dummyAuthorizations
+                                (makeChainParameters (makeElectionDifficulty 0.2) 1 1)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"

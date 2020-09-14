@@ -13,6 +13,7 @@ import GHC.Stack
 
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Updates
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
@@ -21,6 +22,7 @@ import qualified Concordium.GlobalState.Block as GB (PendingBlock(..))
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 
@@ -310,7 +312,10 @@ addBlock block = do
                 bps <- getBirkParameters (blockSlot block) parentP
                 baker <- birkEpochBaker (blockBaker block) bps
                 nonce <- birkLeadershipElectionNonce bps
-                elDiff <- getElectionDifficulty bps
+                slotTime <- getSlotTimestamp (blockSlot block)
+                parentState <- blockState parentP
+                elDiff <- getElectionDifficulty parentState slotTime
+                logEvent Skov LLTrace $ "Verifying block with election difficulty " ++ show elDiff
                 case baker of
                     Nothing -> invalidBlock $ "unknown baker " ++ show (blockBaker block)
                     Just (BakerInfo{..}, lotteryPower) ->
@@ -334,7 +339,6 @@ addBlock block = do
                             let ts = blockTransactions block
                             -- possibly add the block nonce in the seed state
                             bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
-                            slotTime <- getSlotTimestamp (blockSlot block)
                             executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
                                 Left err -> do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
@@ -482,9 +486,15 @@ doReceiveTransactionInternal tr slot =
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.
                   when (nextNonce <= transactionNonce tx) $
-                      putPendingTransactions $! extendPendingTransactionTable nextNonce WithMetadata{wmdData=tx,..} ptrs
-                CredentialDeployment _ -> do
-                  putPendingTransactions $! extendPendingTransactionTable' wmdHash ptrs
+                      putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                CredentialDeployment _ ->
+                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                ChainUpdate cu -> do
+                    focus <- getFocusBlock
+                    st <- blockState focus
+                    nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
+                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
+                        putPendingTransactions $! addPendingUpdate nextSN cu ptrs
               return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)

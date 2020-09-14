@@ -7,7 +7,6 @@ import Test.Hspec
 import Test.QuickCheck
 
 import qualified Data.Map as Map
-import qualified Data.HashSet as Set
 
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.Runner
@@ -28,7 +27,6 @@ import Lens.Micro.Platform
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
-import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
@@ -166,12 +164,11 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
             let (Sch.FilteredTransactions{..}, finState) =
                   EI.runSI
                     (Sch.filterTransactions dummyBlockSize transactions)
-                    (Set.fromList [alesAccount, thomasAccount])
                     dummyChainMeta
                     maxBound
                     initialBlockState
             let gs = finState ^. EI.ssBlockState
-            let rejs = [(z, decodePayload (thPayloadSize . btrHeader $ z) (btrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
+            let rejs = [(z, decodePayload (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
             case invariantBlockState gs >> (if null ftFailed then Right () else Left ("some transactions failed: " ++ show ftFailed))
                 >> (if null rejs then Right () else Left ("some transactions rejected: " ++ show rejs)) of
                 Left f -> return $ counterexample f False

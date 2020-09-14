@@ -28,16 +28,18 @@ timeUntilNextSlot = do
 
 getCurrentSlot :: (TimeMonad m, SkovQueryMonad m) => m Slot
 getCurrentSlot = do
-        GenesisData{..} <- getGenesisData
+        gen <- getGenesisData
         ct <- currentTimestamp
-        return $ Slot $ if ct <= genesisTime then 0 else fromIntegral ((tsMillis $ ct - genesisTime) `div` durationMillis genesisSlotDuration)
+        return $ Slot $ if ct <= genesisTime gen
+                          then 0
+                          else fromIntegral ((tsMillis $ ct - genesisTime gen) `div` durationMillis (genesisSlotDuration gen))
 
 -- |Get the timestamp at the beginning of the given slot.
 getSlotTimestamp :: (SkovQueryMonad m) => Slot -> m Timestamp
 getSlotTimestamp slot = do
-  GenesisData{..} <- getGenesisData
+  gen <- getGenesisData
   -- We should be safe with respect to any overflow issues here since Timestamp is Word64
-  return (addDuration genesisTime (genesisSlotDuration * fromIntegral slot))
+  return (addDuration (genesisTime gen) (genesisSlotDuration gen * fromIntegral slot))
 
 -- |Select the finalization committee based on bakers from the given block.
 getFinalizationCommittee :: (SkovQueryMonad m) => BlockPointerType m -> m FinalizationCommittee

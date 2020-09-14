@@ -34,6 +34,7 @@ import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BakerQuery, BirkParametersOperations, BlockStateStorage, BlockStateOperations)
+import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes as C
 import Concordium.Logger
 import Concordium.TimeMonad

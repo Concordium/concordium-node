@@ -24,6 +24,7 @@ import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
@@ -79,30 +80,32 @@ defaultFinalizationParameters = FinalizationParameters {
 makeGenesisData ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
-    -> Duration  -- ^Slot duration in seconds.
-    -> ElectionDifficulty  -- ^Initial election difficulty.
+    -> Duration  -- ^Slot duration (miliseconds).
     -> FinalizationParameters -- ^Finalization parameters
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
-    -> [Account]  -- ^List of starting genesis special accounts (in addition to baker accounts).
+    -> [Account] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
+    -> Authorizations -- ^Authorizations for chain updates
+    -> ChainParameters -- ^Initial chain parameters
     -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 makeGenesisData
         genesisTime
         nBakers
         genesisSlotDuration
-        elecDiff
         genesisFinalizationParameters
         genesisCryptographicParameters
         genesisIdentityProviders
         genesisAnonymityRevokers
-        genesisControlAccounts
+        additionalAccounts
         genesisMaxBlockEnergy
-    = (GenesisData{..}, bakers)
+        genesisAuthorizations
+        genesisChainParameters
+    = (GenesisDataV1{..}, bakers)
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisBakers = fst (bakersFromList (snd <$> bakers))
-        genesisElectionDifficulty = elecDiff
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
-        (bakers, genesisAccounts) = unzip (makeBakers nBakers)
+        (bakers, bakerAccounts) = unzip (makeBakers nBakers)
+        genesisAccounts = bakerAccounts ++ additionalAccounts

@@ -1,5 +1,6 @@
 module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.Types,
+                                   module Concordium.Types.Updates,
                                    module Concordium.Types.Execution,
                                    module Concordium.Types.Transactions,
                                    module Concordium.GlobalState.Instance,
@@ -10,6 +11,7 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    IdentityProviderIdentity) where
 
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.Types.Execution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Rewards
@@ -35,28 +37,39 @@ data FilteredTransactions = FilteredTransactions {
   ftFailed :: [(Transaction, FailureKind)],
   -- |Credential deployments which failed. No order is guaranteed.
   ftFailedCredentials :: [(CredentialDeploymentWithMeta, FailureKind)],
+  -- |Update instructions which failed. No order is guaranteed.
+  ftFailedUpdates :: [(WithMetadata UpdateInstruction, FailureKind)],
   -- |Transactions which were not processed. No order is guaranteed.
   ftUnprocessed :: [Transaction],
   -- |Credentials which were not processed. No order is guaranteed.
-  ftUnprocessedCredentials :: [CredentialDeploymentWithMeta]
+  ftUnprocessedCredentials :: [CredentialDeploymentWithMeta],
+  -- |Update instructions which were not processed. No order is guaranteed.
+  ftUnprocessedUpdates :: [WithMetadata UpdateInstruction]
   }
   deriving (Show)
 
 emptyFilteredTransactions :: FilteredTransactions
-emptyFilteredTransactions = FilteredTransactions [] [] [] [] []
+emptyFilteredTransactions = FilteredTransactions [] [] [] [] [] [] []
 
--- |Transactions grouped by accounts.
--- For example, if T1 and T2 are transactions from account A,
--- and T3, T4, and T5 are transactions from account B, then
--- we group the transactions as [[T1, T2], [T3, T4, T5]].
--- Additionally a list of pending credentials to deploy together
-data GroupedTransactions msg = GroupedTransactions{
-  perAccountTransactions :: [[msg]],
-  credentialDeployments :: [CredentialDeploymentWithMeta]
-  }
+-- |A group of one or more block items with sequential dependencies.
+data TransactionGroup
+  = TGAccountTransactions [Transaction]
+  -- ^A collection of transactions for a single account, ordered with non-decreasing nonce.
+  | TGCredentialDeployment CredentialDeploymentWithMeta
+  -- ^A single credential deployment.
+  | TGUpdateInstructions [WithMetadata UpdateInstruction]
+  -- ^A collection of update instructions of a single type, ordered with non-decreasing sequence number.
 
-emptyGroupedTransactions :: GroupedTransactions msg
-emptyGroupedTransactions = GroupedTransactions [] []
+type GroupedTransactions = [TransactionGroup]
 
-fromTransactions :: [[msg]] -> GroupedTransactions msg
-fromTransactions = flip GroupedTransactions []
+emptyGroupedTransactions :: GroupedTransactions
+emptyGroupedTransactions = []
+
+fromTransactions :: [[Transaction]] -> GroupedTransactions
+fromTransactions = fmap TGAccountTransactions
+
+perAccountTransactions :: GroupedTransactions -> [[Transaction]]
+perAccountTransactions gts = [ats | TGAccountTransactions ats <- gts]
+
+credentialDeployments :: GroupedTransactions -> [CredentialDeploymentWithMeta]
+credentialDeployments gts = [cd | TGCredentialDeployment cd <- gts]

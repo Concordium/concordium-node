@@ -217,18 +217,19 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisData{..} = Basic.initialState
+genesisState GenesisDataV1{..} = Basic.initialState
                        (Basic.makeBirkParameters
-                            genesisElectionDifficulty
                             genesisBakers
                             genesisBakers
                             genesisBakers
                             genesisSeedState)
                        genesisCryptographicParameters
-                       (genesisAccounts ++ genesisControlAccounts)
+                       genesisAccounts
                        genesisIdentityProviders
                        genesisAnonymityRevokers
                        genesisMintPerSlot
+                       genesisAuthorizations
+                       genesisChainParameters
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
@@ -326,17 +327,27 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
+        let runtimeParams = RuntimeParameters {
+              rpBlockSize = fromIntegral maxBlock,
+              rpTreeStateDir = appData </> "treestate",
+              rpBlockStateFile = appData </> "blockstate",
+              rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
+              rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
+              rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
+              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
+            }
         case (runGet getExactVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
-            (Right genData, Right bid) ->
+            (Right genData, Right bid) -> do
+              let
+                  finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
+                  hconfig = NoHandler
               if connStringLen /= 0 then do -- enable logging of transactions
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
+                        runtimeParams
                         genData
                         connString
-                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 bakerSyncRunnerWithLog <-
@@ -346,10 +357,8 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
+                        runtimeParams
                         genData
-                    finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
@@ -387,17 +396,26 @@ startConsensusPassive ::
 startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
+        let runtimeParams = RuntimeParameters {
+              rpBlockSize = fromIntegral maxBlock,
+              rpTreeStateDir = appData </> "treestate",
+              rpBlockStateFile = appData </> "blockstate",
+              rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
+              rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
+              rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
+              rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
+            }
         case runGet getExactVersionedGenesisData gdata of
-            Right genData ->
+            Right genData -> do
+              let finconfig = NoFinalization
+                  hconfig = NoHandler
               if connStringLen /= 0 then do
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
                     gsconfig = makeGlobalStateConfigWithLog
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
+                        runtimeParams
                         genData
                         connString
-                    finconfig = NoFinalization
-                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback
                 poke runnerPtrPtr =<< newStablePtr PassiveRunnerWithLog{..}
@@ -405,10 +423,8 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
               else do
                 let
                     gsconfig = makeGlobalStateConfig
-                        (RuntimeParameters (fromIntegral maxBlock) (appData </> "treestate") (appData </> "blockstate") defaultEarlyBlockThreshold (fromIntegral insertionsBeforePurge) transactionsKeepAlive (fromIntegral transactionsPurgingDelay))
+                        runtimeParams
                         genData
-                    finconfig = NoFinalization
-                    hconfig = NoHandler
                     config = SkovConfig gsconfig finconfig hconfig
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
                 poke runnerPtrPtr =<< newStablePtr PassiveRunner{..}
@@ -585,6 +601,7 @@ receiveTransaction bptr tdata len = do
             case wmdData tr of
               NormalTransaction _ -> logm External LLTrace $ "Received normal transaction."
               CredentialDeployment _ -> logm External LLTrace $ "Received credential."
+              ChainUpdate _ -> logm External LLTrace $ "Received chain update."
             case c of
                 BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
                 PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr

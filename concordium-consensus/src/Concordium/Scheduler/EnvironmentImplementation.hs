@@ -10,7 +10,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
-import qualified Data.HashSet as Set
 import Data.Functor.Identity
 
 import Lens.Micro.Platform
@@ -30,10 +29,8 @@ import Concordium.GlobalState.TreeState hiding (BlockState)
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.Types as GS
 
--- |Chain metadata together with a set of special accounts which have special
--- rights during the beta phase, as well as the maximum allowed block energy.
+-- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
-  _specialBetaAccounts :: !(Set.HashSet AccountAddress),
   _chainMetadata :: !ChainMetadata,
   _maxBlockEnergy :: !Energy
   }
@@ -68,7 +65,7 @@ instance HasSchedulerState (NoLogSchedulerState m) where
   schedulerBlockState = ssBlockState
   schedulerEnergyUsed = ssSchedulerEnergyUsed
   nextIndex = ssNextIndex
-  accountTransactionLog f s = (const s) <$> (f ())
+  accountTransactionLog f s = s <$ f ()
 
 newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
     deriving (Functor,
@@ -133,9 +130,6 @@ instance (MonadReader ContextState m,
 
   {-# INLINE bumpTransactionIndex #-}
   bumpTransactionIndex = nextIndex <<%= (+1)
-
-  {-# INLINE getSpecialBetaAccounts #-}
-  getSpecialBetaAccounts = view specialBetaAccounts
 
   {-# INLINE getContractInstance #-}
   getContractInstance addr = lift . flip bsoGetInstance addr =<< use schedulerBlockState
@@ -297,12 +291,6 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return r
 
-  {-# INLINE updateElectionDifficulty #-}
-  updateElectionDifficulty d = do
-    s <- use schedulerBlockState
-    s' <- lift (bsoSetElectionDifficulty s d)
-    schedulerBlockState .= s'
-
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do
     s <- use schedulerBlockState
@@ -315,6 +303,20 @@ instance (MonadReader ContextState m,
 
   {-# INLINE getCryptoParams #-}
   getCryptoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
+
+  {-# INLINE getUpdateAuthorizations #-}
+  getUpdateAuthorizations = lift . bsoGetCurrentAuthorizations =<< use schedulerBlockState
+
+  {-# INLINE getNextUpdateSequenceNumber #-}
+  getNextUpdateSequenceNumber uty = do
+    s <- use schedulerBlockState
+    lift (bsoGetNextUpdateSequenceNumber s uty)
+
+  {-# INLINE enqueueUpdate #-}
+  enqueueUpdate tt p = do
+    s <- use schedulerBlockState
+    s' <- lift (bsoEnqueueUpdate s tt p)
+    schedulerBlockState .= s'
 
 deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
 
@@ -348,30 +350,30 @@ deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans RWSTBS (PureBlockS
 instance ATITypes SchedulerImplementation where
   type ATIStorage SchedulerImplementation = ()
 
-runSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS)
-runSI sc gd cd energy gs =
+runSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS)
+runSI sc cd energy gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0)
+        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
   in (a, s)
 
 -- |Same as the previous method, but retain the logs of the run.
-runSIWithLogs :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS, [(LogSource, LogLevel, String)])
-runSIWithLogs sc gd cd energy gs =
+runSIWithLogs :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS, [(LogSource, LogLevel, String)])
+runSIWithLogs sc cd energy gs =
   runIdentity $
   runPureBlockStateMonad $
-  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0)
+  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
 
 
-execSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> PBSSS
-execSI sc gd cd energy gs =
+execSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> PBSSS
+execSI sc cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0))
+       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
 
-evalSI :: SchedulerImplementation a -> SpecialBetaAccounts -> ChainMetadata -> Energy -> BlockState -> a
-evalSI sc gd cd energy gs =
+evalSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> a
+evalSI sc cd energy gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState gd cd energy) (NoLogSchedulerState gs 0 0))
+       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))

@@ -15,12 +15,14 @@ import Data.Serialize
 import Data.Word
 import Control.Exception
 import System.Directory
+import qualified Data.Map as Map
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
@@ -44,6 +46,7 @@ import Concordium.Startup
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 nContracts :: Int
 nContracts = 2
@@ -54,6 +57,21 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
         trs n (amnt:amnts) =
           Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) n : trs (n+1) amnts
         trs _ _ = error "Ran out of transaction data"
+
+-- |Make a series of transactions that update the election difficulty.
+-- The timeout and effective time are based on the supplied timestamp
+-- (which is assumed to be the current time).
+difficultyUpdateTransactions :: Timestamp -> [BlockItem]
+difficultyUpdateTransactions (Timestamp ts) = [u 1 0.99 60 120, u 2 0.1 120 180, u 3 0.9 120 200, u 4 0.1 120 201, u 5 0.8 120 202, u 6 0.27 120 0]
+    where
+        u sn diff expire eff = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
+                RawUpdateInstruction {
+                    ruiSeqNumber = sn,
+                    ruiEffectiveTime = if eff == 0 then 0 else fromIntegral (ts `div` 1000) + eff,
+                    ruiTimeout = fromIntegral (ts `div` 1000) + expire,
+                    ruiPayload = ElectionDifficultyUpdatePayload (makeElectionDifficulty diff)
+                }
+                (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
@@ -160,8 +178,8 @@ type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoH
 main :: IO ()
 main = do
     let n = 5
-    now <- currentTimestamp -- return 1588916588000
-    let (gen, bis) = makeGenesisData now n 200 0.2
+    now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1)*1000) <$> currentTimestamp -- return 1588916588000
+    let (gen, bis) = makeGenesisData now n 200
                      defaultFinalizationParameters{
                          finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
                          -- finalizationOldStyleSkip = True, finalizationSkipShrinkFactor = 0.5,
@@ -172,8 +190,11 @@ main = do
                      Dummy.dummyCryptographicParameters
                      dummyIdentityProviders
                      dummyArs
-                     [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount] (Energy maxBound)
-    trans <- transactions <$> newStdGen
+                     [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
+                     (Energy maxBound)
+                     dummyAuthorizations
+                     (makeChainParameters (makeElectionDifficulty 0.2) 1 1)
+    trans <- (difficultyUpdateTransactions now ++) . transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode

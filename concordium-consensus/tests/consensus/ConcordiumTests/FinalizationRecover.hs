@@ -36,9 +36,9 @@ dummyArs = emptyAnonymityRevokers
 -- type TreeConfig = DiskTreeDiskBlockConfig
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData@GenesisData{..} = return $ MTMBConfig rt genData blockS
-  where blockS = BS.emptyBlockState birkParams Dummy.dummyCryptographicParameters
-        birkParams = BS.makeBirkParameters genesisElectionDifficulty genesisBakers genesisBakers genesisBakers genesisSeedState
+makeGlobalStateConfig rt genData@GenesisDataV1{..} = return $ MTMBConfig rt genData blockS
+  where blockS = BS.emptyBlockState birkParams Dummy.dummyCryptographicParameters Dummy.dummyAuthorizations Dummy.dummyChainParameters
+        birkParams = BS.makeBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
@@ -46,20 +46,21 @@ genesis nBakers =
     0
     nBakers
     1000
-    0.5
     defaultFinalizationParameters
     Dummy.dummyCryptographicParameters
     emptyIdentityProviders
     dummyArs
     []
     1234
+    Dummy.dummyAuthorizations
+    Dummy.dummyChainParameters
 
 makeFinalizationInstance :: BakerIdentity -> FinalizationInstance
 makeFinalizationInstance (BakerIdentity k1 k2 k3) = FinalizationInstance k1 k2 k3
 
 setup :: Word -> IO [(FinalizationState (), FinalizationState ())]
 setup nBakers = do
-  let (genData@GenesisData{..}, bakers) = genesis nBakers
+  let (genData@GenesisDataV1{..}, bakers) = genesis nBakers
   let initialState inst =
         initialFinalizationState
         inst

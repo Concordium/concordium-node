@@ -11,7 +11,6 @@ import Concordium.Types
 import Concordium.ID.Types
 
 import qualified Concordium.Scheduler.Runner as Runner
-import qualified Concordium.Scheduler.Environment as Types
 
 import Concordium.Types.DummyData
 import Concordium.ID.DummyData
@@ -62,7 +61,3 @@ cdi7 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/crede
 {-# WARNING dummyBlockSize "Do not use in production." #-}
 dummyBlockSize :: Integer
 dummyBlockSize = 10000000000
-
-{-# WARNING dummySpecialBetaAccounts "Do not use in production." #-}
-dummySpecialBetaAccounts :: Types.SpecialBetaAccounts
-dummySpecialBetaAccounts = Types.emptySpecialBetaAccounts
