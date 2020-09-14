@@ -210,6 +210,7 @@ subsection "Libraries copied: OK"
 section "Build the rust utility binaries"
 
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
+cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/globalstate-types-0.1.0.0/x/generate-update-keys/build/generate-update-keys/generate-update-keys /binaries/bin
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
 cp $(pwd)/smart-contracts/wasmer-interp/target/release/*.so /binaries/lib/
 (
