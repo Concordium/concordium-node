@@ -23,11 +23,13 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.TransactionTable
 import Concordium.Types.Transactions as Transactions
 import Concordium.Types.Execution(TransactionIndex)
 import Concordium.GlobalState.Statistics
 import Concordium.Types.HashableTo
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 
 import qualified Data.ByteString.Lazy as LBS
@@ -226,6 +228,15 @@ class (Eq (BlockPointerType m),
     -- to return 'Nothing' if the requested credential has already been finalized.
     getCredential :: TransactionHash -> m (Maybe CredentialDeploymentWithMeta)
 
+    -- |Get non-finalized chain updates of a given type starting at the given sequence number
+    -- (inclusive). This are returned as an ordered list of pairs of sequence number and
+    -- non-empty set of updates with that sequence number. Update groups are ordered by
+    -- increasing sequence number.
+    getNonFinalizedChainUpdates ::
+      UpdateType
+      -> UpdateSequenceNumber
+      -> m [(UpdateSequenceNumber, Set.Set (WithMetadata UpdateInstruction))]
+
     -- |Add a transaction to the transaction table.
     -- Does nothing if the transaction's nonce preceeds the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
@@ -343,6 +354,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     getAccountNonFinalized acc = lift . getAccountNonFinalized acc
     getNextAccountNonce = lift . getNextAccountNonce
     getCredential = lift . getCredential
+    getNonFinalizedChainUpdates uty = lift . getNonFinalizedChainUpdates uty
     addTransaction tr = lift $ addTransaction tr
     finalizeTransactions bh slot = lift . finalizeTransactions bh slot
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
@@ -382,6 +394,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getAccountNonFinalized #-}
     {-# INLINE getNextAccountNonce #-}
     {-# INLINE getCredential #-}
+    {-# INLINE getNonFinalizedChainUpdates #-}
     {-# INLINE addTransaction #-}
     {-# INLINE finalizeTransactions #-}
     {-# INLINE commitTransaction #-}

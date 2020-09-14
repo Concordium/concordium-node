@@ -44,7 +44,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.Types
 import Concordium.Types.Execution (TransactionIndex)
-import qualified Concordium.Types.Transactions as T
+import qualified Concordium.GlobalState.TransactionTable as T
 import Concordium.Crypto.SHA256
 import Concordium.Types.HashableTo
 import Control.Concurrent (runInBoundThread)
@@ -76,7 +76,7 @@ instance S.Serialize st => S.Serialize (StoredBlock st) where
   get = do
           sbFinalizationIndex <- S.get
           sbInfo <- S.get
-          sbBlock <- getBlockV1 (T.utcTimeToTransactionTime (_bpReceiveTime sbInfo))
+          sbBlock <- getBlockV1 (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
           sbState <- S.get
           return StoredBlock{..}
 

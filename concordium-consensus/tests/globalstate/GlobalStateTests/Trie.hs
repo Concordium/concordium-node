@@ -6,9 +6,7 @@ module GlobalStateTests.Trie where
 
 import Data.Word
 import Control.Monad.IO.Class
-import Data.Proxy
 import Data.Serialize
-import Control.Monad.Reader.Class
 
 -- import Test.QuickCheck
 import Test.Hspec
@@ -22,7 +20,7 @@ newtype SerializeStorable v = SerStore v
   deriving newtype (Eq, Ord, Show, Serialize)
 
 -- Every @SerializeStorable@ value will be serialized with the default implementation
-instance (Serialize v, Monad m, MonadIO m, HasBlobStore r, MonadReader r m) => BlobStorable r m (SerializeStorable v)
+instance (Serialize v, MonadBlobStore r m) => BlobStorable r m (SerializeStorable v)
 
 tests :: Spec
 tests = describe "GlobalStateTests.Trie" $

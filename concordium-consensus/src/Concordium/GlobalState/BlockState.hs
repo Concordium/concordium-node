@@ -48,8 +48,10 @@ import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 
+import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.Execution
+import Concordium.Types.Updates
 import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
@@ -79,6 +81,36 @@ data Module = Module {
     moduleInterface :: !Wasm.ModuleInterface,
     moduleIndex :: !ModuleIndex
 }
+
+-- |The hashes of the block state components, which are combined
+-- to produce a 'StateHash'.
+data BlockStateHashInputs = BlockStateHashInputs {
+    bshBirkParameters :: H.Hash,
+    bshCryptographicParameters :: H.Hash,
+    bshIdentityProviders :: H.Hash,
+    bshAnonymityRevokers :: H.Hash,
+    bshModules :: H.Hash,
+    bshBankStatus :: H.Hash,
+    bshAccounts :: H.Hash,
+    bshInstances :: H.Hash,
+    bshUpdates :: H.Hash
+}
+
+-- |Construct a 'StateHash' from the component hashes.
+makeBlockStateHash :: BlockStateHashInputs -> StateHash
+makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
+  H.hashOfHashes
+    (H.hashOfHashes
+      (H.hashOfHashes
+        (H.hashOfHashes bshBirkParameters bshCryptographicParameters)
+        (H.hashOfHashes bshIdentityProviders bshAnonymityRevokers)
+      )
+      (H.hashOfHashes
+        (H.hashOfHashes bshModules bshBankStatus)  
+        (H.hashOfHashes bshAccounts bshInstances)
+      )
+    )
+    bshUpdates
 
 class (BlockStateTypes m,  Monad m) => BakerQuery m where
 
@@ -174,17 +206,19 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   updateAccountAmount :: Account m -> Amount -> m (Account m)
 
 class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
-
+    -- |Get the 'SeedState', which is used to determine the leadership election nonce.
     getSeedState :: BirkParameters m -> m SeedState
-
+    -- |Update the Birk parameters for a new epoch:
+    --   * Update the 'SeedState' to the given value.
+    --   * New lottery bakers is old previous-epoch bakers.
+    --   * New previous-epoch bakers is old current bakers.
     updateBirkParametersForNewEpoch :: SeedState -> BirkParameters m -> m (BirkParameters m)
-
-    getElectionDifficulty :: BirkParameters m -> m ElectionDifficulty
-
+    -- |Get the 'Bakers' object representing the current bakers and stake distribution.
     getCurrentBakers :: BirkParameters m -> m (Bakers m)
-
+    -- |Get the 'Bakers' object representing the bakers and stake distribution at the
+    -- end of the epoch before last, as used for determining the baking committee.
     getLotteryBakers :: BirkParameters m -> m (Bakers m)
-
+    -- |Update the 'SeedState' by applying the specified function.
     updateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
 
 birkBaker :: (BakerQuery m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
@@ -250,6 +284,11 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
+
+    -- |Get the value of the election difficulty parameter.
+    getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
+    -- |Get the next sequence number for a particular update type.
+    getNextUpdateSequenceNumber :: BlockState m -> UpdateType -> m UpdateSequenceNumber
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -383,8 +422,17 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Update the birk parameters of a block state
   bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters m -> m (UpdatableBlockState m)
 
-  -- |Directly set the election difficulty birk parameter of a block state.
-  bsoSetElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
+  -- |Process queued updates.
+  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
+
+  -- |Get the current 'Authorizations' for validating updates.
+  bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
+
+  -- |Get the next 'UpdateSequenceNumber' for a given update type.
+  bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
+
+  -- |Enqueue an update to take effect at the specified time.
+  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
 class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
@@ -394,6 +442,9 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- changes to it must not affect 'BlockState', but an efficient
     -- implementation should expect that only a small subset of the state will
     -- change, and thus a variant of copy-on-write should be used.
+    --
+    -- Thawing a block state resets the execution cost to 0 and the
+    -- identity issuers to be rewarded to the empty set.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
     -- |Freeze a mutable block state instance. The mutable state instance will
@@ -418,19 +469,17 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- |Load a block state from a reference.
-    loadBlockState :: BlockStateRef m -> m (BlockState m)
+    -- |Load a block state from a reference, given its state hash.
+    loadBlockState :: StateHash -> BlockStateRef m -> m (BlockState m)
 
 instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
     getSeedState = lift . getSeedState
     updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
-    getElectionDifficulty = lift . getElectionDifficulty
     getCurrentBakers = lift . getCurrentBakers
     getLotteryBakers = lift . getLotteryBakers
     updateSeedState f = lift . updateSeedState f
     {-# INLINE getSeedState #-}
     {-# INLINE updateBirkParametersForNewEpoch #-}
-    {-# INLINE getElectionDifficulty #-}
     {-# INLINE getCurrentBakers #-}
     {-# INLINE getLotteryBakers #-}
     {-# INLINE updateSeedState #-}
@@ -451,6 +500,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getSpecialOutcomes = lift . getSpecialOutcomes
   getAllIdentityProviders s = lift $ getAllIdentityProviders s
   getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
+  getElectionDifficulty s = lift . getElectionDifficulty s
+  getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -465,6 +516,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getSpecialOutcomes #-}
   {-# INLINE getAllIdentityProviders #-}
   {-# INLINE getAllAnonymityRevokers #-}
+  {-# INLINE getElectionDifficulty #-}
+  {-# INLINE getNextUpdateSequenceNumber #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
@@ -531,7 +584,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
-  bsoSetElectionDifficulty s d = lift $ bsoSetElectionDifficulty s d
+  bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
+  bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
+  bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
+  bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -559,6 +615,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
+  {-# INLINE bsoProcessUpdateQueues #-}
+  {-# INLINE bsoGetCurrentAuthorizations #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
@@ -567,7 +625,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
-    loadBlockState = lift . loadBlockState
+    loadBlockState hsh = lift . loadBlockState hsh
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}

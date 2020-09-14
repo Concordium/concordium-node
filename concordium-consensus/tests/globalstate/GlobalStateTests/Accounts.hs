@@ -24,15 +24,13 @@ import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Control.Exception (bracket)
 import Control.Monad hiding (fail)
 import Control.Monad.Fail
-import Control.Monad.IO.Class
-import Control.Monad.Reader (MonadReader)
 import Control.Monad.Trans.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as OrdMap
-import Data.Proxy
 import Data.Serialize as S
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -58,7 +56,7 @@ checkBinaryM bop x y sbop sx sy = do
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadIO m, HasBlobStore r, MonadReader r m, MonadFail m) => B.Accounts -> P.Accounts -> m ()
+checkEquivalent :: (MonadBlobStore r m, MonadFail m) => B.Accounts -> P.Accounts -> m ()
 checkEquivalent ba pa = do
   pam <- Trie.toMap (P.accountMap pa)
   checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
@@ -73,7 +71,7 @@ checkEquivalent ba pa = do
   where
     -- Check whether an in-memory account-index and account pair is equivalent to a persistent account-index and account pair
     sameAccPair ::
-      (MonadIO m, HasBlobStore r, MonadReader r m) =>
+      (MonadBlobStore r m) =>
       Bool -> -- accumulator for the fold in 'sameAccList'
       ((BAT.AccountIndex, BA.Account), (P.AccountIndex, PA.PersistentAccount)) -> -- the pairs to be compared
       m Bool
@@ -184,12 +182,12 @@ randomActions = sized (ra Set.empty Set.empty)
           rid <- elements (Set.toList rids)
           (RecordRegId rid :) <$> ra s rids (n -1)
 
-makePureAccount :: (MonadIO m, HasBlobStore r, MonadReader r m) => PA.PersistentAccount -> m Account
+makePureAccount :: (MonadBlobStore r m) => PA.PersistentAccount -> m Account
 makePureAccount PA.PersistentAccount {..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   return Account {..}
 
-runAccountAction :: (MonadReader r m, HasBlobStore r, MonadFail m, MonadIO m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
+runAccountAction :: (MonadBlobStore r m, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
 runAccountAction (PutAccount acct) (ba, pa) = do
   let ba' = B.putAccount acct ba
   pAcct <- PA.makePersistentAccount acct
@@ -211,7 +209,7 @@ runAccountAction (GetAccount addr) (ba, pa) = do
 runAccountAction (UpdateAccount addr upd) (ba, pa) = do
   let ba' = ba & ix addr %~ upd
       -- Transform a function that updates in-memory accounts into a function that updates persistent accounts
-      liftP :: (MonadIO m, HasBlobStore r, MonadReader r m) => (Account -> Account) -> PA.PersistentAccount -> m PA.PersistentAccount
+      liftP :: (MonadBlobStore r m) => (Account -> Account) -> PA.PersistentAccount -> m PA.PersistentAccount
       liftP f pAcc = do
         bAcc <- makePureAccount pAcc
         PA.makePersistentAccount $ f bAcc
@@ -253,12 +251,11 @@ actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegra
     checkEquivalent ba pa
 
 tests :: Word -> Spec
-tests lvl = describe "GlobalStateTests.Accounts"
-  $ around
-    ( \kont ->
-        withTempDirectory "." "blockstate" $ \dir ->
-          createBlobStore (dir </> "blockstate.dat") >>= kont
-    )
-  $ do
-    emptyTest
-    actionTest lvl
+tests lvl = describe "GlobalStateTests.Accounts" $
+            around (\kont ->
+                      withTempDirectory "." "blockstate" $ \dir -> bracket
+                        (createBlobStore (dir </> "blockstate.dat"))
+                        closeBlobStore
+                        kont
+                   ) $ do emptyTest
+                          actionTest lvl
