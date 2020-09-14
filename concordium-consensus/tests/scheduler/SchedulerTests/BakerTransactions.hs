@@ -6,7 +6,6 @@ import Test.HUnit
 
 import Control.Monad
 import Data.Maybe
-import qualified Data.HashSet as Set
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import Concordium.Scheduler.Runner
@@ -193,7 +192,6 @@ runWithIntermediateStates = do
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
-                                    Set.empty -- special beta accounts
                                     Types.dummyChainMeta
                                     maxBound
                                     st

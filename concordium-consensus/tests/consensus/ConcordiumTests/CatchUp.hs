@@ -29,6 +29,7 @@ import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
 
 import Concordium.Logger
 import Concordium.Skov.Monad
@@ -95,10 +96,9 @@ initialiseStatesDictator n = do
         bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
         let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            elDiff = 0.5
             fps = defaultFinalizationParameters
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount] fps Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisDataV1 0 1 genesisBakers seedState (bakerAccounts ++ [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount]) fps Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
         res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig

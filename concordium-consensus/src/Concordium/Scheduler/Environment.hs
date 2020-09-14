@@ -10,7 +10,6 @@
 module Concordium.Scheduler.Environment where
 
 import qualified Data.HashMap.Strict as HMap
-import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -36,14 +35,9 @@ import Control.Exception(assert)
 
 import qualified Concordium.ID.Types as ID
 
-type SpecialBetaAccounts = HSet.HashSet AccountAddress
-
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
     deriving(Eq, Show)
-
-emptySpecialBetaAccounts :: SpecialBetaAccounts
-emptySpecialBetaAccounts = HSet.empty
 
 -- |A class to convert to and from 'Energy' used by the scheduler.
 -- The function should satisfy
@@ -99,10 +93,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- nature of the footprint will depend on the configuration, e.g., it could be
   -- nothing, or the set of accounts affected by the transaction.
   tlNotifyAccountEffect :: Footprint (ATIStorage m) -> TransactionSummary -> m ()
-
-  -- |Get adddresses of special beta accounts which during the beta phase will
-  -- have special privileges.
-  getSpecialBetaAccounts :: m SpecialBetaAccounts
 
   -- |Return a contract instance if it exists at the given address.
   getContractInstance :: ContractAddress -> m (Maybe Instance)
@@ -254,9 +244,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- Precondition: the account exists.
   delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
 
-  -- |Update the election difficulty (birk parameter) in the global state.
-  updateElectionDifficulty :: ElectionDifficulty -> m ()
-
   -- *Other metadata.
 
   -- |Retrieve the identity provider with given id, if possible.
@@ -267,6 +254,23 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- |Get cryptographic parameters for the current state.
   getCryptoParams :: m CryptographicParameters
+
+  -- * Chain updates
+
+  -- |Get the current 'Authorizations'.
+  getUpdateAuthorizations :: m Authorizations
+
+  -- |Get the next sequence number of updates of a given type.
+  getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
+
+  -- |Add an update to the relevant update queue. The update is
+  -- assumed to have the next sequence number for its update type.
+  -- The next sequence number will be correspondingly incremented,
+  -- and any queued updates of the given type with a later effective
+  -- time are cancelled.
+  enqueueUpdate :: TransactionTime -> UpdatePayload -> m ()
+
+
 
 -- |This is a derived notion that is used inside a transaction to keep track of
 -- the state of the world during execution. Local state of contracts and amounts
@@ -841,6 +845,8 @@ logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ cred) ++ " was invalid with reason " ++ show fk
+logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
+  logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
 logInvalidTransaction :: SchedulerMonad m => Transaction -> FailureKind -> m ()
@@ -850,3 +856,7 @@ logInvalidTransaction WithMetadata{..} fk =
 logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ wmdData) ++ " was invalid with reason " ++ show fk
+
+logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
+logInvalidChainUpdate WithMetadata{..} fk =
+  logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk

@@ -71,11 +71,10 @@ testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
     -- block energy limit
-    let ts = ts' { Types.credentialDeployments = [Types.fromCDI 0 cdi1] } -- dummy arrival time of 0
+    let ts = Types.TGCredentialDeployment (Types.fromCDI 0 cdi1) : ts' -- dummy arrival time of 0
 
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
-            dummySpecialBetaAccounts
             Types.dummyChainMeta
             maxBlockEnergy
             initialBlockState

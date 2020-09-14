@@ -12,6 +12,8 @@ import Control.Monad
 import Text.Printf
 import Data.Time.Format
 import Lens.Micro.Platform
+import qualified Data.Vector as Vec
+import Data.Foldable
 
 import Data.Text(Text)
 import qualified Data.HashMap.Strict as Map
@@ -25,6 +27,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SS
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Types.Updates
 
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 
@@ -139,7 +142,7 @@ unwrapVersionedGenesisParameters ver v =
 expectedIpInfosVersion, expectedArInfosVersion, expectedGenesisParametersVersion, expectedCryptoParamsVersion :: Version
 expectedArInfosVersion = 0
 expectedIpInfosVersion = 0
-expectedGenesisParametersVersion = 0
+expectedGenesisParametersVersion = genesisParametersVersion
 expectedCryptoParamsVersion = 0
 
 main :: IO ()
@@ -170,25 +173,19 @@ main = cmdArgsRun mode >>=
                       putStrLn $ "There are the following " ++ show (Prelude.length (genesisAccounts genesisData)) ++ " initial accounts in genesis:"
                       forM_ (genesisAccounts genesisData) $ \account ->
                         putStrLn $ "\tAccount: " ++ show (account ^. accountAddress) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
-
-                      putStrLn $ "\nIn addition there are the following " ++ show (Prelude.length (genesisControlAccounts genesisData)) ++ " control accounts:"
-                      forM_ (genesisControlAccounts genesisData) $ \account ->
-                        putStrLn $ "\tAccount: " ++ show (account ^. accountAddress) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
-
-                      LBS.writeFile gdOutput (S.runPutLazy $ putVersionedGenesisDataV0 genesisData)
+                      LBS.writeFile gdOutput (S.runPutLazy $ putVersionedGenesisDataV1 genesisData)
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
                       exitSuccess
         PrintGenesisData{..} -> do
           source <- LBS.readFile gdSource
           case S.runGetLazy getExactVersionedGenesisData source of
             Left err -> putStrLn $ "Cannot parse genesis data:" ++ err
-            Right genData@GenesisData{..} -> do
+            Right genData@GenesisDataV1{..} -> do
               putStrLn "Genesis data."
               putStrLn $ "Genesis time is set to: " ++ showTime genesisTime
               putStrLn $ "Slot duration: " ++ show (durationToNominalDiffTime genesisSlotDuration)
               putStrLn $ "Genesis nonce: " ++ show (SS.currentSeed genesisSeedState)
               putStrLn $ "Epoch length in slots: " ++ show (SS.epochLength genesisSeedState)
-              putStrLn $ "Election difficulty: " ++ show genesisElectionDifficulty
 
               let totalGTU = genesisTotalGTU genData
 
@@ -237,9 +234,19 @@ main = cmdArgsRun mode >>=
               putStrLn "Genesis normal accounts:"
               forM_ genesisAccounts (showAccount totalGTU)
 
+              let Authorizations{..} = genesisAuthorizations
               putStrLn ""
-              putStrLn "Genesis control accounts:"
-              forM_ genesisControlAccounts (showAccount totalGTU)
+              putStrLn "Genesis update authorizations:"
+              putStrLn "  - public keys:"
+              Vec.imapM_ (\i k -> putStrLn $ "    " ++ show i ++ ": " ++ show k) asKeys
+              printAccessStructure "emergency" asEmergency
+              printAccessStructure "authorization" asAuthorization
+              printAccessStructure "protocol" asProtocol
+              printAccessStructure "election difficulty" asParamElectionDifficulty
+              printAccessStructure "euro per energy" asParamEuroPerEnergy
+              printAccessStructure "microGTU per euro" asParamMicroGTUPerEuro
+
+              -- forM_ genesisControlAccounts (showAccount totalGTU)
 
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
@@ -251,3 +258,4 @@ main = cmdArgsRun mode >>=
           putStrLn $ "     * keys: "
           forM (OrdMap.toList (akKeys _accountVerificationKeys)) $ \(idx, k) ->
             putStrLn $ "       - " ++ show idx ++ ": " ++ show k
+        printAccessStructure n AccessStructure{..} = putStrLn $ "  - " ++ n ++ " update: " ++ show accessThreshold ++ " of " ++ show (toList accessPublicKeys)

@@ -25,6 +25,7 @@ import Concordium.Crypto.SHA256
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Updates
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
@@ -67,6 +68,7 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
+import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -81,6 +83,7 @@ dummyTime = posixSecondsToUTCTime 0
 
 type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
+type NFCUS = Map.Map UpdateType NonFinalizedChainUpdates
 
 type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
 
@@ -96,7 +99,7 @@ defaultMaxFinComSize = 1000
 maxFinComSizeChangingFinCommittee :: FinalizationCommitteeSize
 maxFinComSizeChangingFinCommittee = 10
 
-invariantSkovData :: TS.SkovData BState.BlockState -> Either String ()
+invariantSkovData :: TS.SkovData BState.HashedBlockState -> Either String ()
 invariantSkovData TS.SkovData{..} = addContext $ do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
@@ -107,33 +110,45 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         -- unless (HM.filter notDeadOrPending _blockTable == liveFinMap) $ Left "non-dead blocks do not match finalized and branch blocks"
         unless (checkLastNonEmpty _branches) $ Left $ "Last element of branches was empty. branches: " ++ show _branches
         -- Pending blocks
-        queue <- foldM (checkPending (blockSlot lastFin)) (Set.empty) (HM.toList _possiblyPendingTable)
+        queue <- foldM (checkPending (blockSlot lastFin)) Set.empty (HM.toList _possiblyPendingTable)
         let pendingSet = Set.fromList (MPQ.toListU _possiblyPendingQueue)
-        checkBinary (Set.isSubsetOf) queue pendingSet "is a subset of" "pending blocks" "pending queue"
+        checkBinary Set.isSubsetOf queue pendingSet "is a subset of" "pending blocks" "pending queue"
         let allPossiblyPending = Set.fromList (fst <$> MPQ.elemsU _possiblyPendingQueue)
         checkBinary Set.isSubsetOf (Set.fromList $ HM.keys $ HM.filter onlyPending _blockTable) allPossiblyPending "is a subset of" "blocks marked pending" "pending queues"
         checkBinary Set.isSubsetOf allPossiblyPending (Set.fromList $ HM.keys _blockTable) "is a subset of" "pending queues" "blocks in block table"
         -- Transactions
-        (nonFinTrans, anftNonces) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) (HM.empty)
-        let anft' = foldr (\(bi, _) ->
+        (nonFinTrans, anftNonces, nfcuSNs) <- walkTransactions _genesisBlockPointer lastFin (_ttHashMap _transactionTable) HM.empty Map.empty
+        let (anft', nfcu') = foldr (\(bi, _) ->
                              case bi of
                                WithMetadata{wmdData=NormalTransaction tr,..} ->
-                                 at (transactionSender tr)
+                                 _1
+                                 . at (transactionSender tr)
                                  . non emptyANFT
                                  . anftMap
                                  . at (transactionNonce tr)
                                  . non Set.empty %~ Set.insert WithMetadata{wmdData=tr,..}
+                               WithMetadata{wmdData=ChainUpdate cu,..} ->
+                                    _2
+                                    . at (updateType (uiPayload cu))
+                                    . non emptyNFCU
+                                    . nfcuMap
+                                    . at (updateSeqNumber (uiHeader cu))
+                                    . non Set.empty %~ Set.insert WithMetadata{wmdData=cu,..}
                                _ -> id
                           )
-                          anftNonces
+                          (anftNonces, nfcuSNs)
                           nonFinTrans
         unless (anft' == _ttNonFinalizedTransactions _transactionTable) $ Left "Incorrect non-finalized transactions"
-        (pendingTrans, pendingNonces) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces
+        unless (nfcu' == _ttNonFinalizedChainUpdates _transactionTable) $ Left "Incorrect non-finalized chain updates"
+        (pendingTrans, pendingNonces, pendingUpdateSNs) <- walkTransactions lastFin _focusBlock nonFinTrans anftNonces nfcuSNs
         let ptt = foldr (\(bi, _) ->
-                           case wmdData bi of
-                             NormalTransaction tr ->
-                               checkedExtendPendingTransactionTable (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
-                             CredentialDeployment _ -> extendPendingTransactionTable' (wmdHash bi)
+                        case wmdData bi of
+                            NormalTransaction tr ->
+                                checkedAddPendingTransaction (pendingNonces ^. at (transactionSender tr) . non emptyANFT . anftNextNonce) tr
+                            CredentialDeployment _ ->
+                                addPendingDeployCredential (wmdHash bi)
+                            ChainUpdate cu ->
+                                checkedAddPendingUpdate (pendingUpdateSNs ^. at (updateType (uiPayload cu)) . non emptyNFCU . nfcuNextSequenceNumber) cu
                         )
                         emptyPendingTransactionTable
                         pendingTrans
@@ -178,35 +193,46 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                 Nothing -> return ()
                 _ -> Left $ "Pending parent status (" ++ show parentBlockStatus ++ ") should be BlockPending or Nothing"
             foldM checkChild queue children
-        -- walkTransactions :: BS.BasicBlockPointer -> BS.BasicBlockPointer -> Trs -> ANFTS -> Either String (Trs, ANFTS)
-        walkTransactions src dest trMap anfts
-            | src == dest = return (trMap, anfts)
+        -- walkTransactions :: BS.BasicBlockPointer -> BS.BasicBlockPointer -> Trs -> ANFTS -> NFCUS -> Either String (Trs, ANFTS, NFCUS)
+        -- Call checkTransaction on each transaction in the blocks from src (exclusive) to dest (inclusive).
+        -- This checks that each transaction is in the transaction map, and removes it from the map.
+        -- It also checks that the transactions are sequential with respect to nonces/sequence numbers and builds
+        -- 'AccountNonFinalizedTransactions' and 'NonFinalizedChainUpdates' for each account/update type seen.
+        walkTransactions src dest trMap anfts nfcus
+            | src == dest = return (trMap, anfts, nfcus)
             | otherwise = do
-                (trMap', anfts') <- walkTransactions src (runIdentity $ BS._bpParent dest) trMap anfts
-                foldM checkTransaction (trMap', anfts') (blockTransactions dest)
-        checkTransaction :: (Trs, ANFTS) -> BlockItem -> Either String (Trs, ANFTS)
-        checkTransaction (trMap, anfts) bi = do
+                (trMap', anfts', nfcus') <- walkTransactions src (runIdentity $ BS._bpParent dest) trMap anfts nfcus
+                foldM checkTransaction (trMap', anfts', nfcus') (blockTransactions dest)
+        checkTransaction :: (Trs, ANFTS, NFCUS) -> BlockItem -> Either String (Trs, ANFTS, NFCUS)
+        checkTransaction (trMap, anfts, nfcus) bi = do
             let updMap Nothing = Left $ "Transaction missing: " ++ show bi
                 updMap (Just _) = Right Nothing
             trMap' <- (at (getHash bi)) updMap trMap
             case wmdData bi of
-              NormalTransaction tr ->
-                let updNonce n =
-                      if n == transactionNonce tr then Right (n + 1)
-                      else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
-                in do anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
-                      return (trMap', anfts')
-              _ -> do
-                return (trMap', anfts)
+                NormalTransaction tr -> do
+                    let updNonce n =
+                            if n == transactionNonce tr then Right (n + 1)
+                            else Left $ "Expected " ++ show (transactionNonce tr) ++ " but found " ++ show n ++ " for account " ++ show (transactionSender tr)
+                    anfts' <- (at (transactionSender tr) . non emptyANFT . anftNextNonce) updNonce anfts
+                    return (trMap', anfts', nfcus)
+                ChainUpdate cu -> do
+                    let usn = updateSeqNumber (uiHeader cu)
+                        uty = updateType (uiPayload cu)
+                        updSN sn =
+                            if sn == usn then Right (sn + 1)
+                            else Left $ "Expected sequence number" ++ show usn ++ " but found " ++ show sn ++ " for update type " ++ show uty
+                    nfcus' <- (at uty . non emptyNFCU . nfcuNextSequenceNumber) updSN nfcus
+                    return (trMap', anfts, nfcus')
+                _ -> return (trMap', anfts, nfcus)
 
         notDeadOrPending TreeState.BlockDead = False
         notDeadOrPending (TreeState.BlockPending {}) = False
         notDeadOrPending _ = True
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
-        checkEpochs :: BasicBlockPointer BState.BlockState -> Either String ()
+        checkEpochs :: BasicBlockPointer BState.HashedBlockState -> Either String ()
         checkEpochs bp = do
-            let params = BState._blockBirkParameters (BS._bpState bp)
+            let params = BState._blockBirkParameters (BState._unhashedBlockState (BS._bpState bp))
                 seedState = BState._birkSeedState params
                 currentEpoch = SeedState.epoch seedState
                 currentSlot = case BS._bpBlock bp of
@@ -215,7 +241,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
             -- The slot of the block should be in the epoch of its parameters:
             unless (currentEpoch == theSlot (currentSlot `div` SeedState.epochLength seedState)) $
                 Left $ "Slot " ++ show currentSlot ++ " is not in epoch " ++ show currentEpoch
-            let parentParams = BState._blockBirkParameters (BS._bpState (runIdentity $ BS._bpParent bp))
+            let parentParams = BState._blockBirkParameters (BState._unhashedBlockState $ BS._bpState (runIdentity $ BS._bpParent bp))
                 parentSeedState = BState._birkSeedState parentParams
                 parentEpoch = SeedState.epoch parentSeedState
             unless (currentEpoch == parentEpoch) $
@@ -246,7 +272,7 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
                 (_ Seq.:|> (_, pfb)) -> let oldGap = bpHeight lfb - bpHeight pfb in
                     max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) == oldGap then truncate ((oldGap * 4) % 5) else 2 * oldGap
         checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
-        let prevState  = BS._bpState lfb
+        let prevState  = BState._unhashedBlockState $ BS._bpState lfb
             prevBakers = _bakerMap $ BState._birkCurrentBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ _unhashed $ BState._blockBank prevState
         checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ prevBakers])) "==" "finalization committee" "calculated finalization committee"
@@ -526,12 +552,11 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
         createInitStates (finBs ++ nonFinBs) maxFinComSize []
 
 createInitStates :: [(BakerId, (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
-createInitStates bis maxFinComSize specialAccounts = do
+createInitStates bis maxFinComSize extraAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-            elDiff = 0.5
             seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
             bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts specialAccounts (finalizationParameters maxFinComSize) Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 $ Energy maxBound
+            gen = GenesisDataV1 0 1 genesisBakers seedState (bakerAccounts ++ extraAccounts) (finalizationParameters maxFinComSize) Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
             createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
                                        let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                            config = SkovConfig

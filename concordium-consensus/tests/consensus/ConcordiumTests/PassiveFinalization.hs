@@ -37,6 +37,7 @@ import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.SeedState as SeedState
+import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
 
 import Concordium.Logger
 
@@ -291,9 +292,9 @@ createInitStates additionalFinMembers = do
     let bis = baker1 : baker2 : finMember : finMembers
         genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-        elDiff = 1
         bakerAccounts = map (\(_, _, acc) -> acc) bis
-        gen = GenesisData 0 1 genesisBakers seedState elDiff bakerAccounts [] finalizationParameters Dummy.dummyCryptographicParameters emptyIdentityProviders Dummy.dummyArs 10 $ Energy maxBound
+        cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
+        gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters Dummy.dummyCryptographicParameters emptyIdentityProviders Dummy.dummyArs 10 (Energy maxBound) dummyAuthorizations cps
         createState = liftIO . (\(_, bid, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
