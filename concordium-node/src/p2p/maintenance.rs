@@ -5,7 +5,10 @@ use crossbeam_channel::{self, Receiver, Sender};
 use failure::Fallible;
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rkv::{Manager, Rkv};
+use rkv::{
+    backend::{Lmdb, LmdbEnvironment},
+    Manager, Rkv,
+};
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::{create_dump_thread, DumpItem};
@@ -190,7 +193,7 @@ pub struct P2PNode {
     /// The flag indicating whether a node should shut down.
     pub is_terminated: AtomicBool,
     /// The key-value store holding the node's persistent data.
-    pub kvs: Arc<RwLock<Rkv>>,
+    pub kvs: Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
     pub peers: RwLock<PeerList>,
 }
@@ -331,10 +334,10 @@ impl P2PNode {
         let connection_handler = ConnectionHandler::new(conf, server);
 
         // Create the node key-value store environment
-        let kvs = Manager::singleton()
+        let kvs = Manager::<LmdbEnvironment>::singleton()
             .write()
             .unwrap()
-            .get_or_create(config.data_dir_path.as_path(), Rkv::new)
+            .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
             .unwrap();
 
         let node = Arc::new(P2PNode {
