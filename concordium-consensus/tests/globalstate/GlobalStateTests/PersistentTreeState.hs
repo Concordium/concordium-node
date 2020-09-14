@@ -1,7 +1,6 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -37,45 +36,40 @@ import Concordium.Types.HashableTo
 import Control.Exception
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
-import Control.Monad.State hiding (state)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
 import System.FilePath ((</>))
 import System.IO.Temp
-import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Types.Transactions as Trns
-
--- FIXME: temporary import for stubbing types for hashing state
-import Data.FixedByteString as FBS
-import Concordium.Crypto.SHA256
 
 import System.Random
 import Test.Hspec
 
 type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g LogIO)
 
-type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.PersistentBlockState)
+type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.HashedPersistentBlockState)
 
 type Test = TestM ()
 
 instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
   globalStateContext = id
 
-instance HasGlobalState (SkovPersistentData () PBS.PersistentBlockState) (SkovPersistentData () PBS.PersistentBlockState) where
+instance HasGlobalState (SkovPersistentData () PBS.HashedPersistentBlockState) (SkovPersistentData () PBS.HashedPersistentBlockState) where
   globalState = id
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState)
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.HashedPersistentBlockState)
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
-  let n = 3
-      genesis = makeTestingGenesisData now n 1 0.5 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers [] maxBound
-      state = basicGenesisState genesis
-      config = DTDBConfig (defaultRuntimeParameters {rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate"}) genesis state
+  let
+    n = 3
+    genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    state = basicGenesisState genesis
+    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis state
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.PersistentBlockState) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.HashedPersistentBlockState) -> IO ()
 destroyGlobalState (c, s) =
   shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 

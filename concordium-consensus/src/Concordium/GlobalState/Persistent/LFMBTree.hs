@@ -81,11 +81,13 @@ type Height = Word64
 --  This type is parametrized by the reference type of
 --  the stored items.
 data LFMBTree k (ref :: Type -> Type) v
+  -- |Empty tree
   = Empty
+  -- |Non-empty tree, with the number of elements in the tree (always non-zero).
   | NonEmpty
-    -- |Number of elements in the tree. Always non-zero.
+    -- Number of elements in the tree. Always non-zero.
     !Word64
-    -- |The tree.
+    -- The tree.
     !(T ref v)
 
 deriving instance (Show (ref v), Show (ref (T ref v))) => (Show (LFMBTree k ref v))

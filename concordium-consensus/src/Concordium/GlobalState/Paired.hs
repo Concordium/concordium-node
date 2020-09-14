@@ -244,6 +244,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         r1 <- coerceBSML $ getAllAnonymityRevokers bs1
         r2 <- coerceBSMR $ getAllAnonymityRevokers bs2
         assert (r1 == r2) $ return r1
+    getElectionDifficulty (bps1, bps2) ts = do
+        e1 <- coerceBSML (getElectionDifficulty bps1 ts)
+        e2 <- coerceBSMR (getElectionDifficulty bps2 ts)
+        assert (e1 == e2) $ return e1
+    getNextUpdateSequenceNumber (bps1, bps2) uty = do
+        sn1 <- coerceBSML (getNextUpdateSequenceNumber bps1 uty)
+        sn2 <- coerceBSMR (getNextUpdateSequenceNumber bps2 uty)
+        assert (sn1 == sn2) $ return sn1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -352,11 +360,6 @@ instance (Monad m,
     bps2' <- coerceBSMR (updateBirkParametersForNewEpoch ss bps2)
     return (bps1', bps2')
 
-  getElectionDifficulty (bps1, bps2) = do
-    e1 <- coerceBSML (getElectionDifficulty bps1)
-    e2 <- coerceBSMR (getElectionDifficulty bps2)
-    assert (e1 == e2) $ return e1
-
   getCurrentBakers (bps1, bps2) = do
     cb1 <- coerceBSML (getCurrentBakers bps1)
     cb2 <- coerceBSMR (getCurrentBakers bps2)
@@ -408,10 +411,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoPutNewAccount bs1 acct1
         (r2, bs2') <- coerceBSMR $ bsoPutNewAccount bs2 acct2
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoSetElectionDifficulty (bs1, bs2) diff = do
-        bs1' <- coerceBSML $ bsoSetElectionDifficulty bs1 diff
-        bs2' <- coerceBSMR $ bsoSetElectionDifficulty bs2 diff
-        return (bs1', bs2')
     bsoPutNewInstance (bs1, bs2) f = do
         (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 f
         (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 f
@@ -500,6 +499,22 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoUpdateBirkParameters bs1 bps1
         bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps2
         return (bs1', bs2')
+    bsoProcessUpdateQueues (bs1, bs2) ts = do
+        bs1' <- coerceBSML $ bsoProcessUpdateQueues bs1 ts
+        bs2' <- coerceBSMR $ bsoProcessUpdateQueues bs2 ts
+        return (bs1', bs2')
+    bsoGetCurrentAuthorizations (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetCurrentAuthorizations bs1
+        a2 <- coerceBSMR $ bsoGetCurrentAuthorizations bs2
+        assert (a1 == a2) $ return a1
+    bsoGetNextUpdateSequenceNumber (bs1, bs2) uty = do
+        a1 <- coerceBSML $ bsoGetNextUpdateSequenceNumber bs1 uty
+        a2 <- coerceBSMR $ bsoGetNextUpdateSequenceNumber bs2 uty
+        assert (a1 == a2) $ return a1
+    bsoEnqueueUpdate (bs1, bs2) tt p = do
+        bs1' <- coerceBSML $ bsoEnqueueUpdate bs1 tt p
+        bs2' <- coerceBSMR $ bsoEnqueueUpdate bs2 tt p
+        return (bs1', bs2')
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 
@@ -531,9 +546,9 @@ instance (MonadLogger m,
         p1 <- coerceBSML $ saveBlockState bs1
         p2 <- coerceBSMR $ saveBlockState bs2
         return $ (p1, p2)
-    loadBlockState (p1, p2) = do
-        bs1 <- coerceBSML $ loadBlockState p1
-        bs2 <- coerceBSMR $ loadBlockState p2
+    loadBlockState h(p1, p2) = do
+        bs1 <- coerceBSML $ loadBlockState h p1
+        bs2 <- coerceBSMR $ loadBlockState h p2
         return (bs1, bs2)
 
 {-# INLINE coerceGSML #-}
@@ -717,6 +732,10 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
     getAccountNonFinalized acct nonce = do
         r1 <- coerceGSML $ getAccountNonFinalized acct nonce
         r2 <- coerceGSMR $ getAccountNonFinalized acct nonce
+        assert (r1 == r2) $ return r1
+    getNonFinalizedChainUpdates uty sn = do
+        r1 <- coerceGSML $ getNonFinalizedChainUpdates uty sn
+        r2 <- coerceGSMR $ getNonFinalizedChainUpdates uty sn
         assert (r1 == r2) $ return r1
     addTransaction tr = do
         r1 <- coerceGSML $ addTransaction tr
