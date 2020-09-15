@@ -93,7 +93,7 @@ instance FromJSON ChainParameters where
     makeChainParameters
       <$> v .: "electionDifficulty"
       <*> v .: "euroPerEnergy"
-      <*> v .: "microGTUPerEnergy"
+      <*> v .: "microGTUPerEuro"
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,

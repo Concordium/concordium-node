@@ -680,7 +680,7 @@ instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable 
         if isNull r then
             return (pure Null)
         else
-            fmap Some <$> load
+            return $ pure $ Some $ HashedBufferedRef (BRBlobbed r) Nothing
     storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
     storeUpdate (Some v) = do
         (r, v') <- storeUpdate v
