@@ -30,9 +30,9 @@
 #####
 
 if [[ -n "$CONCORDIUM_P2P_DATA_DIR" ]]; then
-  CONCORDIUM_P2P_APPDATA_DIR="$CONCORDIUM_P2P_DATA_DIR"
+  CONCORDIUM_P2P_APPDATA_DIR="$CONCORDIUM_P2P_DATA_DIR/local"
 else
-  CONCORDIUM_P2P_APPDATA_DIR="$HOME/.local/share/concordium"
+  CONCORDIUM_P2P_APPDATA_DIR="$HOME/.local/share/concordium/local"
 fi
 
 if [[ "$OSTYPE" == "darwin"* ]]; then

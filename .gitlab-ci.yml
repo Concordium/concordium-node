@@ -1,4 +1,4 @@
-image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12"
+image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.15"
 
 stages:
   - lint
@@ -6,7 +6,7 @@ stages:
 
 .generic:
   variables:
-    RUSTFLAGS: -Dwarnings
+    RUSTFLAGS: -Dwarnings -llmdb
     GIT_SUBMODULE_STRATEGY: recursive
   before_script:
     - rustc --version && cargo --version
@@ -21,10 +21,27 @@ stages:
     - cargo test --all --features=static --color=always
     - echo "Running tests with network dump, instrumentation, and collector features"
     - cargo test --all --color=always --features=static,instrumentation,collector,network_dump
-    - echo "Running tests with s11n features"
-    - cargo test --all --color=always --features=static,s11n_capnp,s11n_serde_cbor
     - echo "Compiling the benches"
     - cargo bench --features=static --color=always --no-run
+    - cargo bench --features=static,s11n_capnp --color=always --no-run
+    - cargo bench --features=static,s11n_serde_cbor --color=always --no-run
+    - cargo bench --features=static,s11n_serde_msgpack --color=always --no-run
+
+"genesis:test":
+  extends: .generic
+  stage: test
+  script:
+    - scripts/download-static-libs.sh
+    - scripts/download-genesis-data.sh
+    - cargo build --features=genesis_tester,static
+    - scripts/test-genesis.sh 1-bakers.tar.gz
+    - scripts/test-genesis.sh 5-bakers.tar.gz
+    - scripts/test-genesis.sh 20-bakers.tar.gz
+    - scripts/test-genesis.sh 1000-bakers.tar.gz
+    - scripts/test-genesis.sh 1-bakers.tar.gz 0
+    - scripts/test-genesis.sh 5-bakers.tar.gz 2
+    - scripts/test-genesis.sh 20-bakers.tar.gz 10
+    - scripts/test-genesis.sh 1000-bakers.tar.gz 200
 
 .generic-lint:
   extends: .generic
@@ -47,4 +64,6 @@ stages:
     - echo "Running clippy with network dump, instrumentation, collector and staging net features"
     - cargo clippy --features=static,instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n features"
-    - cargo clippy --features=static,s11n_capnp,s11n_serde_cbor --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,s11n_capnp --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,s11n_serde_cbor --color=always --all -- -Dclippy::all
+    - cargo clippy --features=static,s11n_serde_msgpack --color=always --all -- -Dclippy::all

@@ -36,3 +36,5 @@ baker_id_gen
 CONSENSUS_VERSION
 genesis-data
 genesis-complementary-bundle
+genesis-data-test
+genesis_data

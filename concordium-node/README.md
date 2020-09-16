@@ -30,6 +30,8 @@ This repository relies on git submodules for internal component dependencies, so
 * collector - enables the build of the node-collector and backend
 * staging_net - enables special staging network only features like client username/password validation
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
+* genesis_tester - a tool used by a CI to validate the genesis data
+* dedup_benchmarks - enable support in the benchmarks for deduplication queues
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).
@@ -145,7 +147,7 @@ If PostGreSQL starts too slowly the baker enabled for logging to it can be delay
 
 ## Wallet local development mode
 The PostGreSQL instance is exposed on port 5432/tcp and the username is `concordium`, password: `concordium`, and database name is `concordium`.
-The wallet-proxy is mapped on port 14000/tcp, and the wallet-server is mapped on 13000/tcp.
+The wallet-proxy is mapped on port 14000/tcp.
 
 ### Running the local development version from the stable master branch
 Use docker-compose if you only need a middle-ware enabled set of nodes to test on
@@ -170,4 +172,4 @@ $> NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.develop.wallet-
 ```
 
 ### Delay baker startup if PostGreSQL starts too slowly
-If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP` (the wallet-proxy and wallet-server has a default value of 30 set to delay start until PostGreSQL is up).
+If PostGreSQL starts too slowly the baker enabled for logging to it can be delayed by using the variable `DB_SLEEP` (the wallet-proxy has a default value of 30 set to delay start until PostGreSQL is up).
