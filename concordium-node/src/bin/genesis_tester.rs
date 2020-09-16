@@ -7,7 +7,7 @@ use consensus_rust::{
 use failure::Fallible;
 use std::{fs::OpenOptions, io::Read, process::exit};
 use structopt::StructOpt;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "Genesis tester tool")]
@@ -59,7 +59,7 @@ pub fn main() -> Fallible<()> {
         None
     };
 
-    let tmp_dir = TempDir::new("genesis-tester")?;
+    let tmp_dir = TempDir::new()?;
 
     ffi::start_haskell(&[]);
 
