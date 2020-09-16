@@ -28,6 +28,7 @@ use crate::{
         NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
         Networks,
     },
+    only_fbs,
     p2p::P2PNode,
 };
 
@@ -40,6 +41,7 @@ use std::{
     fmt,
     io::Cursor,
     net::SocketAddr,
+    str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, RwLock,
@@ -58,25 +60,157 @@ pub enum MessageSendingPriority {
     High,
 }
 
+/// This enum defines the hashing algorithms we support for deduplication
+#[derive(Debug, Clone, Copy)]
+pub enum DeduplicationHashAlgorithm {
+    /// XxHash64
+    XxHash64,
+    // SHA256
+    Sha256,
+}
+
+impl FromStr for DeduplicationHashAlgorithm {
+    type Err = failure::Error;
+
+    fn from_str(algorithm: &str) -> Result<Self, Self::Err> {
+        match algorithm {
+            "xxhash64" => Ok(DeduplicationHashAlgorithm::XxHash64),
+            "sha256" => Ok(DeduplicationHashAlgorithm::Sha256),
+            _ => bail!("Could not parse deduplication hashing algorithm"),
+        }
+    }
+}
+
+/// Trait used by a deduplication queue implementation
+pub trait DeduplicationQueue: Send + Sync {
+    /// Check if element exists, and if not insert it - return status is whether
+    /// or not message was a duplicate
+    fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool>;
+    /// Invalidate the entry in the queue if a key is found
+    fn invalidate_if_exists(&mut self, input: &[u8]);
+}
+
+/// XxHash64 deduplication struct
+pub struct DeduplicationQueueXxHash64 {
+    /// Random seed generated per queue when constructed
+    seed: u64,
+    /// The queue itself
+    queue: CircularQueue<u64>,
+}
+
+impl DeduplicationQueueXxHash64 {
+    /// Constructs a new XxHash64 deduplication queue with a random seed
+    pub fn new(capacity: usize) -> Self {
+        use rand::Rng;
+        Self {
+            seed:  rand::thread_rng().gen::<u64>(),
+            queue: CircularQueue::with_capacity(capacity),
+        }
+    }
+
+    /// Hash an input given as a byte slice
+    fn hash(&self, input: &[u8]) -> u64 {
+        use std::hash::Hasher;
+        use twox_hash::XxHash64;
+        let mut hasher = XxHash64::with_seed(self.seed);
+        hasher.write(&input);
+        hasher.finish()
+    }
+}
+
+impl DeduplicationQueue for DeduplicationQueueXxHash64 {
+    fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool> {
+        let num = self.hash(&input);
+        if !self.queue.iter().any(|n| n == &num) {
+            trace!("Message XxHash64 {:x} is unique, adding to dedup queue", num);
+            self.queue.push(num);
+            Ok(false)
+        } else {
+            trace!("Message XxHash64 {:x} is a duplicate", num);
+            Ok(true)
+        }
+    }
+
+    fn invalidate_if_exists(&mut self, input: &[u8]) {
+        let num = self.hash(&input);
+        if let Some(old_val) = self.queue.iter_mut().find(|val| **val == num) {
+            // flip all bits in the old hash; we can't just remove the value from the queue
+            *old_val = !*old_val;
+        }
+    }
+}
+
+/// SHA256 deduplication struct
+pub struct DeduplicationQueueSha256 {
+    /// The queue itself
+    queue: CircularQueue<[u8; 32]>,
+}
+
+impl DeduplicationQueueSha256 {
+    /// Constructs a new SHA256 deduplication queue
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            queue: CircularQueue::with_capacity(capacity),
+        }
+    }
+
+    /// Hash an input given as a byte slice
+    fn hash(&self, input: &[u8]) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(input).into()
+    }
+}
+
+impl DeduplicationQueue for DeduplicationQueueSha256 {
+    fn check_and_insert(&mut self, input: &[u8]) -> Fallible<bool> {
+        let hash = self.hash(&input);
+        if !self.queue.iter().any(|n| *n == hash) {
+            trace!("Message SHA256 {:X?} is unique, adding to dedup queue", &hash[..]);
+            self.queue.push(hash);
+            Ok(false)
+        } else {
+            trace!("Message SHA256 {:X?} is a duplicate", &hash[..]);
+            Ok(true)
+        }
+    }
+
+    fn invalidate_if_exists(&mut self, input: &[u8]) {
+        let hash = self.hash(&input);
+        if let Some(old_val) = self.queue.iter_mut().find(|val| **val == hash) {
+            // zero out all bits in the old hash; we can't just remove the value from the
+            // queue
+            *old_val = Default::default();
+        }
+    }
+}
+
 /// Contains the circular queues of hashes of different consensus objects
 /// for deduplication purposes.
 pub struct DeduplicationQueues {
-    pub finalizations: RwLock<CircularQueue<u64>>,
-    pub transactions:  RwLock<CircularQueue<u64>>,
-    pub blocks:        RwLock<CircularQueue<u64>>,
-    pub fin_records:   RwLock<CircularQueue<u64>>,
+    pub finalizations: RwLock<Box<dyn DeduplicationQueue>>,
+    pub transactions:  RwLock<Box<dyn DeduplicationQueue>>,
+    pub blocks:        RwLock<Box<dyn DeduplicationQueue>>,
+    pub fin_records:   RwLock<Box<dyn DeduplicationQueue>>,
 }
 
 impl DeduplicationQueues {
     /// Creates the deduplication queues of specified sizes: short for blocks
     /// and finalization records and long for finalization messages and
     /// transactions.
-    pub fn new(long_size: usize, short_size: usize) -> Self {
-        Self {
-            finalizations: RwLock::new(CircularQueue::with_capacity(long_size)),
-            transactions:  RwLock::new(CircularQueue::with_capacity(long_size)),
-            blocks:        RwLock::new(CircularQueue::with_capacity(short_size)),
-            fin_records:   RwLock::new(CircularQueue::with_capacity(short_size)),
+    pub fn new(algorithm: DeduplicationHashAlgorithm, long_size: usize, short_size: usize) -> Self {
+        match algorithm {
+            DeduplicationHashAlgorithm::XxHash64 => Self {
+                finalizations: RwLock::new(Box::new(DeduplicationQueueXxHash64::new(long_size))),
+                transactions:  RwLock::new(Box::new(DeduplicationQueueXxHash64::new(long_size))),
+                blocks:        RwLock::new(Box::new(DeduplicationQueueXxHash64::new(short_size))),
+                fin_records:   RwLock::new(Box::new(DeduplicationQueueXxHash64::new(short_size))),
+            },
+            DeduplicationHashAlgorithm::Sha256 => Self {
+                finalizations: RwLock::new(Box::new(DeduplicationQueueSha256::new(long_size))),
+                transactions:  RwLock::new(Box::new(DeduplicationQueueSha256::new(long_size))),
+                blocks:        RwLock::new(Box::new(DeduplicationQueueSha256::new(short_size))),
+                fin_records:   RwLock::new(Box::new(DeduplicationQueueSha256::new(short_size))),
+            },
         }
     }
 }
@@ -228,25 +362,19 @@ impl Connection {
 
         let is_duplicate = match packet_type {
             Ok(PacketType::FinalizationMessage) => dedup_with(
-                &self.handler,
                 &packet.message,
-                &mut write_or_die!(deduplication_queues.finalizations),
+                &mut **write_or_die!(deduplication_queues.finalizations),
             )?,
             Ok(PacketType::Transaction) => dedup_with(
-                &self.handler,
                 &packet.message,
-                &mut write_or_die!(deduplication_queues.transactions),
+                &mut **write_or_die!(deduplication_queues.transactions),
             )?,
-            Ok(PacketType::Block) => dedup_with(
-                &self.handler,
-                &packet.message,
-                &mut write_or_die!(deduplication_queues.blocks),
-            )?,
-            Ok(PacketType::FinalizationRecord) => dedup_with(
-                &self.handler,
-                &packet.message,
-                &mut write_or_die!(deduplication_queues.fin_records),
-            )?,
+            Ok(PacketType::Block) => {
+                dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.blocks))?
+            }
+            Ok(PacketType::FinalizationRecord) => {
+                dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.fin_records))?
+            }
             _ => false,
         };
 
@@ -373,9 +501,12 @@ impl Connection {
         trace!("Sending a ping to {}", self);
 
         let ping = netmsg!(NetworkRequest, NetworkRequest::Ping);
+
         let mut serialized = Vec::with_capacity(56);
-        ping.serialize(&mut serialized)?;
+
+        only_fbs!(ping.serialize(&mut serialized)?);
         self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
+
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         Ok(())
@@ -387,7 +518,7 @@ impl Connection {
 
         let pong = netmsg!(NetworkResponse, NetworkResponse::Pong);
         let mut serialized = Vec::with_capacity(56);
-        pong.serialize(&mut serialized)?;
+        only_fbs!(pong.serialize(&mut serialized)?);
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
         Ok(())
@@ -449,7 +580,7 @@ impl Connection {
             debug!("Sending a PeerList to peer {}", requestor.id);
 
             let mut serialized = Vec::with_capacity(256);
-            resp.serialize(&mut serialized)?;
+            only_fbs!(resp.serialize(&mut serialized)?);
             self.async_send(Arc::from(serialized), MessageSendingPriority::Normal);
 
             Ok(())
@@ -499,18 +630,6 @@ impl Drop for Connection {
 
 /// Returns a bool indicating whether the message is a duplicate.
 #[inline]
-fn dedup_with(
-    handler: &Arc<P2PNode>,
-    message: &[u8],
-    queue: &mut CircularQueue<u64>,
-) -> Fallible<bool> {
-    let num = handler.hash_message_for_deduplication(&message);
-    if !queue.iter().any(|n| n == &num) {
-        trace!("Message {:x} is unique, adding to dedup queue", num);
-        queue.push(num);
-        Ok(false)
-    } else {
-        trace!("Message {:x} is a duplicate", num);
-        Ok(true)
-    }
+fn dedup_with(message: &[u8], queue: &mut dyn DeduplicationQueue) -> Fallible<bool> {
+    queue.check_and_insert(message)
 }

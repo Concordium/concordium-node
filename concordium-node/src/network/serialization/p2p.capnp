@@ -5,7 +5,7 @@ struct P2PNodeId {
 }
 
 struct NetworkMessage {
-    timestamp @0 :UInt64;
+    created @0 :UInt64;
     union {
         packet @1 :NetworkPacket;
         request @2 :NetworkRequest;
@@ -14,15 +14,15 @@ struct NetworkMessage {
 }
 
 struct NetworkPacket {
-    packetType @0 :PacketType;
+    packetDestination @0 :PacketDestination;
     networkId @1 :UInt16;
     message @2 :Data;
 }
 
-struct PacketType {
+struct PacketDestination {
     union {
         direct @0 :P2PNodeId;
-        broadcast @1 :List(P2PNodeId);
+        broadcast @1 :Void;
     }
 }
 

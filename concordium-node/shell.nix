@@ -18,7 +18,7 @@ let
   });
   nixpkgs = import <nixpkgs> { overlays = [ pkgs_overlay moz_overlay ]; };
   rustStableChannel =
-    (nixpkgs.rustChannelOf { channel = "1.42.0"; }).rust.override {
+    (nixpkgs.rustChannelOf { channel = "1.45.2"; }).rust.override {
       extensions =
         [ "rust-src" "rls-preview" "clippy-preview" "rustfmt-preview" ];
     };
@@ -39,6 +39,8 @@ stdenv.mkDerivation {
     capnproto
     flatbuffers
     postgresql
+    lmdb
   ];
   PROTOC = "${pkgs.protobuf}/bin/protoc";
+  RUSTFLAGS = "-llmdb";
 }

@@ -78,18 +78,6 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
-    wallet_server:
-        image: concordium/dev-client:develop
-        depends_on:
-            - baker
-            - postgresql
-        environment:
-            - MODE=local_wallet_server
-            - DB_SLEEP=${DB_SLEEP:-30}
-        entrypoint:
-            - /start.sh
-        ports:
-            - "13000:8000"
     wallet_proxy:
         image: concordium/dev-client:develop
         depends_on:

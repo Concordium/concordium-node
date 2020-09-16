@@ -18,7 +18,7 @@ let
   });
   nixpkgs = import <nixpkgs> { overlays = [ moz_overlay pkgs_overlay ]; };
   rustStableChannel =
-    (nixpkgs.rustChannelOf { channel = "1.42.0"; }).rust.override {
+    (nixpkgs.rustChannelOf { channel = "1.45.2"; }).rust.override {
       extensions =
         [ "rust-src" "rls-preview" "clippy-preview" "rustfmt-preview" ];
     };
@@ -32,7 +32,7 @@ let
 
 in rustPlatform.buildRustPackage rec {
   name = "concordium-p2p-client-${version}";
-  version = "0.2.13.0";
+  version = "0.3.0.0";
   src = ./.;
   RUST_BACKTRACE = 1;
   hardeningDisable = [ "all" ];
