@@ -75,7 +75,7 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
 addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
-addToSelfEncryptedAmount newAmount old = old & selfAmount %~ (<> newAmount)
+addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
