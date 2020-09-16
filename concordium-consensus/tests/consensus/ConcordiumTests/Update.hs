@@ -43,10 +43,20 @@ import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
 import Concordium.Types
 
 import Data.FixedByteString as FBS
+import Concordium.Crypto.SHA256 as Hash
 
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Types.DummyData as DummyTypes
         
+
+-- This file contains test cases for failure states in update.hs
+-- Specifically, fail state testing for the majority of the reasons doStoreBlock and addBlock will reject blocks.
+-- Structure is that one baker will mine two blocks, then a second treestate will accept the first block, 
+-- falsify some element of the second block, then check to make sure the dirtied second block is rejected.
+
+-- Does not currently verify which error gets thrown, could refactor to do this?
+
+
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
@@ -131,6 +141,15 @@ withInitialStates r = do
     (b1, b2) <- createInitStates
     r b1 b2
 
+-- Helper function to resign blocks after dirtying
+reSign :: BakerSignPrivateKey -> BakedBlock -> BakedBlock
+reSign key BakedBlock{..}  = BakedBlock{bbSignature = newSig, ..}
+    where
+        BlockFields{..} = bbFields
+        newBlockHash = generateBlockHash bbSlot bfBlockPointer bfBlockBaker bfBlockBakerKey bfBlockProof bfBlockNonce bfBlockFinalizationData bbTransactions bbStateHash bbTransactionOutcomesHash
+        newSig = Sig.sign key (Hash.hashToByteString (v0BlockHash newBlockHash))
+
+
 -- Helper function to bake
 bake :: BakerIdentity -> Slot -> MySkovT BakedBlock
 bake bid n = do
@@ -163,28 +182,37 @@ stubTransactionHash :: TransactionOutcomesHash
 stubTransactionHash = TransactionOutcomesHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
 
 -- Dirtying functions to dirty blocks, allowing testing of each individual reject condition in update
-dirtyTransactionHash :: BakedBlock -> BakedBlock
-dirtyTransactionHash BakedBlock{..} = BakedBlock{bbTransactionOutcomesHash = stubTransactionHash, ..}
+dirtyTransactionOutcomesHash :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
+dirtyTransactionOutcomesHash BakedBlock{..} bid = reSign bid BakedBlock{bbTransactionOutcomesHash = stubTransactionHash, ..}
 
-dirtyStateHash ::  BakedBlock -> BakedBlock
-dirtyStateHash BakedBlock{..} = BakedBlock{bbStateHash = stubStateHash, ..}
+dirtyStateHash ::  BakedBlock -> BakerSignPrivateKey -> BakedBlock
+dirtyStateHash BakedBlock{..} bid = reSign bid BakedBlock{bbStateHash = stubStateHash, ..}
 
 
-dirtyBakerKey :: BakedBlock -> BakedBlock
-dirtyBakerKey BakedBlock{..}= BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeKey,..}, ..}
+dirtyBakerKey :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
+dirtyBakerKey BakedBlock{..} _ = BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifKey,..}, ..}
     where
         BlockFields{..} = bbFields
         baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
-        fakeKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
+        fakeVerifKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
+
+dirtyBakerKeySignature :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
+dirtyBakerKeySignature BakedBlock{..} _ = reSign fakeKeyPair BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifyKey,..}, ..}
+    where
+        BlockFields{..} = bbFields
+        baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
+        fakeVerifyKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
+        fakeKeyPair = Sig.KeyPair{ signKey = baker3 ^._3, verifyKey = fakeVerifyKey }
+
 
 
 -- Claims earlier slot than reality
-dirtySlot1 :: BakedBlock -> BakedBlock
-dirtySlot1 BakedBlock{..} = BakedBlock{bbSlot = 1, ..} 
+dirtySlot1 ::BakedBlock -> BakerSignPrivateKey -> BakedBlock
+dirtySlot1 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 1, ..} 
 
 -- Claims later slot than reality
-dirtySlot2 :: BakedBlock -> BakedBlock
-dirtySlot2 BakedBlock{..} = BakedBlock{bbSlot = 3, ..} 
+dirtySlot2 :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
+dirtySlot2 BakedBlock{..} bid = reSign bid BakedBlock{bbSlot = 3, ..} 
 
 
 -- Sanity check test, to make sure that an undirtied block doesn't fail to be stored
@@ -203,9 +231,9 @@ runSanityCheck (bid1, fi1, fs1) (_, fi2, fs2) = do
                     ) dummyHandlers fi2 fs2
 
 -- Sets up by baker1 baking two blocks. baker2 then adds the first block to his tree
--- The second block is dirtied in a way defined by dirtyFunc, then we check 
--- to make sure that storage of the second block fails using failStore
-runTest :: (BakedBlock -> BakedBlock)
+-- The second block is dirtied in a way defined by dirtyFunc, which modifies a block then resigns it using baker1's key.
+--  then we check to make sure that storage of the second block fails using failStore
+runTest :: (BakedBlock -> BakerSignPrivateKey -> BakedBlock)
         -> BakerState
         -- ^Initial state for the first baker
         -> BakerState
@@ -218,8 +246,9 @@ runTest dirtyFunc (bid1, fi1, fs1) (_, fi2, fs2) = do
                     -- Baker2 stores the first block
                     store block1
                     -- Second block is dirtied before attempting to store, then we make sure it gets rejected
-                    failStore (dirtyFunc block2)
+                    failStore (dirtyFunc block2 (bakerSignKey bid1))
                     ) dummyHandlers fi2 fs2
+
 
 -- Tests sending duplicate blocks
 runTestDupe :: BakerState
@@ -241,10 +270,11 @@ runTestDupe (bid1, fi1, fs1) (_, fi2, fs2) = do
 test :: Spec
 test = describe "Concordium.Update: " $ do
     it "Un-dirtied Baked Block should not be rejected" $ withInitialStates runSanityCheck
-    it "Block with incorrect TransactionHash should be rejected" $ withInitialStates (runTest dirtyTransactionHash) 
+    it "Block with incorrect TransactionOutcomesHash should be rejected" $ withInitialStates (runTest dirtyTransactionOutcomesHash) 
     it "Block with incorrect StateHash should be rejected" $ withInitialStates (runTest dirtyStateHash) 
     it "Block with incorrect earlier Slot Number should be rejected" $ withInitialStates (runTest dirtySlot1) 
     it "Block with incorrect later Slot Number should be rejected" $ withInitialStates (runTest dirtySlot2) 
-    it "Block with Claimed key different from BakerKey should be rejected" $ withInitialStates (runTest dirtyBakerKey) 
+    it "Block with Claimed key which doesn't match signature should be rejected" $ withInitialStates (runTest dirtyBakerKey) 
+    it "Block with Claimed key which matches signature/blockhash, but is different from BakerKey should be rejected" $ withInitialStates (runTest dirtyBakerKeySignature) 
     it "Duplicate Block should be rejected" $ withInitialStates (runTestDupe)
 
