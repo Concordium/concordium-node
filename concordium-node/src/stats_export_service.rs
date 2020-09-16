@@ -536,7 +536,7 @@ pub fn start_push_gateway(
     service: &StatsExportService,
     id: P2PNodeId,
 ) {
-    conf.prometheus_push_gateway.as_ref().and_then(|prom_push_addy| {
+    if let Some(prom_push_addy) = conf.prometheus_push_gateway.as_ref() {
         let instance_name = if let Some(ref instance_id) = conf.prometheus_instance_name {
             instance_id.clone()
         } else {
@@ -550,6 +550,5 @@ pub fn start_push_gateway(
             conf.prometheus_push_username.clone(),
             conf.prometheus_push_password.clone(),
         );
-        Some(())
-    });
+    }
 }

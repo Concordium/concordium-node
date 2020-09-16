@@ -1,5 +1,5 @@
 use failure::{format_err, Fallible};
-use jsonwebtoken::dangerous_unsafe_decode;
+use jsonwebtoken::dangerous_insecure_decode;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,7 @@ pub fn get_username_from_jwt(token: &str) -> String {
     // an error response from the authentication server
     // regardless, and therefore would have needed to
     // restart anyway.
-    dangerous_unsafe_decode::<Claim>(token)
+    dangerous_insecure_decode::<Claim>(token)
         .map(|s| s.claims.sub)
         .expect("Could not validate JWT. Authentication would have failed anyway!")
 }

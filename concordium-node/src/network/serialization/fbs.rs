@@ -106,17 +106,16 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
         bail!("missing network message payload (expected a packet)")
     };
 
-    let destination = if let Some(direct) = packet.destination_as_direct() {
-        PacketDestination::Direct(P2PNodeId(direct.target_id()))
-    } else if let Some(broadcast) = packet.destination_as_broadcast() {
-        let ids_to_exclude = if let Some(ids) = broadcast.ids_to_exclude() {
-            ids.safe_slice().iter().copied().map(P2PNodeId).collect()
-        } else {
-            Vec::new()
-        };
-        PacketDestination::Broadcast(ids_to_exclude)
-    } else {
-        bail!("invalid network packet type")
+    let destination = match packet.destination().map(|x| x.variant()) {
+        Some(network::Direction::Direct) => {
+            if let Some(direct) = packet.destination().and_then(|x| x.payload()) {
+                PacketDestination::Direct(P2PNodeId(direct.target_id()))
+            } else {
+                bail!("missing target_id in direct message")
+            }
+        }
+        Some(network::Direction::Broadcast) => PacketDestination::Broadcast(Vec::new()),
+        _ => bail!("missing direction on network packet"),
     };
 
     let network_id = NetworkId::from(packet.networkId());
@@ -301,35 +300,32 @@ fn serialize_packet(
     builder: &mut FlatBufferBuilder,
     packet: &NetworkPacket,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
-    let (destination_offset, destination_type) = match packet.destination {
+    let destination_offset = match packet.destination {
         PacketDestination::Direct(target_id) => {
-            let offset = network::Direct::create(builder, &network::DirectArgs {
-                target_id: target_id.as_raw(),
-            });
+            let payload_offset =
+                network::DirectPayload::create(builder, &network::DirectPayloadArgs {
+                    target_id: target_id.as_raw(),
+                });
 
-            (offset.as_union_value(), network::Destination::Direct)
+            network::Destination::create(builder, &network::DestinationArgs {
+                variant: network::Direction::Direct,
+                payload: Some(payload_offset),
+            })
         }
-        PacketDestination::Broadcast(ref ids_to_exclude) => {
-            builder.start_vector::<u64>(ids_to_exclude.len());
-            for id in ids_to_exclude {
-                builder.push(id.as_raw());
-            }
-            let ids_offset = builder.end_vector(ids_to_exclude.len());
-            let offset = network::Broadcast::create(builder, &network::BroadcastArgs {
-                ids_to_exclude: Some(ids_offset),
-            });
-
-            (offset.as_union_value(), network::Destination::Broadcast)
+        PacketDestination::Broadcast(..) => {
+            network::Destination::create(builder, &network::DestinationArgs {
+                variant: network::Direction::Broadcast,
+                payload: None,
+            })
         }
     };
 
     let payload_offset = builder.create_vector_direct::<u8>(&packet.message);
 
     let packet_offset = network::NetworkPacket::create(builder, &network::NetworkPacketArgs {
-        destination_type,
         destination: Some(destination_offset),
-        networkId: packet.network_id.id,
-        payload: Some(payload_offset),
+        networkId:   packet.network_id.id,
+        payload:     Some(payload_offset),
     })
     .as_union_value();
 

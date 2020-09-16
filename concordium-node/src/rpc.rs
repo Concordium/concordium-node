@@ -498,6 +498,16 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn get_blocks_at_height(
+        &self,
+        req: Request<BlockHeight>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetBlocksAtHeight", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_blocks_at_height(req.get_ref().block_height)
+        })
+    }
+
     async fn get_account_list(
         &self,
         req: Request<BlockHash>,
@@ -618,6 +628,26 @@ impl P2p for RpcServerImpl {
         authenticate!(req, self.access_token);
         call_consensus!(self, "GetNextAccountNonce", JsonResponse, |cc: &ConsensusContainer| {
             cc.get_next_account_nonce(&req.get_ref().account_address)
+        })
+    }
+
+    async fn get_identity_providers(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetIdentityProviders", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_identity_providers(&req.get_ref().block_hash)
+        })
+    }
+
+    async fn get_anonymity_revokers(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(self, "GetAnonymityRevokers", JsonResponse, |cc: &ConsensusContainer| {
+            cc.get_anonymity_revokers(&req.get_ref().block_hash)
         })
     }
 
