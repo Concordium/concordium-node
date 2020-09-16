@@ -664,7 +664,7 @@ doGetTransactionOutcome pbs transHash = do
         bsp <- loadPBS pbs
         return $! bspTransactionOutcomes bsp ^? ix transHash
 
-doGetTransactionOutcomesHash :: MonadBlobStore r m => PersistentBlockState -> PersistentBlockStateMonad r m TransactionOutcomesHash 
+doGetTransactionOutcomesHash :: MonadBlobStore r m => PersistentBlockState -> PersistentBlockStateMonad r m TransactionOutcomesHash
 doGetTransactionOutcomesHash pbs =  do
     bsp <- loadPBS pbs
     return $! getHash (bspTransactionOutcomes bsp)
@@ -850,8 +850,8 @@ instance MonadBlobStore r m => AccountOperations (PersistentBlockStateMonad r m)
 
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
-  getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount
-  
+  getAccountEncryptedAmount acc = loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
+
   getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
   getAccountStakeDelegate acc = acc ^^. accountStakeDelegate
@@ -869,15 +869,17 @@ instance MonadBlobStore r m => AccountOperations (PersistentBlockStateMonad r m)
                   }
           _accountNonce = minNonce
           _accountAmount = 0
-          _accountEncryptedAmount = initialAccountEncryptedAmount
+      accountEncryptedAmountData <- initialPersistentAccountEncryptedAmount
+      _accountEncryptedAmount <- makeBufferedRef accountEncryptedAmountData
       _persistingData <- makeBufferedRef pData
-      let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pData
+      let _accountHash = makeAccountHash _accountNonce _accountAmount (_pAccountEncAmountHash accountEncryptedAmountData) pData
       return $ PersistentAccount {..}
 
   updateAccountAmount acc amnt = do
     let newAcc@PersistentAccount{..} = acc & accountAmount .~ amnt
     pData <- loadBufferedRef _persistingData
-    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt _accountEncryptedAmount pData
+    encHash <- _pAccountEncAmountHash <$> loadBufferedRef _accountEncryptedAmount
+    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encHash pData
 
 instance MonadBlobStore r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
