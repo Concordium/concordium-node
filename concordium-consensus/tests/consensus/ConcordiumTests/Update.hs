@@ -188,7 +188,7 @@ dirtyTransactionOutcomesHash BakedBlock{..} bid = reSign bid BakedBlock{bbTransa
 dirtyStateHash ::  BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyStateHash BakedBlock{..} bid = reSign bid BakedBlock{bbStateHash = stubStateHash, ..}
 
-
+-- Dirties the claimed key so it doesn't match the signature anymore
 dirtyBakerKey :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyBakerKey BakedBlock{..} _ = BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifKey,..}, ..}
     where
@@ -196,6 +196,7 @@ dirtyBakerKey BakedBlock{..} _ = BakedBlock{bbFields = BlockFields{bfBlockBakerK
         baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
         fakeVerifKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
 
+-- Dirties the key, and resigns the block with the dirtied key. This tests that we verify the key is the same as baker key
 dirtyBakerKeySignature :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyBakerKeySignature BakedBlock{..} _ = reSign fakeKeyPair BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifyKey,..}, ..}
     where
