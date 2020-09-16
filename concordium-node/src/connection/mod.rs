@@ -391,6 +391,7 @@ impl Connection {
                 ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
             }
         }
+    }
 
     #[inline]
     fn process_message(&mut self, bytes: Arc<[u8]>, conn_stats: &[PeerStats]) -> Fallible<()> {

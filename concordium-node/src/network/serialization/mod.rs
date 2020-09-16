@@ -6,7 +6,7 @@ pub mod fbs;
 #[cfg(feature = "s11n_serde")]
 pub mod serde;
 
-#[cfg(all(feature = "s11n_capnp", not(feature = "s11n_fbs"), not(feature = "s11n_serde")))]
+#[cfg(feature = "s11n_capnp")]
 pub mod cap;
 
 #[cfg(not(feature = "s11n_capnp"))]
