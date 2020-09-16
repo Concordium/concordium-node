@@ -1,5 +1,5 @@
 {-# LANGUAGE MonoLocalBinds, BangPatterns, ScopedTypeVariables, OverloadedStrings #-}
-{-# LANGUAGE UndecidableInstances #-} -- TODO: get rid of this when possible
+{-# LANGUAGE UndecidableInstances #-}
 -- |Implementation of the chain update mechanism with persistent storage: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
 module Concordium.GlobalState.Persistent.BlockState.Updates where
 
