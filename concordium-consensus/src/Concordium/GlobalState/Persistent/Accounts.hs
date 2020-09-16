@@ -233,11 +233,12 @@ updateAccount !upd !acc = do
       updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
   newEncryptedAmount <- foldrM updateSingle encAmount (upd ^. auEncrypted)
   newEncryptedAmountRef <- makeBufferedRef newEncryptedAmount
+  baseEncryptedAmount <- loadPersistentAccountEncryptedAmount newEncryptedAmount
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountEncryptedAmount .~ newEncryptedAmountRef
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount (_pAccountEncAmountHash newEncryptedAmount) pdata
+  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount pdata
   case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         (mNewCred, mKeyUpd, mNewThreshold) -> do

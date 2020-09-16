@@ -870,16 +870,18 @@ instance MonadBlobStore r m => AccountOperations (PersistentBlockStateMonad r m)
           _accountNonce = minNonce
           _accountAmount = 0
       accountEncryptedAmountData <- initialPersistentAccountEncryptedAmount
+      baseEncryptedAmountData <- loadPersistentAccountEncryptedAmount accountEncryptedAmountData
       _accountEncryptedAmount <- makeBufferedRef accountEncryptedAmountData
       _persistingData <- makeBufferedRef pData
-      let _accountHash = makeAccountHash _accountNonce _accountAmount (_pAccountEncAmountHash accountEncryptedAmountData) pData
+      let _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData pData
       return $ PersistentAccount {..}
 
   updateAccountAmount acc amnt = do
     let newAcc@PersistentAccount{..} = acc & accountAmount .~ amnt
     pData <- loadBufferedRef _persistingData
-    encHash <- _pAccountEncAmountHash <$> loadBufferedRef _accountEncryptedAmount
-    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encHash pData
+    encData <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
+
+    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encData pData
 
 instance MonadBlobStore r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
