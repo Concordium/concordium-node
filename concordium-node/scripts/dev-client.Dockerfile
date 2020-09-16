@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.12 as build
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.15 as build
 
 ARG consensus_type
 ENV CONSENSUS_TYPE=$consensus_type
@@ -18,17 +18,12 @@ RUN --mount=type=ssh ./init.build.env.sh
 
 ### Baker id gen
 RUN \
-    rustup install nightly-2019-07-10 && \
+    rustup install nightly-2020-06-10 && \
     cd baker_id_gen && \
-    cargo +nightly-2019-07-10 build --release && \
+    cargo +nightly-2020-06-10 build --release && \
     mv target/release/baker_id_gen ../baker_id_generator && \
     cd .. && \
     rm -rf baker_id_gen
-
-### Wallet-server
-RUN \
-    ( cd deps/internal/consensus/crypto/rust-bins && cargo build --release ) && \
-    mv deps/internal/consensus/crypto/rust-bins/target/release/wallet_server .
 
 ### P2P client
 RUN --mount=type=ssh ./build-binaries.sh "collector"
@@ -37,14 +32,13 @@ RUN chmod +x /build-project/start.sh
 
 RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/target/debug/node-collector-backend /build-project/
 
-### Wallet-proxy
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.11 as wallet-proxy-build
+## Wallet-proxy
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.12 as wallet-proxy-build
 WORKDIR /
 ENV STACK_ROOT /.stack
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-RUN --mount=type=ssh git clone --recurse-submodules git@gitlab.com:Concordium/tools/wallet-proxy.git
+RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch master git@gitlab.com:Concordium/tools/wallet-proxy.git
 WORKDIR /wallet-proxy
-RUN git checkout dd74008854644bffc0ff898ec90e152aea8f2350
 RUN ( cd deps/simple-client && ./build-deps.sh )
 RUN mkdir -p /libs
 RUN cp deps/simple-client/extra-libs/*.so /libs
@@ -71,7 +65,6 @@ COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/node-collector-backend /node-collector-backend 
-COPY --from=build /build-project/wallet_server /wallet-server
 COPY --from=wallet-proxy-build /wallet-proxy/target/wallet-proxy-exe /wallet-proxy
 COPY --from=wallet-proxy-build /libs/* /usr/lib/
 

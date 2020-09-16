@@ -10,7 +10,10 @@ static A: System = System;
 use failure::Fallible;
 use mio::Poll;
 use parking_lot::Mutex as ParkingMutex;
-use rkv::{Manager, Rkv};
+use rkv::{
+    backend::{Lmdb, LmdbEnvironment},
+    Manager, Rkv,
+};
 
 use concordium_common::{spawn_or_die, QueueMsg};
 use consensus_rust::{
@@ -21,7 +24,6 @@ use consensus_rust::{
     ffi,
     messaging::ConsensusMessage,
 };
-use ctrlc;
 use p2p_client::{
     common::{P2PNodeId, PeerType},
     configuration as config,
@@ -35,6 +37,13 @@ use p2p_client::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::JoinHandle,
+};
 use std::{sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "instrumentation")]
@@ -45,6 +54,7 @@ use std::net::SocketAddr;
 #[tokio::main]
 async fn main() -> Fallible<()> {
     let (conf, mut app_prefs) = get_config_and_logging_setup()?;
+    let shutdown_handler_state = Arc::new(AtomicBool::new(false));
 
     #[cfg(feature = "staging_net")]
     {
@@ -59,24 +69,36 @@ async fn main() -> Fallible<()> {
     let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
 
     // Signal handling closure. so we shut down cleanly
-    let signal_closure = |signal_handler_node: &Arc<P2PNode>| {
-        info!("Signal received attempting to shutdown node cleanly");
-        if !signal_handler_node.close() {
-            error!("Can't shutdown node properly!");
-            std::process::exit(1);
+    let signal_closure = |signal_handler_node: &Arc<P2PNode>,
+                          shutdown_handler_state: &Arc<AtomicBool>| {
+        if !shutdown_handler_state.load(Ordering::SeqCst) {
+            shutdown_handler_state.store(true, Ordering::SeqCst);
+            info!("Signal received attempting to shutdown node cleanly");
+            if !signal_handler_node.close() {
+                error!("Can't shutdown node properly!");
+                std::process::exit(1);
+            }
+        } else {
+            info!(
+                "Signal received to shutdown node cleanly, but an attempt to do so is already in \
+                 progress."
+            );
         }
     };
 
     // Register a safe handler for SIGINT / ^C
     let ctrlc_node = node.clone();
-    ctrlc::set_handler(move || signal_closure(&ctrlc_node))?;
+    let ctrlc_shutdown_handler_state = shutdown_handler_state.clone();
+    ctrlc::set_handler(move || signal_closure(&ctrlc_node, &ctrlc_shutdown_handler_state))?;
 
     // Register a SIGTERM handler for a POSIX.1-2001 system
     #[cfg(not(windows))]
     {
         let signal_hook_node = node.clone();
         unsafe {
-            signal_hook::register(signal_hook::SIGTERM, move || signal_closure(&signal_hook_node))
+            signal_hook::register(signal_hook::SIGTERM, move || {
+                signal_closure(&signal_hook_node, &shutdown_handler_state)
+            })
         }?;
     }
 
@@ -103,10 +125,10 @@ async fn main() -> Fallible<()> {
     let data_dir_path = app_prefs.get_user_app_dir();
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
         .expect("Can't get genesis data or private data. Aborting");
-    let gs_kvs_handle = Manager::singleton()
+    let gs_kvs_handle = Manager::<LmdbEnvironment>::singleton()
         .write()
         .expect("Can't write to the kvs manager for GlobalState purposes!")
-        .get_or_create(data_dir_path.as_ref(), Rkv::new)
+        .get_or_create(data_dir_path.as_ref(), Rkv::new::<Lmdb>)
         .expect("Can't load the GlobalState kvs environment!");
 
     if let Err(e) = gs_kvs_handle.write().unwrap().set_map_size(1024 * 1024 * 256) {

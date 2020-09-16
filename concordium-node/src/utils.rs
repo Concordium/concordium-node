@@ -4,7 +4,6 @@ use concordium_dns::dns;
 
 use crate::{self as p2p_client, configuration as config};
 
-use base64;
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use env_logger::{Builder, Env};
 use failure::Fallible;

@@ -43,8 +43,8 @@ fn main() -> Result<(), Error> {
 
     spawn(&node, poll, None);
 
-    conf.connection.connect_to.clone().iter().for_each(
-        |host: &String| match utils::parse_host_port(
+    conf.connection.connect_to.iter().for_each(|host: &String| {
+        match utils::parse_host_port(
             &host,
             &node.config.dns_resolvers,
             conf.connection.dnssec_disabled,
@@ -55,8 +55,8 @@ fn main() -> Result<(), Error> {
                 }
             }
             Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
-        },
-    );
+        }
+    });
 
     info!("Sleeping to let network connections settle");
     thread::sleep(Duration::from_millis(10000));
