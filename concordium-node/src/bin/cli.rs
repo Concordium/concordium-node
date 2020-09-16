@@ -44,7 +44,6 @@ use std::{
     },
     thread::JoinHandle,
 };
-use std::{sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "instrumentation")]
 use p2p_client::stats_export_service::start_push_gateway;
