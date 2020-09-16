@@ -8,193 +8,85 @@ module Concordium.GlobalState.Persistent.Account where
 import Data.Serialize
 import Lens.Micro.Platform
 import Data.Word
+import Control.Monad
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.Types
+import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmount, _numAggregated)
+import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _numAggregated)
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.Crypto.EncryptedTransfers
 import qualified Data.Sequence as Seq
-import Data.Foldable (foldlM)
-
--- | An encrypted amount that possibly holds a buffered ref to another one.
-data LinkedEncryptedAmount = LinkedEncryptedAmount {
-  -- | The encrypted amount
-  leAmount :: !EncryptedAmount,
-  -- | A reference to the previous linked encrypted amount on the incoming amounts list.
-  lePointer :: !(Nullable (BufferedRef LinkedEncryptedAmount))
-  } deriving Show
-
-instance MonadBlobStore r m => BlobStorable r m LinkedEncryptedAmount where
-  storeUpdate v@LinkedEncryptedAmount{..} = do
-    ref <- case lePointer of
-      Null -> return refNull
-      Some r -> getBRRef r -- note that this one will not store the amount, instead we assume it has already been stored when writing the list.
-    let putter = do
-          put leAmount
-          put ref
-    return (putter, v)
-  store a = fst <$> storeUpdate a
-  load = do
-    leAmount <- get
-    br <- get
-    return . return $ LinkedEncryptedAmount leAmount $ if isNull br then Null else Some (BRBlobbed br)
 
 -- | The persistent version of the encrypted amount structure per account.
--- See note [Persistent Encrypted Amount] below.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
-  -- | The index of the first encrypted amount.
-  _startIdx :: !EncryptedAmountAggIndex,
-  -- | The pointer to the first encrypted amount. It is null if the list is empty.
-  _start :: !(Nullable (BufferedRef LinkedEncryptedAmount)),
-  -- | The pointer to the last encrypted amount. It is null if the list is empty.
-  _end :: !(Nullable (BufferedRef LinkedEncryptedAmount)),
-  -- | The number of items in the list.
-  _numAmounts :: !Word32,
-  -- | The reference to the aggregated amount if present.
-  _aggAmount :: !(Nullable (BufferedRef EncryptedAmount)),
-  -- | The number of aggregated amounts if present.
-  _numAgg :: !(Maybe Word32),
-  -- | The reference to the self encrypted amount.
-  _self :: !(BufferedRef EncryptedAmount),
-  -- | The current running hash of the structure. See notes on _accountEncAmountHash for instructions on how to update it.
-  _pAccountEncAmountHash :: !Hash.Hash
+  -- | Encrypted amount that is a result of this accounts' actions.
+  -- In particular this list includes the aggregate of
+  --
+  -- - remaining amounts that result when transfering to public balance
+  -- - remaining amounts when transfering to another account
+  -- - encrypted amounts that are transfered from public balance
+  --
+  -- When a transfer is made all of these must always be used.
+  _selfAmount :: !(BufferedRef EncryptedAmount),
+  -- | Starting index for incoming encrypted amounts.
+  _startIndex :: !EncryptedAmountAggIndex,
+  -- | Amounts starting at @startIndex@. They are assumed to be numbered sequentially.
+  -- This list will never contain more than 'maxNumIncoming' values.
+  _incomingEncryptedAmounts :: !(Seq.Seq (BufferedRef EncryptedAmount)),
+  -- |If 'Just', the number of incoming amounts that have been aggregated. In
+  -- that case the number is always >= 2.
+  _numAggregated :: !(Maybe Word32)
   } deriving Show
 
 -- | Create an empty PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount :: MonadBlobStore r m => m PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount = do
-  _self <- makeBufferedRef mempty
+  _selfAmount <- makeBufferedRef mempty
   return PersistentAccountEncryptedAmount {
-    _startIdx = 0,
-    _start = Null,
-    _end = Null,
-    _numAmounts = 0,
-    _aggAmount = Null,
-    _numAgg = Nothing,
-    _pAccountEncAmountHash = Hash.hash "",
+    _startIndex = 0,
+    _incomingEncryptedAmounts = Seq.Empty,
+    _numAggregated = Nothing,
     ..
     }
 
 -- | Given an AccountEncryptedAmount, create a Persistent version of it
 storePersistentAccountEncryptedAmount :: MonadBlobStore r m => AccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
-  _self <- makeBufferedRef _selfAmount
-  let _numAmounts = fromIntegral $ length _incomingEncryptedAmounts
-      _pAccountEncAmountHash = _accountEncAmountHash
-  case _incomingEncryptedAmounts of
-    Seq.Empty ->
-      -- Empty incoming encrypted amounts, start and end set to Null
-      return PersistentAccountEncryptedAmount{
-      _end = Null,
-      _start = Null,
-      _startIdx = _startIndex,
-      _numAgg = Nothing,
-      _aggAmount = Null,
-      ..
-      }
-    (agg Seq.:<| rest) ->
-      case _numAggregated of
-        v@(Nothing) -> do
-          -- We have incoming amounts but none of them are aggregated. Store each amount.
-          (_end, list) <- foldlM (\(prev, list) e -> do
-                                         l <- makeBufferedRef (LinkedEncryptedAmount e prev)
-                                         return (Some l, l:list)) (Null, []) _incomingEncryptedAmounts
-          let _start = Some (last list)
-              _startIdx = _startIndex
-              _numAgg = v
-              _aggAmount = Null
-          return PersistentAccountEncryptedAmount{..}
-
-        v@(Just _) -> do
-          -- We have incoming amounts and the first one is an aggregated amount. Store it and then the list.
-          aggAm <- makeBufferedRef agg
-          (_end, list) <- foldlM (\(prev, list) e -> do
-                                         l <- makeBufferedRef (LinkedEncryptedAmount e prev)
-                                         return (Some l, l:list)) (Null, []) rest
-          let _start = Some (last list)
-              _startIdx = _startIndex
-              _numAgg = v
-              _aggAmount = Some aggAm
-          return PersistentAccountEncryptedAmount{..}
-
--- | Given the first and last references to the elements in the list, traverse the list loading every value.
-loadLinkedAmountList :: MonadBlobStore r m => BufferedRef LinkedEncryptedAmount -> BufferedRef LinkedEncryptedAmount -> m [(BufferedRef LinkedEncryptedAmount, LinkedEncryptedAmount)]
-loadLinkedAmountList st ed = do
-          firstRef <- getBRRef st
-          lastItem <- loadBufferedRef ed
-          let iterateStep LinkedEncryptedAmount{..} = do
-                          case lePointer of
-                            -- if the pointer is null then return
-                            Null -> return []
-                            -- if the pointer is not null, get next element and continue
-                            Some v -> do
-                              nextRef <- getBRRef v
-                              next <- loadBufferedRef v
-                              if nextRef == firstRef
-                                then do
-                                return [(v,next)]
-                                else do
-                                ((v, next) :) <$> iterateStep next
-          ((ed, lastItem) :) <$> iterateStep lastItem
+  _selfAmount <- makeBufferedRef _selfAmount
+  _incomingEncryptedAmounts <- mapM makeBufferedRef _incomingEncryptedAmounts
+  return PersistentAccountEncryptedAmount{..}
 
 -- | Given a PersistentAccountEncryptedAmount, load its equivalent AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount :: MonadBlobStore r m => PersistentAccountEncryptedAmount -> m AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
-  _selfAmount <- loadBufferedRef _self
-  let _startIndex = _startIdx
-      _numAggregated = _numAgg
-      _accountEncAmountHash = _pAccountEncAmountHash
-  _incomingEncryptedAmounts <- loadAmounts _start _end _aggAmount
+  _selfAmount <- loadBufferedRef _selfAmount
+  _incomingEncryptedAmounts <- mapM loadBufferedRef _incomingEncryptedAmounts
   return AccountEncryptedAmount{..}
-  where loadAmounts Null _ _ = return Seq.Empty
-        loadAmounts _ Null _ = return Seq.Empty
-        loadAmounts (Some st) (Some ed) Null = Seq.fromList . map (leAmount . snd) <$> loadLinkedAmountList st ed
-        loadAmounts (Some st) (Some ed) (Some v) = do
-          first <- loadBufferedRef v
-          (first Seq.:<|)  . Seq.fromList . map (leAmount . snd) <$> loadLinkedAmountList st ed
 
 instance MonadBlobStore r m => BlobStorable r m PersistentAccountEncryptedAmount where
   storeUpdate PersistentAccountEncryptedAmount{..} = do
-    (pStart, dataStart) <- storeUpdate _start
-    (pEnd, dataEnd) <- storeUpdate _end
-    (pAggAmount, dataAggAmount) <- storeUpdate _aggAmount
-    (pSelf, dataSelf) <- storeUpdate _self
-    let dataEnc = PersistentAccountEncryptedAmount {
-          _start = dataStart,
-          _end = dataEnd,
-          _aggAmount =  dataAggAmount,
-          _self = dataSelf,
-          ..
-          }
-    let putEnc = do
-          put _startIdx
-          pStart
-          pEnd
-          put _numAmounts
-          pAggAmount
-          put _numAgg
-          pSelf
-          put _pAccountEncAmountHash
-    return (putEnc, dataEnc)
+    (pSelf, _selfAmount) <- storeUpdate _selfAmount
+    (pAmounts, _incomingEncryptedAmounts) <- Seq.unzip <$> mapM storeUpdate _incomingEncryptedAmounts
+    return . (, PersistentAccountEncryptedAmount {..}) $ do
+      pSelf
+      put _startIndex
+      putWord32be $ fromIntegral $ length pAmounts
+      sequence_ pAmounts
+      put _numAggregated
 
   store a = fst <$> storeUpdate a
   load = do
-    _startIdx <- get
-    pStart <- load
-    pEnd <- load
-    _numAmounts <- get
-    pAggAmount <- load
-    _numAgg <- get
     pSelf <- load
-    _pAccountEncAmountHash <- get
+    _startIndex <- get
+    numAmounts <- fromIntegral <$> getWord32be
+    pAmounts <- replicateM numAmounts load
+    _numAggregated <- get
     return $ do
-      _start <- pStart
-      _end <- pEnd
-      _aggAmount <- pAggAmount
-      _self <- pSelf
+      _selfAmount <- pSelf
+      _incomingEncryptedAmounts <- Seq.fromList <$> sequence pAmounts
       return PersistentAccountEncryptedAmount {..}
 
 
@@ -241,7 +133,8 @@ instance MonadBlobStore r m => BlobStorable r m PersistentAccount where
           _accountEncryptedAmount <- mAccountEncryptedAmountPtr
           pData <- loadBufferedRef _persistingData
           eData <- loadBufferedRef _accountEncryptedAmount
-          let _accountHash = makeAccountHash _accountNonce _accountAmount (_pAccountEncAmountHash eData) pData
+          eData' <- loadPersistentAccountEncryptedAmount eData
+          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' pData
           return PersistentAccount {..}
 
 instance HashableTo Hash.Hash PersistentAccount where
@@ -252,7 +145,7 @@ instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.
 makePersistentAccount :: MonadBlobStore r m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
-  let _accountHash = makeAccountHash _accountNonce _accountAmount (_accountEncAmountHash _accountEncryptedAmount) _accountPersisting
+  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
   _persistingData <- makeBufferedRef _accountPersisting
   _accountEncryptedAmount <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
   return PersistentAccount {..}
@@ -287,7 +180,7 @@ setPAD :: MonadBlobStore r m
           -> m PersistentAccount
 setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
-  eac <- _pAccountEncAmountHash <$> loadBufferedRef _accountEncryptedAmount
+  eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   newPData <- makeBufferedRef $ f pData
   return $ acc & persistingData .~ newPData
                & accountHash .~ makeAccountHash _accountNonce _accountAmount eac pData
@@ -322,83 +215,21 @@ infixr 4 %~~
 -- go over the threshold for the maximum number of incoming amounts then
 -- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount :: MonadBlobStore r m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
-addIncomingEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
-  afterCombining <- if fromIntegral _numAmounts >= maxNumIncoming
-    then do
-    case (_start, _end) of
-      (Some st, Some ed) ->
-        -- The list has some items
-        case _aggAmount of
-          Null -> do
-            -- we dont have yet aggregated anything
-            list <- loadLinkedAmountList st ed
-            case list of
-              ((_, first):(_, second):(thirdref, _):_) -> do
-                -- combine the first and second items on the list
-                let newAggAmount = leAmount first <> leAmount second
-                    -- now _start points to the third item
-                    newStart = Some thirdref
-                    -- we have one amount less
-                    newNumAmounts = _numAmounts - (1 :: Word32)
-                    -- we have 2 amounts aggregated
-                    newNumAgg = 2 :: Word32
-                    -- the index of the first amount is one more than before
-                    newStartIdx = _startIdx + 1
-                -- we create the new amount
-                newAggAmountRef <- makeBufferedRef newAggAmount
-                return old {
-                    _start = newStart,
-                    _numAmounts = newNumAmounts,
-                    _numAgg = Just newNumAgg,
-                    _startIdx = newStartIdx,
-                    _aggAmount = Some newAggAmountRef
-                    }
-              _ -> error "Data claims that there are more than maxNumIncoming amounts but we could not even read 3 of those amounts"
-          Some v -> do
-            -- we already have one aggregated amount
-            list <- loadLinkedAmountList st ed
-            case list of
-              ((_, first):(secondref, _):_) -> do
-                -- combine the amount we had and the first one
-                oldAggAmount <- loadBufferedRef v
-                let newAggAmount = oldAggAmount <> leAmount first
-                    -- now _start points to the second item
-                    newStart = Some secondref
-                    -- we have one amount less
-                    newNumAmounts = _numAmounts - (1 :: Word32)
-                    -- we have one more amount aggregated
-                    newNumAgg = maybe 2 (+1) _numAgg
-                    -- the index of the first amount is one more than before
-                    newStartIdx = _startIdx + 1
-                -- we create the new amount
-                newAggAmountRef <- makeBufferedRef newAggAmount
-                return old {
-                  _start = newStart,
-                  _numAmounts = newNumAmounts,
-                  _numAgg = Just newNumAgg,
-                  _startIdx = newStartIdx,
-                  _aggAmount = Some newAggAmountRef
-                  }
-              _ -> error "Data claims that there are more than maxNumIncoming amounts but we could not even read 3 of those amounts"
-      _ ->
-        -- we have no incoming amounts, so there is nothing to combine
-        return old
-    else do
-    -- we have less than maxNumIncoming amounts so we don't have to combine
-    return old
+addIncomingEncryptedAmount newAmount old = do
+  newAmountRef <- makeBufferedRef newAmount
+  if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming then
+    case _incomingEncryptedAmounts old of
+      x Seq.:<| y Seq.:<| rest -> do
+        xVal <- loadBufferedRef x
+        yVal <- loadBufferedRef y
+        xPlusY <- makeBufferedRef (xVal <> yVal)
+        return old{_incomingEncryptedAmounts = (xPlusY Seq.<| rest) Seq.|> newAmountRef,
+            _numAggregated = Just (maybe 2 (+1) (_numAggregated old)),
+            _startIndex = _startIndex old + 1
+            }
+      _ -> error "Cannot happen due to check above."
+  else return $ old {_incomingEncryptedAmounts = _incomingEncryptedAmounts old Seq.|> newAmountRef}
 
-  -- create the new amount
-  newItem <- makeBufferedRef (LinkedEncryptedAmount newAmount _end)
-  let
-    -- _end will be the new item
-    newEnd = Some newItem
-    -- start will be the same as after combining or the new item if we had no items before
-    newStart = if _numAmounts afterCombining == 0 then newEnd else _start afterCombining
-    newHash = Hash.hash (Hash.hashToByteString _pAccountEncAmountHash <> encode newAmount)
-  return afterCombining{_numAmounts = _numAmounts afterCombining + 1,
-                        _end = newEnd,
-                        _start = newStart,
-                        _pAccountEncAmountHash = newHash}
 
 -- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
@@ -407,75 +238,27 @@ addIncomingEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = 
 -- As mentioned above, the whole 'selfBalance' must always be used in any
 -- outgoing action of the account.
 replaceUpTo :: MonadBlobStore r m => EncryptedAmountAggIndex -> EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
-replaceUpTo newIndex newAmount old@PersistentAccountEncryptedAmount{..} = do
-  afterDrop <-
-    if newIndex > _startIdx
-    then do
-      -- We have to remove some amounts
-      let toDrop = newIndex - _startIdx
-      let newNumAmounts = _numAmounts - fromIntegral toDrop
-      case (_start, _end) of
-        (Some st, Some ed) -> do -- numAmounts > 0
-          -- we have encrypted amounts, we remove toDrop or one less if we have agg amount
-          list <- drop (if isNull _aggAmount then fromIntegral toDrop else fromIntegral toDrop - 1) <$> loadLinkedAmountList st ed
-          -- agg amount will always be removed
-          let newAggAmount = Null
-              newNumAgg = Nothing
-          -- lets find the _start and _end refs
-          case list of
-            ((firstRef, _):rest) -> do
-              -- we have a first item, so _start is this one
-              let newStart = Some firstRef
-              case rest of
-                (_:_) -> do
-                  -- we have more items, so _end is the last one and we have newNumAmounts
-                  let newEnd = Some (fst $ last rest)
-                  return old{
-                    _aggAmount = newAggAmount,
-                    _numAgg = newNumAgg,
-                    _start = newStart,
-                    _end = newEnd,
-                    _numAmounts = newNumAmounts,
-                    _startIdx = newIndex
-                    }
-                _ -> do
-                  -- we don't have more items, so _end is the same one as _start and we have 1 amount (which must be newNumAmounts)
-                  let newEnd = newStart
-                  return old{
-                    _aggAmount = newAggAmount,
-                    _numAgg = newNumAgg,
-                    _start = newStart,
-                    _end = newEnd,
-                    _numAmounts = newNumAmounts,
-                    _startIdx = newIndex
-                    }
-            _ -> do
-              -- we removed all the items in the list so _end and _start are null and we have 0 amounts
-              return old{
-                    _aggAmount = newAggAmount,
-                    _numAgg = newNumAgg,
-                    _start = Null,
-                    _end = Null,
-                    _numAmounts = 0,
-                    _startIdx = newIndex
-                    }
-        _ ->
-          -- we don't have any amounts, so we cannot remove any amounts
-          return old{_startIdx = newIndex}
-    else
-      -- we don't have to remove amounts
-      return old
-  newAmountRef <- makeBufferedRef newAmount
-  return afterDrop{_self = newAmountRef,
-                   _pAccountEncAmountHash = Hash.hash (Hash.hashToByteString _pAccountEncAmountHash <> encode newAmount <> encode newIndex)}
+replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
+  _selfAmount <- makeBufferedRef newAmount
+  return PersistentAccountEncryptedAmount{
+    _startIndex = newStartIndex,
+    _incomingEncryptedAmounts = newEncryptedAmounts,
+    _numAggregated = newNumAggregated,
+    ..
+  }
+  where (newStartIndex, toDrop) =
+          if newIndex > _startIndex
+          then (newIndex, fromIntegral (newIndex - _startIndex))
+          else (_startIndex, 0)
+        newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
+        newNumAggregated = if toDrop > 0 then Nothing else _numAggregated
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
 addToSelfEncryptedAmount :: MonadBlobStore r m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
-  oldSelf <- loadBufferedRef _self
-  newSelf <- makeBufferedRef (oldSelf <> newAmount)
-  return old{_self = newSelf, _pAccountEncAmountHash = Hash.hash (Hash.hashToByteString _pAccountEncAmountHash <> encode newAmount)}
+  newSelf <- makeBufferedRef . (<> newAmount) =<< loadBufferedRef _selfAmount
+  return old{_selfAmount = newSelf}
 
 -- Note [Persistent Encrypted Amount]
 -------------------------------------

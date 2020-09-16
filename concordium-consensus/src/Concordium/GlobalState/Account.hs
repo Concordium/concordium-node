@@ -41,18 +41,15 @@ makeClassy ''PersistingAccountData
 -- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 addIncomingEncryptedAmount newAmount old =
-  let newHash = Hash.hash (Hash.hashToByteString (_accountEncAmountHash old) <> encode newAmount) in -- see note on _accountEncAmountHash
   if Seq.length (_incomingEncryptedAmounts old ) >= maxNumIncoming then
     case _incomingEncryptedAmounts old of
       x Seq.:<| y Seq.:<| rest ->
         old{_incomingEncryptedAmounts = ((x <> y) Seq.<| rest) Seq.|> newAmount,
             _numAggregated = Just (maybe 2 (+1) (_numAggregated old)),
-            _startIndex = _startIndex old + 1,
-            _accountEncAmountHash = newHash
+            _startIndex = _startIndex old + 1
             }
       _ -> error "Cannot happen due to check above."
   else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
-           & accountEncAmountHash .~ newHash
 
 -- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
@@ -66,8 +63,7 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
     _selfAmount = newAmount,
     _startIndex = newStartIndex,
     _incomingEncryptedAmounts = newEncryptedAmounts,
-    _numAggregated = newNumAggregated,
-    _accountEncAmountHash = newHash
+    _numAggregated = newNumAggregated
   }
   where (newStartIndex, toDrop) =
           if newIndex > _startIndex
@@ -75,13 +71,11 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
           else (_startIndex, 0)
         newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
         newNumAggregated = if toDrop > 0 then Nothing else _numAggregated
-        newHash = Hash.hash (Hash.hashToByteString _accountEncAmountHash <> encode newAmount <> encode newIndex) -- see note on _accountEncAmountHash
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
 addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 addToSelfEncryptedAmount newAmount old = old & selfAmount %~ (<> newAmount)
-                                             & accountEncAmountHash %~ (\x -> Hash.hash $ (Hash.hashToByteString x) <> encode newAmount) -- see note on _accountEncAmountHash
 
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
@@ -103,7 +97,7 @@ instance Serialize PersistingAccountData where
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> Hash.Hash -> PersistingAccountData -> Hash.Hash
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> PersistingAccountData -> Hash.Hash
 makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put pd
 
