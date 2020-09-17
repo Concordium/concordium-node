@@ -140,8 +140,8 @@ transactionsIO = do
           let (combined, kept) = Seq.splitAt ((fromIntegral idx - fromIntegral maxNumIncoming) + 1) (Seq.fromList [ eatdTransferAmount n | (n, _) <- take (fromIntegral idx) allTxs ]) -- get which amounts should be combined into combinedAmount
               combinedAmount = foldl' aggregateAmounts mempty combined -- combine them
           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = idx - fromIntegral maxNumIncoming, -- the start index should have increased
-                                                              _incomingEncryptedAmounts =  combinedAmount Seq.:<| kept, -- the first amount should be the combined one
-                                                              _numAggregated = Just $ fromIntegral (idx - fromIntegral maxNumIncoming + 1) -- the number of aggregated amounts should be this one
+                                                              _incomingEncryptedAmounts =  kept, -- the first amount should be the combined one
+                                                              _aggregatedAmount = Just (combinedAmount, fromIntegral (idx - fromIntegral maxNumIncoming + 1)) -- the number of aggregated amounts should be this one
                                                              } thomasAccount bs
       makeTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (BlockState -> Spec) -> (Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))
       makeTransaction x@EncryptedAmountTransferData{..} idx checks =
