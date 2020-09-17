@@ -147,8 +147,8 @@ instance MonadBlobStore r m => BlobStorable r m PersistentAccount where
     load = do
         _accountNonce <- get
         _accountAmount <- get
-        mAccountEncryptedAmountPtr <- load
         mAccDataPtr <- load
+        mAccountEncryptedAmountPtr <- load
         return $ do
           _persistingData <- mAccDataPtr
           _accountEncryptedAmount <- mAccountEncryptedAmountPtr
