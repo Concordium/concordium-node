@@ -264,7 +264,7 @@ addIncomingEncryptedAmount newAmount old = do
                    _startIndex = _startIndex old + 1
                   }
 
--- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
+-- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
 -- amount is the remaining balance that was not used.
 --
