@@ -41,25 +41,26 @@ makeClassy ''PersistingAccountData
 -- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 addIncomingEncryptedAmount newAmount old =
-  if ((maybe id (const (+1)) $ _aggregatedAmount old) (Seq.length (_incomingEncryptedAmounts old ))) >= maxNumIncoming then
-    case _aggregatedAmount old of
-      Nothing ->
+  case _aggregatedAmount old of
+    Nothing -> -- we have to aggregate if we have >= maxNumIncoming amounts on the sequence
+      if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming then
         -- irrefutable because of check above
         let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old in
           old{_incomingEncryptedAmounts = rest Seq.|> newAmount,
               _startIndex = _startIndex old + 1,
-              _aggregatedAmount = Just ((x <> y), 2)
+              _aggregatedAmount = Just (x <> y, 2)
              }
-      Just (e, n) ->
-        -- irrefutable because of check above
-        let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old in
-          old {_incomingEncryptedAmounts = rest Seq.|> newAmount,
-               _startIndex = _startIndex old + 1,
-               _aggregatedAmount = Just ((e <> x), n + 1)
-              }
-  else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
+      else
+        old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
+    Just (e, n) -> -- we have to aggregate always
+      -- irrefutable because of check above
+      let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old in
+        old {_incomingEncryptedAmounts = rest Seq.|> newAmount,
+             _startIndex = _startIndex old + 1,
+             _aggregatedAmount = Just (e <> x, n + 1)
+            }
 
--- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
+-- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
 -- amount is the remaining balance that was not used.
 --
@@ -73,12 +74,17 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
     _incomingEncryptedAmounts = newEncryptedAmounts,
     _aggregatedAmount = newAggregatedAmount
   }
-  where (newStartIndex, toDrop) =
+  where (newStartIndex, toDrop, dropAggregated) =
           if newIndex > _startIndex
-          then (newIndex, maybe id (const (flip (-) 1)) _aggregatedAmount $ fromIntegral (newIndex - _startIndex))
-          else (_startIndex, 0)
+          then
+            if isNothing _aggregatedAmount
+            then
+              (newIndex, fromIntegral (newIndex - _startIndex), False)
+            else
+              (newIndex, fromIntegral (newIndex - _startIndex) - 1, True)
+          else (_startIndex, 0, False)
         newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
-        newAggregatedAmount = if toDrop > 0 then Nothing else _aggregatedAmount
+        newAggregatedAmount = if dropAggregated then Nothing else _aggregatedAmount
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
