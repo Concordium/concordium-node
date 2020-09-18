@@ -19,6 +19,7 @@ import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex,
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.Crypto.EncryptedTransfers
 import qualified Data.Sequence as Seq
+import Data.Maybe (isNothing)
 
 -- | The persistent version of the encrypted amount structure per account.
 data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
@@ -31,13 +32,16 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   --
   -- When a transfer is made all of these must always be used.
   _selfAmount :: !(BufferedRef EncryptedAmount),
-  -- | Starting index for incoming encrypted amounts.
+  -- | Starting index for incoming encrypted amounts. If an aggregated amount is present
+  -- then this index is associated with such an amount and the list of incoming encrypted amounts
+  -- starts at the index @_startIndex + 1@.
   _startIndex :: !EncryptedAmountAggIndex,
-  -- | Amounts starting at @startIndex@. They are assumed to be numbered sequentially.
-  -- This list will never contain more than 'maxNumIncoming' values.
+  -- | Amounts starting at @startIndex@ (or at @startIndex + 1@ if there is an aggregated amount present).
+  -- They are assumed to be numbered sequentially. This list will never contain more than 'maxNumIncoming'
+  -- (or @maxNumIncoming - 1@ if there is an aggregated amount present) values.
   _incomingEncryptedAmounts :: !(Seq.Seq (BufferedRef EncryptedAmount)),
-  -- |If 'Just', the number of incoming amounts that have been aggregated. In
-  -- that case the number is always >= 2.
+  -- |If 'Just', the amount that has resulted from aggregating other amounts and the
+  -- number of aggregated amounts (must be at least 2 if present).
   _aggregatedAmount :: !(Maybe (BufferedRef EncryptedAmount, Word32))
   } deriving Show
 
@@ -59,7 +63,7 @@ storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
   _incomingEncryptedAmounts <- mapM makeBufferedRef _incomingEncryptedAmounts
   _aggregatedAmount <- case _aggregatedAmount of
                         Nothing -> return Nothing
-                        Just (e, n) -> (Just . (,n)) <$> makeBufferedRef e
+                        Just (e, n) -> Just . (,n) <$> makeBufferedRef e
   return PersistentAccountEncryptedAmount{..}
 
 -- | Given a PersistentAccountEncryptedAmount, load its equivalent AccountEncryptedAmount
@@ -69,7 +73,7 @@ loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
   _incomingEncryptedAmounts <- mapM loadBufferedRef _incomingEncryptedAmounts
   _aggregatedAmount <- case _aggregatedAmount of
                         Nothing -> return Nothing
-                        Just (e, n) -> (Just . (,n)) <$> loadBufferedRef e
+                        Just (e, n) -> Just . (,n) <$> loadBufferedRef e
   return AccountEncryptedAmount{..}
 
 instance MonadBlobStore r m => BlobStorable r m PersistentAccountEncryptedAmount where
@@ -97,9 +101,7 @@ instance MonadBlobStore r m => BlobStorable r m PersistentAccountEncryptedAmount
     numAggregatedAmount <- getWord32be
     agg <- case numAggregatedAmount of
       0 -> return Nothing
-      n | n > 1 -> do
-            pAgg <- load
-            return $ Just pAgg
+      n | n > 1 -> Just <$> load
         | otherwise -> fail "Number of aggregated amounts cannot be 1"
     return $ do
       _selfAmount <- pSelf
@@ -238,19 +240,20 @@ infixr 4 %~~
 addIncomingEncryptedAmount :: MonadBlobStore r m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 addIncomingEncryptedAmount newAmount old = do
   newAmountRef <- makeBufferedRef newAmount
-  if (maybe id (const (+1)) (_aggregatedAmount old) $ Seq.length (_incomingEncryptedAmounts old)) >= maxNumIncoming then
-    case _aggregatedAmount old of
-      Nothing -> do
-        -- irrefutable because of check above
-        let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old
-        xVal <- loadBufferedRef x
-        yVal <- loadBufferedRef y
-        xPlusY <- makeBufferedRef (xVal <> yVal)
-        return old{_incomingEncryptedAmounts = rest Seq.|> newAmountRef,
-                   _aggregatedAmount = Just (xPlusY, 2),
-                   _startIndex = _startIndex old + 1
-                  }
-      Just (e, n) -> do
+  case _aggregatedAmount old of
+      Nothing -> -- we need to aggregate if we have 'maxNumIncoming' or more incoming amounts
+        if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming then do
+          -- irrefutable because of check above
+          let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old
+          xVal <- loadBufferedRef x
+          yVal <- loadBufferedRef y
+          xPlusY <- makeBufferedRef (xVal <> yVal)
+          return old{_incomingEncryptedAmounts = rest Seq.|> newAmountRef,
+                     _aggregatedAmount = Just (xPlusY, 2),
+                     _startIndex = _startIndex old + 1
+                    }
+        else return $ old {_incomingEncryptedAmounts = _incomingEncryptedAmounts old Seq.|> newAmountRef}
+      Just (e, n) -> do -- we have to aggregate always
         -- irrefutable because of check above
         let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old
         xVal <- loadBufferedRef x
@@ -260,8 +263,6 @@ addIncomingEncryptedAmount newAmount old = do
                    _aggregatedAmount = Just (xPlusY, n + 1),
                    _startIndex = _startIndex old + 1
                   }
-  else return $ old {_incomingEncryptedAmounts = _incomingEncryptedAmounts old Seq.|> newAmountRef}
-
 
 -- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
@@ -278,12 +279,17 @@ replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
     _aggregatedAmount = newAggregatedAmount,
     ..
   }
-  where (newStartIndex, toDrop) =
+  where (newStartIndex, toDrop, dropAggregated) =
           if newIndex > _startIndex
-          then (newIndex, maybe id (const $ flip (-) 1) _aggregatedAmount $ fromIntegral (newIndex - _startIndex))
-          else (_startIndex, 0)
+          then
+            if isNothing _aggregatedAmount
+            then
+              (newIndex, fromIntegral (newIndex - _startIndex), False)
+            else
+              (newIndex, fromIntegral (newIndex - _startIndex) - 1, True)
+          else (_startIndex, 0, False)
         newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
-        newAggregatedAmount = if toDrop > 0 then Nothing else _aggregatedAmount
+        newAggregatedAmount = if dropAggregated then Nothing else _aggregatedAmount
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
