@@ -28,10 +28,8 @@ FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.15 as haskel
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and concordium-client
 RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
-    git clone git@gitlab.com:Concordium/consensus/simple-client.git && \
+    git clone --branch v0.3.0 --depth 1 --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
-    git checkout b2616912ac38c907c80f6628d9a0ac9c0439be6e && \
-    git submodule update --init --recursive && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
     curl -sSL https://get.haskellstack.org/ | sh && \
@@ -52,9 +50,14 @@ RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh
 FROM node:11 as node-build
 WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
-RUN --mount=type=ssh git clone git@gitlab.com:Concordium/node-dashboard.git
+RUN --mount=type=ssh git clone --branch master git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
-RUN git checkout 4b7f5b07a87ede1efb75f072ab0b1332acc4d80c
+
+# Hotfix for broken dependency (ADD automatically extracts archive).
+# TODO Remove when resolved by the elm community:
+# https://elmlang.slack.com/archives/C0CJ671HU/p1600333079263900
+ADD ./scripts/node-dashboard-dep-fix/Skinney.tar.gz /root/.elm/0.19.1/packages/
+
 ENV NODE_ENV=development
 # Building node dashboard
 RUN npm i
