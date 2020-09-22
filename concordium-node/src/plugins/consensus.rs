@@ -18,18 +18,18 @@ use concordium_common::{
     QueueMsg,
 };
 use consensus_rust::{
-    catch_up::{PeerState, PeerStatus},
-    consensus::{self, ConsensusContainer, PeerId, CALLBACK_QUEUE},
+    catch_up::PeerStatus,
+    consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
     ffi,
     messaging::{ConsensusMessage, DistributionMode, MessageType},
 };
 use crypto_common::Deserial;
 
 use std::{
+    collections::hash_map::Entry::*,
     convert::TryFrom,
     fs::OpenOptions,
     io::{Cursor, Read},
-    mem,
     path::PathBuf,
     sync::Arc,
 };
@@ -194,9 +194,9 @@ pub fn handle_pkt_out(
 pub fn handle_consensus_outbound_msg(node: &P2PNode, message: ConsensusMessage) -> Fallible<()> {
     if let Some(status) = message.omit_status {
         for peer in read_or_die!(node.peers)
-            .peers
+            .peer_states
             .iter()
-            .filter(|(_, &state)| state.status != status)
+            .filter(|(_, &state)| state != status)
             .map(|(&id, _)| id)
         {
             send_consensus_msg_to_net(
@@ -340,23 +340,6 @@ fn send_consensus_msg_to_net(
     }
 }
 
-fn send_catch_up_status(node: &P2PNode, consensus: &ConsensusContainer, target: PeerId) {
-    debug!("Global state: I'm catching up with peer {:016x}", target);
-
-    let peers = &mut write_or_die!(node.peers);
-
-    peers.peers.change_priority(&target, PeerState::new(PeerStatus::CatchingUp));
-
-    peers.catch_up_stamp = get_current_stamp();
-
-    send_consensus_msg_to_net(
-        node,
-        vec![],
-        Some(P2PNodeId(target)),
-        (consensus.get_catch_up_status(), PacketType::CatchUpStatus),
-    );
-}
-
 /// Updates the peer list upon changes to the list of peer nodes.
 pub fn update_peer_list(node: &P2PNode) {
     trace!("The peers have changed; updating the catch-up peer list");
@@ -365,51 +348,67 @@ pub fn update_peer_list(node: &P2PNode) {
 
     let mut peers = write_or_die!(node.peers);
     // remove global state peers whose connections were dropped
-    for (live_peer, state) in
-        mem::take(&mut peers.peers).into_iter().filter(|(id, _)| peer_ids.contains(&id))
-    {
-        peers.peers.push(live_peer, state);
+    peers.peer_states.retain(|id, _| peer_ids.contains(&id));
+    peers.pending_queue.retain(|id| peer_ids.contains(&id));
+    if let Some(in_progress) = peers.catch_up_peer {
+        if !peers.peer_states.contains_key(&in_progress) {
+            peers.catch_up_peer = None;
+        }
     }
 
     // include newly added peers
-    peers.peers.reserve(peer_ids.len());
+    let new_peers = peer_ids.len() - peers.peer_states.len();
+    peers.peer_states.reserve(new_peers);
+    peers.pending_queue.reserve(new_peers);
     for id in peer_ids {
-        if peers.peers.get(&id).is_none() {
-            peers.peers.push(id, PeerState::new(PeerStatus::Pending));
+        if let Vacant(v) = peers.peer_states.entry(id) {
+            v.insert(PeerStatus::Pending);
+            peers.pending_queue.push_back(id);
         }
     }
 }
 
 /// Check whether the peers require catching up.
 pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
-    use PeerStatus::*;
-
-    // take advantage of the priority queue ordering
-    let priority_peer = read_or_die!(node.peers).peers.peek().map(|(&i, s)| (i.to_owned(), *s));
-
-    if let Some((id, state)) = priority_peer {
-        match state.status {
-            CatchingUp => {
-                // don't send any catch-up statuses while
-                // there are peers that are catching up
-                if get_current_stamp() > read_or_die!(node.peers).catch_up_stamp + MAX_CATCH_UP_TIME
-                {
-                    debug!("Peer {:016x} took too long to catch up; dropping", id);
-                    if let Some(token) =
-                        find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token)
-                    {
-                        node.register_conn_change(ConnChange::Removal(token));
-                    }
-                }
+    // If we are catching-up with a peer, check if the peer has timed-out.
+    if let Some(id) = read_or_die!(node.peers).catch_up_peer {
+        if let Some(token) = find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) {
+            if get_current_stamp() > read_or_die!(node.peers).catch_up_stamp + MAX_CATCH_UP_TIME {
+                debug!("Peer {:016x} took too long to catch up; dropping", id);
+                node.register_conn_change(ConnChange::Removal(token));
             }
-            Pending => {
-                // send a catch-up message to the first Pending peer
-                debug!("I need to catch up with peer {:016x}", id);
-                send_catch_up_status(node, consensus, id);
-            }
-            UpToDate => {
-                // do nothing
-            }
+            return;
+        } else {
+            // Connection no longer exists
+            debug!("Catch-up-in-progress peer {:016x} no longer exists", id);
+            let peers = &mut write_or_die!(node.peers);
+            peers.catch_up_peer = None;
+            peers.peer_states.remove(&id);
+        }
+    }
+    // We are not currently catching-up with a peer, so try to.
+    let peers = &mut write_or_die!(node.peers);
+    if let Some(id) = peers.next_pending() {
+        debug!("Attempting to catch up with peer {:016x}", id);
+        peers.catch_up_stamp = get_current_stamp();
+        let sent = send_direct_message(
+            node,
+            P2PNodeId(id),
+            node.config.default_network,
+            consensus.get_catch_up_status(),
+        );
+        if sent > 0 {
+            info!(
+                "Sent a direct message to peer {} containing a {}",
+                P2PNodeId(id),
+                PacketType::CatchUpStatus
+            );
+        } else {
+            // If no packets were sent, then this must not be a valid peer,
+            // so remove it from the peers.
+            debug!("Could not send catch-up message to peer {}", P2PNodeId(id));
+            peers.catch_up_peer = None;
+            peers.peer_states.remove(&id);
         }
     }
 }
@@ -425,34 +424,46 @@ fn update_peer_states(
     let mut peers = write_or_die!(node.peers);
     if request.variant == CatchUpStatus {
         if consensus_result.is_successful() {
-            peers.peers.push(source_peer, PeerState::new(UpToDate));
+            // We are up-to-date with the peer.
+            peers.peer_states.insert(source_peer, UpToDate);
+            if peers.catch_up_peer == Some(source_peer) {
+                peers.catch_up_peer = None;
+            }
         } else if consensus_result.is_pending() {
-            peers.peers.push(source_peer, PeerState::new(Pending));
+            // We are behind the peer.
+            match peers.peer_states.insert(source_peer, Pending) {
+                Some(Pending) => {}
+                _ => peers.pending_queue.push_back(source_peer),
+            }
+            if peers.catch_up_peer == Some(source_peer) {
+                peers.catch_up_peer = None;
+            }
         } else if consensus_result == ConsensusFfiResponse::ContinueCatchUp {
-            peers.peers.change_priority_by(&source_peer, |state| match state.status {
-                UpToDate => PeerState::new(Pending),
-                _ => state,
-            });
+            // This was not a response, and we're behind the peer, so
+            // set it to Pending if it's currently UpToDate.
+            if let Some(state) = peers.peer_states.get_mut(&source_peer) {
+                if let UpToDate = *state {
+                    *state = Pending;
+                    peers.pending_queue.push_back(source_peer);
+                }
+            }
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
             DistributionMode::Direct if consensus_result.is_successful() => {
-                let up_to_date_peers = peers
-                    .peers
-                    .iter()
-                    .filter(|(_, &state)| state.status == UpToDate)
-                    .map(|(&id, _)| id)
-                    .collect::<Vec<_>>();
+                // Directly sent blocks and finalization records that are
+                // successful (i.e. new and not pending) have special
+                // handling for the purposes of catch-up.
 
-                for up_to_date_peer in up_to_date_peers {
-                    peers.peers.change_priority(&up_to_date_peer, PeerState::new(Pending));
-                }
+                // Previously, this marked the UpToDate peers as pending.
+                // That should not be necessary if we simply relay the
+                // messages to them.
 
                 // relay rebroadcastable direct messages to non-pending peers, but originator
                 for non_pending_peer in peers
-                    .peers
+                    .peer_states
                     .iter()
-                    .filter(|(&id, &state)| id != source_peer && state.status != Pending)
+                    .filter(|(&id, &state)| id != source_peer && state != Pending)
                     .map(|(&id, _)| id)
                 {
                     send_consensus_msg_to_net(
@@ -464,7 +475,14 @@ fn update_peer_states(
                 }
             }
             DistributionMode::Broadcast if consensus_result.is_pending() => {
-                peers.peers.push(source_peer, PeerState::new(Pending));
+                // We are missing some context for this message, so mark
+                // the peer as pending.
+                if let Some(state) = peers.peer_states.get_mut(&source_peer) {
+                    if let UpToDate = *state {
+                        *state = Pending;
+                        peers.pending_queue.push_back(source_peer);
+                    }
+                }
             }
             _ => {}
         }
