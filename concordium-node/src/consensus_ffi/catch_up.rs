@@ -46,7 +46,6 @@ pub enum PeerStatus {
 
 #[derive(Default)]
 pub struct PeerList {
-    // pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
     /// The state of each peer.
     pub peer_states: HashMap<PeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
     /// The timestamp at which we last tried to catch up with a peer.
