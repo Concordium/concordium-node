@@ -106,7 +106,7 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
         (H.hashOfHashes bshIdentityProviders bshAnonymityRevokers)
       )
       (H.hashOfHashes
-        (H.hashOfHashes bshModules bshBankStatus)  
+        (H.hashOfHashes bshModules bshBankStatus)
         (H.hashOfHashes bshAccounts bshInstances)
       )
     )
@@ -173,7 +173,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountEncryptedAmountNextIndex :: Account m -> m EncryptedAmountIndex
   getAccountEncryptedAmountNextIndex acc = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
-    return $! addToAggIndex _startIndex (fromIntegral (Seq.length _incomingEncryptedAmounts))
+    return $! addToAggIndex _startIndex (maybe id (const (+1)) _aggregatedAmount $ fromIntegral (Seq.length _incomingEncryptedAmounts))
 
   -- |Get an encrypted amount at index, if possible.
   -- This has a default implementation in terms of `getAccountEncryptedAmount`.
@@ -185,8 +185,9 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountEncryptedAmountAtIndex :: Account m -> EncryptedAmountAggIndex -> m (Maybe EncryptedAmount)
   getAccountEncryptedAmountAtIndex acc index = do
     AccountEncryptedAmount{..} <- getAccountEncryptedAmount acc
-    if index >= _startIndex && fromIntegral (Seq.length _incomingEncryptedAmounts) >= index - _startIndex then
-      let toTake = Seq.take (fromIntegral (index - _startIndex)) _incomingEncryptedAmounts
+    let numOfAmounts = maybe id (const (+1)) _aggregatedAmount $ fromIntegral (Seq.length _incomingEncryptedAmounts)
+    if index >= _startIndex && numOfAmounts >= index - _startIndex then
+      let toTake = Seq.take (fromIntegral (index - _startIndex)) $ maybe id ((Seq.:<|) . fst) _aggregatedAmount _incomingEncryptedAmounts
       in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
     else return Nothing
 
