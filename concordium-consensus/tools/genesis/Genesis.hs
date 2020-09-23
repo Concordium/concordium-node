@@ -38,7 +38,7 @@ data Genesis
                            gdArs :: Maybe FilePath,
                            gdCryptoParams :: Maybe FilePath,
                            gdAdditionalAccounts :: Maybe FilePath,
-                           gdControlAccounts :: Maybe FilePath,
+                           gdUpdateAuthorizations :: Maybe FilePath,
                            gdBakers :: Maybe FilePath}
       | PrintGenesisData { gdSource :: FilePath }
     deriving (Typeable, Data)
@@ -71,13 +71,13 @@ generateGenesisData = GenerateGenesisData {
                            name "additional-accounts" &=
                            opt (Nothing :: Maybe FilePath) &=
                            typFile &=
-                           help "JSON file with additional accounts (not baker, not control)",
-    gdControlAccounts = def &=
+                           help "JSON file with additional accounts (not baker)",
+    gdUpdateAuthorizations = def &=
                         explicit &=
-                        name "control-accounts" &=
+                        name "update-authorizations" &=
                         opt (Nothing :: Maybe FilePath) &=
                         typFile &=
-                        help "JSON file with special control accounts.",
+                        help "JSON file with update authorizations.",
     gdBakers = def &=
                explicit &=
                name "bakers" &=
@@ -126,7 +126,7 @@ maybeModifyValueVersioned ver (Just source) key obj = do
       die $ "Could not decode JSON: " ++ e
     Right v' -> do
       if vVersion v' /= ver then do
-        die $ "Invalid version in JSON file, expected " ++ (show ver) ++ ", got " ++ (show (vVersion v'))
+        die $ "Invalid version in JSON file, expected " ++ show ver ++ ", got " ++ show (vVersion v')
       else do
         let value = vValue v'
         case modifyValueWith key value obj of
@@ -134,7 +134,7 @@ maybeModifyValueVersioned ver (Just source) key obj = do
             die $ "Base value '" ++ show key ++ "' not an object."
           Just v -> return v
 
-unwrapVersionedGenesisParameters :: Version -> (Versioned Value) -> IO Value
+unwrapVersionedGenesisParameters :: Version -> Versioned Value -> IO Value
 unwrapVersionedGenesisParameters ver v =
   if vVersion v /= ver then die $ "Unsupported genesis parameters version " ++ show (vVersion v)
   else return (vValue v)
@@ -160,8 +160,8 @@ main = cmdArgsRun mode >>=
                   vAr <- maybeModifyValueVersioned expectedArInfosVersion gdArs "anonymityRevokers" vId
                   vCP <- maybeModifyValueVersioned expectedCryptoParamsVersion gdCryptoParams "cryptographicParameters" vAr
                   vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
-                  vAcc <- maybeModifyValue gdControlAccounts "controlAccounts" vAdditionalAccs
-                  value <- maybeModifyValue gdBakers "bakers" vAcc
+                  vAccAuth <- maybeModifyValue gdUpdateAuthorizations "updateAuthorizations" vAdditionalAccs
+                  value <- maybeModifyValue gdBakers "bakers" vAccAuth
                   case fromJSON value of
                     Error err -> do
                       die $ "Could not decode genesis parameters: " ++ show err
@@ -245,8 +245,6 @@ main = cmdArgsRun mode >>=
               printAccessStructure "election difficulty" asParamElectionDifficulty
               printAccessStructure "euro per energy" asParamEuroPerEnergy
               printAccessStructure "microGTU per euro" asParamMicroGTUPerEuro
-
-              -- forM_ genesisControlAccounts (showAccount totalGTU)
 
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
