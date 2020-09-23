@@ -41,36 +41,50 @@ makeClassy ''PersistingAccountData
 -- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 addIncomingEncryptedAmount newAmount old =
-  if Seq.length (_incomingEncryptedAmounts old ) >= maxNumIncoming then
-    case _incomingEncryptedAmounts old of
-      x Seq.:<| y Seq.:<| rest ->
-        old{_incomingEncryptedAmounts = ((x <> y) Seq.<| rest) Seq.|> newAmount,
-            _numAggregated = Just (maybe 2 (+1) (_numAggregated old)),
-            _startIndex = _startIndex old + 1
+  case _aggregatedAmount old of
+    Nothing -> -- we have to aggregate if we have >= maxNumIncoming amounts on the sequence
+      if Seq.length (_incomingEncryptedAmounts old) >= maxNumIncoming then
+        -- irrefutable because of check above
+        let ~(x Seq.:<| y Seq.:<| rest) = _incomingEncryptedAmounts old in
+          old{_incomingEncryptedAmounts = rest Seq.|> newAmount,
+              _startIndex = _startIndex old + 1,
+              _aggregatedAmount = Just (x <> y, 2)
+             }
+      else
+        old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
+    Just (e, n) -> -- we have to aggregate always
+      -- irrefutable because of check above
+      let ~(x Seq.:<| rest) = _incomingEncryptedAmounts old in
+        old {_incomingEncryptedAmounts = rest Seq.|> newAmount,
+             _startIndex = _startIndex old + 1,
+             _aggregatedAmount = Just (e <> x, n + 1)
             }
-      _ -> error "Cannot happen due to check above."
-  else old & incomingEncryptedAmounts %~ (Seq.|> newAmount)
 
--- | Drop the encrypted amount with indices up to the given one, and add the new amount at the end.
+-- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
 -- This is used when an account is transfering from from an encrypted balance, and the newly added
 -- amount is the remaining balance that was not used.
 --
 -- As mentioned above, the whole 'selfBalance' must always be used in any
 -- outgoing action of the account.
 replaceUpTo :: EncryptedAmountAggIndex -> EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
-replaceUpTo newIndex newAmount AccountEncryptedAmount{..} = 
+replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
   AccountEncryptedAmount{
     _selfAmount = newAmount,
     _startIndex = newStartIndex,
     _incomingEncryptedAmounts = newEncryptedAmounts,
-    _numAggregated = newNumAggregated
+    _aggregatedAmount = newAggregatedAmount
   }
-  where (newStartIndex, toDrop) = 
-          if newIndex > _startIndex 
-          then (newIndex, fromIntegral (newIndex - _startIndex)) 
-          else (_startIndex, 0)
+  where (newStartIndex, toDrop, dropAggregated) =
+          if newIndex > _startIndex
+          then
+            if isNothing _aggregatedAmount
+            then
+              (newIndex, fromIntegral (newIndex - _startIndex), False)
+            else
+              (newIndex, fromIntegral (newIndex - _startIndex) - 1, True)
+          else (_startIndex, 0, False)
         newEncryptedAmounts = Seq.drop toDrop _incomingEncryptedAmounts
-        newNumAggregated = if toDrop > 0 then Nothing else _numAggregated
+        newAggregatedAmount = if dropAggregated then Nothing else _aggregatedAmount
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
@@ -116,7 +130,7 @@ setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at
 setThreshold :: HasPersistingAccountData d => SignatureThreshold -> d -> d
 setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })
 
-data EncryptedAmountUpdate = 
+data EncryptedAmountUpdate =
   -- |Replace encrypted amounts less than the given index,
   -- by appending the new amount at the end of the list of encrypted amounts.
   -- This is used when sending an encrypted amount, as well as when transferring

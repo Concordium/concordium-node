@@ -40,6 +40,7 @@ import Control.Monad.IO.Class
 import System.Directory
 import GHC.Stack
 import Data.IORef
+import Concordium.Crypto.EncryptedTransfers
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -593,6 +594,8 @@ instance MonadBlobStore r m => BlobStorable r m BakerId
 instance MonadBlobStore r m => BlobStorable r m BakerInfo
 instance MonadBlobStore r m => BlobStorable r m Word64
 instance MonadBlobStore r m => BlobStorable r m BS.ByteString
+instance MonadBlobStore r m => BlobStorable r m EncryptedAmount
+
 -- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
 instance MonadBlobStore r m => BlobStorable r m AccountEncryptedAmount
 instance MonadBlobStore r m => BlobStorable r m PersistingAccountData

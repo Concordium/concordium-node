@@ -19,7 +19,7 @@ import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Account
+import Concordium.GlobalState.Account hiding (replaceUpTo, addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -28,6 +28,7 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Word
+import Data.Foldable (foldrM)
 
 type AccountIndex = Word64
 
@@ -226,15 +227,18 @@ updateAccount :: MonadBlobStore r m => AccountUpdate -> PersistentAccount -> m P
 updateAccount !upd !acc = do
   let pDataRef = acc ^. persistingData
   pData <- loadBufferedRef pDataRef
-  let newEncryptedAmount = foldr updateSingle (acc ^. accountEncryptedAmount) (upd ^. auEncrypted)
+  encAmount <- loadBufferedRef (acc ^. accountEncryptedAmount)
+  let updateSingle Add{..} = addIncomingEncryptedAmount newAmount
       updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
-      updateSingle Add{..} = addIncomingEncryptedAmount newAmount
       updateSingle AddSelf{..} = addToSelfEncryptedAmount newAmount
+  newEncryptedAmount <- foldrM updateSingle encAmount (upd ^. auEncrypted)
+  newEncryptedAmountRef <- makeBufferedRef newEncryptedAmount
+  baseEncryptedAmount <- loadPersistentAccountEncryptedAmount newEncryptedAmount
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
-                                                    & accountEncryptedAmount .~ newEncryptedAmount
+                                                    & accountEncryptedAmount .~ newEncryptedAmountRef
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount pdata
+  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount pdata
   case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         (mNewCred, mKeyUpd, mNewThreshold) -> do
