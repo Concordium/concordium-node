@@ -557,9 +557,10 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             }
 
             if let Some(ref consensus) = consensus {
-                if node.last_peer_update() > last_peer_list_update {
+                let new_last_peer_update = node.last_peer_update();
+                if new_last_peer_update > last_peer_list_update {
                     update_peer_list(&node);
-                    last_peer_list_update = get_current_stamp();
+                    last_peer_list_update = new_last_peer_update;
                 }
                 check_peer_states(&node, consensus);
             }
