@@ -57,7 +57,8 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 import Control.Monad
 
--- | A BlobRef represents an offset on a file
+-- | A @BlobRef a@ represents an offset on a file, at
+-- which a value of type @a@ is stored.
 newtype BlobRef a = BlobRef Word64
     deriving (Eq, Ord, Serialize)
 
@@ -176,18 +177,31 @@ writeBlobBS BlobStore{..} bs = mask $ \restore -> do
     where
         size = encode (fromIntegral (BS.length bs) :: Word64)
 
--- |Base constraint for a monad to be equipped with a blob store.
+-- |Typeclass for a monad to be equipped with a blob store.
+-- This allows a 'BS.ByteString' to be written to the store,
+-- obtaining a 'BlobRef', and a 'BlobRef' to be read back as
+-- a 'BS.ByteStrings'.
+--
+-- Default implementations are provided for a monad @m@ that
+-- is a reader monad (@MonadReader r m@) for a type @r@
+-- that can be projected to a 'BlobStore' (@HasBlobStore r@).
 class MonadIO m => MonadBlobStore m where
+    -- |Store a 'BS.ByteString' and return a reference to it.
     storeRaw :: BS.ByteString -> m (BlobRef a)
     default storeRaw :: (MonadReader r m, HasBlobStore r) => BS.ByteString -> m (BlobRef a)
     storeRaw b = do
         bs <- blobStore <$> ask
         liftIO $ writeBlobBS bs b
+    -- |Load a 'BS.ByteString' from a reference.
     loadRaw :: BlobRef a -> m BS.ByteString
     default loadRaw :: (MonadReader r m, HasBlobStore r) => BlobRef a -> m BS.ByteString
     loadRaw r = do
         bs <- blobStore <$> ask
         liftIO $ readBlobBS bs r
+    -- |Flush all writes to disk. This should ensure synchronization:
+    -- any 'BlobRef's that are stored before a call to @flushStore@
+    -- should be reliably written, and available if the file is
+    -- subsequently loaded.
     flushStore :: m ()
     default flushStore :: (MonadReader r m, HasBlobStore r) => m ()
     flushStore = do
