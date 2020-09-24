@@ -28,7 +28,7 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   --
   -- - remaining amounts that result when transfering to public balance
   -- - remaining amounts when transfering to another account
-  -- - encrypted amounts that are transfered from public balance
+  -- - encrypted amounts that are transferred from public balance
   --
   -- When a transfer is made all of these must always be used.
   _selfAmount :: !(BufferedRef EncryptedAmount),
@@ -46,7 +46,7 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount {
   } deriving Show
 
 -- | Create an empty PersistentAccountEncryptedAmount
-initialPersistentAccountEncryptedAmount :: MonadBlobStore r m => m PersistentAccountEncryptedAmount
+initialPersistentAccountEncryptedAmount :: MonadBlobStore m => m PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount = do
   _selfAmount <- makeBufferedRef mempty
   return PersistentAccountEncryptedAmount {
@@ -57,7 +57,7 @@ initialPersistentAccountEncryptedAmount = do
     }
 
 -- | Given an AccountEncryptedAmount, create a Persistent version of it
-storePersistentAccountEncryptedAmount :: MonadBlobStore r m => AccountEncryptedAmount -> m PersistentAccountEncryptedAmount
+storePersistentAccountEncryptedAmount :: MonadBlobStore m => AccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
   _selfAmount <- makeBufferedRef _selfAmount
   _incomingEncryptedAmounts <- mapM makeBufferedRef _incomingEncryptedAmounts
@@ -67,7 +67,7 @@ storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
   return PersistentAccountEncryptedAmount{..}
 
 -- | Given a PersistentAccountEncryptedAmount, load its equivalent AccountEncryptedAmount
-loadPersistentAccountEncryptedAmount :: MonadBlobStore r m => PersistentAccountEncryptedAmount -> m AccountEncryptedAmount
+loadPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
   _selfAmount <- loadBufferedRef _selfAmount
   _incomingEncryptedAmounts <- mapM loadBufferedRef _incomingEncryptedAmounts
@@ -76,7 +76,7 @@ loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
                         Just (e, n) -> Just . (,n) <$> loadBufferedRef e
   return AccountEncryptedAmount{..}
 
-instance MonadBlobStore r m => BlobStorable r m PersistentAccountEncryptedAmount where
+instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount where
   storeUpdate PersistentAccountEncryptedAmount{..} = do
     (pSelf, _selfAmount) <- storeUpdate _selfAmount
     (pAmounts, _incomingEncryptedAmounts) <- Seq.unzip <$> mapM storeUpdate _incomingEncryptedAmounts
@@ -130,7 +130,7 @@ data PersistentAccount = PersistentAccount {
 
 makeLenses ''PersistentAccount
 
-instance MonadBlobStore r m => BlobStorable r m PersistentAccount where
+instance MonadBlobStore m => BlobStorable m PersistentAccount where
     storeUpdate PersistentAccount{..} = do
         (pAccData, accData) <- storeUpdate _persistingData
         (pEnc, encData) <- storeUpdate _accountEncryptedAmount
@@ -166,7 +166,7 @@ instance HashableTo Hash.Hash PersistentAccount where
 instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.
-makePersistentAccount :: MonadBlobStore r m => Transient.Account -> m PersistentAccount
+makePersistentAccount :: MonadBlobStore m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
   let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
   _persistingData <- makeBufferedRef _accountPersisting
@@ -174,7 +174,7 @@ makePersistentAccount Transient.Account{..} = do
   return PersistentAccount {..}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
-sameAccount :: MonadBlobStore r m => Transient.Account -> PersistentAccount -> m Bool
+sameAccount :: MonadBlobStore m => Transient.Account -> PersistentAccount -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
@@ -186,7 +186,7 @@ sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
 sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
-(^^.) :: MonadBlobStore r m
+(^^.) :: MonadBlobStore m
       => PersistentAccount
       -> Getting b PersistingAccountData b
       -> m b
@@ -197,7 +197,7 @@ infixl 8 ^^.
 
 -- |Update a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- Used to implement '.~~' and '%~~'.
-setPAD :: MonadBlobStore r m
+setPAD :: MonadBlobStore m
           => (PersistingAccountData -> PersistingAccountData)
           -> PersistentAccount
           -> m PersistentAccount
@@ -211,7 +211,7 @@ setPAD f acc@PersistentAccount{..} = do
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
 -- account's stake delegate to 'Nothing'.
-(.~~) :: MonadBlobStore r m
+(.~~) :: MonadBlobStore m
       => ASetter PersistingAccountData PersistingAccountData a b
       -> b
       -> PersistentAccount
@@ -223,7 +223,7 @@ infixr 4 .~~
 
 -- |Modify a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountInstances %~~ Set.insert i@ inserts an instance @i@ to the set of an account's instances.
-(%~~) :: MonadBlobStore r m
+(%~~) :: MonadBlobStore m
       => ASetter PersistingAccountData PersistingAccountData a b
       -> (a -> b)
       -> PersistentAccount
@@ -237,7 +237,7 @@ infixr 4 %~~
 -- This is used when an incoming transfer is added to the account. If this would
 -- go over the threshold for the maximum number of incoming amounts then
 -- aggregate the first two incoming amounts.
-addIncomingEncryptedAmount :: MonadBlobStore r m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
+addIncomingEncryptedAmount :: MonadBlobStore m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 addIncomingEncryptedAmount newAmount old = do
   newAmountRef <- makeBufferedRef newAmount
   case _aggregatedAmount old of
@@ -270,7 +270,7 @@ addIncomingEncryptedAmount newAmount old = do
 --
 -- As mentioned above, the whole 'selfBalance' must always be used in any
 -- outgoing action of the account.
-replaceUpTo :: MonadBlobStore r m => EncryptedAmountAggIndex -> EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
+replaceUpTo :: MonadBlobStore m => EncryptedAmountAggIndex -> EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
   _selfAmount <- makeBufferedRef newAmount
   return PersistentAccountEncryptedAmount{
@@ -293,7 +293,7 @@ replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
 
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
-addToSelfEncryptedAmount :: MonadBlobStore r m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
+addToSelfEncryptedAmount :: MonadBlobStore m => EncryptedAmount -> PersistentAccountEncryptedAmount -> m PersistentAccountEncryptedAmount
 addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
   newSelf <- makeBufferedRef . (<> newAmount) =<< loadBufferedRef _selfAmount
   return old{_selfAmount = newSelf}

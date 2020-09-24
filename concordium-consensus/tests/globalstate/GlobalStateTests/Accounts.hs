@@ -56,7 +56,7 @@ checkBinaryM bop x y sbop sx sy = do
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore r m, MonadFail m) => B.Accounts -> P.Accounts -> m ()
+checkEquivalent :: (MonadBlobStore m, MonadFail m) => B.Accounts -> P.Accounts -> m ()
 checkEquivalent ba pa = do
   pam <- Trie.toMap (P.accountMap pa)
   checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
@@ -71,7 +71,7 @@ checkEquivalent ba pa = do
   where
     -- Check whether an in-memory account-index and account pair is equivalent to a persistent account-index and account pair
     sameAccPair ::
-      (MonadBlobStore r m) =>
+      (MonadBlobStore m) =>
       Bool -> -- accumulator for the fold in 'sameAccList'
       ((BAT.AccountIndex, BA.Account), (P.AccountIndex, PA.PersistentAccount)) -> -- the pairs to be compared
       m Bool
@@ -182,13 +182,13 @@ randomActions = sized (ra Set.empty Set.empty)
           rid <- elements (Set.toList rids)
           (RecordRegId rid :) <$> ra s rids (n -1)
 
-makePureAccount :: (MonadBlobStore r m) => PA.PersistentAccount -> m Account
+makePureAccount :: (MonadBlobStore m) => PA.PersistentAccount -> m Account
 makePureAccount PA.PersistentAccount {..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   return Account {..}
 
-runAccountAction :: (MonadBlobStore r m, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
+runAccountAction :: (MonadBlobStore m, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
 runAccountAction (PutAccount acct) (ba, pa) = do
   let ba' = B.putAccount acct ba
   pAcct <- PA.makePersistentAccount acct
@@ -210,7 +210,7 @@ runAccountAction (GetAccount addr) (ba, pa) = do
 runAccountAction (UpdateAccount addr upd) (ba, pa) = do
   let ba' = ba & ix addr %~ upd
       -- Transform a function that updates in-memory accounts into a function that updates persistent accounts
-      liftP :: (MonadBlobStore r m) => (Account -> Account) -> PA.PersistentAccount -> m PA.PersistentAccount
+      liftP :: (MonadBlobStore m) => (Account -> Account) -> PA.PersistentAccount -> m PA.PersistentAccount
       liftP f pAcc = do
         bAcc <- makePureAccount pAcc
         PA.makePersistentAccount $ f bAcc
