@@ -204,9 +204,10 @@ setPAD :: MonadBlobStore m
 setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  newPData <- makeBufferedRef $ f pData
-  return $ acc & persistingData .~ newPData
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac pData
+  let newPData = f pData
+  newPDataRef <- makeBufferedRef newPData
+  return $ acc & persistingData .~ newPDataRef
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac newPData
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
