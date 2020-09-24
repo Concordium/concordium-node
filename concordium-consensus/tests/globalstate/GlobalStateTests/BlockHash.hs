@@ -31,6 +31,11 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
+-- This file contains tests relating to the construction of the blockhash.
+-- Current tests verify that every element of the block which is intended to form part of the blockhash does so.
+-- This is done by testing the generateHash() function and verifying that every field in the input has an influence on the output.
+-- In the future tests can be added to ensure that all supported blockhash versions are correctly parsed.
+
 -- Helper functions for stub proof generation
 giveKeyPair :: VRF.KeyPair
 giveKeyPair = fst (VRF.randomKeyPair (mkStdGen 1))
