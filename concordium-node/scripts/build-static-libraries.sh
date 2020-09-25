@@ -90,7 +90,7 @@ cabal update
 
 subsection "CABAL: OK"
 
-curl https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz -o stack-$STACK_VERSION-linux-x86_64-static.tar.gz
+wget https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz
 tar -xf stack-$STACK_VERSION-linux-x86_64-static.tar.gz
 mkdir -p $HOME/.stack/bin
 mv stack-$STACK_VERSION-linux-x86_64-static/stack $HOME/.stack/bin
