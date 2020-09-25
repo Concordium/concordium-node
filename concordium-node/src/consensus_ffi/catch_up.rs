@@ -1,7 +1,10 @@
 use concordium_common::network_types::PeerId;
 use nohash_hasher::BuildNoHashHasher;
-use priority_queue::PriorityQueue;
-use std::{cmp::Ordering, time::Instant};
+use std::{
+    cmp::Ordering,
+    collections::{HashMap, VecDeque},
+    time::Instant,
+};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PeerState {
@@ -43,28 +46,37 @@ pub enum PeerStatus {
 
 #[derive(Default)]
 pub struct PeerList {
-    pub peers:          PriorityQueue<PeerId, PeerState, BuildNoHashHasher<PeerId>>,
+    /// The state of each peer.
+    pub peer_states: HashMap<PeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
+    /// The timestamp at which we last tried to catch up with a peer.
     pub catch_up_stamp: u64,
+    /// The peer that we are currently catching up with (if any).
+    pub catch_up_peer: Option<PeerId>,
+    /// Queue of pending peers.
+    pub pending_queue: VecDeque<PeerId>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn peer_queue_logic() {
-        let mut peers = PriorityQueue::new();
-
-        peers.push(0, PeerState::new(PeerStatus::UpToDate));
-        peers.push(1, PeerState::new(PeerStatus::Pending));
-        peers.push(2, PeerState::new(PeerStatus::CatchingUp));
-        peers.push(3, PeerState::new(PeerStatus::Pending));
-
-        let sorted_ids = peers
-            .into_sorted_iter()
-            .map(|(id, _)| id)
-            .collect::<Vec<_>>();
-
-        assert_eq!(sorted_ids, vec![2, 1, 3, 0]);
+impl PeerList {
+    /// Pull the next pending peer from the queue and mark it as catching-up.
+    /// This does not alter catch_up_stamp, but it does set catch_up_peer.
+    /// pending_queue should only contain peers that are actually pending,
+    /// (according to peer_states) but this is checked when they are dequeued
+    /// and if a non-pending peer is encountered it is simply removed from
+    /// the queue.
+    pub fn next_pending(&mut self) -> Option<PeerId> {
+        let mut next = self.pending_queue.pop_front();
+        while let Some(peer) = next {
+            if let Some(state) = self.peer_states.get_mut(&peer) {
+                if let PeerStatus::Pending = *state {
+                    // The peer is actually pending.
+                    *state = PeerStatus::CatchingUp;
+                    break;
+                }
+            }
+            // The peer is not actually pending.
+            next = self.pending_queue.pop_front();
+        }
+        self.catch_up_peer = next;
+        next
     }
 }
