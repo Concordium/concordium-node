@@ -85,7 +85,7 @@ instance ToJSON PendingUpdates where
     toJSON PendingUpdates{..} = object [
             "authorization" AE..= (_unhashed <$> _pAuthorizationQueue),
             "protocol" AE..= _pProtocolQueue,
-            "elecitionDifficulty" AE..= _pElectionDifficultyQueue,
+            "electionDifficulty" AE..= _pElectionDifficultyQueue,
             "euroPerEnergy" AE..= _pEuroPerEnergyQueue,
             "microGTUPerEuro" AE..= _pMicroGTUPerEuroQueue
         ]
