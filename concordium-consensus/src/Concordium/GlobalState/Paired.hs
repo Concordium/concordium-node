@@ -252,6 +252,14 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         sn1 <- coerceBSML (getNextUpdateSequenceNumber bps1 uty)
         sn2 <- coerceBSMR (getNextUpdateSequenceNumber bps2 uty)
         assert (sn1 == sn2) $ return sn1
+    getCurrentElectionDifficulty (bps1, bps2) = do
+        e1 <- coerceBSML (getCurrentElectionDifficulty bps1)
+        e2 <- coerceBSMR (getCurrentElectionDifficulty bps2)
+        assert (e1 == e2) $ return e1
+    getUpdates (bps1, bps2) = do
+        u1 <- coerceBSML (getUpdates bps1)
+        u2 <- coerceBSMR (getUpdates bps2)
+        assert (u1 == u2) $ return u1
 
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
