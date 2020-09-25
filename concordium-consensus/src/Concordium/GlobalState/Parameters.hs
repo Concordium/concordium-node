@@ -33,7 +33,7 @@ import qualified Concordium.ID.Types as ID
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), (.:), (.:?), (.!=), withObject)
+import Data.Aeson.Types (FromJSON(..), ToJSON(..), (.:), (.:?), (.!=), withObject, object)
 import Concordium.Types.Updates
 
 type CryptographicParameters = GlobalContext
@@ -94,6 +94,13 @@ instance FromJSON ChainParameters where
       <$> v .: "electionDifficulty"
       <*> v .: "euroPerEnergy"
       <*> v .: "microGTUPerEuro"
+
+instance ToJSON ChainParameters where
+  toJSON ChainParameters{..} = object [
+      "electionDifficulty" AE..= _cpElectionDifficulty,
+      "euroPerEnergy" AE..= _cpEuroPerEnergy,
+      "microGTUPerEuro" AE..= _cpMicroGTUPerEuro
+    ]
 
 data VoterInfo = VoterInfo {
     voterVerificationKey :: VoterVerificationKey,

@@ -218,6 +218,12 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getNextUpdateSequenceNumber #-}
     getNextUpdateSequenceNumber bs uty = return (lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty)
 
+    {-# INLINE getCurrentElectionDifficulty #-}
+    getCurrentElectionDifficulty bs = return (bs ^. blockUpdates . currentParameters . cpElectionDifficulty)
+    
+    {-# INLINE getUpdates #-}
+    getUpdates bs = return (bs ^. blockUpdates)
+
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountAddress acc = return $ acc ^. accountAddress
