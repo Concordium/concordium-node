@@ -453,17 +453,19 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     lock_or_die!(node.conn_candidates()).retain(|_, conn| !is_conn_without_handshake(&conn));
 
     // remove faulty and inactive connections
-    let mut faulty_removed = false;
-    write_or_die!(node.connections()).retain(|_, conn| {
-        if is_conn_faulty(&conn) || is_conn_inactive(&conn) {
-            faulty_removed = true;
-            false
-        } else {
-            true
+    {
+        let mut faulty_removed = false;
+        write_or_die!(node.connections()).retain(|_, conn| {
+            if is_conn_faulty(&conn) || is_conn_inactive(&conn) {
+                faulty_removed = true;
+                false
+            } else {
+                true
+            }
+        });
+        if faulty_removed {
+            node.bump_last_peer_update();
         }
-    });
-    if faulty_removed {
-        node.bump_last_peer_update();
     }
 
     // if the number of peers exceeds the desired value, close a random selection of
