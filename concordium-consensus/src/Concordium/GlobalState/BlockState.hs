@@ -58,6 +58,7 @@ import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
+import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
@@ -286,10 +287,16 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
 
     getAllAnonymityRevokers :: BlockState m -> m [ArInfo]
 
-    -- |Get the value of the election difficulty parameter.
+    -- |Get the value of the election difficulty parameter for a future timestamp.
+    -- This function applies queued election difficultly updates as appropriate.
     getElectionDifficulty :: BlockState m -> Timestamp -> m ElectionDifficulty
     -- |Get the next sequence number for a particular update type.
     getNextUpdateSequenceNumber :: BlockState m -> UpdateType -> m UpdateSequenceNumber
+    -- |Get the value of the election difficulty that was used to bake this block.
+    getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
+    -- |Get the current chain parameters and pending updates.
+    getUpdates :: BlockState m -> m Basic.Updates
+    
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -503,6 +510,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getAllAnonymityRevokers s = lift $ getAllAnonymityRevokers s
   getElectionDifficulty s = lift . getElectionDifficulty s
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
+  getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
+  getUpdates = lift . getUpdates
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -519,6 +528,8 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getAllAnonymityRevokers #-}
   {-# INLINE getElectionDifficulty #-}
   {-# INLINE getNextUpdateSequenceNumber #-}
+  {-# INLINE getCurrentElectionDifficulty #-}
+  {-# INLINE getUpdates #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs

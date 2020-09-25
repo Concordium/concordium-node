@@ -51,6 +51,7 @@ import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
+import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
 import qualified Concordium.GlobalState.Modules as TransientMods
 import Concordium.GlobalState.SeedState
 import Concordium.Logger (MonadLogger)
@@ -718,6 +719,15 @@ doGetNextUpdateSequenceNumber pbs uty = do
         bsp <- loadPBS pbs
         lookupNextUpdateSequenceNumber (bspUpdates bsp) uty
 
+doGetCurrentElectionDifficulty :: MonadBlobStore m => PersistentBlockState -> m ElectionDifficulty
+doGetCurrentElectionDifficulty pbs = do
+        bsp <- loadPBS pbs
+        upds <- refLoad (bspUpdates bsp)
+        _cpElectionDifficulty . unStoreSerialized <$> refLoad (currentParameters upds)
+
+doGetUpdates :: MonadBlobStore m => PersistentBlockState -> m Basic.Updates
+doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
+
 doProcessUpdateQueues :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m PersistentBlockState
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
@@ -797,6 +807,8 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getAllAnonymityRevokers = doGetAllAnonymityRevokers . hpbsPointers
     getElectionDifficulty = doGetElectionDifficulty . hpbsPointers
     getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
+    getCurrentElectionDifficulty = doGetCurrentElectionDifficulty . hpbsPointers
+    getUpdates = doGetUpdates . hpbsPointers
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE getContractInstance #-}
@@ -812,6 +824,8 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     {-# INLINE getAllAnonymityRevokers #-}
     {-# INLINE getElectionDifficulty #-}
     {-# INLINE getNextUpdateSequenceNumber #-}
+    {-# INLINE getCurrentElectionDifficulty #-}
+    {-# INLINE getUpdates #-}
 
 doGetBakerStake :: MonadBlobStore m => PersistentBakers -> BakerId -> m (Maybe Amount)
 doGetBakerStake bs bid =
