@@ -374,7 +374,10 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
     if let Some(id) = read_or_die!(node.peers).catch_up_peer {
         if let Some(token) = find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) {
             if get_current_stamp() > read_or_die!(node.peers).catch_up_stamp + MAX_CATCH_UP_TIME {
+                // Try to remove the peer, since it timed-out.
                 debug!("Peer {:016x} took too long to catch up; dropping", id);
+                // This function may not actually remove the peer, so we do not assume
+                // that it will be removed.
                 node.register_conn_change(ConnChange::Removal(token));
             }
             return;
