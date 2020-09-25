@@ -7,11 +7,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 module Concordium.GlobalState.Persistent.Bakers where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, guard)
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 import Data.Foldable
+import Data.Maybe(isNothing)
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
@@ -111,41 +112,71 @@ createBaker (BakerInfo _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAg
                   bid = BakerId $ L.size bInfoMap
         Just _ -> return $ Left DuplicateSignKey
 
--- |Update a given baker. If this would lead to duplicate baker signing keys
--- return 'Nothing'. If the baker with the given id does not exist this function
--- returns the original 'PersistentBakers' object.
+-- |Update a given baker. If this would lead to duplicate baker signing keys or
+-- duplicate aggregation keys return 'Nothing'. If the baker with the given id
+-- does not exist this function returns the original 'PersistentBakers' object.
 updateBaker :: MonadBlobStore m => Basic.BakerUpdate -> PersistentBakers -> m (Maybe PersistentBakers)
 updateBaker Basic.BakerUpdate {..} !bakers = do
   let bInfoMap = bakers ^. bakerMap
   L.lookupNullable _buId bInfoMap >>= \case
+    -- baker does not exist, don't do anything
     Nothing -> return $ Just bakers
     Just (binfoRef, stake) -> do
       binfo <- loadBufferedRef binfoRef
-      let bacc = _buAccount ^. non (binfo ^. bakerAccount)
-      case _buSignKey of
-           Nothing -> do -- don't update the sign key, no clash possible
-             newBakerInfoRef <- makeBufferedRef (binfo & bakerAccount .~ bacc)
-             updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) _buId bInfoMap
-             case updated of
-               Nothing -> return $ Just bakers
-               Just (_, newBakerMap) -> return $ Just $ bakers & bakerMap .~ newBakerMap
-           Just newSignKey ->
-             -- new signing key, make sure it is new
-             case bakers ^. bakersByKey . at' newSignKey of
-               Just _ -> -- existing signing key
-                 return Nothing
-               Nothing -> do -- fresh signing key
-                 newBakerInfoRef <- makeBufferedRef (binfo & bakerSignatureVerifyKey .~ newSignKey)
-                 updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) _buId bInfoMap
-                 case updated of
-                   Nothing -> return $ Just bakers
-                   Just (_, newBakerMap) ->
+      let updates =
+            -- sequence updates to bakers and baker infos
+            -- if any properties would fail, e.g., duplicate sign or aggregation keys,
+            -- then this will return Nothing.
+            handleUpdateAggregationKey (bakers, binfo) >>= 
+              handleUpdateSignKey >>=
+              handleUpdateElectionKey >>= 
+              handleUpdateAccount
+      case updates of
+        Nothing -> return Nothing -- one of the updates are wrong
+        Just (newBakers, newBakerInfo) -> do
+          newBakerInfoRef <- makeBufferedRef newBakerInfo
+          updated <- L.update (const $ return ((), Some (newBakerInfoRef, stake))) _buId bInfoMap
+          case updated of
+            Nothing -> -- should not happen because we already checked the key exists.
+              return Nothing
+            Just (_, newBakerMap) -> return (Just (newBakers & bakerMap .~ newBakerMap))
 
-                     return $ Just (bakers
-                       & bakerMap .~ newBakerMap
-                       & bakersByKey . at' (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
-                       & bakersByKey . at' newSignKey ?~ _buId) -- and add new identification
 
+    where handleUpdateAggregationKey (bs, binfo) = case _buAggregationKey of
+            Nothing -> return (bs, binfo)
+            Just newAggKey -> do
+              -- we cannot have duplicate aggregation keys
+              guard (Set.notMember newAggKey (bs ^. aggregationKeys))
+              let oldAggKey = binfo ^. bakerAggregationVerifyKey
+                  newBakerInfo = binfo & bakerAggregationVerifyKey .~ newAggKey
+              return (bs
+                       & aggregationKeys %~ Set.delete oldAggKey -- delete old aggregation key from pool of aggregation keys in use
+                       & aggregationKeys %~ Set.insert newAggKey, -- add new aggregation key to pool
+                       newBakerInfo)
+
+          handleUpdateSignKey (bs, binfo) = case _buSignKey of
+            Nothing -> return (bs, binfo)
+            Just newSignKey -> do -- new signing key, make sure it is new
+              guard (isNothing (bs ^. bakersByKey . at' newSignKey))
+              -- we now know we have a fresh signing key 
+              let newBakerInfo = binfo & bakerSignatureVerifyKey .~ newSignKey
+              return $ (bs
+                         & bakersByKey . at' (binfo ^. bakerSignatureVerifyKey) .~ Nothing -- remove old identification
+                         & bakersByKey . at' newSignKey ?~ _buId,  -- and add new identification
+                         newBakerInfo)
+
+          -- it is currently allowed by the protocol to have duplicate election verification keys.
+          handleUpdateElectionKey (bs, binfo) = case _buElectionKey of
+            Nothing -> return (bs, binfo)
+            Just newElectionKey -> do
+              let newBakerInfo = binfo & bakerElectionVerifyKey .~ newElectionKey
+              return (bs, newBakerInfo)
+
+          handleUpdateAccount (bs, binfo) = case _buAccount of
+            Nothing -> return (bs, binfo)
+            Just newAccount -> do
+              let newBakerInfo = binfo & bakerAccount .~ newAccount
+              return (bs, newBakerInfo)
 
 -- | Removes a baker from the 'PersistentBakers' data type and returns the resulting bakers plus a flag indicating whether
 -- the baker was successfully removed (i.e. whether the baker with the given ID was part of the bakers).
