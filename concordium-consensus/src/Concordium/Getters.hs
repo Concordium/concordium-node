@@ -168,11 +168,12 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
                     "finalizers" .= finalizers
                     ]
               _ -> return Null
-
+      updates <- BS.getUpdates bs
       return $ object [
         "transactionSummaries" .= outcomes,
         "specialEvents" .= specialOutcomes,
-        "finalizationData" .= finDataJSON
+        "finalizationData" .= finDataJSON,
+        "updates" .= updates
         ]
 
 withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
@@ -257,14 +258,13 @@ getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
   bps <- BS.getBlockBirkParameters st
-  -- FIXME: reinstate election difficulty in query?
-  -- elDiff <- BS.getElectionDifficulty bps
+  elDiff <- BS.getCurrentElectionDifficulty st
   nonce <- BS.birkLeadershipElectionNonce bps
   lotteryBakers <- BS.getLotteryBakers bps
   fullBakerInfos <- BS.getFullBakerInfos lotteryBakers
   totalStake <- BS.getTotalBakerStake lotteryBakers
   return $ object [
-    -- "electionDifficulty" .= elDiff,
+    "electionDifficulty" .= elDiff,
     "electionNonce" .= nonce,
     "bakers" .= Array (fromList .
                        map (\(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> object ["bakerId" .= toInteger bid
@@ -365,7 +365,8 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "finalized" .= bfin,
                             "transactionCount" .= bpTransactionCount bp,
                             "transactionEnergyCost" .= toInteger (bpTransactionsEnergyCost bp),
-                            "transactionsSize" .= toInteger (bpTransactionsSize bp)
+                            "transactionsSize" .= toInteger (bpTransactionsSize bp),
+                            "blockStateHash" .= blockStateHash bp
                             ]
 
 getBlocksAtHeight :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m))
