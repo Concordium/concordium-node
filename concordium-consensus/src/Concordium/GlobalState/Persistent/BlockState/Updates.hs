@@ -3,6 +3,7 @@
 -- |Implementation of the chain update mechanism with persistent storage: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
 module Concordium.GlobalState.Persistent.BlockState.Updates where
 
+import Data.Foldable (toList)
 import qualified Data.Sequence as Seq
 import Data.Serialize
 import Control.Monad
@@ -80,6 +81,23 @@ makePersistentUpdateQueue Basic.UpdateQueue{..} = do
     let uqNextSequenceNumber = _uqNextSequenceNumber
     uqQueue <- Seq.fromList <$> forM _uqQueue (\(t, e) -> (t,) <$> makeHashedBufferedRef (StoreSerialized e))
     return UpdateQueue{..}
+
+-- |Convert a persistent update queue to an in-memory one.
+makeBasicUpdateQueue :: (MonadBlobStore m, MHashableTo m H.Hash (StoreSerialized e), Serialize e) => UpdateQueue e -> m (Basic.UpdateQueue e)
+makeBasicUpdateQueue UpdateQueue{..} = do
+    let _uqNextSequenceNumber = uqNextSequenceNumber
+    _uqQueue <- toList <$> forM uqQueue (\(t, e) -> (t,) . unStoreSerialized <$> refLoad e)
+    return Basic.UpdateQueue{..}
+
+-- |Convert a persistent update queue to an in-memory one.
+makeBasicUpdateQueueHashed :: (MonadBlobStore m, MHashableTo m H.Hash (StoreSerialized e), Serialize e) => UpdateQueue e -> m (Basic.UpdateQueue (Hashed e))
+makeBasicUpdateQueueHashed UpdateQueue{..} = do
+    let _uqNextSequenceNumber = uqNextSequenceNumber
+    _uqQueue <- toList <$> forM uqQueue (\(t, e) -> do
+            v <- unStoreSerialized <$> refLoad e
+            h <- getHashM e
+            return (t, Hashed v h))
+    return Basic.UpdateQueue{..}
 
 -- |Add an update event to an update queue, incrementing the sequence number.
 -- Any updates in the queue with later or equal effective times are removed
@@ -173,6 +191,16 @@ makePersistentPendingUpdates Basic.PendingUpdates{..} = do
         pMicroGTUPerEuroQueue <- refMake =<< makePersistentUpdateQueue _pMicroGTUPerEuroQueue
         return PendingUpdates{..}
 
+-- |Convert a persistent 'PendingUpdates' to an in-memory 'Basic.PendingUpdates'.
+makeBasicPendingUpdates :: (MonadBlobStore m) => PendingUpdates -> m Basic.PendingUpdates
+makeBasicPendingUpdates PendingUpdates{..} = do
+        _pAuthorizationQueue <- makeBasicUpdateQueueHashed =<< refLoad pAuthorizationQueue
+        _pProtocolQueue <- makeBasicUpdateQueue =<< refLoad pProtocolQueue
+        _pElectionDifficultyQueue <- makeBasicUpdateQueue =<< refLoad pElectionDifficultyQueue
+        _pEuroPerEnergyQueue <- makeBasicUpdateQueue =<< refLoad pEuroPerEnergyQueue
+        _pMicroGTUPerEuroQueue <- makeBasicUpdateQueue =<< refLoad pMicroGTUPerEuroQueue
+        return Basic.PendingUpdates{..}
+
 -- |Current state of updatable parameters and update queues.
 data Updates = Updates {
         -- |Current update authorizations.
@@ -246,6 +274,19 @@ makePersistentUpdates Basic.Updates{..} = do
         currentParameters <- refMake (StoreSerialized _currentParameters)
         pendingUpdates <- makePersistentPendingUpdates _pendingUpdates
         return Updates{..}
+
+-- |Convert a persistent 'Updates' to an in-memory 'Basic.Updates'.
+makeBasicUpdates :: (MonadBlobStore m) => Updates -> m Basic.Updates
+makeBasicUpdates Updates{..} = do
+        hCA <- getHashM currentAuthorizations
+        ca <- unStoreSerialized <$> refLoad currentAuthorizations
+        let _currentAuthorizations = Hashed ca hCA
+        _currentProtocolUpdate <- case currentProtocolUpdate of
+            Null -> return Nothing
+            Some pu -> Just . unStoreSerialized <$> refLoad pu
+        _currentParameters <- unStoreSerialized <$> refLoad currentParameters
+        _pendingUpdates <- makeBasicPendingUpdates pendingUpdates
+        return Basic.Updates{..}
 
 -- |Process the update queue to determine the new value of a parameter (or the authorizations).
 -- This splits the queue at the given timestamp. The last value up to and including the timestamp

@@ -2,7 +2,9 @@
 -- |Implementation of the chain update mechanism: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
 module Concordium.GlobalState.Basic.BlockState.Updates where
 
+import Data.Aeson as AE
 import qualified Data.ByteString as BS
+import Data.Foldable
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.Semigroup
 import Data.Serialize
@@ -23,7 +25,7 @@ data UpdateQueue e = UpdateQueue {
     _uqNextSequenceNumber :: !UpdateSequenceNumber,
     -- |Pending updates, in ascending order of effective time.
     _uqQueue :: ![(TransactionTime, e)]
-} deriving (Show, Functor)
+} deriving (Show, Functor, Eq)
 makeLenses ''UpdateQueue
 
 instance HashableTo H.Hash e => HashableTo H.Hash (UpdateQueue e) where
@@ -31,6 +33,12 @@ instance HashableTo H.Hash e => HashableTo H.Hash (UpdateQueue e) where
         put _uqNextSequenceNumber
         putLength $ length _uqQueue
         mapM_ (\(t, e) -> put t >> put (getHash e :: H.Hash)) _uqQueue
+
+instance ToJSON e => ToJSON (UpdateQueue e) where
+    toJSON UpdateQueue{..} = object [
+            "nextSequenceNumber" AE..= _uqNextSequenceNumber,
+            "queue" AE..= [object ["effectiveTime" AE..= et, "update" AE..= u] | (et, u) <- _uqQueue]
+        ]
 
 -- |Update queue with no pending updates, and with the minimal next
 -- sequence number.
@@ -59,7 +67,7 @@ data PendingUpdates = PendingUpdates {
     _pEuroPerEnergyQueue :: !(UpdateQueue ExchangeRate),
     -- |Updates to the GTU:euro exchange rate.
     _pMicroGTUPerEuroQueue :: !(UpdateQueue ExchangeRate)
-} deriving (Show)
+} deriving (Show, Eq)
 makeLenses ''PendingUpdates
 
 instance HashableTo H.Hash PendingUpdates where
@@ -72,6 +80,15 @@ instance HashableTo H.Hash PendingUpdates where
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
+
+instance ToJSON PendingUpdates where
+    toJSON PendingUpdates{..} = object [
+            "authorization" AE..= (_unhashed <$> _pAuthorizationQueue),
+            "protocol" AE..= _pProtocolQueue,
+            "elecitionDifficulty" AE..= _pElectionDifficultyQueue,
+            "euroPerEnergy" AE..= _pEuroPerEnergyQueue,
+            "microGTUPerEuro" AE..= _pMicroGTUPerEuroQueue
+        ]
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: PendingUpdates
@@ -87,7 +104,7 @@ data Updates = Updates {
     _currentParameters :: !ChainParameters,
     -- |Pending updates.
     _pendingUpdates :: !PendingUpdates
-} deriving (Show)
+} deriving (Show, Eq)
 makeClassy ''Updates
 
 instance HashableTo H.Hash Updates where
@@ -101,6 +118,13 @@ instance HashableTo H.Hash Updates where
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
+
+instance ToJSON Updates where
+    toJSON Updates{..} = object $ [
+            "authorizations" AE..= _unhashed _currentAuthorizations,
+            "chainParameters" AE..= _currentParameters,
+            "updateQueues" AE..= _pendingUpdates
+        ] <> toList (("protocolUpdate" AE..=) <$> _currentProtocolUpdate)
 
 -- |An initial 'Updates' with the given initial 'Authorizations'
 -- and 'ChainParameters'.
