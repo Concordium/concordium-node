@@ -59,6 +59,10 @@ pub struct PeerList {
 impl PeerList {
     /// Pull the next pending peer from the queue and mark it as catching-up.
     /// This does not alter catch_up_stamp, but it does set catch_up_peer.
+    /// pending_queue should only contain peers that are actually pending,
+    /// (according to peer_states) but this is checked when they are dequeued
+    /// and if a non-pending peer is encountered it is simply removed from
+    /// the queue.
     pub fn next_pending(&mut self) -> Option<PeerId> {
         let mut next = self.pending_queue.pop_front();
         while let Some(peer) = next {
