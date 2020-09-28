@@ -325,9 +325,9 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- - replace some encrypted amounts on the sender's account
           addAmountFromEncrypted senderAccount stpatdTransferAmount stpatdIndex stpatdRemainingAmount
 
-          return senderAddress
+          return (senderAddress, senderAmount)
 
-        k ls senderAddress = do
+        k ls (senderAddress, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           notifyEncryptedBalanceChange $ amountDiff 0 stpatdTransferAmount
@@ -335,6 +335,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = stpatdIndex,
+                                earInputAmount = senderAmount,
                                 earNewAmount = stpatdRemainingAmount
                                 },
                               AmountAddedByDecryption{
@@ -441,9 +442,9 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- The index that the new amount on the receiver's account will get
           targetAccountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
 
-          return (senderAddress, targetAccountIndex)
+          return (senderAddress, targetAccountIndex, senderAmount)
 
-        k ls (senderAddress, targetAccountIndex) = do
+        k ls (senderAddress, targetAccountIndex, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
@@ -451,6 +452,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = eatdIndex,
+                                earInputAmount = senderAmount,
                                 earNewAmount = eatdRemainingAmount
                                 },
                              NewEncryptedAmount{

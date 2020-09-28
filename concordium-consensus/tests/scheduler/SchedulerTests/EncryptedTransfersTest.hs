@@ -12,8 +12,8 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
-import Concordium.Crypto.DummyData
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
 import Concordium.ID.DummyData (dummyEncryptionSecretKey)
 import Concordium.ID.Types (AccountEncryptionKey(..))
@@ -220,7 +220,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
                           earUpToIndex = 0,
-                          earNewAmount = eatdRemainingAmount
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = encryptedAmount1000
                           },
                         NewEncryptedAmount {
                           neaAccount = thomasAccount,
@@ -242,7 +243,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
                           earUpToIndex = 0,
-                          earNewAmount = eatdRemainingAmount
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData1
                           },
                         NewEncryptedAmount {
                           neaAccount = thomasAccount,
@@ -264,7 +266,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
                           earUpToIndex = 0,
-                          earNewAmount = eatdRemainingAmount
+                          earNewAmount = eatdRemainingAmount,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData2
                           },
                         NewEncryptedAmount {
                           neaAccount = thomasAccount,
@@ -284,7 +287,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = thomasAccount,
                           earUpToIndex = 2,
-                          earNewAmount = eatdRemainingAmount encryptedTransferData4
+                          earNewAmount = eatdRemainingAmount encryptedTransferData4,
+                          earInputAmount = aggregatedEncryptedAmount4
                           },
                         NewEncryptedAmount {
                           neaAccount = alesAccount,
@@ -307,7 +311,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = thomasAccount,
                           earUpToIndex = 3,
-                          earNewAmount = eatdRemainingAmount encryptedTransferData5
+                          earNewAmount = eatdRemainingAmount encryptedTransferData5,
+                          earInputAmount = aggregatedEncryptedAmount5
                           },
                         NewEncryptedAmount {
                           neaAccount = alesAccount,
@@ -330,7 +335,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
                           earUpToIndex = 0,
-                          earNewAmount = stpatdRemainingAmount secToPubTransferData1
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData1,
+                          earInputAmount = Concordium.Crypto.EncryptedTransfers.eatdRemainingAmount encryptedTransferData3
                           },
                         AmountAddedByDecryption {
                           aabdAccount = alesAccount,
@@ -348,7 +354,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
                           earUpToIndex = 1,
-                          earNewAmount = stpatdRemainingAmount secToPubTransferData2
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData2,
+                          earInputAmount = aggregatedEncryptedAmount7
                           },
                         AmountAddedByDecryption {
                           aabdAccount = alesAccount,
@@ -366,7 +373,8 @@ mkTestCases = do
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
                           earUpToIndex = 2,
-                          earNewAmount = stpatdRemainingAmount secToPubTransferData3
+                          earNewAmount = stpatdRemainingAmount secToPubTransferData3,
+                          earInputAmount = aggregatedEncryptedAmount8
                           },
                         AmountAddedByDecryption {
                           aabdAccount = alesAccount,
