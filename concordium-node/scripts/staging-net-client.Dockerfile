@@ -52,12 +52,6 @@ WORKDIR /
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --branch master git@gitlab.com:Concordium/node-dashboard.git
 WORKDIR /node-dashboard
-
-# Hotfix for broken dependency (ADD automatically extracts archive).
-# TODO Remove when resolved by the elm community:
-# https://elmlang.slack.com/archives/C0CJ671HU/p1600333079263900
-ADD ./scripts/node-dashboard-dep-fix/Skinney.tar.gz /root/.elm/0.19.1/packages/
-
 ENV NODE_ENV=development
 # Building node dashboard
 RUN npm i
