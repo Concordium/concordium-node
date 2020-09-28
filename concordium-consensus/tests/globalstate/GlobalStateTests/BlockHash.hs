@@ -44,10 +44,7 @@ stringToByteString :: String -> BS.ByteString
 stringToByteString input =  L.toStrict $ toLazyByteString $ stringUtf8 input
 
 generateProofFromString :: String -> VRF.Proof
-generateProofFromString  input = proof
-  where
-    keys = giveKeyPair
-    proof =  UnsafeIO.unsafePerformIO $ VRF.prove keys (stringToByteString input)
+generateProofFromString  input = VRF.prove giveKeyPair (stringToByteString input)
 
 -- Helper to generate block finalization records
 genFinData :: FinalizationIndex -> BlockHash -> FinalizationProof -> BlockHeight -> BlockFinalizationData
