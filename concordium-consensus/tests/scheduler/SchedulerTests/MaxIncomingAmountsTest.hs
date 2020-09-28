@@ -149,17 +149,15 @@ transactionsIO = do
                       , metadata = makeDummyHeader alesAccount (fromIntegral idx + 1) 100000 -- from Ales with nonce idx + 1
                       , keys = [(0, alesKP)]
                       }
-       , (SuccessE [Types.EncryptedAmountsRemoved {
-                       earAccount = alesAccount,
-                       earUpToIndex = 0,
-                       earNewAmount = eatdRemainingAmount -- the new self amount
-                       },
-                     Types.NewEncryptedAmount {
-                       neaAccount = thomasAccount,
-                       neaNewIndex = fromIntegral idx - 1,
-                       neaEncryptedAmount = eatdTransferAmount -- the transferred amount
-                       }
-                   ], checks
+       , (Success $ \case [Types.EncryptedAmountsRemoved {..}, Types.NewEncryptedAmount {..}] -> do
+                            HUnit.assertEqual "Account encrypted amounts removed" earAccount alesAccount
+                            HUnit.assertEqual "Used up indices" earUpToIndex 0
+                            HUnit.assertEqual "New amount" earNewAmount eatdRemainingAmount
+                            HUnit.assertEqual "Receiver address" neaAccount thomasAccount
+                            HUnit.assertEqual "New receiver index" neaNewIndex $ fromIntegral idx - 1
+                            HUnit.assertEqual "Received amount" neaEncryptedAmount eatdTransferAmount
+                          e -> HUnit.assertFailure $ "Unexpected outcome: " ++ show e
+         , checks
          )
        )
 
@@ -211,16 +209,14 @@ tests = do
                        , metadata = makeDummyHeader thomasAccount 1 100000
                        , keys = [(0, thomasKP)]
                        }
-        , (SuccessE [Types.EncryptedAmountsRemoved {
-                        earAccount = thomasAccount,
-                        earUpToIndex = numberOfTransactions,
-                        earNewAmount = stpatdRemainingAmount secToPubTransferData
-                        },
-                      Types.AmountAddedByDecryption {
-                        aabdAccount = thomasAccount,
-                        aabdAmount = numberOfTransactions * 10
-                        }
-                    ],
+        , (Success $ \case  [Types.EncryptedAmountsRemoved {..}, Types.AmountAddedByDecryption {..} ] -> do
+                              HUnit.assertEqual "Account encrypted amounts removed" earAccount thomasAccount
+                              HUnit.assertEqual "Used up indices" earUpToIndex numberOfTransactions
+                              HUnit.assertEqual "New amount" earNewAmount $ stpatdRemainingAmount secToPubTransferData
+                              HUnit.assertEqual "Decryption address" aabdAccount thomasAccount
+                              HUnit.assertEqual "Amount added" aabdAmount $ numberOfTransactions * 10
+                            e -> HUnit.assertFailure $ "Unexpected final outcome: " ++ show e,
+
             checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData,
                                                                 _startIndex = numberOfTransactions,
                                                                 _incomingEncryptedAmounts = Seq.empty} thomasAccount
