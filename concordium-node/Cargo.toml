@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.3.0"
+version = "0.3.1"
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -56,7 +56,6 @@ circular-queue = "0.2"
 digest = "0.9"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
 nohash-hasher = "0.2"
-priority-queue = "1.0"
 rayon = "1.4"
 noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0"

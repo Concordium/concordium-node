@@ -304,7 +304,7 @@ impl P2p for RpcServerImpl {
         req: Request<PeersRequest>,
     ) -> Result<Response<PeerListResponse>, Status> {
         authenticate!(req, self.access_token);
-        let peer_catchup_stats = (*read_or_die!(self.node.peers)).peers.clone();
+        let peer_catchup_stats = (*read_or_die!(self.node.peers)).peer_states.clone();
         let list = self
             .node
             .get_peer_stats(None)
@@ -319,7 +319,7 @@ impl P2p for RpcServerImpl {
                 port:    Some(peer.addr.port() as u32),
                 // We map the state, and if there's no state dwe default to pending
                 catchup_status: match peer_catchup_stats.get(&peer.id) {
-                    Some((_, peer_catchup)) => peer_catchup.status as i32,
+                    Some(&status) => status as i32,
                     _ => peer_element::CatchupStatus::Pending as i32,
                 },
             })
