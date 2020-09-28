@@ -11,7 +11,6 @@ use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use failure::Fallible;
 use mio::{net::TcpStream, Token};
-use priority_queue::PriorityQueue;
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
@@ -36,17 +35,17 @@ use concordium_common::PacketType;
 use crypto_common::Deserial;
 
 use std::{
-    cmp::Reverse,
+    collections::VecDeque,
     convert::TryFrom,
     fmt,
     io::Cursor,
     net::SocketAddr,
+    ops::{Index, IndexMut},
     str::FromStr,
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc, RwLock,
     },
-    time::Instant,
 };
 
 /// Designates the sending priority of outgoing messages.
@@ -227,8 +226,6 @@ pub struct ConnectionStats {
     pub bytes_sent:        AtomicU64,
 }
 
-type PendingPriority = (MessageSendingPriority, Reverse<Instant>);
-
 /// Specifies the type of change to be applied to the list of connections.
 pub enum ConnChange {
     /// To be soft-banned and removed from the list of connections.
@@ -241,6 +238,55 @@ pub enum ConnChange {
     Promotion(Token),
     /// To be removed from the list of connections.
     Removal(Token),
+}
+
+/// Message queues, indexed by priority.
+pub struct MessageQueues {
+    pub low:  VecDeque<Arc<[u8]>>,
+    pub high: VecDeque<Arc<[u8]>>,
+}
+
+impl Index<MessageSendingPriority> for MessageQueues {
+    type Output = VecDeque<Arc<[u8]>>;
+
+    fn index(&self, priority: MessageSendingPriority) -> &Self::Output {
+        match priority {
+            MessageSendingPriority::Normal => &self.low,
+            MessageSendingPriority::High => &self.high,
+        }
+    }
+}
+
+impl IndexMut<MessageSendingPriority> for MessageQueues {
+    fn index_mut(&mut self, priority: MessageSendingPriority) -> &mut Self::Output {
+        match priority {
+            MessageSendingPriority::Normal => &mut self.low,
+            MessageSendingPriority::High => &mut self.high,
+        }
+    }
+}
+
+impl MessageQueues {
+    /// Create queues with the specified initial capacities.
+    pub fn new(low_capacity: usize, high_capacity: usize) -> Self {
+        Self {
+            low:  VecDeque::with_capacity(low_capacity),
+            high: VecDeque::with_capacity(high_capacity),
+        }
+    }
+
+    /// Add a message to the queue with the appropriate priority.
+    pub fn enqueue(&mut self, priority: MessageSendingPriority, message: Arc<[u8]>) {
+        self[priority].push_back(message);
+    }
+
+    /// Dequeue a message, taking from the high priority queue first.
+    pub fn dequeue(&mut self) -> Option<Arc<[u8]>> {
+        match self.high.pop_front() {
+            Some(message) => Some(message),
+            None => self.low.pop_front(),
+        }
+    }
 }
 
 /// A collection of objects related to the connection to a single peer.
@@ -257,7 +303,7 @@ pub struct Connection {
     pub remote_end_networks: Networks,
     pub stats: ConnectionStats,
     /// The queue of messages to be sent to the connection.
-    pub pending_messages: PriorityQueue<Arc<[u8]>, PendingPriority>,
+    pub pending_messages: MessageQueues,
 }
 
 impl PartialEq for Connection {
@@ -314,7 +360,7 @@ impl Connection {
             low_level,
             remote_end_networks: Default::default(),
             stats,
-            pending_messages: PriorityQueue::with_capacity(1024),
+            pending_messages: MessageQueues::new(1024, 128),
         }
     }
 
@@ -444,7 +490,7 @@ impl Connection {
     /// Queues a message to be sent to the connection.
     #[inline]
     pub fn async_send(&mut self, message: Arc<[u8]>, priority: MessageSendingPriority) {
-        self.pending_messages.push(message, (priority, Reverse(Instant::now())));
+        self.pending_messages.enqueue(priority, message);
     }
 
     /// Update the timestamp of when the connection was seen last.
@@ -593,7 +639,7 @@ impl Connection {
     /// Processes a queue with pending messages, writing them to the socket.
     #[inline]
     pub fn send_pending_messages(&mut self) -> Fallible<()> {
-        while let Some((msg, _)) = self.pending_messages.pop() {
+        while let Some(msg) = self.pending_messages.dequeue() {
             trace!(
                 "Attempting to send {} to {}",
                 ByteSize(msg.len() as u64).to_string_as(true),

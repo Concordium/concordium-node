@@ -68,7 +68,7 @@ rm -rf lmdb
 #############################################################################################################################
 section "Fetching compiler tools"
 
-wget -q https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/fpic-ghc-$GHC_VERSION.tar.gz
+curl https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/fpic-ghc-$GHC_VERSION.tar.gz -o fpic-ghc-$GHC_VERSION.tar.gz
 
 tar -xf fpic-ghc-$GHC_VERSION.tar.gz
 cp -r bootstrapped_out/* /
@@ -80,7 +80,7 @@ sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/crypto/r
 
 subsection "RUST: OK"
 
-wget -q https://downloads.haskell.org/~cabal/cabal-install-$CABAL_VERSION/cabal-install-$CABAL_VERSION-x86_64-unknown-linux.tar.xz
+curl https://downloads.haskell.org/~cabal/cabal-install-$CABAL_VERSION/cabal-install-$CABAL_VERSION-x86_64-unknown-linux.tar.xz -o cabal-install-$CABAL_VERSION-x86_64-unknown-linux.tar.xz
 tar -xf cabal-install-$CABAL_VERSION-x86_64-unknown-linux.tar.xz
 mkdir -p $HOME/.cabal/bin
 chmod +x cabal
@@ -90,7 +90,7 @@ cabal update
 
 subsection "CABAL: OK"
 
-wget -q https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz
+wget https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz
 tar -xf stack-$STACK_VERSION-linux-x86_64-static.tar.gz
 mkdir -p $HOME/.stack/bin
 mv stack-$STACK_VERSION-linux-x86_64-static/stack $HOME/.stack/bin
@@ -274,7 +274,7 @@ rm *a
 set +e
 
 for file in $(find . -type f -name "*.o"); do
-  nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
+  nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)\|\(T __clzsi2\)\|\(T rust_eh_personality\)" >> /dev/null;
   if [ $? -eq 0 ]; then
     echo "Removing file:"
     echo $file
@@ -294,7 +294,7 @@ ar x libwasmer_interp.a
 set +e
 
 for file in $(find . -type f -name "*.o"); do
-  nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)|\(T __clzsi2\)" >> /dev/null;
+  nm $file | grep "\(T __rust_alloc\)\|\(T __rdl_alloc\)\|\(T __clzsi2\)\|\(T rust_eh_personality\)" >> /dev/null;
   if [ $? -eq 0 ]; then
     echo "Removing file:"
     echo $file
