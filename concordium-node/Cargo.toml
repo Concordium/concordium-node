@@ -56,7 +56,6 @@ circular-queue = "0.2"
 digest = "0.9"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
 nohash-hasher = "0.2"
-priority-queue = "1.0"
 rayon = "1.4"
 noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
 bytesize = "1.0"
