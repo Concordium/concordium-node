@@ -28,7 +28,7 @@ FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.15 as haskel
 COPY ./CONSENSUS_VERSION /CONSENSUS_VERSION
 # Build middleware and concordium-client
 RUN --mount=type=ssh mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts && \
-    git clone --branch v0.3.0 --depth 1 --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
+    git clone --branch v0.3.1 --depth 1 --recurse-submodules git@gitlab.com:Concordium/consensus/simple-client.git && \
     cd simple-client && \
     mkdir -p ~/.stack/global-project/ && \
     echo -e "packages: []\nresolver: $(cat stack.yaml | grep ^resolver: | awk '{ print $NF }')" > ~/.stack/global-project/stack.yaml && \
