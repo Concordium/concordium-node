@@ -39,7 +39,7 @@ leaderElection
   -> IO (Maybe BlockProof)
 leaderElection nonce diff slot key lotPow = do
         let msg = leaderElectionMessage nonce slot
-        proof <- VRF.prove key msg
+        let proof = VRF.prove key msg
         let hsh = VRF.proofToHash proof
         return $ if VRF.hashToDouble hsh < electionProbability lotPow diff
                     then Just proof
@@ -72,10 +72,8 @@ blockNonceMessage nonce (Slot slot) =
     <> word64BE slot
 
 computeBlockNonce
-  :: LeadershipElectionNonce -> Slot -> BakerElectionPrivateKey -> IO BlockNonce
-computeBlockNonce nonce slot key = do
-        let msg = blockNonceMessage nonce slot
-        VRF.prove key msg
+  :: LeadershipElectionNonce -> Slot -> BakerElectionPrivateKey -> BlockNonce
+computeBlockNonce nonce slot key = VRF.prove key (blockNonceMessage nonce slot)
 
 verifyBlockNonce
   :: LeadershipElectionNonce

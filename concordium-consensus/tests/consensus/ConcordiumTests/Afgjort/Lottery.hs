@@ -6,27 +6,24 @@ import Concordium.Afgjort.Lottery
 
 import Numeric.SpecFunctions (incompleteBeta)
 import System.Random
-import System.IO.Unsafe
 
 import qualified Data.ByteString.Char8 as BS
 import Test.QuickCheck
-import Test.QuickCheck.Monadic
 import Test.Hspec
 
 ticketCheck :: Property
-ticketCheck = monadicIO $ do
-    keyp <- pick $ arbitrary
-    lotteryid <- pick $ BS.pack <$> arbitrary
-    tproof <- run $ makeTicketProof lotteryid keyp
-    let ticket = proofToTicket tproof 1 10
-    return $ checkTicket lotteryid (VRF.publicKey keyp) ticket 
+ticketCheck = property $ \keyp lid ->
+    let lotteryid = BS.pack lid
+        tproof = makeTicketProof lotteryid keyp
+        ticket = proofToTicket tproof 1 10
+    in checkTicket lotteryid (VRF.publicKey keyp) ticket
 
 ticketNoCheckOther :: Property
-ticketNoCheckOther = property $ \kp1 kp2 -> kp1 /= kp2 ==> monadicIO $ do
-    lotteryid <- pick $ BS.pack <$> arbitrary
-    tproof <- run $ makeTicketProof lotteryid kp1
-    let ticket = proofToTicket tproof 1 10
-    return $ not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
+ticketNoCheckOther = property $ \kp1 kp2 lid -> kp1 /= kp2 ==>
+    let lotteryid = BS.pack lid
+        tproof = makeTicketProof lotteryid kp1
+        ticket = proofToTicket tproof 1 10
+    in not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
 
 -- |Cumulative distribution function for the binomial distribution
 binCdf :: Integer -> Integer -> Double -> Double
@@ -56,7 +53,7 @@ doubleWeightTrial samples = pval samples (trials samples 0) p
         tw = 10
         p = fromIntegral w1 / fromIntegral (w1 + w2)
         trial r = let lid = BS.pack $ show r in
-                    if ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof lid keyp1) w1 tw) > ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof lid keyp2) w2 tw) then 1 else 0
+                    if ticketValue (proofToTicket (makeTicketProof lid keyp1) w1 tw) > ticketValue (proofToTicket (makeTicketProof lid keyp2) w2 tw) then 1 else 0
 
 tests :: Word -> Spec
 tests lvl = parallel $ describe "ConcordiumTests.Afgjort.Lottery" $ do
