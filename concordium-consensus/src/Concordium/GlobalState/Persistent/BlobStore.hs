@@ -208,6 +208,9 @@ class MonadIO m => MonadBlobStore m where
     flushStore = do
         bs <- blobStore <$> ask
         liftIO $ flushBlobStore bs
+    {-# INLINE storeRaw #-}
+    {-# INLINE loadRaw #-}
+    {-# INLINE flushStore #-}
 
 instance MonadBlobStore (ReaderT BlobStore IO)
 
@@ -237,12 +240,16 @@ class MonadBlobStore m => BlobStorable m a where
     -- may be replaced or supplemented with blob references.
     storeUpdate :: a -> m (Put, a)
     storeUpdate v = (,v) <$> store v
+    {-# INLINE store #-}
+    {-# INLINE load #-}
+    {-# INLINE storeUpdate #-}
 
 -- |Store a value in the blob store and return a reference to it.
 storeRef :: BlobStorable m a => a -> m (BlobRef a)
 storeRef v = do
     p <- runPut <$> store v
     storeRaw p
+{-# INLINE storeRef #-}
 
 -- |Store a value in the blob store, returning a reference to it and
 -- an updated value.  (See 'storeUpdate'.)
@@ -250,6 +257,7 @@ storeUpdateRef :: BlobStorable m a => a -> m (BlobRef a, a)
 storeUpdateRef v = do
     (p, v') <- storeUpdate v
     (, v') <$> storeRaw (runPut p)
+{-# INLINE storeUpdateRef #-}
 
 -- |Load a value from a reference.
 loadRef :: (HasCallStack, BlobStorable m a) => BlobRef a -> m a
@@ -258,6 +266,7 @@ loadRef ref = do
     case runGet load bs of
         Left e -> error (e ++ " :: " ++ show bs)
         Right !mv -> mv
+{-# INLINE loadRef #-}
 
 instance (MonadIO m, BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b) where
 
@@ -276,6 +285,9 @@ instance (MonadIO m, BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b
       a <- ma
       b <- mb
       return (a, b)
+  {-# INLINE store #-}
+  {-# INLINE load #-}
+  {-# INLINE storeUpdate #-}
 
 -- | A value that can be empty or contain another value. It is equivalent to `Maybe` but
 -- strict on its constructors and its `Serialize` instance depends on the inner type having
@@ -425,6 +437,11 @@ instance (Monad m, BlobStorable m a) => Reference m BufferedRef a where
 
   refUncache v@(BRMemory _ _) = BRBlobbed <$> getBRRef v
   refUncache b = return b
+  {-# INLINE refFlush #-}
+  {-# INLINE refLoad #-}
+  {-# INLINE refMake #-}
+  {-# INLINE refCache #-}
+  {-# INLINE refUncache #-}
 
 instance (BlobStorable m a, MHashableTo m H.Hash a) => MHashableTo m H.Hash (BufferedRef a) where
   getHashM ref = getHashM =<< refLoad ref
@@ -688,6 +705,11 @@ instance (Monad m, BlobStorable m a, MHashableTo m H.Hash a) => Reference m Hash
   refUncache ref = do
     br <- uncacheBuffered (bufferedReference ref)
     return $ ref {bufferedReference = br}
+  {-# INLINE refFlush #-}
+  {-# INLINE refLoad #-}
+  {-# INLINE refMake #-}
+  {-# INLINE refCache #-}
+  {-# INLINE refUncache #-}
 
 instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a)) where
     store Null = return $ put (refNull :: BlobRef a)
