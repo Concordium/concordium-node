@@ -89,8 +89,8 @@ testFinalizeABlock = do
   sk <- liftIO $ generateSecretKey
   state <- blockState genesisBlock
   -- Create the block and finrec
-  proof1 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof1"
-  proof2 <- liftIO $ VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
+  let proof1 = VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof1"
+  let proof2 = VRF.prove (fst $ randomKeyPair (mkStdGen 1)) "proof2"
   now <- liftIO $ getCurrentTime
   -- FIXME: Statehash is stubbed out with a placeholder hash
   pb <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 1 (bpHash genesisBlock) 0 proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now
