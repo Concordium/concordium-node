@@ -191,12 +191,12 @@ evalSkovT (SkovT a) h c = evalStateT (a h c)
 instance (Monad m) => MonadReader (SkovContext c) (SkovT h c m) where
     ask = SkovT (\_ c -> return c)
     local f (SkovT a) = SkovT (\h -> a h . f)
-    {-# INLINE ask #-}
-    {-# INLINE local #-}
+    {- - INLINE ask - -}
+    {- - INLINE local - -}
 
 instance MonadTrans (SkovT h c) where
     lift a = SkovT (\_ _ -> lift a)
-    {-# INLINE lift #-}
+    {- - INLINE lift - -}
 
 instance (Monad m, SkovTimerHandlers h c m) => TimerMonad (SkovT h c m) where
     type Timer (SkovT h c m) = SkovHandlerTimer h
@@ -275,15 +275,15 @@ instance (
         TreeStateMonad (SkovT h c m),
         FinalizationMonad (SkovT h c m))
         => SkovMonad (SkovT h c m) where
-    {-# INLINE storeBlock #-}
+    {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
-    {-# INLINE storeBakedBlock #-}
+    {- - INLINE storeBakedBlock - -}
     storeBakedBlock = doStoreBakedBlock
-    {-# INLINE receiveTransaction #-}
+    {- - INLINE receiveTransaction - -}
     receiveTransaction tr = doReceiveTransaction tr 0
-    {-# INLINE trustedFinalize #-}
+    {- - INLINE trustedFinalize - -}
     trustedFinalize = doTrustedFinalize
-    {-# INLINE handleCatchUpStatus #-}
+    {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
 
 class GlobalStateQuery gsconf => FinalizationConfig gsconf c | c -> gsconf where
@@ -300,7 +300,7 @@ instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf
     type FCState (SkovConfig gsconf (NoFinalization t) hconf) = FinalizationState t
     initialiseFinalization (SkovConfig _ NoFinalization _) gs = do
       ((),) <$> getFinalizationState (Proxy @ gsconf) gs Nothing
-    {-# INLINE initialiseFinalization #-}
+    {- - INLINE initialiseFinalization - -}
 
 -- This provides an implementation of FinalizationOutputMonad that does nothing.
 -- This should be fine, because NoFinalization indicates that no participation in
@@ -317,7 +317,7 @@ instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf
     type FCState (SkovConfig gsconf (ActiveFinalization t) hc) = FinalizationState t
     initialiseFinalization (SkovConfig _ (ActiveFinalization finInst) _) gs = do
       (finInst,) <$> getFinalizationState (Proxy @ gsconf) gs (Just finInst)
-    {-# INLINE initialiseFinalization #-}
+    {- - INLINE initialiseFinalization - -}
 
 instance (SkovFinalizationHandlers h m, Monad m)
         => FinalizationOutputMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m) where
@@ -345,7 +345,7 @@ instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf
     initialiseFinalization (SkovConfig _ (BufferedFinalization finInst) _) gs = do
       finalizationState <- getFinalizationState (Proxy @ gsconf) gs (Just finInst)
       return (finInst, BufferedFinalizationState finalizationState emptyFinalizationBuffer)
-    {-# INLINE initialiseFinalization #-}
+    {- - INLINE initialiseFinalization - -}
 
 instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, MonadLogger m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
         => FinalizationOutputMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m) where
@@ -408,33 +408,33 @@ instance (
 instance (FinalizationQueueLenses (FCState (SkovConfig gsconf finconf hconf)))
         => FinalizationQueueLenses (SkovState (SkovConfig gsconf finconf hconf)) where
     finQueue = lens ssFinState (\s fs -> s {ssFinState = fs}) . finQueue
-    {-# INLINE finQueue #-}
+    {- - INLINE finQueue - -}
 
 instance (FinalizationStateLenses (FCState (SkovConfig gsconf finconf hconf)) t)
         => FinalizationStateLenses (SkovState (SkovConfig gsconf finconf hconf)) t where
     finState = lens ssFinState (\s fs -> s {ssFinState = fs}) . finState
-    {-# INLINE finState #-}
+    {- - INLINE finState - -}
 
 instance (FinalizationBufferLenses (FCState (SkovConfig gsconf finconf hconf)))
         => FinalizationBufferLenses (SkovState (SkovConfig gsconf finconf hconf)) where
     finBuffer = lens ssFinState (\s fs -> s {ssFinState = fs}) . finBuffer
-    {-# INLINE finBuffer #-}
+    {- - INLINE finBuffer - -}
 
 instance (HasFinalizationInstance (FCContext (SkovConfig gsconf finconf hconf)))
         => HasFinalizationInstance (SkovContext (SkovConfig gsconf finconf hconf)) where
     finalizationInstance = finalizationInstance . scFinContext
-    {-# INLINE finalizationInstance #-}
+    {- - INLINE finalizationInstance - -}
 
 instance GSLogContext gsconf ~ a => HasLogContext a (SkovState (SkovConfig gsconf finconf hconf)) where
   logContext = lens scLogContext (\sc v -> sc{scLogContext = v })
-  {-# INLINE logContext #-}
+  {- - INLINE logContext - -}
 
 instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig gsconf finconf hconf)) where
     globalStateContext = lens (scGSContext) (\sc v -> sc{scGSContext = v})
-    {-# INLINE globalStateContext #-}
+    {- - INLINE globalStateContext - -}
 instance (g ~ GSState gsconf) => HasGlobalState g (SkovState (SkovConfig gsconf finconf hconf)) where
     globalState = lens (ssGSState) (\ss v -> ss {ssGSState = v})
-    {-# INLINE globalState #-}
+    {- - INLINE globalState - -}
 
 instance (MonadIO m,
           HandlerConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
@@ -444,9 +444,9 @@ instance (MonadIO m,
     onBlock bp = handleBlock bp
     onFinalize fr bp = handleFinalize fr bp
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
-    {-# INLINE onBlock #-}
-    {-# INLINE onFinalize #-}
-    {-# INLINE onPendingLive #-}
+    {- - INLINE onBlock - -}
+    {- - INLINE onFinalize - -}
+    {- - INLINE onPendingLive - -}
 
 deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (NoFinalization t) hc)) (SkovState (SkovConfig gc (NoFinalization t) hc)) (SkovT h (SkovConfig gc (NoFinalization t) hc) m))
     instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),

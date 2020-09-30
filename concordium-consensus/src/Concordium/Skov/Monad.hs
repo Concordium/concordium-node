@@ -175,25 +175,25 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     blockLastFinalizedIndex = lift . blockLastFinalizedIndex
     getCatchUpStatus = lift . getCatchUpStatus
     getRuntimeParameters = lift getRuntimeParameters
-    {-# INLINE resolveBlock #-}
-    {-# INLINE isFinalized #-}
-    {-# INLINE lastFinalizedBlock #-}
-    {-# INLINE lastFinalizedBlockWithRecord #-}
-    {-# INLINE blockAtFinIndex #-}
-    {-# INLINE recordAtFinIndex #-}
-    {-# INLINE getBirkParameters #-}
-    {-# INLINE getGenesisData #-}
-    {-# INLINE genesisBlock #-}
-    {-# INLINE getCurrentHeight #-}
-    {-# INLINE branchesFromTop #-}
-    {-# INLINE getBlocksAtHeight #-}
-    {-# INLINE queryBlockState #-}
-    {-# INLINE queryTransactionStatus #-}
-    {-# INLINE queryNonFinalizedTransactions #-}
-    {-# INLINE queryNextAccountNonce #-}
-    {-# INLINE blockLastFinalizedIndex #-}
-    {-# INLINE getCatchUpStatus #-}
-    {-# INLINE getRuntimeParameters #-}
+    {- - INLINE resolveBlock - -}
+    {- - INLINE isFinalized - -}
+    {- - INLINE lastFinalizedBlock - -}
+    {- - INLINE lastFinalizedBlockWithRecord - -}
+    {- - INLINE blockAtFinIndex - -}
+    {- - INLINE recordAtFinIndex - -}
+    {- - INLINE getBirkParameters - -}
+    {- - INLINE getGenesisData - -}
+    {- - INLINE genesisBlock - -}
+    {- - INLINE getCurrentHeight - -}
+    {- - INLINE branchesFromTop - -}
+    {- - INLINE getBlocksAtHeight - -}
+    {- - INLINE queryBlockState - -}
+    {- - INLINE queryTransactionStatus - -}
+    {- - INLINE queryNonFinalizedTransactions - -}
+    {- - INLINE queryNextAccountNonce - -}
+    {- - INLINE blockLastFinalizedIndex - -}
+    {- - INLINE getCatchUpStatus - -}
+    {- - INLINE getRuntimeParameters - -}
 
 deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
 
@@ -205,11 +205,11 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
-    {-# INLINE storeBlock #-}
-    {-# INLINE storeBakedBlock #-}
-    {-# INLINE receiveTransaction #-}
-    {-# INLINE trustedFinalize #-}
-    {-# INLINE handleCatchUpStatus #-}
+    {- - INLINE storeBlock - -}
+    {- - INLINE storeBakedBlock - -}
+    {- - INLINE receiveTransaction - -}
+    {- - INLINE trustedFinalize - -}
+    {- - INLINE handleCatchUpStatus - -}
 
 deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
 
@@ -232,7 +232,7 @@ newtype SkovQueryMonadT m a = SkovQueryMonadT { runSkovQueryMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO)
 
 instance MonadTrans SkovQueryMonadT where
-  {-# INLINE lift #-}
+  {- - INLINE lift - -}
   lift = SkovQueryMonadT
 
 deriving via (MGSTrans SkovQueryMonadT m) instance ATITypes m => ATITypes (SkovQueryMonadT m)
@@ -252,46 +252,46 @@ instance (Monad m,
           BlockStateQuery m,
           TS.TreeStateMonad m)
           => SkovQueryMonad (SkovQueryMonadT m) where
-    {-# INLINE resolveBlock #-}
+    {- - INLINE resolveBlock - -}
     resolveBlock = lift . doResolveBlock
-    {-# INLINE isFinalized #-}
+    {- - INLINE isFinalized - -}
     isFinalized = lift . doIsFinalized
-    {-# INLINE blockAtFinIndex #-}
+    {- - INLINE blockAtFinIndex - -}
     blockAtFinIndex = lift . TS.getFinalizedAtIndex
-    {-# INLINE recordAtFinIndex #-}
+    {- - INLINE recordAtFinIndex - -}
     recordAtFinIndex = lift . TS.getRecordAtIndex
-    {-# INLINE lastFinalizedBlock #-}
+    {- - INLINE lastFinalizedBlock - -}
     lastFinalizedBlock = lift (fst <$> TS.getLastFinalized)
-    {-# INLINE lastFinalizedBlockWithRecord #-}
+    {- - INLINE lastFinalizedBlockWithRecord - -}
     lastFinalizedBlockWithRecord = lift TS.getLastFinalized
-    {-# INLINE nextFinalizationIndex #-}
+    {- - INLINE nextFinalizationIndex - -}
     nextFinalizationIndex = lift TS.getNextFinalizationIndex
-    {-# INLINE getBirkParameters #-}
+    {- - INLINE getBirkParameters - -}
     getBirkParameters slot = lift . doGetBirkParameters slot
-    {-# INLINE getGenesisData #-}
+    {- - INLINE getGenesisData - -}
     getGenesisData = lift TS.getGenesisData
-    {-# INLINE genesisBlock #-}
+    {- - INLINE genesisBlock - -}
     genesisBlock = lift TS.getGenesisBlockPointer
-    {-# INLINE getCurrentHeight #-}
+    {- - INLINE getCurrentHeight - -}
     getCurrentHeight = lift doGetCurrentHeight
-    {-# INLINE branchesFromTop #-}
+    {- - INLINE branchesFromTop - -}
     branchesFromTop = lift doBranchesFromTop
-    {-# INLINE getBlocksAtHeight #-}
+    {- - INLINE getBlocksAtHeight - -}
     getBlocksAtHeight = lift . doGetBlocksAtHeight
-    {-# INLINE queryBlockState #-}
+    {- - INLINE queryBlockState - -}
     queryBlockState = lift . blockState
-    {-# INLINE blockLastFinalizedIndex #-}
+    {- - INLINE blockLastFinalizedIndex - -}
     blockLastFinalizedIndex = lift . doBlockLastFinalizedIndex
-    {-# INLINE getCatchUpStatus #-}
+    {- - INLINE getCatchUpStatus - -}
     getCatchUpStatus = doGetCatchUpStatus
-    {-# INLINE queryTransactionStatus #-}
+    {- - INLINE queryTransactionStatus - -}
     queryTransactionStatus = lift . TS.lookupTransaction
-    {-# INLINE queryNonFinalizedTransactions #-}
+    {- - INLINE queryNonFinalizedTransactions - -}
     queryNonFinalizedTransactions addr = lift $ do
       txs <- TS.getAccountNonFinalized addr minNonce
       return $! map getHash . concatMap (toList . snd) $ txs
 
-    {-# INLINE queryNextAccountNonce #-}
+    {- - INLINE queryNextAccountNonce - -}
     queryNextAccountNonce = lift . TS.getNextAccountNonce
 
 deriving via SkovQueryMonadT (GlobalStateM db c r g s m)
