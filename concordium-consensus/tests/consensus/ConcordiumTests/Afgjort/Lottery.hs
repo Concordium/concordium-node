@@ -9,23 +9,21 @@ import System.Random
 
 import qualified Data.ByteString.Char8 as BS
 import Test.QuickCheck
-import Test.QuickCheck.Monadic
 import Test.Hspec
 
 ticketCheck :: Property
-ticketCheck = monadicIO $ do
-    keyp <- pick $ arbitrary
-    lotteryid <- pick $ BS.pack <$> arbitrary
-    let tproof = makeTicketProof lotteryid keyp
-    let ticket = proofToTicket tproof 1 10
-    return $ checkTicket lotteryid (VRF.publicKey keyp) ticket 
+ticketCheck = property $ \keyp lid ->
+    let lotteryid = BS.pack lid
+        tproof = makeTicketProof lotteryid keyp
+        ticket = proofToTicket tproof 1 10
+    in checkTicket lotteryid (VRF.publicKey keyp) ticket
 
 ticketNoCheckOther :: Property
-ticketNoCheckOther = property $ \kp1 kp2 -> kp1 /= kp2 ==> monadicIO $ do
-    lotteryid <- pick $ BS.pack <$> arbitrary
-    let tproof = makeTicketProof lotteryid kp1
-    let ticket = proofToTicket tproof 1 10
-    return $ not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
+ticketNoCheckOther = property $ \kp1 kp2 lid -> kp1 /= kp2 ==>
+    let lotteryid = BS.pack lid
+        tproof = makeTicketProof lotteryid kp1
+        ticket = proofToTicket tproof 1 10
+    in not $ checkTicket lotteryid (VRF.publicKey kp2) ticket
 
 -- |Cumulative distribution function for the binomial distribution
 binCdf :: Integer -> Integer -> Double -> Double
