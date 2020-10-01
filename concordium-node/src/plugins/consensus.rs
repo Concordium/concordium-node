@@ -421,35 +421,41 @@ fn update_peer_states(
     request: &ConsensusMessage,
     consensus_result: ConsensusFfiResponse,
 ) {
+    use ConsensusFfiResponse::*;
     use PeerStatus::*;
 
     let source_peer = request.source_peer();
     let mut peers = write_or_die!(node.peers);
     if request.variant == CatchUpStatus {
-        if consensus_result.is_successful() {
-            // We are up-to-date with the peer.
-            peers.peer_states.insert(source_peer, UpToDate);
-            if peers.catch_up_peer == Some(source_peer) {
-                peers.catch_up_peer = None;
-            }
-        } else if consensus_result.is_pending() {
-            // We are behind the peer.
-            match peers.peer_states.insert(source_peer, Pending) {
-                Some(Pending) => {}
-                _ => peers.pending_queue.push_back(source_peer),
-            }
-            if peers.catch_up_peer == Some(source_peer) {
-                peers.catch_up_peer = None;
-            }
-        } else if consensus_result == ConsensusFfiResponse::ContinueCatchUp {
-            // This was not a response, and we're behind the peer, so
-            // set it to Pending if it's currently UpToDate.
-            if let Some(state) = peers.peer_states.get_mut(&source_peer) {
-                if let UpToDate = *state {
-                    *state = Pending;
-                    peers.pending_queue.push_back(source_peer);
+        match consensus_result {
+            Success => {
+                // We are up-to-date with the peer.
+                peers.peer_states.insert(source_peer, UpToDate);
+                if peers.catch_up_peer == Some(source_peer) {
+                    peers.catch_up_peer = None;
                 }
             }
+            PendingBlock | PendingFinalization => {
+                // We are behind the peer.
+                match peers.peer_states.insert(source_peer, Pending) {
+                    Some(Pending) => {}
+                    _ => peers.pending_queue.push_back(source_peer),
+                }
+                if peers.catch_up_peer == Some(source_peer) {
+                    peers.catch_up_peer = None;
+                }
+            }
+            ContinueCatchUp => {
+                // This was not a response, and we're behind the peer, so
+                // set it to Pending if it's currently UpToDate.
+                if let Some(state) = peers.peer_states.get_mut(&source_peer) {
+                    if let UpToDate = *state {
+                        *state = Pending;
+                        peers.pending_queue.push_back(source_peer);
+                    }
+                }
+            }
+            _ => {}
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
