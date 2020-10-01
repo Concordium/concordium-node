@@ -408,3 +408,10 @@ fromList l = do
 toMap :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k, Ord k) => TrieN fix k v -> m (Map.Map k v)
 toMap EmptyTrieN = return Map.empty
 toMap (TrieN _ t) = mapReduceF (\k v -> return (Map.singleton k v)) t
+
+instance (MonadBlobStore m, BlobStorable m v, Cacheable m v) => Cacheable m (TrieN (BufferedBlobbed BlobRef) k v) where
+    cache t@EmptyTrieN = return t
+    cache (TrieN s t) = TrieN s <$> cacheBufferedBlobbed innerCache t
+        where
+            innerCache (Tip v) = Tip <$> cache v
+            innerCache r = return r

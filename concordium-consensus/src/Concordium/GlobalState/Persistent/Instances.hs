@@ -71,7 +71,7 @@ instance Serialize PersistentInstanceParameters where
         return PersistentInstanceParameters{..}
 
 instance MonadBlobStore m => BlobStorable m PersistentInstanceParameters
-
+instance Applicative m => Cacheable m PersistentInstanceParameters
 
 -- |An instance of a smart contract.
 data PersistentInstance = PersistentInstance {
@@ -113,6 +113,12 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
             let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
             return PersistentInstance{..}
 
+instance MonadBlobStore m => Cacheable m PersistentInstance where
+    cache p@PersistentInstance{..} = do
+        -- TODO: We do not currently cache the pinstanceCachedParameters.
+        -- This behaviour is probably fine.
+        ips <- cache pinstanceParameters
+        return p{pinstanceParameters = ips}
 
 
 makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
@@ -301,6 +307,13 @@ instance (MonadBlobStore m) => BlobStorable m Instances where
         else do
             s <- get
             fmap (InstancesTree s) <$> load
+
+instance (MonadBlobStore m) => Cacheable m Instances where
+    cache i@InstancesEmpty = return i
+    cache (InstancesTree s r) = InstancesTree s <$> cacheBufferedBlobbed cacheIT r
+        where
+            cacheIT (Leaf l) = Leaf <$> cache l
+            cacheIT it = return it
 
 emptyInstances :: Instances
 emptyInstances = InstancesEmpty

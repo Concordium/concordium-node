@@ -113,6 +113,18 @@ instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount whe
         Nothing -> return Nothing
       return PersistentAccountEncryptedAmount {..}
 
+instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount where
+  cache PersistentAccountEncryptedAmount{..} = do
+    _selfAmount' <- cache _selfAmount
+    _incomingEncryptedAmounts' <- mapM cache _incomingEncryptedAmounts
+    _aggregatedAmount' <- mapM (\(a, b) -> (,b) <$> cache a) _aggregatedAmount
+    return PersistentAccountEncryptedAmount{
+      _selfAmount = _selfAmount',
+      _incomingEncryptedAmounts = _incomingEncryptedAmounts',
+      _aggregatedAmount = _aggregatedAmount',
+      ..
+    }
+
 data PersistentAccount = PersistentAccount {
   -- |Next available nonce for this account.
   _accountNonce :: !Nonce
@@ -152,13 +164,22 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
         mAccDataPtr <- load
         mAccountEncryptedAmountPtr <- load
         return $ do
-          _persistingData <- mAccDataPtr
-          _accountEncryptedAmount <- mAccountEncryptedAmountPtr
+          _persistingData <- cache =<< mAccDataPtr
+          _accountEncryptedAmount <- cache =<< mAccountEncryptedAmountPtr
           pData <- loadBufferedRef _persistingData
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
           let _accountHash = makeAccountHash _accountNonce _accountAmount eData' pData
           return PersistentAccount {..}
+
+instance (MonadBlobStore m) => Cacheable m PersistentAccount where
+    cache pa@PersistentAccount{..} = do
+        _accountEncryptedAmount' <- cache _accountEncryptedAmount
+        _persistingData' <- cache _persistingData
+        return pa{
+          _accountEncryptedAmount = _accountEncryptedAmount',
+          _persistingData = _persistingData'
+        }
 
 instance HashableTo Hash.Hash PersistentAccount where
   getHash = _accountHash

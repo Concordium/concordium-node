@@ -474,6 +474,9 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE loadBlockState #-}
     loadBlockState _ _ = error "Cannot load memory-based block state"
 
+    {-# INLINE cacheBlockState #-}
+    cacheBlockState = return
+
 -- |Initial block state.
 initialState :: BasicBirkParameters
              -> CryptographicParameters

@@ -273,7 +273,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
   (_lastFinalizationRecord, lfStoredBlock) <- liftIO (getLastBlock _db) >>= \case
       Left s -> logExceptionAndThrowTS $ DatabaseInvariantViolation s
       Right r -> return r
-  _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+  _lastFinalized <- liftIO (makeBlockPointerCached lfStoredBlock)
   let lastState = _bpState _lastFinalized
 
   -- The final thing we need to establish is the transaction table invariants.
@@ -313,6 +313,10 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
     makeBlockPointer :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.HashedPersistentBlockState)
     makeBlockPointer StoredBlock{..} = do
       bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState (blockStateHash sbBlock) sbState)) pbsc
+      makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
+    makeBlockPointerCached :: StoredBlock (TS.BlockStatePointer PBS.PersistentBlockState) -> IO (PersistentBlockPointer (ATIValues ati) PBS.HashedPersistentBlockState)
+    makeBlockPointerCached StoredBlock{..} = do
+      bstate <- runReaderT (PBS.runPersistentBlockStateMonad (cacheBlockState =<< loadBlockState (blockStateHash sbBlock) sbState)) pbsc
       makeBlockPointerFromPersistentBlock sbBlock bstate defaultValue sbInfo
 
 -- |Close the database associated with a 'SkovPersistentData'.
@@ -426,14 +430,14 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
         Just (BlockFinalized fidx) -> getFinalizedBlockAndFR fidx
         _ -> return Nothing
      where getFinalizedBlockAndFR fidx = do
-            gb <- use genesisBlockPointer
-            if bh == bpHash gb then
-              return $ Just (TS.BlockFinalized gb (FinalizationRecord 0 (bpHash gb) emptyFinalizationProof 0))
+            lf <- use lastFinalized
+            if bh == bpHash lf then do
+              lfr <- use lastFinalizationRecord
+              return $ Just (TS.BlockFinalized lf lfr)
             else do
-              lf <- use lastFinalized
-              if bh == bpHash lf then do
-                lfr <- use lastFinalizationRecord
-                return $ Just (TS.BlockFinalized lf lfr)
+              gb <- use genesisBlockPointer
+              if bh == bpHash gb then
+                return $ Just (TS.BlockFinalized gb (FinalizationRecord 0 (bpHash gb) emptyFinalizationProof 0))
               else do
                 b <- readBlock bh
                 fr <- readFinalizationRecord fidx

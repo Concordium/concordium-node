@@ -67,6 +67,11 @@ instance (BlobStorable m e, Serialize e, MHashableTo m H.Hash e) => MHashableTo 
             putLength $ length q
             mapM_ (\(t, h) -> put t >> put h) q
 
+instance (BlobStorable m e, Serialize e, MHashableTo m H.Hash e) => Cacheable m (UpdateQueue e) where
+    cache uq = do
+        q <- mapM (\(t, h) -> (t,) <$> cache h) (uqQueue uq)
+        return uq{uqQueue = q}
+
 -- |Update queue with no pending updates, and with the minimal next
 -- sequence number.
 emptyUpdateQueue :: UpdateQueue e
@@ -174,6 +179,15 @@ instance (MonadBlobStore m)
             pMicroGTUPerEuroQueue <- mMGTUPEQ
             return PendingUpdates{..}
 
+instance (MonadBlobStore m) => Cacheable m PendingUpdates where
+    cache PendingUpdates{..} =
+        PendingUpdates
+            <$> cache pAuthorizationQueue
+            <*> cache pProtocolQueue
+            <*> cache pElectionDifficultyQueue
+            <*> cache pEuroPerEnergyQueue
+            <*> cache pMicroGTUPerEuroQueue
+
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: forall m. (MonadBlobStore m) => m PendingUpdates
 emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e
@@ -253,6 +267,13 @@ instance (MonadBlobStore m)
             currentParameters <- mCP
             pendingUpdates <- mPU
             return Updates{..}
+
+instance (MonadBlobStore m) => Cacheable m Updates where
+    cache Updates{..} = Updates
+        <$> cache currentAuthorizations
+        <*> cache currentProtocolUpdate
+        <*> cache currentParameters
+        <*> cache pendingUpdates
 
 -- |An initial 'Updates' with the given initial 'Authorizations'
 -- and 'ChainParameters'.
