@@ -131,6 +131,16 @@ instance MonadBlobStore m => BlobStorable m Accounts where
             rRIH <- mrRIH
             return $ Accounts {accountRegIds = Null, accountRegIdHistory = RegIdHistory [] rRIH, ..}
 
+instance MonadBlobStore m => Cacheable m Accounts where
+    cache accts0 = do
+        (_, accts@Accounts{..}) <- loadRegIds accts0
+        acctMap <- cache accountMap
+        acctTable <- cache accountTable
+        return accts{
+            accountMap = acctMap,
+            accountTable = acctTable
+        }
+
 -- |An 'Accounts' with no accounts.
 emptyAccounts :: Accounts
 emptyAccounts = Accounts Trie.empty L.empty (Some Set.empty) (RegIdHistory [] Null)

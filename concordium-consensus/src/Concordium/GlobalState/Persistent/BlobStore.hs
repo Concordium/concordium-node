@@ -9,6 +9,7 @@
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE RankNTypes #-}
 
 -- |
 --    Module      : Concordium.GlobalState.Persistent.BlobStore
@@ -603,6 +604,34 @@ instance (forall a. Show (ref a)) => FixShowable (BufferedBlobbed ref) where
     showFix sh (LBMemory _ v) = "{" ++ (sh (showFix sh <$> v)) ++ "}"
     showFix sh (LBCached r) = showFix sh r
 
+-- |Cached a fixed point value (using the 'CachedBlobbed' combinator) given
+-- a function for caching the functor.
+cacheCachedBlobbed :: (BlobStorable m (f (Blobbed BlobRef f)), Traversable f)
+    => (forall a. f a -> m (f a))
+    -- ^Function for caching the functor
+    -> (CachedBlobbed BlobRef f)
+    -- ^Value to cache
+    -> m (CachedBlobbed BlobRef f)
+cacheCachedBlobbed cacheF (CBUncached blobbed) = do
+    unblobbed <- cacheF =<< mapM (cacheCachedBlobbed cacheF . CBUncached) =<< mproject blobbed
+    return (CBCached blobbed unblobbed)
+cacheCachedBlobbed cacheF (CBCached blobbed unblobbed) = do
+    unblobbed' <- cacheF =<< mapM (cacheCachedBlobbed cacheF) unblobbed
+    return (CBCached blobbed unblobbed')
+
+-- |Cached a fixed point value (using the 'BufferedBlobbed' combinator) given
+-- a function for caching the functor.
+cacheBufferedBlobbed :: (BlobStorable m (f (Blobbed BlobRef f)), Traversable f)
+    => (forall a. f a -> m (f a))
+    -- ^Function for caching the functor
+    -> BufferedBlobbed BlobRef f
+    -- ^Value to cache
+    -> m (BufferedBlobbed BlobRef f)
+cacheBufferedBlobbed cacheF (LBMemory ref inner) = do
+    inner' <- cacheF =<< mapM (cacheBufferedBlobbed cacheF) inner
+    return (LBMemory ref inner')
+cacheBufferedBlobbed cacheF (LBCached c) = LBCached <$> cacheCachedBlobbed cacheF c
+
 -- BlobStorable instances
 instance MonadBlobStore m => BlobStorable m IPS.IdentityProviders
 instance MonadBlobStore m => BlobStorable m ARS.AnonymityRevokers
@@ -702,3 +731,49 @@ instance (BlobStorable m a, MHashableTo m H.Hash a) => BlobStorable m (Nullable 
     storeUpdate (Some v) = do
         (r, v') <- storeUpdate v
         return (r, Some v')
+
+-- |This class abstracts values that can be cached in some monad.
+class Cacheable m a where
+    -- |Recursively cache a value of type @a@.
+    cache :: a -> m a
+    default cache :: (Applicative m) => a -> m a
+    cache = pure
+instance (Applicative m, Cacheable m a) => Cacheable m (Nullable a) where
+    cache Null = pure Null
+    cache (Some v) = Some <$> cache v
+
+instance (BlobStorable m a, Cacheable m a) => Cacheable m (BufferedRef a) where
+    cache BRBlobbed{..} = do
+        brValue <- cache =<< loadRef brRef
+        brIORef <- liftIO $ newIORef brRef
+        return BRMemory{..}
+    cache br@BRMemory{..} = do
+        cachedVal <- cache brValue
+        return br{brValue = cachedVal}
+
+instance (MHashableTo m H.Hash a, BlobStorable m a, Cacheable m a) => Cacheable m (HashedBufferedRef a) where
+  cache (HashedBufferedRef ref Nothing) = do
+    ref' <- cache ref
+    hsh <- getHashM =<< refLoad ref'
+    return (HashedBufferedRef ref' (Just hsh))
+  cache (HashedBufferedRef ref hsh) = do
+    ref' <- cache ref
+    return (HashedBufferedRef ref' hsh)
+
+instance (Applicative m, Cacheable m a, Cacheable m b) => Cacheable m (a, b) where
+    cache (x, y) = (,) <$> cache x <*> cache y
+
+-- Required for caching PersistentAccount
+instance (Applicative m) => Cacheable m EncryptedAmount
+instance (Applicative m) => Cacheable m PersistingAccountData
+-- Required for caching AccountIndexes
+instance (Applicative m) => Cacheable m Word64
+-- Required for caching BlockStatePointers
+instance (Applicative m) => Cacheable m IPS.IdentityProviders
+instance (Applicative m) => Cacheable m ARS.AnonymityRevokers
+instance (Applicative m) => Cacheable m Parameters.CryptographicParameters
+-- Required for caching Bakers
+instance (Applicative m) => Cacheable m BakerInfo
+instance (Applicative m) => Cacheable m Amount
+-- Required for caching Updates
+instance (Applicative m) => Cacheable m (StoreSerialized a)

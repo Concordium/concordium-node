@@ -554,10 +554,14 @@ instance (MonadLogger m,
         p1 <- coerceBSML $ saveBlockState bs1
         p2 <- coerceBSMR $ saveBlockState bs2
         return $ (p1, p2)
-    loadBlockState h(p1, p2) = do
+    loadBlockState h (p1, p2) = do
         bs1 <- coerceBSML $ loadBlockState h p1
         bs2 <- coerceBSMR $ loadBlockState h p2
         return (bs1, bs2)
+    cacheBlockState (bs1, bs2) = do
+        bs1' <- coerceBSML $ cacheBlockState bs1
+        bs2' <- coerceBSMR $ cacheBlockState bs2
+        return (bs1', bs2')
 
 {-# INLINE coerceGSML #-}
 coerceGSML :: GSML lc r ls s m a -> TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m a

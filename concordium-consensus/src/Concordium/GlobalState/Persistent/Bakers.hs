@@ -79,6 +79,12 @@ instance MonadBlobStore m => BlobStorable m PersistentBakers where
         (_bakersByKey, _bakerTotalStake, _aggregationKeys) <- foldM collectBakerInfo (Map.empty, 0, Set.empty) [(bid, b) | (bid, Some b) <- list]
         return PersistentBakers {..}
 
+instance MonadBlobStore m => Cacheable m PersistentBakers where
+  cache pbs = do
+    bm <- cache (_bakerMap pbs)
+    return pbs{_bakerMap = bm}
+
+
 -- |Convert an in-memory 'Basic.Bakers' value to a persistent 'PersistentBakers' value.
 -- The new object is not yet stored on disk.
 makePersistentBakers :: MonadBlobStore m => Basic.Bakers -> m PersistentBakers

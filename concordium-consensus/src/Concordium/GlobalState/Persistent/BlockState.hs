@@ -153,6 +153,29 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
             bspUpdates <- mUpdates
             return $! BlockStatePointers{..}
 
+instance MonadBlobStore m => Cacheable m BlockStatePointers where
+    cache BlockStatePointers{..} = do
+        accts <- cache bspAccounts
+        insts <- cache bspInstances
+        mods <- cache bspModules
+        ips <- cache bspIdentityProviders
+        ars <- cache bspAnonymityRevokers
+        birkParams <- cache bspBirkParameters
+        cryptoParams <- cache bspCryptographicParameters
+        upds <- cache bspUpdates
+        return BlockStatePointers{
+            bspAccounts = accts,
+            bspInstances = insts,
+            bspModules = mods,
+            bspBank = bspBank,
+            bspIdentityProviders = ips,
+            bspAnonymityRevokers = ars,
+            bspBirkParameters = birkParams,
+            bspCryptographicParameters = cryptoParams,
+            bspUpdates = upds,
+            bspTransactionOutcomes = bspTransactionOutcomes
+        }
+
 data PersistentModule = PersistentModule {
     pmInterface :: !Wasm.ModuleInterface,
     pmIndex :: !ModuleIndex
@@ -169,6 +192,7 @@ instance Serialize PersistentModule where
     get = PersistentModule <$> get <*> get
 
 instance MonadBlobStore m => BlobStorable m PersistentModule
+instance Applicative m => Cacheable m PersistentModule
 
 data Modules = Modules {
     modules :: Trie.TrieN (BufferedBlobbed BlobRef) ModuleRef PersistentModule,
@@ -200,6 +224,11 @@ instance HashableTo H.Hash Modules where
   getHash Modules {..} = runningHash
 
 instance Monad m => MHashableTo m H.Hash Modules
+
+instance (MonadBlobStore m) => Cacheable m Modules where
+    cache m = do
+        modules' <- cache (modules m)
+        return m{modules = modules'}
 
 makePersistentModules :: MonadIO m => TransientMods.Modules -> m Modules
 makePersistentModules TransientMods.Modules{..} = do
@@ -261,6 +290,18 @@ instance MonadBlobStore m => BlobStorable m PersistentBirkParameters where
             _birkPrevEpochBakers <- mpebs
             _birkLotteryBakers <- mlbs
             return PersistentBirkParameters{..}
+
+instance MonadBlobStore m => Cacheable m PersistentBirkParameters where
+    cache PersistentBirkParameters{..} = do
+        cur <- cache _birkCurrentBakers
+        prev <- cache _birkPrevEpochBakers
+        lot <- cache _birkLotteryBakers
+        return PersistentBirkParameters{
+            _birkCurrentBakers = cur,
+            _birkPrevEpochBakers = prev,
+            _birkLotteryBakers = lot,
+            ..
+        }
 
 makePersistentBirkParameters :: MonadBlobStore m => Basic.BasicBirkParameters -> m PersistentBirkParameters
 makePersistentBirkParameters Basic.BasicBirkParameters{..} = do
@@ -998,3 +1039,9 @@ instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m
     loadBlockState hpbsHash ref = do
         hpbsPointers <- liftIO $ newIORef $ BRBlobbed ref
         return HashedPersistentBlockState{..}
+
+    cacheBlockState pbs@HashedPersistentBlockState{..} = do
+        bsp <- liftIO $ readIORef hpbsPointers
+        bsp' <- cache bsp
+        liftIO $ writeIORef hpbsPointers bsp'
+        return pbs

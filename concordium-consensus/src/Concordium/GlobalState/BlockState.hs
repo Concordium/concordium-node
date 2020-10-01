@@ -480,6 +480,10 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- |Load a block state from a reference, given its state hash.
     loadBlockState :: StateHash -> BlockStateRef m -> m (BlockState m)
 
+    -- |Ensure that the given block state is full loaded into memory
+    -- (where applicable).
+    cacheBlockState :: BlockState m -> m (BlockState m)
+
 instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
     getSeedState = lift . getSeedState
     updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
@@ -638,6 +642,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
     loadBlockState hsh = lift . loadBlockState hsh
+    cacheBlockState = lift . cacheBlockState
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -645,6 +650,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE archiveBlockState #-}
     {-# INLINE saveBlockState #-}
     {-# INLINE loadBlockState #-}
+    {-# INLINE cacheBlockState #-}
 
 deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
