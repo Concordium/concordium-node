@@ -5,7 +5,26 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Concordium.GlobalState.Persistent.BlockState where
+module Concordium.GlobalState.Persistent.BlockState (
+    PersistentBlockState,
+    BlockStatePointers(..),
+    HashedPersistentBlockState(..),
+    hashBlockState,
+    PersistentModule(..),
+    persistentModuleToModule,
+    Modules(..),
+    emptyModules,
+    makePersistentModules,
+    PersistentBirkParameters(..),
+    makePersistentBirkParameters,
+    makePersistent,
+    initialPersistentState,
+    emptyBlockState,
+    fromPersistentInstance,
+    PersistentBlockStateContext(..),
+    PersistentState,
+    PersistentBlockStateMonad(..)
+) where
 
 import Data.Serialize
 import qualified Data.HashMap.Strict as HM
@@ -417,12 +436,14 @@ fromPersistentInstance pbs Instances.PersistentInstance{..} = do
 
 loadPBS :: MonadBlobStore m => PersistentBlockState -> m BlockStatePointers
 loadPBS = loadBufferedRef <=< liftIO . readIORef
+{-# INLINE loadPBS #-}
 
 storePBS :: MonadBlobStore m => PersistentBlockState -> BlockStatePointers -> m PersistentBlockState
 storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
     writeIORef pbs pbsp
     return pbs
+{-# INLINE storePBS #-}
 
 doGetModule :: MonadBlobStore m => PersistentBlockState -> ModuleRef -> m (Maybe Module)
 doGetModule s modRef = do
@@ -850,23 +871,6 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
     getCurrentElectionDifficulty = doGetCurrentElectionDifficulty . hpbsPointers
     getUpdates = doGetUpdates . hpbsPointers
-    {-# INLINE getModule #-}
-    {-# INLINE getAccount #-}
-    {-# INLINE getContractInstance #-}
-    {-# INLINE getModuleList #-}
-    {-# INLINE getAccountList #-}
-    {-# INLINE getContractInstanceList #-}
-    {-# INLINE getBlockBirkParameters #-}
-    {-# INLINE getRewardStatus #-}
-    {-# INLINE getTransactionOutcome #-}
-    {-# INLINE getOutcomes #-}
-    {-# INLINE getSpecialOutcomes #-}
-    {-# INLINE getAllIdentityProviders #-}
-    {-# INLINE getAllAnonymityRevokers #-}
-    {-# INLINE getElectionDifficulty #-}
-    {-# INLINE getNextUpdateSequenceNumber #-}
-    {-# INLINE getCurrentElectionDifficulty #-}
-    {-# INLINE getUpdates #-}
 
 doGetBakerStake :: MonadBlobStore m => PersistentBakers -> BakerId -> m (Maybe Amount)
 doGetBakerStake bs bid =
@@ -973,40 +977,8 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
-    {-# INLINE bsoGetModule #-}
-    {-# INLINE bsoGetAccount #-}
-    {-# INLINE bsoGetInstance #-}
-    {-# INLINE bsoRegIdExists #-}
-    {-# INLINE bsoPutNewAccount #-}
-    {-# INLINE bsoPutNewInstance #-}
-    {-# INLINE bsoPutNewModule #-}
-    {-# INLINE bsoModifyAccount #-}
-    {-# INLINE bsoModifyInstance #-}
-    {-# INLINE bsoNotifyExecutionCost #-}
-    {-# INLINE bsoNotifyIdentityIssuerCredential #-}
-    {-# INLINE bsoGetExecutionCost #-}
-    {-# INLINE bsoNotifyEncryptedBalanceChange #-}
-    {-# INLINE bsoGetBlockBirkParameters #-}
-    {-# INLINE bsoAddBaker #-}
-    {-# INLINE bsoUpdateBaker #-}
-    {-# INLINE bsoRemoveBaker #-}
-    {-# INLINE bsoSetInflation #-}
-    {-# INLINE bsoMint #-}
-    {-# INLINE bsoDecrementCentralBankGTU #-}
-    {-# INLINE bsoDelegateStake #-}
-    {-# INLINE bsoGetIdentityProvider #-}
-    {-# INLINE bsoGetAnonymityRevokers #-}
-    {-# INLINE bsoGetCryptoParams #-}
-    {-# INLINE bsoSetTransactionOutcomes #-}
-    {-# INLINE bsoAddSpecialTransactionOutcome #-}
-    {-# INLINE bsoUpdateBirkParameters #-}
-    {-# INLINE bsoProcessUpdateQueues #-}
-    {-# INLINE bsoGetCurrentAuthorizations #-}
-    {-# INLINE bsoGetNextUpdateSequenceNumber #-}
-    {-# INLINE bsoEnqueueUpdate #-}
 
 instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m) where
-    {-# INLINE thawBlockState #-}
     thawBlockState HashedPersistentBlockState{..} = do
             bsp <- loadPBS hpbsPointers
             pbsp <- makeBufferedRef bsp {
@@ -1014,16 +986,12 @@ instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m
                     }
             liftIO $ newIORef $! pbsp
 
-    {-# INLINE freezeBlockState #-}
     freezeBlockState pbs = hashBlockState pbs
 
-    {-# INLINE dropUpdatableBlockState #-}
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
-    {-# INLINE purgeBlockState #-}
     purgeBlockState pbs = liftIO $ writeIORef (hpbsPointers pbs) (error "Block state purged")
 
-    {-# INLINE archiveBlockState #-}
     archiveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers
         inner' <- uncacheBuffered inner
