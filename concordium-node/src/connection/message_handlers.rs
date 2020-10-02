@@ -2,7 +2,7 @@
 
 use crate::{
     common::{get_current_stamp, p2p_peer::PeerStats, P2PNodeId, PeerType},
-    configuration::{COMPATIBLE_CLIENT_VERSIONS, MAX_PEER_NETWORKS},
+    configuration::{is_compatible_version, MAX_PEER_NETWORKS},
     connection::{ConnChange, Connection},
     network::{
         Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
@@ -87,7 +87,7 @@ impl Connection {
         if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
             bail!("Rejecting handshake: banned node");
         }
-        if !COMPATIBLE_CLIENT_VERSIONS.contains(&handshake.version.to_string().as_str()) {
+        if !is_compatible_version(&handshake.version) {
             bail!("Rejecting handshake: incompatible client");
         }
         if handshake.networks.len() > MAX_PEER_NETWORKS {
