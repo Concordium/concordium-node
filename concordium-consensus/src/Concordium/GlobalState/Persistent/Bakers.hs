@@ -204,23 +204,30 @@ removeBaker bid !bakers = do
                             & (bakerTotalStake %~ subtract stake)
                             & aggregationKeys %~ Set.delete (bkr ^. bakerAggregationVerifyKey))
 
+-- | Modifies the stake of a baker.  If no 'BakerId' is given, or there is no
+-- baker with the given 'BakerId', no change is made.
 modifyStake :: MonadBlobStore m => Maybe BakerId -> AmountDelta -> PersistentBakers -> m PersistentBakers
 modifyStake (Just bid) delta bakers = do
     let bInfoMap = bakers ^. bakerMap
     updated <- L.update thisUpdate bid bInfoMap
     case updated of
-      Nothing -> undefined
-      Just (_, newBakerMap) ->
+      Nothing -> return bakers
+      Just (True, newBakerMap) ->
         return $
           bakers & (bakerMap .~ newBakerMap)
             & (bakerTotalStake %~ applyAmountDelta delta)
+      Just (False, _) -> return bakers
     where
-      thisUpdate Null = return ((), Null)
-      thisUpdate (Some (bakerRef, stake)) = return ((), Some (bakerRef, applyAmountDelta delta stake))
+      thisUpdate Null = return (False, Null)
+      thisUpdate (Some (bakerRef, stake)) = return (True, Some (bakerRef, applyAmountDelta delta stake))
 modifyStake _ _ bakers = return bakers
 
+-- | Adds an amount to the stake of a baker.  If no 'BakerId' is given, or there is no
+-- baker with the given 'BakerId', no change is made.
 addStake :: MonadBlobStore m => Maybe BakerId -> Amount -> PersistentBakers -> m PersistentBakers
 addStake bid amt = modifyStake bid (amountToDelta amt)
 
+-- | Removes an amount from the stake of a baker.  If no 'BakerId' is given, or there is no
+-- baker with the given 'BakerId', no change is made.
 removeStake :: MonadBlobStore m => Maybe BakerId -> Amount -> PersistentBakers -> m PersistentBakers
 removeStake bid amt = modifyStake bid (- amountToDelta amt)
