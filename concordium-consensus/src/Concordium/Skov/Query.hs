@@ -17,33 +17,33 @@ import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Skov.CatchUp.Types
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
-{-# INLINE doResolveBlock #-}
+{- - INLINE doResolveBlock - -}
 doResolveBlock cbp = getBlockStatus cbp <&> \case
         Just (BlockAlive bp) -> Just bp
         Just (BlockFinalized bp _) -> Just bp
         _ -> Nothing
 
 doIsFinalized :: TreeStateMonad m => BlockHash -> m Bool
-{-# INLINE doIsFinalized #-}
+{- - INLINE doIsFinalized - -}
 doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
 doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointerType m -> m (BirkParameters m)
-{-# INLINE doGetBirkParameters #-}
+{- - INLINE doGetBirkParameters - -}
 doGetBirkParameters slot bp = do
         params <- getBlockBirkParameters =<< blockState bp
         slotDependentBirkParameters slot params
 
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
-{-# INLINE doGetCurrentHeight #-}
+{- - INLINE doGetCurrentHeight - -}
 doGetCurrentHeight = do
         lfHeight <- getLastFinalizedHeight
         branchLen <- fromIntegral . Seq.length <$> getBranches
         return $ lfHeight + branchLen
 
 doBranchesFromTop :: TreeStateMonad m => m [[BlockPointerType m]]
-{-# INLINE doBranchesFromTop #-}
+{- - INLINE doBranchesFromTop - -}
 doBranchesFromTop = revSeqToList <$> getBranches
     where
         revSeqToList Seq.Empty = []
@@ -51,7 +51,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
 
 
 doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointerType m]
-{-# INLINE doGetBlocksAtHeight #-}
+{- - INLINE doGetBlocksAtHeight - -}
 doGetBlocksAtHeight h = do
         lastFin <- fst <$> getLastFinalized
         case compare h (bpHeight lastFin) of
@@ -66,7 +66,7 @@ doGetBlocksAtHeight h = do
                 return (toList mb)
 
 doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
-{-# INLINE doBlockLastFinalizedIndex #-}
+{- - INLINE doBlockLastFinalizedIndex - -}
 doBlockLastFinalizedIndex bp = getBlockStatus (bpLastFinalizedHash bp) <&> \case
         Just (BlockFinalized _ fr) -> finalizationIndex fr
         _ -> error "Invariant violation: last finalized block is not finalized."

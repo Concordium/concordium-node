@@ -408,7 +408,7 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
 doStoreBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => PendingBlock -> m UpdateResult
-{-# INLINE doStoreBlock #-}
+{- - INLINE doStoreBlock - -}
 doStoreBlock pb@GB.PendingBlock{..} = do
     let cbp = getHash pb
         BakedBlock{..} = pbBlock
@@ -443,7 +443,7 @@ doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov
         -> BlockPointerType m     -- ^Last finalized pointer
         -> ExecutionResult m  -- ^Result of block execution.
         -> m (BlockPointerType m)
-{-# INLINE doStoreBakedBlock #-}
+{- - INLINE doStoreBakedBlock - -}
 doStoreBakedBlock = \pb parent lastFin result -> do
         bp <- blockArrive pb parent lastFin result
         finalizationBlockArrival bp
