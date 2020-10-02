@@ -17,10 +17,14 @@ pub const APP_INFO: AppInfo = AppInfo {
     author: "concordium",
 };
 
-/// A list of peer client versions applicable for connections.
-// it doesn't contain CARGO_PKG_VERSION (or any other dynamic components)
-// so that it is impossible to omit manual inspection upon future updates
-pub const COMPATIBLE_CLIENT_VERSIONS: [&str; 2] = ["0.3.1", "0.3.2"];
+/// Check that the 'other' version is compatible with our version. This is by
+/// default permissive, and future versions should be mindful to disallow older
+/// incompatible ones.
+/// When we reach version 1 we should stick to major versions being for breaking
+/// changes.
+pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
+    other.major == 0 && other.minor == 3 && other.patch >= 2
+}
 
 /// The maximum size of objects accepted from the network.
 pub const PROTOCOL_MAX_MESSAGE_SIZE: u32 = 20_971_520; // 20 MIB
