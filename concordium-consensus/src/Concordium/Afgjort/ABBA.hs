@@ -338,7 +338,7 @@ makeTicket :: (ABBAMonad sig m) => Phase -> m TicketProof
 {-# INLINE makeTicket #-}
 makeTicket phase = do
         a <- ask
-        liftIO $ makeTicketProof (a ^. lotteryId phase) (privateKey a)
+        return $ makeTicketProof (a ^. lotteryId phase) (privateKey a)
 
 {-# INLINE unlessCompleted #-}
 unlessCompleted :: (ABBAMonad sig m) => m () -> m ()
