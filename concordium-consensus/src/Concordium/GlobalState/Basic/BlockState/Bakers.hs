@@ -199,22 +199,30 @@ removeBaker bid !bakers =
                             & (bakerTotalStake %~ subtract (bkr ^. bakerStake))
                             & aggregationKeys %~ Set.delete (bkr ^. bakerInfo . bakerAggregationVerifyKey))
 
+-- | Modifies the stake of a baker.  If no 'BakerId' is given, or there is no
+-- baker with the given 'BakerId', no change is made.
 modifyStake :: Maybe BakerId -> AmountDelta -> Bakers -> Bakers
 modifyStake (Just bid) delta bakers = case L.lookupMaybe bid (bakers ^. bakerMap) of
         Nothing -> bakers
         Just _ ->
           let bMap = bakers ^. bakerMap
-              upd e = ((), (\f -> f {_bakerStake = applyAmountDelta delta (_bakerStake f)}) <$> e)
-              mNewBakerMap = snd <$> L.update upd bid bMap
+              upd Nothing = (False, Nothing)
+              upd (Just f) = (True, Just (f {_bakerStake = applyAmountDelta delta (_bakerStake f)}))
+              mNewBakerMap = L.update upd bid bMap
            in case mNewBakerMap of
-                Just nbm ->
+                Just (True, nbm) ->
                   bakers & bakerMap .~ nbm
                     & bakerTotalStake %~ applyAmountDelta delta
-                _ -> undefined
+                _ -> bakers
 modifyStake _ _ bakers = bakers
 
+
+-- | Adds an amount to the stake of a baker.  If no 'BakerId' is given, or there is no
+-- baker with the given 'BakerId', no change is made.
 addStake :: Maybe BakerId -> Amount -> Bakers -> Bakers
 addStake bid amt = modifyStake bid (amountToDelta amt)
 
+-- | Removes an amount from the stake of a baker.  If no 'BakerId' is given, or there is no
+-- baker with the given 'BakerId', no change is made.
 removeStake :: Maybe BakerId -> Amount -> Bakers -> Bakers
 removeStake bid amt = modifyStake bid (- amountToDelta amt)
