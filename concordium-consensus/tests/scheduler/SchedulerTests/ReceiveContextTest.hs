@@ -95,6 +95,6 @@ checkReceiveResult (suc, fails, instances) = do
 
 tests :: SpecWith ()
 tests =
-  describe "Receive context in transactions." $
+  xdescribe "Receive context in transactions." $
     specify "Passing receive context to contract." $
       testReceive >>= checkReceiveResult
