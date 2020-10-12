@@ -229,6 +229,10 @@ impl P2PNode {
             .map(|(_, conn)| conn)
             .chain(write_or_die!(self.connections()).par_iter_mut().map(|(_, conn)| conn))
             .for_each(|conn| {
+                if events.iter().any(|event| event.token() == conn.token && event.is_writable()) {
+                    conn.low_level.notify_writable();
+                }
+
                 if let Err(e) =
                     conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
                 {
