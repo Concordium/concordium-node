@@ -434,7 +434,8 @@ impl Connection {
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
-                ReadResult::Incomplete | ReadResult::WouldBlock => return Ok(()),
+                ReadResult::Incomplete => {}
+                ReadResult::WouldBlock => return Ok(()),
             }
         }
     }

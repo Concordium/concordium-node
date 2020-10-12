@@ -19,6 +19,13 @@ use std::{
     sync::{Arc, Weak},
 };
 
+#[cfg(windows)]
+#[repr(C)]
+struct linger {
+    pub l_onoff: libc::c_ushort,
+    pub l_linger: libc::c_ushort,
+}
+
 /// The size of the noise message payload.
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
@@ -78,6 +85,9 @@ impl SocketBuffer {
     fn shift(&mut self, offset: usize) {
         self.offset += offset;
         self.remaining -= offset;
+        if self.remaining == 0 {
+            self.offset = 0;
+        }
     }
 
     #[inline]
@@ -96,6 +106,8 @@ pub enum ReadResult {
     Incomplete,
     /// The current attempt to read from the socket would be blocking.
     WouldBlock,
+    /// The read returned 0 bytes, indicating a closed socket.
+    Closed,
 }
 
 /// The `Connection`'s socket, noise session and some helper objects.
@@ -112,6 +124,12 @@ pub struct ConnectionLowLevel {
     output_queue: VecDeque<u8>,
     /// The desired size of a single write to the socket.
     write_size: usize,
+    /// Whether the socket is writable.
+    is_writable: bool,
+    /// Whether the socket has been initialized
+    is_initialized: bool,
+    /// If specified, the linger value to set for the socket
+    so_linger: Option<usize>,
 }
 
 macro_rules! recv_xx_msg {
@@ -176,6 +194,9 @@ impl ConnectionLowLevel {
             }
         }
 
+        let so_linger = if is_initiator {handler.config.socket_so_linger} else {None};
+
+        #[cfg(not(windows))]
         if let Err(e) = socket.set_nodelay(true) {
             error!("Could not set TCP_NODELAY due to {}", e);
         }
@@ -198,8 +219,57 @@ impl ConnectionLowLevel {
             incoming_msg: IncomingMessage::default(),
             output_queue: VecDeque::with_capacity(WRITE_QUEUE_ALLOC),
             write_size,
+            is_writable: false,
+            is_initialized: false,
+            so_linger,
         }
     }
+
+    #[cfg(unix)]
+    fn set_linger(&self, onoff: i32, linger_time: i32) {
+        use libc::{c_int,c_void,c_socklen_t,setsockopt,SOL_SOCKET,SO_LINGER,linger};
+        use std::os::unix::io::{AsRawFd, RawFd};
+        let so_linger = linger {
+            l_onoff: onoff,
+            l_linger: linger_time,
+        };
+        unsafe {
+            let payload = &so_linger as *const linger as *const c_void;
+            setsockopt(self.socket.as_raw_fd(), SOL_SOCKET, SO_LINGER, payload, mem::size_of::<linger> as socklen_t);
+        }
+    }
+
+    #[cfg(windows)]
+    fn set_linger(&self, onoff: bool, linger_time: u16) {
+        use libc::{c_ushort,c_int,setsockopt};
+        use std::os::windows::io::{AsRawSocket};
+        let so_linger = linger {
+            l_onoff: if onoff {1} else {0},
+            l_linger: linger_time as c_ushort,
+        };
+        unsafe {
+            let payload = &so_linger as *const linger as *const i8;
+            setsockopt(
+                self.socket.as_raw_socket() as libc::SOCKET,
+                0xffff, // SOL_SOCKET
+                0x0080, // SO_LINGER
+                payload,
+                mem::size_of::<linger> as c_int,
+            );
+        }
+    }
+
+
+    /// Initialization
+    fn initialize(&mut self) {
+
+        if let Err(e) = self.socket.set_nodelay(true) {
+            error!("Could not set TCP_NODELAY due to {}", e);
+        }
+
+        self.is_initialized = true;
+    }
+    
 
     // the XX noise handshake
 
@@ -263,6 +333,7 @@ impl ConnectionLowLevel {
         if self.socket_buffer.remaining == 0 {
             let len = self.read_size() - self.socket_buffer.offset;
             match self.socket.read(self.socket_buffer.slice_mut(len)) {
+                Ok(0) => return Ok(ReadResult::Closed),
                 Ok(num_bytes) => {
                     // trace!(
                     //     "Read {} from the socket",
@@ -424,6 +495,22 @@ impl ConnectionLowLevel {
 
     // output
 
+    /// Notify the that the socket has become writable.
+    #[inline]
+    pub fn notify_writable(&mut self) {
+        #[cfg(windows)]
+        {
+            if !self.is_writable {
+                if let Err(e) = self.socket.set_nodelay(true) {
+                    error!("Could not set TCP_NODELAY due to {}", e);
+                }
+            }
+        }
+
+        self.is_writable = true;
+        debug!("Connection became writable. {:?}", self.socket);
+    }
+
     /// Enqueue a message to be written to the socket.
     #[inline]
     pub fn write_to_socket(&mut self, input: Arc<[u8]>) -> Fallible<()> {
@@ -434,11 +521,13 @@ impl ConnectionLowLevel {
     /// or the write would be blocking.
     #[inline]
     pub fn flush_socket(&mut self) -> Fallible<()> {
-        while !self.output_queue.is_empty() {
-            match self.flush_socket_once() {
-                Ok(0) => break,
-                Ok(_) => {}
-                Err(e) => return Err(e),
+        if self.is_writable {
+            while !self.output_queue.is_empty() {
+                match self.flush_socket_once() {
+                    Ok(0) => break,
+                    Ok(_) => {}
+                    Err(e) => return Err(e),
+                }
             }
         }
 
@@ -469,7 +558,11 @@ impl ConnectionLowLevel {
 
         let written = match self.socket.write(&self.socket_buffer.buf[..write_size]) {
             Ok(num_bytes) => num_bytes,
-            Err(e) if e.kind() == ErrorKind::WouldBlock => return Ok(0),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                self.is_writable = false;
+                debug!("Sending would block (setting non-writable). {:?}", self.socket);
+                return Ok(0)
+            }
             Err(e) => return Err(e.into()),
         };
 

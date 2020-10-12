@@ -394,7 +394,7 @@ impl P2PNode {
     /// It registers a connection's socket with the poll.
     pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
         self.poll_registry
-            .register(&mut conn.low_level.socket, conn.token, Interest::READABLE)
+            .register(&mut conn.low_level.socket, conn.token, Interest::READABLE | Interest::WRITABLE)
             .map_err(|e| e.into())
     }
 
