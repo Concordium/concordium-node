@@ -429,13 +429,15 @@ impl Connection {
 
     /// Keeps reading from the socket as long as there is data to be read
     /// and the operation is not blocking.
+    /// The return value indicates if the connection is still open.
     #[inline]
-    pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> Fallible<()> {
+    pub fn read_stream(&mut self, conn_stats: &[PeerStats]) -> Fallible<bool> {
         loop {
             match self.low_level.read_from_socket()? {
                 ReadResult::Complete(msg) => self.process_message(Arc::from(msg), conn_stats)?,
                 ReadResult::Incomplete => {}
-                ReadResult::WouldBlock => return Ok(()),
+                ReadResult::WouldBlock => return Ok(true),
+                ReadResult::Closed => return Ok(false),
             }
         }
     }

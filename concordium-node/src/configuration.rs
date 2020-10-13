@@ -350,7 +350,7 @@ pub struct ConnectionConfig {
     )]
     pub socket_read_size: usize,
     #[structopt(long = "linger-time", help = "Max seconds a socket may linger")]
-    pub socket_so_linger: Option<usize>,
+    pub socket_so_linger: Option<u16>,
     #[structopt(
         long = "events-queue-size",
         help = "Events queue size per poll iteration",

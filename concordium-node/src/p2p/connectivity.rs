@@ -246,13 +246,20 @@ impl P2PNode {
                 }
 
                 if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
-                    if let Err(e) = conn.read_stream(&conn_stats) {
-                        error!("[receiving from {}] {}", conn, e);
-                        if let Ok(_io_err) = e.downcast::<io::Error>() {
-                            self.register_conn_change(ConnChange::Removal(conn.token));
-                        } else {
-                            self.register_conn_change(ConnChange::Expulsion(conn.token));
+                    match conn.read_stream(&conn_stats) {
+                        Err(e) => {
+                            error!("[receiving from {}] {}", conn, e);
+                            if let Ok(_io_err) = e.downcast::<io::Error>() {
+                                self.register_conn_change(ConnChange::Removal(conn.token));
+                            } else {
+                                self.register_conn_change(ConnChange::Expulsion(conn.token));
+                            }
                         }
+                        Ok(false) => {
+                            // The connection was closed by the peer.
+                            self.register_conn_change(ConnChange::Removal(conn.token));
+                        }
+                        Ok(true) => {}
                     }
                 }
             })
