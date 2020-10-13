@@ -19,13 +19,6 @@ use std::{
     sync::{Arc, Weak},
 };
 
-#[cfg(windows)]
-#[repr(C)]
-struct linger {
-    pub l_onoff: libc::c_ushort,
-    pub l_linger: libc::c_ushort,
-}
-
 /// The size of the noise message payload.
 type PayloadSize = u32;
 const PAYLOAD_SIZE: usize = mem::size_of::<PayloadSize>();
@@ -129,7 +122,7 @@ pub struct ConnectionLowLevel {
     /// Whether the socket has been initialized
     is_initialized: bool,
     /// If specified, the linger value to set for the socket
-    so_linger: Option<usize>,
+    so_linger: Option<u16>,
 }
 
 macro_rules! recv_xx_msg {
@@ -169,37 +162,8 @@ impl ConnectionLowLevel {
         read_size: usize,
         write_size: usize,
     ) -> Self {
-        // FIXME: this is a Unix-only solution; do it in an OS-agnostic manner as
-        // soon as either std or mio introduces TcpStream::set_linger
-        #[cfg(unix)]
-        {
-            use libc as c;
-            use std::os::unix::io::{AsRawFd, RawFd};
-
-            fn setsockopt<T>(fd: RawFd, opt: c::c_int, val: c::c_int, payload: T) {
-                unsafe {
-                    let payload = &payload as *const T as *const c::c_void;
-                    libc::setsockopt(fd, opt, val, payload, mem::size_of::<T>() as c::socklen_t);
-                }
-            }
-
-            // set socket's SO_LINGER if requested, if we're the initiator of the connection
-            if is_initiator {
-                if let Some(linger) = handler.config.socket_so_linger {
-                    setsockopt(socket.as_raw_fd(), c::SOL_SOCKET, c::SO_LINGER, c::linger {
-                        l_onoff:  1,
-                        l_linger: linger as i32,
-                    });
-                }
-            }
-        }
 
         let so_linger = if is_initiator {handler.config.socket_so_linger} else {None};
-
-        #[cfg(not(windows))]
-        if let Err(e) = socket.set_nodelay(true) {
-            error!("Could not set TCP_NODELAY due to {}", e);
-        }
 
         trace!(
             "Starting a noise session as the {}; handshake mode: XX",
@@ -226,16 +190,19 @@ impl ConnectionLowLevel {
     }
 
     #[cfg(unix)]
-    fn set_linger(&self, onoff: i32, linger_time: i32) {
+    fn set_linger(&self, onoff: bool, linger_time: u16) {
         use libc::{c_int,c_void,c_socklen_t,setsockopt,SOL_SOCKET,SO_LINGER,linger};
         use std::os::unix::io::{AsRawFd, RawFd};
         let so_linger = linger {
-            l_onoff: onoff,
-            l_linger: linger_time,
+            l_onoff: if onoff {1} else {0},
+            l_linger: linger_time as c_int,
         };
-        unsafe {
+        let res = unsafe {
             let payload = &so_linger as *const linger as *const c_void;
             setsockopt(self.socket.as_raw_fd(), SOL_SOCKET, SO_LINGER, payload, mem::size_of::<linger> as socklen_t);
+        };
+        if res != 0 {
+            error!("Could not set SO_LINGER");
         }
     }
 
@@ -243,25 +210,46 @@ impl ConnectionLowLevel {
     fn set_linger(&self, onoff: bool, linger_time: u16) {
         use libc::{c_ushort,c_int,setsockopt};
         use std::os::windows::io::{AsRawSocket};
+
+        // The linger struct and constants SOL_SOCKET and SO_LINGER
+        // are currently not provided by libc on Windows.
+
+        #[repr(C)]
+        struct linger {
+            pub l_onoff: c_ushort,
+            pub l_linger: c_ushort,
+        };
+        const SOL_SOCKET : c_int = 0xffff;
+        const SO_LINGER : c_int = 0x0080;
+        
         let so_linger = linger {
             l_onoff: if onoff {1} else {0},
             l_linger: linger_time as c_ushort,
         };
-        unsafe {
+
+        let res = unsafe {
             let payload = &so_linger as *const linger as *const i8;
             setsockopt(
                 self.socket.as_raw_socket() as libc::SOCKET,
-                0xffff, // SOL_SOCKET
-                0x0080, // SO_LINGER
+                SOL_SOCKET,
+                SO_LINGER,
                 payload,
                 mem::size_of::<linger> as c_int,
-            );
+            )
+        };
+        if res != 0 {
+            error!("Could not set SO_LINGER");
         }
     }
 
 
     /// Initialization
     fn initialize(&mut self) {
+
+        // Set linger time if requested
+        if let Some(linger) = self.so_linger {
+            self.set_linger(true, linger as u16);
+        }
 
         if let Err(e) = self.socket.set_nodelay(true) {
             error!("Could not set TCP_NODELAY due to {}", e);
@@ -498,13 +486,8 @@ impl ConnectionLowLevel {
     /// Notify the that the socket has become writable.
     #[inline]
     pub fn notify_writable(&mut self) {
-        #[cfg(windows)]
-        {
-            if !self.is_writable {
-                if let Err(e) = self.socket.set_nodelay(true) {
-                    error!("Could not set TCP_NODELAY due to {}", e);
-                }
-            }
+        if !self.is_initialized {
+            self.initialize();
         }
 
         self.is_writable = true;

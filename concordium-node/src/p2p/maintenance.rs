@@ -86,7 +86,7 @@ pub struct NodeConfig {
     pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
-    pub socket_so_linger: Option<usize>,
+    pub socket_so_linger: Option<u16>,
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
 }
