@@ -162,8 +162,11 @@ impl ConnectionLowLevel {
         read_size: usize,
         write_size: usize,
     ) -> Self {
-
-        let so_linger = if is_initiator {handler.config.socket_so_linger} else {None};
+        let so_linger = if is_initiator {
+            handler.config.socket_so_linger
+        } else {
+            None
+        };
 
         trace!(
             "Starting a noise session as the {}; handshake mode: XX",
@@ -191,15 +194,25 @@ impl ConnectionLowLevel {
 
     #[cfg(unix)]
     fn set_linger(&self, onoff: bool, linger_time: u16) {
-        use libc::{c_int,c_void,c_socklen_t,setsockopt,SOL_SOCKET,SO_LINGER,linger};
+        use libc::{c_int, c_socklen_t, c_void, linger, setsockopt, SOL_SOCKET, SO_LINGER};
         use std::os::unix::io::{AsRawFd, RawFd};
         let so_linger = linger {
-            l_onoff: if onoff {1} else {0},
+            l_onoff:  if onoff {
+                1
+            } else {
+                0
+            },
             l_linger: linger_time as c_int,
         };
         let res = unsafe {
             let payload = &so_linger as *const linger as *const c_void;
-            setsockopt(self.socket.as_raw_fd(), SOL_SOCKET, SO_LINGER, payload, mem::size_of::<linger> as socklen_t);
+            setsockopt(
+                self.socket.as_raw_fd(),
+                SOL_SOCKET,
+                SO_LINGER,
+                payload,
+                mem::size_of::<linger>() as socklen_t,
+            );
         };
         if res != 0 {
             error!("Could not set SO_LINGER");
@@ -208,22 +221,26 @@ impl ConnectionLowLevel {
 
     #[cfg(windows)]
     fn set_linger(&self, onoff: bool, linger_time: u16) {
-        use libc::{c_ushort,c_int,setsockopt};
-        use std::os::windows::io::{AsRawSocket};
+        use libc::{c_int, c_ushort, setsockopt};
+        use std::os::windows::io::AsRawSocket;
 
         // The linger struct and constants SOL_SOCKET and SO_LINGER
         // are currently not provided by libc on Windows.
 
         #[repr(C)]
         struct linger {
-            pub l_onoff: c_ushort,
+            pub l_onoff:  c_ushort,
             pub l_linger: c_ushort,
         };
-        const SOL_SOCKET : c_int = 0xffff;
-        const SO_LINGER : c_int = 0x0080;
-        
+        const SOL_SOCKET: c_int = 0xffff;
+        const SO_LINGER: c_int = 0x0080;
+
         let so_linger = linger {
-            l_onoff: if onoff {1} else {0},
+            l_onoff:  if onoff {
+                1
+            } else {
+                0
+            },
             l_linger: linger_time as c_ushort,
         };
 
@@ -234,7 +251,7 @@ impl ConnectionLowLevel {
                 SOL_SOCKET,
                 SO_LINGER,
                 payload,
-                mem::size_of::<linger> as c_int,
+                mem::size_of::<linger>() as c_int,
             )
         };
         if res != 0 {
@@ -242,10 +259,8 @@ impl ConnectionLowLevel {
         }
     }
 
-
     /// Initialization
     fn initialize(&mut self) {
-
         // Set linger time if requested
         if let Some(linger) = self.so_linger {
             self.set_linger(true, linger as u16);
@@ -257,7 +272,6 @@ impl ConnectionLowLevel {
 
         self.is_initialized = true;
     }
-    
 
     // the XX noise handshake
 
@@ -544,7 +558,7 @@ impl ConnectionLowLevel {
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 self.is_writable = false;
                 debug!("Sending would block (setting non-writable). {:?}", self.socket);
-                return Ok(0)
+                return Ok(0);
             }
             Err(e) => return Err(e.into()),
         };
