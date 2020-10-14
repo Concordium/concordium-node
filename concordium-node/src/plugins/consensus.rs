@@ -412,7 +412,6 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
                 // that it will be removed.
                 node.register_conn_change(ConnChange::Removal(token));
             }
-            return;
         } else {
             // Connection no longer exists
             debug!("Catch-up-in-progress peer {:016x} no longer exists", id);
