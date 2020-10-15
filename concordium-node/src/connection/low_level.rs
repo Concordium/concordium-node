@@ -194,8 +194,8 @@ impl ConnectionLowLevel {
 
     #[cfg(unix)]
     fn set_linger(&self, onoff: bool, linger_time: u16) {
-        use libc::{c_int, c_socklen_t, c_void, linger, setsockopt, SOL_SOCKET, SO_LINGER};
-        use std::os::unix::io::{AsRawFd, RawFd};
+        use libc::{c_int, c_void, linger, setsockopt, socklen_t, SOL_SOCKET, SO_LINGER};
+        use std::os::unix::io::AsRawFd;
         let so_linger = linger {
             l_onoff:  if onoff {
                 1
@@ -212,7 +212,7 @@ impl ConnectionLowLevel {
                 SO_LINGER,
                 payload,
                 mem::size_of::<linger>() as socklen_t,
-            );
+            )
         };
         if res != 0 {
             error!("Could not set SO_LINGER");
