@@ -103,12 +103,8 @@ impl P2PNode {
         debug!("Measuring connection latencies");
 
         for conn in write_or_die!(self.connections()).values_mut() {
-            if conn.stats.last_pong.load(Ordering::SeqCst)
-                >= conn.stats.last_ping.load(Ordering::SeqCst)
-            {
-                if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping to {}: {}", conn, e);
-                }
+            if let Err(e) = conn.send_ping() {
+                error!("Can't send a ping to {}: {}", conn, e);
             }
         }
     }
