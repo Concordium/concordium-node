@@ -72,11 +72,11 @@ makeLenses ''ExecutionResult'
 
 instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
-  type AccountTransactionLog (LogSchedulerState m) = ATIStorage m
+  type TransactionLog (LogSchedulerState m) = ATIStorage m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
   nextIndex = lssNextIndex
-  accountTransactionLog = lssSchedulerTransactionLog
+  schedulerTransactionLog = lssSchedulerTransactionLog
 
 
 mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogSchedulerState m
@@ -189,7 +189,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
             finalbsHandle <- freezeBlockState bshandle4
             return (Right (ExecutionResult{_energyUsed = usedEnergy,
                                            _finalState = finalbsHandle,
-                                           _transactionLog = finState ^. accountTransactionLog}))
+                                           _transactionLog = finState ^. schedulerTransactionLog}))
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
@@ -226,7 +226,7 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     -- - the pending transactions for each account with pending transactions,
     --   keyed by the lowest arrival time of a transaction with the lowest nonce.
     -- - the pending update instructions for each update type, keyed by the lowest
-    --   arrival time of an update with the lowest sequence number. 
+    --   arrival time of an update with the lowest sequence number.
 
     -- getCredential shouldn't return Nothing based on the transaction table invariants
     credentials <- mapM getCredential (HashSet.toList (pt ^. pttDeployCredential))
@@ -269,4 +269,4 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     bshandleFinal <- freezeBlockState bshandle4
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
                                 _finalState = bshandleFinal,
-                                _transactionLog = finState ^. accountTransactionLog})
+                                _transactionLog = finState ^. schedulerTransactionLog})
