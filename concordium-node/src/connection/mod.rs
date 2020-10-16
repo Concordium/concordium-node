@@ -216,14 +216,80 @@ impl DeduplicationQueues {
 
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
-    pub created:           u64,
-    pub last_seen:         AtomicU64,
-    pub last_ping:         AtomicU64,
-    pub last_pong:         AtomicU64,
-    pub messages_sent:     AtomicU64,
+    /// Timestamp of connection creation.
+    pub created: u64,
+    /// Timestamp at which the connection was last seen.
+    /// For regular peers, this is the timestamp of the
+    /// last received message.
+    pub last_seen: AtomicU64,
+    /// Timestamp of last ping message being sent
+    last_ping: AtomicU64,
+    /// Interval between sending the last two pings
+    last_ping_interval: AtomicU64,
+    /// Number of pings sent minus number of pongs received
+    pending_pongs: AtomicU64,
+    /// Latency measured at last received pong
+    last_latency: AtomicU64,
+    /// Number of messages sent.
+    pub messages_sent: AtomicU64,
+    /// Number of messages received.
     pub messages_received: AtomicU64,
-    pub bytes_received:    AtomicU64,
-    pub bytes_sent:        AtomicU64,
+    /// Number of bytes received.
+    pub bytes_received: AtomicU64,
+    /// Number of bytes sent.
+    pub bytes_sent: AtomicU64,
+}
+
+impl ConnectionStats {
+    pub fn new(timestamp: u64) -> Self {
+        ConnectionStats {
+            created:            timestamp,
+            last_seen:          AtomicU64::new(timestamp),
+            last_ping:          AtomicU64::new(0),
+            last_ping_interval: AtomicU64::new(0),
+            pending_pongs:      AtomicU64::new(0),
+            last_latency:       AtomicU64::new(0),
+            messages_sent:      AtomicU64::new(0),
+            messages_received:  AtomicU64::new(0),
+            bytes_received:     AtomicU64::new(0),
+            bytes_sent:         AtomicU64::new(0),
+        }
+    }
+
+    pub fn notify_ping(&self) {
+        let now = get_current_stamp();
+        let previous_ping = self.last_ping.swap(now, Ordering::AcqRel);
+        self.last_ping_interval.store(now - previous_ping, Ordering::Release);
+        self.pending_pongs.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub fn notify_pong(&self) -> Fallible<()> {
+        let now = get_current_stamp();
+        let old_pending_pongs = self.pending_pongs.fetch_sub(1, Ordering::SeqCst);
+        if old_pending_pongs == 0 {
+            // If this occurs, the peer has violated the protocol by sending
+            // an unsolicited pong message.
+            bail!("unexpected pong");
+        } else {
+            // If this pong is not in response to the latest ping, then we
+            // add on appropriate delay, assuming that the interval between
+            // pings is constant and equal to the last such interval. (This
+            // means that we lose accuracy when the latency is above 2 ping
+            // intervals. At that point, this loss of accuracy is not expected
+            // to be so significant.)
+            let extra_delay = if old_pending_pongs > 1 {
+                (old_pending_pongs - 1) * self.last_ping_interval.load(Ordering::Acquire)
+            } else {
+                0
+            };
+            let measured_latency = now - self.last_ping.load(Ordering::Acquire) + extra_delay;
+            self.last_latency.store(measured_latency, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    #[inline]
+    pub fn get_latency(&self) -> u64 { self.last_latency.load(Ordering::Relaxed) }
 }
 
 /// Specifies the type of change to be applied to the list of connections.
@@ -342,16 +408,7 @@ impl Connection {
             handler.config.socket_write_size,
         );
 
-        let stats = ConnectionStats {
-            created:           get_current_stamp(),
-            messages_received: Default::default(),
-            messages_sent:     Default::default(),
-            last_ping:         Default::default(),
-            last_pong:         Default::default(),
-            last_seen:         AtomicU64::new(curr_stamp),
-            bytes_received:    Default::default(),
-            bytes_sent:        Default::default(),
-        };
+        let stats = ConnectionStats::new(curr_stamp);
 
         Self {
             handler: Arc::clone(handler),
@@ -365,16 +422,7 @@ impl Connection {
     }
 
     /// Obtain the connection's latency.
-    pub fn get_latency(&self) -> u64 {
-        let last_ping = self.stats.last_ping.load(Ordering::SeqCst);
-        let last_pong = self.stats.last_pong.load(Ordering::SeqCst);
-
-        if last_ping > 0 && last_pong > 0 && last_pong > last_ping {
-            last_pong - last_ping
-        } else {
-            0
-        }
-    }
+    pub fn get_latency(&self) -> u64 { self.stats.get_latency() }
 
     /// Obtain the node id related to the connection, if available.
     pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.id }
@@ -554,7 +602,7 @@ impl Connection {
         let mut serialized = Vec::with_capacity(56);
 
         only_fbs!(ping.serialize(&mut serialized)?);
-        self.stats.last_ping.store(get_current_stamp(), Ordering::SeqCst);
+        self.stats.notify_ping();
 
         self.async_send(Arc::from(serialized), MessageSendingPriority::High);
 
