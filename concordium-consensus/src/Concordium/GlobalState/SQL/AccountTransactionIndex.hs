@@ -37,6 +37,12 @@ share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
     account (ByteStringSerialized AccountAddress)
     summary SummaryId
     deriving Eq Show
+
+  ContractEntry sql=cti
+    index ContractIndex
+    subindex ContractSubindex
+    summary SummaryId
+    deriving Eq Show
   |]
 
 connectPostgres :: ConnectionString -> IO (Pool SqlBackend)
@@ -68,7 +74,12 @@ writeEntries pool BlockContext{..} ati sto = do
               -- mapped to the database values.
               atiWithDatabaseValues = reverse $ -- reverse is because the latest entry is the head of the list
                 fmap (\(k, v) -> (createSummary v Left
-                                , Entry (ByteStringSerialized k))) ati
+                                , Entry (ByteStringSerialized k))) (accountLogIndex ati)
+
+              ctiWithDatabaseValues = reverse $
+                fmap (\(k, v) -> (createSummary v Left
+                                , ContractEntry (contractIndex k) (contractSubindex k))) (contractLogIndex ati)
+
               stoWithDatabaseValues =
                 fmap (\v ->  (createSummary v Right
                             , Entry (ByteStringSerialized $ stoBakerAccount v))) sto
@@ -78,8 +89,14 @@ writeEntries pool BlockContext{..} ati sto = do
               runInsertion :: [(Summary, Key Summary -> Entry)] -> ReaderT SqlBackend (NoLoggingT IO) ()
               runInsertion xs = do
                 xskeys <- insertMany (map fst xs)
-                insertMany_ (zipWith (\x y -> (snd x) y) xs xskeys)
+                insertMany_ (zipWith snd xs xskeys)
+
+              runContractInsertion :: [(Summary, Key Summary -> ContractEntry)] -> ReaderT SqlBackend (NoLoggingT IO) ()
+              runContractInsertion xs = do
+                xsKeys <- insertMany (map fst xs)
+                insertMany_ (zipWith snd xs xsKeys)
 
           runInsertion atiWithDatabaseValues
+          runContractInsertion ctiWithDatabaseValues
           runInsertion stoWithDatabaseValues
           pure ()
