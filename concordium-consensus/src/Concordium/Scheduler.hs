@@ -545,6 +545,7 @@ handleInitContract wtc initAmount modref initName param =
             -- Check whether the sender account's amount can cover the amount to initialize the contract
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAmount senderAccount
+
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
@@ -579,11 +580,15 @@ handleInitContract wtc initAmount modref initName param =
             chargeExecutionCost txHash senderAccount energyCost
 
             -- Withdraw the amount the contract is initialized with from the sender account.
-            commitChanges =<< addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
+            cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             -- FIXME: miExposedReceive should be replaced after we have some naming scheme.
             let ins = makeInstance modref initName (Wasm.miExposedReceive iface) iface model initAmount (thSender meta)
             addr <- putNewInstance ins
+
+            -- add the contract initialization to the change set and commit the changes
+            commitChanges $ addContractInitToCS (ins addr) cs'
+
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=addr,
                                                    ecAmount=initAmount,
@@ -1317,7 +1322,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
               tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
               ..
             }
-          
+
         else
           return (TxInvalid IncorrectSignature)
 
