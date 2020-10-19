@@ -1,8 +1,11 @@
-use std::{env, path::Path, process::Command, str};
+use std::{env, path::Path};
+#[cfg(all(unix, not(feature = "static")))]
+use std::{process::Command, str};
 
 #[cfg(all(unix, not(feature = "static")))]
 const GHC_VARIANT: &str = "x86_64-linux-ghc-8.8.3";
 
+#[cfg(all(unix, not(feature = "static")))]
 fn command_output(cmd: &mut Command) -> String {
     str::from_utf8(&cmd.output().unwrap().stdout).unwrap().trim_end().to_string()
 }
