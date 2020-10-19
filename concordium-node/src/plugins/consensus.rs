@@ -404,7 +404,8 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
         (peers.catch_up_peer, peers.catch_up_stamp)
     };
     if let Some(id) = catch_up_peer {
-        if let Some(token) = find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) {
+        let mtoken = { find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) };
+        if let Some(token) = mtoken {
             if now > catch_up_stamp + MAX_CATCH_UP_TIME {
                 // Try to remove the peer, since it timed-out.
                 debug!("Peer {:016x} took too long to catch up; dropping", id);

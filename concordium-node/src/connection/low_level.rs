@@ -505,7 +505,7 @@ impl ConnectionLowLevel {
         }
 
         self.is_writable = true;
-        debug!("Connection became writable. {:?}", self.socket);
+        // trace!("Connection became writable. {:?}", self.socket);
     }
 
     /// Enqueue a message to be written to the socket.
