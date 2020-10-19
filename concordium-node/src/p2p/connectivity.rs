@@ -250,13 +250,28 @@ impl P2PNode {
                             } else {
                                 self.register_conn_change(ConnChange::Expulsion(conn.token));
                             }
+                            return;
                         }
                         Ok(false) => {
                             // The connection was closed by the peer.
+                            debug!("Connection to {} closed by peer", conn);
                             self.register_conn_change(ConnChange::Removal(conn.token));
+                            return;
                         }
                         Ok(true) => {}
                     }
+                }
+
+                if events.iter().any(|event| {
+                    event.token() == conn.token
+                        && (event.is_read_closed() || event.is_write_closed() || event.is_error())
+                }) {
+                    // Generally, connections will be closed as a result of a read or write failing
+                    // or returning 0 bytes, rather than reaching here. This is more of a back stop,
+                    // and might catch a failure sooner in the case where we do not currently have
+                    // anything to write.
+                    debug!("Closing connection to {}", conn);
+                    self.register_conn_change(ConnChange::Removal(conn.token));
                 }
             })
     }
