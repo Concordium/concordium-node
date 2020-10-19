@@ -1,7 +1,7 @@
 //! Node connection handling.
 
 use failure::Fallible;
-use mio::{net::TcpStream, Events, Token};
+use mio::{event::Event, net::TcpStream, Events, Token};
 use rand::{
     seq::{index::sample, IteratorRandom},
     Rng,
@@ -262,10 +262,12 @@ impl P2PNode {
                     }
                 }
 
-                if events.iter().any(|event| {
+                let closed_or_error = |event: &Event| {
                     event.token() == conn.token
                         && (event.is_read_closed() || event.is_write_closed() || event.is_error())
-                }) {
+                };
+
+                if events.iter().any(closed_or_error) {
                     // Generally, connections will be closed as a result of a read or write failing
                     // or returning 0 bytes, rather than reaching here. This is more of a back stop,
                     // and might catch a failure sooner in the case where we do not currently have
