@@ -10,6 +10,7 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
+import Data.HashSet as Set
 import Data.Functor.Identity
 
 import Lens.Micro.Platform
@@ -39,13 +40,13 @@ makeLenses ''ContextState
 
 -- Doing it manually because otherwise the generated class definition
 -- seems to be wrong (m has kind *).
-class CanExtend (AccountTransactionLog a) => HasSchedulerState a where
+class CanExtend (TransactionLog a) => HasSchedulerState a where
   type SS a
-  type AccountTransactionLog a
+  type TransactionLog a
 
   schedulerBlockState :: Lens' a (SS a)
   schedulerEnergyUsed :: Lens' a Energy
-  accountTransactionLog :: Lens' a (AccountTransactionLog a)
+  schedulerTransactionLog :: Lens' a (TransactionLog a)
   nextIndex :: Lens' a TransactionIndex
 
 data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
@@ -61,11 +62,11 @@ makeLenses ''NoLogSchedulerState
 
 instance HasSchedulerState (NoLogSchedulerState m) where
   type SS (NoLogSchedulerState m) = UpdatableBlockState m
-  type AccountTransactionLog (NoLogSchedulerState m) = ()
+  type TransactionLog (NoLogSchedulerState m) = ()
   schedulerBlockState = ssBlockState
   schedulerEnergyUsed = ssSchedulerEnergyUsed
   nextIndex = ssNextIndex
-  accountTransactionLog f s = s <$ f ()
+  schedulerTransactionLog f s = s <$ f ()
 
 newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
     deriving (Functor,
@@ -119,8 +120,10 @@ instance (MonadReader ContextState m,
 
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect items summary = do
-    traverseOutcomes items $ \addr -> do
-      accountTransactionLog %= extendRecord addr summary
+    traverseAccountOutcomes items $ \addr -> do
+      schedulerTransactionLog %= extendAccountRecord addr summary
+    traverseContractOutcomes items $ \addr -> do
+      schedulerTransactionLog %= extendContractRecord addr summary
 
   {-# INLINE markEnergyUsed #-}
   markEnergyUsed energy = schedulerEnergyUsed += energy
@@ -180,9 +183,14 @@ instance (MonadReader ContextState m,
     -- ASSUMPTION: the property which should hold at this point is that any
     -- changed instance must exist in the global state and moreover all instances
     -- are distinct by the virtue of a HashMap being a function
-    s' <- lift (foldM (\s' (addr, (amnt, val)) -> bsoModifyInstance s' addr amnt val)
+    s' <- lift (foldM (\s' (addr, (amnt, val)) -> do
+                         tell (logContract addr)
+                         bsoModifyInstance s' addr amnt val)
                       s
                       (Map.toList (cs ^. instanceUpdates)))
+    -- log the initialized instances too
+    lift (mapM_ (tell . logContract)
+                      (Set.toList (cs ^. instanceInits)))
     -- Notify account transfers, but also log the affected accounts.
     s'' <- lift (foldM (\curState accUpdate -> do
                            tell (logAccount (accUpdate ^. auAddress))
