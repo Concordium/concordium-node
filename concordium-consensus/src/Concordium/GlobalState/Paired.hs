@@ -523,6 +523,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoEnqueueUpdate bs1 tt p
         bs2' <- coerceBSMR $ bsoEnqueueUpdate bs2 tt p
         return (bs1', bs2')
+    bsoGetEnergyRate (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetEnergyRate bs1
+        r2 <- coerceBSMR $ bsoGetEnergyRate bs2
+        assert (r1 == r2) $ return r1
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 

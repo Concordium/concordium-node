@@ -448,6 +448,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoEnqueueUpdate #-}
     bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
 
+    {-# INLINE bsoGetEnergyRate #-}
+    bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . cpEnergyRate
+
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ _unhashedBlockState bs & (blockBank . unhashed . Rewards.executionCost .~ 0) .
