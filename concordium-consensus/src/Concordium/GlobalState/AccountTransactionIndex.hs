@@ -22,54 +22,88 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Classes
 
 -- |A typeclass that abstract the ability to record the footprint.
--- If a = () we don't record anything, and if a = HashSet we record the set of addresses
--- that were affected by execution.
+-- If a = () we don't record anything, and if a = RecordAffectedAccountsAndContracts
+-- we record the set of account addresses and contracts addresses that were affected
+-- by execution.
+--
+-- This particularly means that we will output information when a transaction modifies
+-- either an instance (creation or update) or an account following the schema defined
+-- in Concordium/GlobalState/SQL/AccountTransactionIndex.hs
 class Monoid a => CanRecordFootprint a where
   -- Log an individual account address.
   logAccount :: AccountAddress -> a
 
-  -- Traverse the outcomes.
-  traverseOutcomes :: Monad m => a -> (AccountAddress -> m ()) -> m ()
+  -- Log an individual contract address.
+  logContract :: ContractAddress -> a
+
+  -- Traverse the account outcomes.
+  traverseAccountOutcomes :: Monad m => a -> (AccountAddress -> m ()) -> m ()
+
+  -- Traverse the contract outcomes.
+  traverseContractOutcomes :: Monad m => a -> (ContractAddress -> m ()) -> m ()
 
 instance CanRecordFootprint () where
   {-# INLINE logAccount #-}
   logAccount = const ()
 
-  {-# INLINE traverseOutcomes #-}
-  traverseOutcomes = \() _ -> return ()
+  {-# INLINE logContract #-}
+  logContract = const ()
 
-instance CanRecordFootprint (HS.HashSet AccountAddress) where
+  {-# INLINE traverseAccountOutcomes #-}
+  traverseAccountOutcomes = \() _ -> return ()
+
+  {-# INLINE traverseContractOutcomes #-}
+  traverseContractOutcomes = \() _ -> return ()
+
+type RecordAffectedAccountsAndContracts = (HS.HashSet AccountAddress, HS.HashSet ContractAddress)
+
+instance CanRecordFootprint RecordAffectedAccountsAndContracts where
   {-# INLINE logAccount #-}
-  logAccount = HS.singleton
+  logAccount x = (HS.singleton x, HS.empty)
 
-  {-# INLINE traverseOutcomes #-}
-  traverseOutcomes = forM_
+  {-# INLINE logContract #-}
+  logContract x = (HS.empty, HS.singleton x)
 
--- |Mapping from account addresses to a list of transaction affecting this account.
+  {-# INLINE traverseAccountOutcomes #-}
+  traverseAccountOutcomes (a, _) = forM_ a
+
+  {-# INLINE traverseContractOutcomes #-}
+  traverseContractOutcomes (_, c) = forM_ c
+
+-- |Mappings from account addresses to a list of transaction affecting this account and
+-- from contract addresses to a list of transactions affecting this contract.
 -- The transactions are ordered in reverse (i.e., head is the most recent transaction)
-type AccountTransactionIndex = [(AccountAddress, TransactionSummary)]
+data AccountTransactionIndex = AccountTransactionIndex {
+  accountLogIndex :: [(AccountAddress, TransactionSummary)],
+  contractLogIndex :: [(ContractAddress, TransactionSummary)]
+  }
 
 class CanExtend a where
   defaultValue :: a
-  extendRecord :: AccountAddress -> TransactionSummary -> a -> a
+  extendAccountRecord :: AccountAddress -> TransactionSummary -> a -> a
+  extendContractRecord :: ContractAddress -> TransactionSummary -> a -> a
 
 instance CanExtend () where
   defaultValue = ()
-  extendRecord = \_ _ -> id
+  extendAccountRecord = \_ _ -> id
+  extendContractRecord = \_ _ -> id
   {-# INLINE defaultValue #-}
-  {-# INLINE extendRecord #-}
+  {-# INLINE extendAccountRecord #-}
+  {-# INLINE extendContractRecord #-}
 
 instance CanExtend AccountTransactionIndex where
-  defaultValue = []
-  extendRecord addr summary = ((addr,summary) :)
+  defaultValue = AccountTransactionIndex [] []
+  extendAccountRecord addr summary ati@AccountTransactionIndex{..} = ati { accountLogIndex =  (addr,summary) : accountLogIndex }
+  extendContractRecord addr summary ati@AccountTransactionIndex{..} = ati { contractLogIndex = (addr, summary) : contractLogIndex }
   {-# INLINE defaultValue #-}
-  {-# INLINE extendRecord #-}
+  {-# INLINE extendAccountRecord #-}
+  {-# INLINE extendContractRecord #-}
 
 -- |Footprint record recorded during scheduler execution.
 type family Footprint a
 
 type instance Footprint () = ()
-type instance Footprint AccountTransactionIndex = HS.HashSet AccountAddress
+type instance Footprint AccountTransactionIndex = RecordAffectedAccountsAndContracts
 
 class (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (m :: Type -> Type) where
   -- |Type of values stored in the block pointer, e.g., a map Address -> Summary
