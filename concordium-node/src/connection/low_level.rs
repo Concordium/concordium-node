@@ -565,7 +565,10 @@ impl ConnectionLowLevel {
 
         self.output_queue.drain(..written);
 
-        trace!("Written {} to the socket", ByteSize(written as u64).to_string_as(true));
+        // trace!(
+        //     "Written {} to the socket",
+        //     ByteSize(written as u64).to_string_as(true)
+        // );
 
         Ok(written)
     }
