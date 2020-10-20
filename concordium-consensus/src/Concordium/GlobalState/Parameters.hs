@@ -64,15 +64,19 @@ makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro = 
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
 
+{-# INLINE cpElectionDifficulty #-}
 cpElectionDifficulty :: Lens' ChainParameters ElectionDifficulty
 cpElectionDifficulty = lens _cpElectionDifficulty (\cp ed -> cp {_cpElectionDifficulty = ed})
 
+{-# INLINE cpEuroPerEnergy #-}
 cpEuroPerEnergy :: Lens' ChainParameters ExchangeRate
 cpEuroPerEnergy = lens _cpEuroPerEnergy (\cp epe -> cp {_cpEuroPerEnergy = epe, _cpEnergyRate = computeEnergyRate (_cpMicroGTUPerEuro cp) epe})
 
+{-# INLINE cpMicroGTUPerEuro #-}
 cpMicroGTUPerEuro :: Lens' ChainParameters ExchangeRate
 cpMicroGTUPerEuro = lens _cpMicroGTUPerEuro (\cp mgtupe -> cp {_cpMicroGTUPerEuro = mgtupe, _cpEnergyRate = computeEnergyRate mgtupe (_cpEuroPerEnergy cp)})
 
+{-# INLINE cpEnergyRate #-}
 cpEnergyRate :: SimpleGetter ChainParameters EnergyRate
 cpEnergyRate = to _cpEnergyRate
 
