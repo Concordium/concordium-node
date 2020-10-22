@@ -123,20 +123,12 @@ impl PeerStats {
         peer_type: PeerType,
         conn_stats: &ConnectionStats,
     ) -> PeerStats {
-        let last_ping = conn_stats.last_ping.load(AtomicOrdering::SeqCst);
-        let last_pong = conn_stats.last_pong.load(AtomicOrdering::SeqCst);
-        let latency = if last_ping > 0 && last_pong > 0 && last_pong > last_ping {
-            last_pong - last_ping
-        } else {
-            0
-        };
-
         PeerStats {
             id,
             addr,
             external_port,
             peer_type,
-            latency,
+            latency: conn_stats.get_latency(),
             msgs_sent: conn_stats.messages_sent.load(AtomicOrdering::Relaxed),
             msgs_received: conn_stats.messages_received.load(AtomicOrdering::Relaxed),
             bytes_sent: conn_stats.bytes_sent.load(AtomicOrdering::Relaxed),
