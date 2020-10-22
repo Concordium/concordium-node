@@ -56,13 +56,13 @@ initialBlockState = blockStateWithAlesAccount
 alesEncryptionSecretKey :: ElgamalSecretKey
 alesEncryptionSecretKey = dummyEncryptionSecretKey alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
-alesEncryptionPublicKey = (fromJust $ Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
+alesEncryptionPublicKey = fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
 
 -- Thomas' keys
 thomasEncryptionSecretKey :: ElgamalSecretKey
 thomasEncryptionSecretKey = dummyEncryptionSecretKey thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
-thomasEncryptionPublicKey = (fromJust $ Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
+thomasEncryptionPublicKey = fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
 
 -- Helpers for creating the transfer datas
 createEncryptedTransferData ::
@@ -71,13 +71,13 @@ createEncryptedTransferData ::
   -> AggregatedDecryptedAmount -- ^ Amount to use as input.
   -> Amount   -- ^ Amount to send.
   -> IO (Maybe EncryptedAmountTransferData)
-createEncryptedTransferData (AccountEncryptionKey receiverPK) senderSK aggDecAmount amount =
-  makeEncryptedAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed) receiverPK senderSK aggDecAmount amount
+createEncryptedTransferData (AccountEncryptionKey receiverPK) =
+  makeEncryptedAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed) receiverPK
 
 
 createSecToPubTransferData :: ElgamalSecretKey -> AggregatedDecryptedAmount -> Amount -> IO (Maybe SecToPubAmountTransferData)
-createSecToPubTransferData secret aggAmount amount =
-  makeSecToPubAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed) secret aggAmount amount
+createSecToPubTransferData =
+  makeSecToPubAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed)
 
 -- Helper for checking the encrypted balance of an account.
 checkEncryptedBalance :: AccountEncryptedAmount -> AccountAddress -> BlockState -> SpecWith ()
@@ -140,8 +140,8 @@ transactionsIO = do
           let (combined, kept) = Seq.splitAt ((fromIntegral idx - fromIntegral maxNumIncoming) + 1) (Seq.fromList [ eatdTransferAmount n | (n, _) <- take (fromIntegral idx) allTxs ]) -- get which amounts should be combined into combinedAmount
               combinedAmount = foldl' aggregateAmounts mempty combined -- combine them
           checkEncryptedBalance initialAccountEncryptedAmount{_startIndex = idx - fromIntegral maxNumIncoming, -- the start index should have increased
-                                                              _incomingEncryptedAmounts =  combinedAmount Seq.:<| kept, -- the first amount should be the combined one
-                                                              _numAggregated = Just $ fromIntegral (idx - fromIntegral maxNumIncoming + 1) -- the number of aggregated amounts should be this one
+                                                              _incomingEncryptedAmounts =  kept, -- the list of incoming amounts will hold the `rest` of the amounts
+                                                              _aggregatedAmount = Just (combinedAmount, fromIntegral (idx - fromIntegral maxNumIncoming + 1)) -- the combined amount goes into the `_aggregatedAmount` field together with the number of aggregated amounts until this point.
                                                              } thomasAccount bs
       makeTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (BlockState -> Spec) -> (Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))
       makeTransaction x@EncryptedAmountTransferData{..} idx checks =
@@ -149,21 +149,19 @@ transactionsIO = do
                       , metadata = makeDummyHeader alesAccount (fromIntegral idx + 1) 100000 -- from Ales with nonce idx + 1
                       , keys = [(0, alesKP)]
                       }
-       , (SuccessE [Types.EncryptedAmountsRemoved {
-                       earAccount = alesAccount,
-                       earUpToIndex = 0,
-                       earNewAmount = eatdRemainingAmount -- the new self amount
-                       },
-                     Types.NewEncryptedAmount {
-                       neaAccount = thomasAccount,
-                       neaNewIndex = fromIntegral idx - 1,
-                       neaEncryptedAmount = eatdTransferAmount -- the transferred amount
-                       }
-                   ], checks
+       , (Success $ \case [Types.EncryptedAmountsRemoved {..}, Types.NewEncryptedAmount {..}] -> do
+                            HUnit.assertEqual "Account encrypted amounts removed" earAccount alesAccount
+                            HUnit.assertEqual "Used up indices" earUpToIndex 0
+                            HUnit.assertEqual "New amount" earNewAmount eatdRemainingAmount
+                            HUnit.assertEqual "Receiver address" neaAccount thomasAccount
+                            HUnit.assertEqual "New receiver index" neaNewIndex $ fromIntegral idx - 1
+                            HUnit.assertEqual "Received amount" neaEncryptedAmount eatdTransferAmount
+                          e -> HUnit.assertFailure $ "Unexpected outcome: " ++ show e
+         , checks
          )
        )
 
-  return $ ([ makeNormalTransaction x idx | (idx, (x, _)) <- zip [1..] normal ] ++
+  return ([ makeNormalTransaction x idx | (idx, (x, _)) <- zip [1..] normal ] ++
             [ makeInterestingTransaction tx (fromIntegral idx) | (idx, (tx, _)) <- zip [maxNumIncoming + 1..] interesting ],
             allTxs)
 
@@ -206,21 +204,19 @@ tests = do
   lastTransaction <- runIO $ do
     secToPubTransferData <- mkSecToPubTransferData allTxs
     -- Send the encrypted 340 tokens on Thomas' account to his public balance
-    return $
+    return
         [ ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData
                        , metadata = makeDummyHeader thomasAccount 1 100000
                        , keys = [(0, thomasKP)]
                        }
-        , (SuccessE [Types.EncryptedAmountsRemoved {
-                        earAccount = thomasAccount,
-                        earUpToIndex = numberOfTransactions,
-                        earNewAmount = stpatdRemainingAmount secToPubTransferData
-                        },
-                      Types.AmountAddedByDecryption {
-                        aabdAccount = thomasAccount,
-                        aabdAmount = numberOfTransactions * 10
-                        }
-                    ],
+        , (Success $ \case  [Types.EncryptedAmountsRemoved {..}, Types.AmountAddedByDecryption {..} ] -> do
+                              HUnit.assertEqual "Account encrypted amounts removed" earAccount thomasAccount
+                              HUnit.assertEqual "Used up indices" earUpToIndex numberOfTransactions
+                              HUnit.assertEqual "New amount" earNewAmount $ stpatdRemainingAmount secToPubTransferData
+                              HUnit.assertEqual "Decryption address" aabdAccount thomasAccount
+                              HUnit.assertEqual "Amount added" aabdAmount $ numberOfTransactions * 10
+                            e -> HUnit.assertFailure $ "Unexpected final outcome: " ++ show e,
+
             checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = stpatdRemainingAmount secToPubTransferData,
                                                                 _startIndex = numberOfTransactions,
                                                                 _incomingEncryptedAmounts = Seq.empty} thomasAccount

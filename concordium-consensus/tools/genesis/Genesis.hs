@@ -208,6 +208,13 @@ main = cmdArgsRun mode >>=
               putStrLn $ "  - delay grow factor: " ++ show finalizationDelayGrowFactor
               putStrLn $ "  - allow zero delay: " ++ show finalizationAllowZeroDelay
 
+              let ChainParameters{..} = genesisChainParameters
+              putStrLn ""
+              putStrLn "Chain parameters: "
+              putStrLn $ "  - election difficulty: " ++ show _cpElectionDifficulty
+              putStrLn $ "  - Euro per Energy rate: " ++ show _cpEuroPerEnergy
+              putStrLn $ "  - microGTU per Euro rate: " ++ show _cpMicroGTUPerEuro
+
               putStrLn ""
               putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
 
