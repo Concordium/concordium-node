@@ -325,9 +325,9 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- - replace some encrypted amounts on the sender's account
           addAmountFromEncrypted senderAccount stpatdTransferAmount stpatdIndex stpatdRemainingAmount
 
-          return senderAddress
+          return (senderAddress, senderAmount)
 
-        k ls senderAddress = do
+        k ls (senderAddress, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           notifyEncryptedBalanceChange $ amountDiff 0 stpatdTransferAmount
@@ -335,6 +335,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = stpatdIndex,
+                                earInputAmount = senderAmount,
                                 earNewAmount = stpatdRemainingAmount
                                 },
                               AmountAddedByDecryption{
@@ -441,9 +442,9 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- The index that the new amount on the receiver's account will get
           targetAccountIndex <- addEncryptedAmount targetAccount eatdTransferAmount
 
-          return (senderAddress, targetAccountIndex)
+          return (senderAddress, targetAccountIndex, senderAmount)
 
-        k ls (senderAddress, targetAccountIndex) = do
+        k ls (senderAddress, targetAccountIndex, senderAmount) = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
           commitChanges (ls ^. changeSet)
@@ -451,6 +452,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           return (TxSuccess [EncryptedAmountsRemoved{
                                 earAccount = senderAddress,
                                 earUpToIndex = eatdIndex,
+                                earInputAmount = senderAmount,
                                 earNewAmount = eatdRemainingAmount
                                 },
                              NewEncryptedAmount{
@@ -543,6 +545,7 @@ handleInitContract wtc initAmount modref initName param =
             -- Check whether the sender account's amount can cover the amount to initialize the contract
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAmount senderAccount
+
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
@@ -577,11 +580,15 @@ handleInitContract wtc initAmount modref initName param =
             chargeExecutionCost txHash senderAccount energyCost
 
             -- Withdraw the amount the contract is initialized with from the sender account.
-            commitChanges =<< addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
+            cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
             -- FIXME: miExposedReceive should be replaced after we have some naming scheme.
             let ins = makeInstance modref initName (Wasm.miExposedReceive iface) iface model initAmount (thSender meta)
             addr <- putNewInstance ins
+
+            -- add the contract initialization to the change set and commit the changes
+            commitChanges $ addContractInitToCS (ins addr) cs'
+
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=addr,
                                                    ecAmount=initAmount,
@@ -1315,7 +1322,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
               tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
               ..
             }
-          
+
         else
           return (TxInvalid IncorrectSignature)
 

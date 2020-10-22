@@ -1,7 +1,6 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, RankNTypes, BangPatterns #-}
 module ConcordiumTests.Afgjort.ABBA where
 
-import System.IO.Unsafe
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import qualified Data.ByteString as BS
@@ -172,7 +171,7 @@ superCorruptKeys good bad ugly = loop
             | phase < 0 = True
             | otherwise = maximum [valAtPhase phase (keys Vec.! k) | k <- [0..good-1]] < maximum [valAtPhase phase (keys Vec.! k) | k <- [good..good+bad-1]] 
                         && areSuperCorrupt (phase - 1) keys
-        valAtPhase phase k = ticketValue (proofToTicket (unsafePerformIO $ makeTicketProof (lotteryId phase) k) 1 (fromIntegral $ good + bad))
+        valAtPhase phase k = ticketValue (proofToTicket (makeTicketProof (lotteryId phase) k) 1 (fromIntegral $ good + bad))
         baid = "test" :: BS.ByteString
         lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
         loop seed =
@@ -219,11 +218,14 @@ multiWithCorruptKeys keys active corrupt = monadicIO $ do
     begins <- pick $ makeBegins active
     let baid :: BS.ByteString = "test"
     let lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
-    jmsgs <- liftIO $ sequence [(makeTicketProof (lotteryId phase) (keys Vec.! src)) <&> \tkt -> (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase c tkt) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], c <- [False, True]]
+    let jmsgs = [ (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase c (makeTicketProof (lotteryId phase) (keys Vec.! src))) 
+                    | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], c <- [False, True]]
     let corruptMsgs = Seq.fromList $
             jmsgs ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) c) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1], c <- [False, True]] ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone c ) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], c <- [False, True]]
+            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) c) 
+                | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1], c <- [False, True]] ++
+            [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone c ) 
+                | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], c <- [False, True]]
     gen <- pick $ mkStdGen <$> arbitrary
     liftIO $ runABBATestRG gen baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs)
 
@@ -234,16 +236,22 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
     let begins = Seq.fromList $ [(p, BeginABBA (p `mod` 2 == 0)) | p <- [0..fromIntegral active-1]]
     let baid :: BS.ByteString = "test"
     let lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
-    jmsgs <- liftIO $ sequence [(makeTicketProof (lotteryId phase) (keys Vec.! src)) <&> \tkt -> (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 == 0) tkt) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5]]
+    let jmsgs = [(a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 == 0) (makeTicketProof (lotteryId phase) (keys Vec.! src))) 
+                    | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5]]
     let corruptMsgs = Seq.fromList $ 
             jmsgs ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 == 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 == 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
-    jmsgs2 <- liftIO $ sequence [(makeTicketProof (lotteryId phase) (keys Vec.! src)) <&> \tkt -> (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 /= 0) tkt) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5]]
+            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 == 0)) 
+                | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
+            [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 == 0)) 
+                | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
+    let jmsgs2 = [(a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 /= 0) (makeTicketProof (lotteryId phase) (keys Vec.! src))) 
+                    | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5]]
     let corruptMsgs2 = Seq.fromList $
             jmsgs2 ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
-            [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 /= 0)) | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
+            [(a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 /= 0)) 
+                | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1], phase<-[0..5], p <-[0..active+corrupt-1]] ++
+            [(a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 /= 0)) 
+                | a <- [0..fromIntegral active-1], src <- [active..active+corrupt-1]]
     gen <- pick $ mkStdGen <$> arbitrary
     liftIO $ runABBATest2 gen baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs) corruptMsgs2
 

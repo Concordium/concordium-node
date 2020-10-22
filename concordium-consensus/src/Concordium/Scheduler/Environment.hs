@@ -10,6 +10,7 @@
 module Concordium.Scheduler.Environment where
 
 import qualified Data.HashMap.Strict as HMap
+import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -401,13 +402,14 @@ data ChangeSet = ChangeSet
     {_affectedTx :: !TransactionHash, -- ^Transaction affected by this changeset.
      _accountUpdates :: !(HMap.HashMap AccountAddress AccountUpdate) -- ^Accounts whose states changed.
     ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
+    ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty 0
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HSet.empty 0
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -454,6 +456,16 @@ addContractAmountToCS istance amnt cs =
                                              Nothing -> Just (amnt, model))
   where addr = instanceAddress . instanceParameters $ istance
         model = instanceModel istance
+
+-- |Add the given contract address to the set of initialized contract instances.
+-- As the changes on the blockstate are already performed in the handler for this operation,
+-- we just log the contract address as we don't need to modify the blockstate with
+-- the information we add to the change set.
+{-# INLINE addContractInitToCS #-}
+addContractInitToCS :: Instance -> ChangeSet -> ChangeSet
+addContractInitToCS istance cs =
+    cs { _instanceInits = HSet.insert addr (cs ^. instanceInits) }
+  where addr = instanceAddress . instanceParameters $ istance
 
 -- |Whether the transaction energy limit is reached because of transaction max energy limit,
 -- or because of block energy limit
