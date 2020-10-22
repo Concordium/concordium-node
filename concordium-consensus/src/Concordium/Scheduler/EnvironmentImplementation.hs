@@ -205,7 +205,6 @@ instance (MonadReader ContextState m,
   observeTransactionFootprint c =
     censor (const mempty) (listen c)
 
-  -- FIXME: Make this variable based on block state
   {-# INLINE energyToGtu #-}
   energyToGtu v = do
     s <- use schedulerBlockState
