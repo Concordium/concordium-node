@@ -43,7 +43,7 @@ use std::{
     ops::{Index, IndexMut},
     str::FromStr,
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicI64, AtomicU64, Ordering},
         Arc, RwLock,
     },
 };
@@ -227,7 +227,7 @@ pub struct ConnectionStats {
     /// Interval between sending the last two pings
     last_ping_interval: AtomicU64,
     /// Number of pings sent minus number of pongs received
-    pending_pongs: AtomicU64,
+    pending_pongs: AtomicI64,
     /// Latency measured at last received pong
     last_latency: AtomicU64,
     /// Number of messages sent.
@@ -247,7 +247,7 @@ impl ConnectionStats {
             last_seen:          AtomicU64::new(timestamp),
             last_ping:          AtomicU64::new(0),
             last_ping_interval: AtomicU64::new(0),
-            pending_pongs:      AtomicU64::new(0),
+            pending_pongs:      AtomicI64::new(0),
             last_latency:       AtomicU64::new(0),
             messages_sent:      AtomicU64::new(0),
             messages_received:  AtomicU64::new(0),
@@ -266,7 +266,7 @@ impl ConnectionStats {
     pub fn notify_pong(&self) -> Fallible<()> {
         let now = get_current_stamp();
         let old_pending_pongs = self.pending_pongs.fetch_sub(1, Ordering::SeqCst);
-        if old_pending_pongs == 0 {
+        if old_pending_pongs <= 0 {
             // If this occurs, the peer has violated the protocol by sending
             // an unsolicited pong message.
             bail!("unexpected pong");
@@ -278,7 +278,7 @@ impl ConnectionStats {
             // intervals. At that point, this loss of accuracy is not expected
             // to be so significant.)
             let extra_delay = if old_pending_pongs > 1 {
-                (old_pending_pongs - 1) * self.last_ping_interval.load(Ordering::Acquire)
+                (old_pending_pongs as u64 - 1) * self.last_ping_interval.load(Ordering::Acquire)
             } else {
                 0
             };
