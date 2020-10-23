@@ -808,6 +808,11 @@ doEnqueueUpdate pbs effectiveTime payload = do
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
 
+doGetEnergyRate :: MonadBlobStore m => PersistentBlockState -> m EnergyRate
+doGetEnergyRate pbs = do
+    bsp <- loadPBS pbs
+    lookupEnergyRate (bspUpdates bsp)
+
 newtype PersistentBlockStateContext = PersistentBlockStateContext {
     pbscBlobStore :: BlobStore
 }
@@ -977,6 +982,7 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
+    bsoGetEnergyRate = doGetEnergyRate
 
 instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m) where
     thawBlockState HashedPersistentBlockState{..} = do

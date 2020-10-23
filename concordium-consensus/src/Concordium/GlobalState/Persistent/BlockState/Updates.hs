@@ -448,3 +448,10 @@ enqueueUpdate effectiveTime payload uref = do
             EuroPerEnergyUpdatePayload auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue=newQ}
             MicroGTUPerEuroUpdatePayload auths -> enqueue effectiveTime auths pMicroGTUPerEuroQueue <&> \newQ -> p{pMicroGTUPerEuroQueue=newQ}
         refMake u{pendingUpdates = newPendingUpdates}
+
+-- |Get the current EnergyRate.
+lookupEnergyRate :: (MonadBlobStore m) => BufferedRef Updates -> m EnergyRate
+lookupEnergyRate uref = do
+        Updates{..} <- refLoad uref
+        StoreSerialized ChainParameters{..} <- refLoad currentParameters
+        return _cpEnergyRate
