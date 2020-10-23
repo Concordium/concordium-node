@@ -205,9 +205,11 @@ instance (MonadReader ContextState m,
   observeTransactionFootprint c =
     censor (const mempty) (listen c)
 
-  -- FIXME: Make this variable based on block state
   {-# INLINE energyToGtu #-}
-  energyToGtu v = return (100 * fromIntegral v)
+  energyToGtu v = do
+    s <- use schedulerBlockState
+    rate <- lift (bsoGetEnergyRate s)
+    return (computeCost rate v)
 
   {-# INLINE notifyExecutionCost #-}
   notifyExecutionCost !amnt = do
