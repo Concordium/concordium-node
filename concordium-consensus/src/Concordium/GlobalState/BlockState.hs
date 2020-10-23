@@ -442,6 +442,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Enqueue an update to take effect at the specified time.
   bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
 
+  -- |Get the current energy rate.
+  bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
+
 -- | Block state storage operations
 class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
     -- |Derive a mutable state instance from a block state instance. The mutable
@@ -604,6 +607,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
   bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
+  bsoGetEnergyRate = lift . bsoGetEnergyRate
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
@@ -633,6 +637,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoUpdateBirkParameters #-}
   {-# INLINE bsoProcessUpdateQueues #-}
   {-# INLINE bsoGetCurrentAuthorizations #-}
+  {-# INLINE bsoGetNextUpdateSequenceNumber #-}
+  {-# INLINE bsoEnqueueUpdate #-}
+  {-# INLINE bsoGetEnergyRate #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState

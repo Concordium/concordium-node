@@ -192,7 +192,7 @@ emptyBirkParameters :: BasicBirkParameters
 emptyBirkParameters = makeBirkParameters emptyBakers emptyBakers emptyBakers (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.000001 1000000
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState

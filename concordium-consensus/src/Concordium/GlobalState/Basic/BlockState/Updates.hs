@@ -2,6 +2,7 @@
 -- |Implementation of the chain update mechanism: https://concordium.gitlab.io/whitepapers/update-mechanism/main.pdf
 module Concordium.GlobalState.Basic.BlockState.Updates where
 
+import Control.Monad
 import Data.Aeson as AE
 import qualified Data.ByteString as BS
 import Data.Foldable
@@ -39,6 +40,17 @@ instance ToJSON e => ToJSON (UpdateQueue e) where
             "nextSequenceNumber" AE..= _uqNextSequenceNumber,
             "queue" AE..= [object ["effectiveTime" AE..= et, "update" AE..= u] | (et, u) <- _uqQueue]
         ]
+
+instance FromJSON e => FromJSON (UpdateQueue e) where
+    parseJSON = withObject "Update queue" $ \o -> do
+        _uqNextSequenceNumber <- o AE..: "nextSequenceNumber"
+        queue <- o AE..: "queue"
+        _uqQueue <- withArray "queue" (\vec -> forM (toList vec) $ withObject "Queue entry" $ \e -> do
+                tt <- e AE..: "effectiveTime"
+                upd <- e AE..: "update"
+                return (tt, upd)
+            ) queue
+        return UpdateQueue{..}
 
 -- |Update queue with no pending updates, and with the minimal next
 -- sequence number.
@@ -90,6 +102,15 @@ instance ToJSON PendingUpdates where
             "microGTUPerEuro" AE..= _pMicroGTUPerEuroQueue
         ]
 
+instance FromJSON PendingUpdates where
+    parseJSON = withObject "PendingUpdates" $ \o -> do
+        _pAuthorizationQueue <- fmap makeHashed <$> o AE..: "authorization"
+        _pProtocolQueue <- o AE..: "protocol"
+        _pElectionDifficultyQueue <- o AE..: "electionDifficulty"
+        _pEuroPerEnergyQueue <- o AE..: "euroPerEnergy"
+        _pMicroGTUPerEuroQueue <- o AE..: "microGTUPerEuro"
+        return PendingUpdates{..}
+
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: PendingUpdates
 emptyPendingUpdates = PendingUpdates emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue
@@ -125,6 +146,14 @@ instance ToJSON Updates where
             "chainParameters" AE..= _currentParameters,
             "updateQueues" AE..= _pendingUpdates
         ] <> toList (("protocolUpdate" AE..=) <$> _currentProtocolUpdate)
+
+instance FromJSON Updates where
+    parseJSON = withObject "Updates" $ \o -> do
+        _currentAuthorizations <- makeHashed <$> o AE..: "authorizations"
+        _currentProtocolUpdate <- o AE..:? "protocolUpdate"
+        _currentParameters <- o AE..: "chainParameters"
+        _pendingUpdates <- o AE..: "updateQueues"
+        return Updates{..}
 
 -- |An initial 'Updates' with the given initial 'Authorizations'
 -- and 'ChainParameters'.
