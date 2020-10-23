@@ -18,7 +18,7 @@ use concordium_common::{
     QueueMsg,
 };
 use consensus_rust::{
-    catch_up::PeerStatus,
+    catch_up::{PeerList, PeerStatus},
     consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
     ffi,
     messaging::{ConsensusMessage, DistributionMode, MessageType},
@@ -368,29 +368,8 @@ pub fn update_peer_list(node: &P2PNode) {
     }
 }
 
-/// Check whether the peers require catching up.
-pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
-    // If we are catching-up with a peer, check if the peer has timed-out.
-    if let Some(id) = read_or_die!(node.peers).catch_up_peer {
-        if let Some(token) = find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) {
-            if get_current_stamp() > read_or_die!(node.peers).catch_up_stamp + MAX_CATCH_UP_TIME {
-                // Try to remove the peer, since it timed-out.
-                debug!("Peer {:016x} took too long to catch up; dropping", id);
-                // This function may not actually remove the peer, so we do not assume
-                // that it will be removed.
-                node.register_conn_change(ConnChange::Removal(token));
-            }
-            return;
-        } else {
-            // Connection no longer exists
-            debug!("Catch-up-in-progress peer {:016x} no longer exists", id);
-            let peers = &mut write_or_die!(node.peers);
-            peers.catch_up_peer = None;
-            peers.peer_states.remove(&id);
-        }
-    }
-    // We are not currently catching-up with a peer, so try to.
-    let peers = &mut write_or_die!(node.peers);
+/// Try to catch up with a peer, if one is pending.
+fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut PeerList) {
     if let Some(id) = peers.next_pending() {
         debug!("Attempting to catch up with peer {:016x}", id);
         peers.catch_up_stamp = get_current_stamp();
@@ -413,6 +392,37 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
             peers.catch_up_peer = None;
             peers.peer_states.remove(&id);
         }
+    }
+}
+
+/// Check whether the peers require catching up.
+pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
+    // If we are catching-up with a peer, check if the peer has timed-out.
+    let now = get_current_stamp();
+    let (catch_up_peer, catch_up_stamp) = {
+        let peers = read_or_die!(node.peers);
+        (peers.catch_up_peer, peers.catch_up_stamp)
+    };
+    if let Some(id) = catch_up_peer {
+        let mtoken = { find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) };
+        if let Some(token) = mtoken {
+            if now > catch_up_stamp + MAX_CATCH_UP_TIME {
+                // Try to remove the peer, since it timed-out.
+                debug!("Peer {:016x} took too long to catch up; dropping", id);
+                // This function may not actually remove the peer, so we do not assume
+                // that it will be removed.
+                node.register_conn_change(ConnChange::Removal(token));
+            }
+        } else {
+            // Connection no longer exists
+            debug!("Catch-up-in-progress peer {:016x} no longer exists", id);
+            let peers = &mut write_or_die!(node.peers);
+            peers.catch_up_peer = None;
+            peers.peer_states.remove(&id);
+            try_catch_up(node, consensus, peers);
+        }
+    } else {
+        try_catch_up(node, consensus, &mut write_or_die!(node.peers));
     }
 }
 

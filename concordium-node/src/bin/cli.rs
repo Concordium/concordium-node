@@ -85,21 +85,21 @@ async fn main() -> Fallible<()> {
         }
     };
 
-    // Register a safe handler for SIGINT / ^C
-    let ctrlc_node = node.clone();
-    let ctrlc_shutdown_handler_state = shutdown_handler_state.clone();
-    ctrlc::set_handler(move || signal_closure(&ctrlc_node, &ctrlc_shutdown_handler_state))?;
-
     // Register a SIGTERM handler for a POSIX.1-2001 system
     #[cfg(not(windows))]
     {
+        let sigterm_shutdown_handler_state = shutdown_handler_state.clone();
         let signal_hook_node = node.clone();
         unsafe {
             signal_hook::register(signal_hook::SIGTERM, move || {
-                signal_closure(&signal_hook_node, &shutdown_handler_state)
+                signal_closure(&signal_hook_node, &sigterm_shutdown_handler_state)
             })
         }?;
     }
+
+    // Register a safe handler for SIGINT / ^C
+    let ctrlc_node = node.clone();
+    ctrlc::set_handler(move || signal_closure(&ctrlc_node, &shutdown_handler_state))?;
 
     #[cfg(feature = "instrumentation")]
     {

@@ -1,7 +1,7 @@
 //! Node connection handling.
 
 use failure::Fallible;
-use mio::{net::TcpStream, Events, Token};
+use mio::{event::Event, net::TcpStream, Events, Token};
 use rand::{
     seq::{index::sample, IteratorRandom},
     Rng,
@@ -103,12 +103,8 @@ impl P2PNode {
         debug!("Measuring connection latencies");
 
         for conn in write_or_die!(self.connections()).values_mut() {
-            if conn.stats.last_pong.load(Ordering::SeqCst)
-                >= conn.stats.last_ping.load(Ordering::SeqCst)
-            {
-                if let Err(e) = conn.send_ping() {
-                    error!("Can't send a ping to {}: {}", conn, e);
-                }
+            if let Err(e) = conn.send_ping() {
+                error!("Can't send a ping to {}: {}", conn, e);
             }
         }
     }
@@ -229,6 +225,10 @@ impl P2PNode {
             .map(|(_, conn)| conn)
             .chain(write_or_die!(self.connections()).par_iter_mut().map(|(_, conn)| conn))
             .for_each(|conn| {
+                if events.iter().any(|event| event.token() == conn.token && event.is_writable()) {
+                    conn.low_level.notify_writable();
+                }
+
                 if let Err(e) =
                     conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
                 {
@@ -242,14 +242,38 @@ impl P2PNode {
                 }
 
                 if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
-                    if let Err(e) = conn.read_stream(&conn_stats) {
-                        error!("[receiving from {}] {}", conn, e);
-                        if let Ok(_io_err) = e.downcast::<io::Error>() {
-                            self.register_conn_change(ConnChange::Removal(conn.token));
-                        } else {
-                            self.register_conn_change(ConnChange::Expulsion(conn.token));
+                    match conn.read_stream(&conn_stats) {
+                        Err(e) => {
+                            error!("[receiving from {}] {}", conn, e);
+                            if let Ok(_io_err) = e.downcast::<io::Error>() {
+                                self.register_conn_change(ConnChange::Removal(conn.token));
+                            } else {
+                                self.register_conn_change(ConnChange::Expulsion(conn.token));
+                            }
+                            return;
                         }
+                        Ok(false) => {
+                            // The connection was closed by the peer.
+                            debug!("Connection to {} closed by peer", conn);
+                            self.register_conn_change(ConnChange::Removal(conn.token));
+                            return;
+                        }
+                        Ok(true) => {}
                     }
+                }
+
+                let closed_or_error = |event: &Event| {
+                    event.token() == conn.token
+                        && (event.is_read_closed() || event.is_write_closed() || event.is_error())
+                };
+
+                if events.iter().any(closed_or_error) {
+                    // Generally, connections will be closed as a result of a read or write failing
+                    // or returning 0 bytes, rather than reaching here. This is more of a back stop,
+                    // and might catch a failure sooner in the case where we do not currently have
+                    // anything to write.
+                    debug!("Closing connection to {}", conn);
+                    self.register_conn_change(ConnChange::Removal(conn.token));
                 }
             })
     }

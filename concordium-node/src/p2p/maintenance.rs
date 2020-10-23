@@ -86,7 +86,7 @@ pub struct NodeConfig {
     pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
-    pub socket_so_linger: Option<usize>,
+    pub socket_so_linger: Option<u16>,
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
 }
@@ -394,7 +394,11 @@ impl P2PNode {
     /// It registers a connection's socket with the poll.
     pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
         self.poll_registry
-            .register(&mut conn.low_level.socket, conn.token, Interest::READABLE)
+            .register(
+                &mut conn.low_level.socket,
+                conn.token,
+                Interest::READABLE | Interest::WRITABLE,
+            )
             .map_err(|e| e.into())
     }
 
