@@ -91,7 +91,7 @@ import Concordium.Logger
 --
 -- * If @c@ is 'PersistentBlockStateContext', the block state is a persistent, Haskell
 --   implementation using 'PersistentBlockStateMonad'.
-newtype BlockStateM c r g s m a = BlockStateM (m a)
+newtype BlockStateM c r g s m a = BlockStateM { runBlockStateM :: m a }
     deriving (Functor, Applicative, Monad, MonadIO, MonadLogger)
 
 -- * Specializations
