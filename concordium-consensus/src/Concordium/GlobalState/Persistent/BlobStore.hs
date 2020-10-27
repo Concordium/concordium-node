@@ -42,6 +42,7 @@ import System.Directory
 import GHC.Stack
 import Data.IORef
 import Concordium.Crypto.EncryptedTransfers
+import Data.Map (Map)
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
@@ -52,6 +53,7 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Parameters as Parameters
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types
 import Concordium.Types.Updates
 
@@ -670,6 +672,8 @@ instance MonadBlobStore m => BlobStorable m Authorizations
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty
+instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule
+instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 
 newtype StoreSerialized a = StoreSerialized { unStoreSerialized :: a }
     deriving newtype (Serialize)
@@ -787,6 +791,8 @@ instance (Applicative m, Cacheable m a, Cacheable m b) => Cacheable m (a, b) whe
 
 -- Required for caching PersistentAccount
 instance (Applicative m) => Cacheable m EncryptedAmount
+instance (Applicative m) => Cacheable m AccountReleaseSchedule
+instance (Applicative m) => Cacheable m (Map AccountAddress Timestamp)
 instance (Applicative m) => Cacheable m PersistingAccountData
 -- Required for caching AccountIndexes
 instance (Applicative m) => Cacheable m Word64

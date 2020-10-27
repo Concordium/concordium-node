@@ -186,6 +186,7 @@ makePureAccount :: (MonadBlobStore m) => PA.PersistentAccount -> m Account
 makePureAccount PA.PersistentAccount {..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
+  _accountReleaseSchedule <- loadBufferedRef _accountReleaseSchedule
   return Account {..}
 
 runAccountAction :: (MonadBlobStore m, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)

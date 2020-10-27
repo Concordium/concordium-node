@@ -10,6 +10,7 @@ import Concordium.Utils
 import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
@@ -86,6 +87,7 @@ getAccount addr Accounts{..} = case Map.lookup addr accountMap of
 updateAccount :: AccountUpdate -> Account -> Account
 updateAccount !upd
     = updateNonce
+      . updateReleaseSchedule
       . updateAmount
       . updateCredential (upd ^. auCredential)
       . updateEncryptedAmount
@@ -94,6 +96,9 @@ updateAccount !upd
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
     maybeUpdate (Just x) f = f x
+    updateReleaseSchedule = maybeUpdate (upd ^. auReleaseSchedule) (\d acc -> acc & accountReleaseSchedule %~ addReleases d
+                                                                                 -- the amount that is scheduled is also added to the account amount
+                                                                                 & accountAmount +~ foldl' (+) 0 (map snd d))
     updateNonce = maybeUpdate (upd ^. auNonce) (accountNonce .~)
     updateAmount = maybeUpdate (upd ^. auAmount) $ \d -> accountAmount %~ applyAmountDelta d
     updateEncryptedAmount acc = foldr updateSingle acc (upd ^. auEncrypted)
