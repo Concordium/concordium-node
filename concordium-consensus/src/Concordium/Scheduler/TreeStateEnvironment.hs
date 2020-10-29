@@ -162,10 +162,12 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     bshandle0 <- thawBlockState =<< blockState blockParent
     -- process the update queues
     bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
+    -- unlock the amounts that have expired
+    bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
     -- update the block states parameters according to the slot of this block
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state
-    bshandle1 <- bsoUpdateBirkParameters bshandle0a bps
+    bshandle1 <- bsoUpdateBirkParameters bshandle0b bps
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _chainMetadata = cm,
@@ -213,10 +215,12 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     bshandle0 <- thawBlockState =<< blockState blockParent
     -- process the update queues
     bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
+    -- unlock the amounts that have expired
+    bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
     -- update the block states parameters according to the slot of this block
     -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
     -- in most cases the block nonce is added to the seed state
-    bshandle1 <- bsoUpdateBirkParameters bshandle0a bps
+    bshandle1 <- bsoUpdateBirkParameters bshandle0b bps
     pt <- getPendingTransactions
 
     -- Prioritise the block items for inclusion in a block.
