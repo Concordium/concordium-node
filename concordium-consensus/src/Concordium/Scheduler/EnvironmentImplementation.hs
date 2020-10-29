@@ -10,6 +10,7 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
+import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
 import Data.Functor.Identity
 
@@ -198,7 +199,8 @@ instance (MonadReader ContextState m,
                        )
                   s'
                   (cs ^. accountUpdates))
-    schedulerBlockState .= s''
+    s''' <- lift (bsoAddReleaseSchedule s'' (OrdMap.toList $ cs ^. addedReleaseSchedules))
+    schedulerBlockState .= s'''
 
   -- Observe a single transaction footprint.
   {-# INLINE observeTransactionFootprint #-}

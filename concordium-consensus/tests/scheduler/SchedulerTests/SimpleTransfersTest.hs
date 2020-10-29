@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 module SchedulerTests.SimpleTransfersTest where
 
 import Test.Hspec

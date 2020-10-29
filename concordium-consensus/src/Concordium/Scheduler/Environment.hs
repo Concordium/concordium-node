@@ -27,10 +27,11 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, emptyAccountUpdate)
+import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerError)
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
 import Control.Exception(assert)
 
@@ -301,6 +302,10 @@ class StaticInformation m => TransactionMonad m where
   -- computation in the modified environment.
   withContractToContractAmount :: Instance -> Instance -> Amount -> m a -> m a
 
+  -- |Transfer a scheduled amount from the first address to the second and run
+  -- the computation in the modified environment.
+  withScheduledAmount :: Account m -> Account m -> Amount -> [(Timestamp, Amount)] -> m a -> m a
+
   -- |Replace encrypted amounts on an account up to (but not including) the
   -- given limit with a new amount.
   replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
@@ -339,6 +344,10 @@ class StaticInformation m => TransactionMonad m where
   withToAccountAmount (Left i) = withContractToAccountAmount i
   withToAccountAmount (Right a) = withAccountToAccountAmount a
 
+  -- |Get the current amount available for an account.
+  --
+  -- Note that this function will subtract the locked amount from the total amount to return
+  -- only the available amount.
   getCurrentAccount :: AccountAddress -> m (Maybe (Account m))
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
@@ -404,12 +413,13 @@ data ChangeSet = ChangeSet
     ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
+    ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HSet.empty 0
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HSet.empty 0 Map.empty
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -422,11 +432,23 @@ addAmountToCS acc !amnt !cs = do
   addr <- getAccountAddress acc
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
-  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case Just x -> Just (x + amnt)
-                                                                                             Nothing -> Just amnt
+  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case
+                                                                       Just x -> Just (x + amnt)
+                                                                       Nothing -> Just amnt
                                                                     )
                                                    Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
+-- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
+{-# INLINE addScheduledAmountToCS #-}
+addScheduledAmountToCS :: AccountOperations m => Account m -> [(Timestamp, Amount)] -> ChangeSet -> m ChangeSet
+addScheduledAmountToCS _ [] cs = return cs
+addScheduledAmountToCS acc !rel@((fstRel, _):_) !cs = do
+  addr <- getAccountAddress acc
+  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe rel (++ rel))
+                                                   Nothing -> Just (emptyAccountUpdate addr & auReleaseSchedule ?~ rel))
+              & addedReleaseSchedules %~ (Map.alter (\case
+                                                        Nothing -> Just fstRel
+                                                        Just rel' -> Just $ min fstRel rel') addr)
 
 -- |Modify the amount on the given account in the changeset by a given delta.
 -- It is assumed that the account is already in the changeset and that its balance
@@ -711,6 +733,14 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
 
+  {-# INLINE withScheduledAmount #-}
+  withScheduledAmount fromAcc toAcc sentAmount releases cont = do
+    cs <- use changeSet
+    cs' <- addAmountToCS fromAcc (amountDiff 0 sentAmount) cs
+    cs'' <- addScheduledAmountToCS toAcc releases cs'
+    changeSet .= cs''
+    cont
+
   replaceEncryptedAmount acc aggIndex newAmount = do
     addr <- getAccountAddress acc
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= ReplaceUpTo{..}
@@ -759,7 +789,8 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   {-# INLINE getCurrentAccountAmount #-}
   getCurrentAccountAmount acc = do
     addr <- getAccountAddress acc
-    amnt <- getAccountAmount acc
+    totalAmnt <- getAccountAmount acc
+    amnt <- (totalAmnt -) . ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
     !txCtx <- ask
     -- additional delta that arises due to the deposit
     let additionalDelta =

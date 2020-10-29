@@ -117,6 +117,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload Types.EncryptedAmountTransfer{..})
     (TJSON meta TransferToPublic{..} keys) ->
       return $ signTx keys meta (Types.encodePayload Types.TransferToPublic{..})
+    (TJSON meta TransferWithSchedule{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.TransferWithSchedule{..})
 
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.AccountTransaction]
@@ -216,6 +218,10 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                      }
                  | TransferToPublic {
                      ttpData :: !SecToPubAmountTransferData
+                     }
+                 | TransferWithSchedule {
+                     twsTo :: !AccountAddress,
+                     twsSchedule :: ![(Timestamp, Amount)]
                      }
                  deriving(Show, Generic)
 
