@@ -15,7 +15,7 @@ This repository relies on git submodules for internal component dependencies, so
 * PostGreSQL >= 10
 
 ### Optional dependencies
-* Stack (and GHC-8.8.3, if not building using static libraries)
+* Stack (and GHC-8.8.4, if not building using static libraries)
 * capnp (for running `s11n_capnp` enabled benches only)
 
 ## Supported features
