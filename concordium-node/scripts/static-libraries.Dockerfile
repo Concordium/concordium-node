@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:experimental
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.15
 
-ENV GHC_VERSION 8.8.3
+ENV GHC_VERSION 8.8.4
 
 COPY scripts/build-static-libraries.sh /build-static-libraries.sh
 COPY scripts/build-static-libraries-copy-out.sh /build-static-libraries-copy-out.sh

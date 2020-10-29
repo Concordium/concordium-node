@@ -21,10 +21,10 @@ subsection () {
 }
 
 set -e
-GHC_BUILDER_VERSION="8.8.3"
-CABAL_BUILDER_VERSION="3.0.0.0"
+GHC_BUILDER_VERSION="8.8.4"
+CABAL_BUILDER_VERSION="3.2.0.0"
 CABAL_VERSION="$CABAL_BUILDER_VERSION"
-STACK_VERSION="2.1.3"
+STACK_VERSION="2.5.1"
 
 echo "We will run the following process:
 
@@ -90,10 +90,10 @@ cabal update
 
 subsection "CABAL: OK"
 
-wget https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64-static.tar.gz
-tar -xf stack-$STACK_VERSION-linux-x86_64-static.tar.gz
+wget https://github.com/commercialhaskell/stack/releases/download/v$STACK_VERSION/stack-$STACK_VERSION-linux-x86_64.tar.gz
+tar -xf stack-$STACK_VERSION-linux-x86_64.tar.gz
 mkdir -p $HOME/.stack/bin
-mv stack-$STACK_VERSION-linux-x86_64-static/stack $HOME/.stack/bin
+mv stack-$STACK_VERSION-linux-x86_64/stack $HOME/.stack/bin
 export PATH=$PATH:$HOME/.stack/bin
 echo "system-ghc: true" > ~/.stack/config.yaml
 stack update
