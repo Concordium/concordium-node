@@ -54,12 +54,12 @@ instance HashableTo Hash.Hash Account where
   getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountPersisting
 
 -- |Create an empty account with the given public key, encryption key, address and credential.
-newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> Account
+newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account
 newAccount cryptoParams _accountVerificationKeys _accountAddress credential = Account {
         _accountPersisting = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (cdvRegId credential),
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
         _accountCredentials = [credential],
-        _accountMaxCredentialValidTo = pValidTo (cdvPolicy credential),
+        _accountMaxCredentialValidTo = validTo credential,
         _accountStakeDelegate = Nothing,
         _accountInstances = Set.empty,
         ..

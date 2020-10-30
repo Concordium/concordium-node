@@ -300,7 +300,7 @@ data GenesisAccount = GenesisAccount {
   gaAddress :: !AccountAddress,
   gaVerifyKeys :: !ID.AccountKeys,
   gaBalance :: !Amount,
-  gaCredential :: !ID.CredentialDeploymentInformation
+  gaCredential :: !ID.AccountCredentialWithProofs
 }
 
 instance FromJSON GenesisAccount where
@@ -436,7 +436,7 @@ parametersToGenesisData GenesisParametersV1{..} = GenesisDataV1{..}
             (gaBalance gbAccount)
 
         mkAccount GenesisAccount{..} =
-          let cdv = ID.cdiValues gaCredential in
+          let cdv = ID.values gaCredential in
           newAccount genesisCryptographicParameters gaVerifyKeys gaAddress cdv
                 & accountAmount .~ gaBalance
         -- Baker accounts will have no special privileges.
