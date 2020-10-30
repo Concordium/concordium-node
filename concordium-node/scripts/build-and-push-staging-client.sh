@@ -2,10 +2,11 @@
 
 # Temporary build script for Jenkins
 
-set -e
+set -ex
+
 ./scripts/download-genesis-data.sh
 
-VERSION=$(cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//')
+VERSION=$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' Cargo.toml) # extract and unquote value of the first occurrence of a 'version' key in Cargo.toml
 VERSION_TAG=$(git rev-parse --verify HEAD)
 CONSENSUS_VERSION=$(cd deps/internal/consensus && git rev-parse --verify HEAD)
 
