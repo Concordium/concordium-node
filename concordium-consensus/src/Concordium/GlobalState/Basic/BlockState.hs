@@ -34,7 +34,7 @@ import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.SeedState
-import Concordium.ID.Types (cdvRegId)
+import Concordium.ID.Types (regId)
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
@@ -246,7 +246,7 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountInstances acc = return $ acc ^. accountInstances
 
-  createNewAccount gc keys addr regId = return $ newAccount gc keys addr regId
+  createNewAccount gc keys addr = return . newAccount gc keys addr
 
   updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
 
@@ -302,7 +302,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         if Accounts.exists addr accounts then
           (False, bs)
         else
-          (True, bs & blockAccounts .~ Accounts.putAccount acc (foldr Accounts.recordRegId accounts (cdvRegId <$> acc ^. accountCredentials))
+          (True, bs & blockAccounts .~ Accounts.putAccount acc (foldr Accounts.recordRegId accounts (regId <$> acc ^. accountCredentials))
                     & bakerUpdate)
         where
             accounts = bs ^. blockAccounts
@@ -343,7 +343,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
              Nothing -> bs & blockAccounts %~ Accounts.putAccount updatedAccount
              Just cdi ->
                bs & blockAccounts %~ Accounts.putAccount updatedAccount
-                                   . Accounts.recordRegId (cdvRegId cdi))
+                                   . Accounts.recordRegId (regId cdi))
         -- If we change the amount, update the delegate
         & (blockBirkParameters . birkCurrentBakers
                     %~ modifyStake (account ^. accountStakeDelegate)

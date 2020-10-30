@@ -56,7 +56,7 @@ invariantBlockState bs = do
             !myBal <- foldM (checkInst addr) (acct ^. accountAmount) (acct ^. accountInstances)
             let delegMap' = maybe delegMap (\delBkr -> delegMap & at' delBkr . non 0 %~ (+myBal)) (acct ^. accountStakeDelegate)
             return (creds', Map.insert addr i amp, bal + myBal, delegMap', ninsts + fromIntegral (Set.size (acct ^. accountInstances)))
-        checkCred creds (ID.cdvRegId -> cred)
+        checkCred creds (ID.regId -> cred)
             | cred `Set.member` creds = Left $ "Duplicate credential: " ++ show cred
             | otherwise = return $ Set.insert cred creds
         checkInst owner bal caddr = case bs ^? blockInstances . ix caddr of

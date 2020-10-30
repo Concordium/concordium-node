@@ -544,7 +544,7 @@ doPutNewAccount pbs acct = do
         if res then (True,) <$> do
             PersistingAccountData{..} <- acct ^^. id
             -- Record the RegIds of any credentials
-            accts2 <- foldM (flip Accounts.recordRegId) accts1 (ID.cdvRegId <$> _accountCredentials)
+            accts2 <- foldM (flip Accounts.recordRegId) accts1 (ID.regId <$> _accountCredentials)
             -- Update the delegation if necessary
             case _accountStakeDelegate of
                 Nothing -> storePBS pbs (bsp {bspAccounts = accts2})
@@ -564,7 +564,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         (mbalinfo, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
         accts2 <- case _auCredential of
-            Just cdi -> Accounts.recordRegId (ID.cdvRegId cdi) accts1
+            Just cdi -> Accounts.recordRegId (ID.regId cdi) accts1
             Nothing -> return accts1
         -- If the amount is changed update the delegate stake
         birkParams1 <- case (_auAmount, mbalinfo) of
@@ -927,9 +927,9 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 
   createNewAccount cryptoParams _accountVerificationKeys _accountAddress cdv = do
       let pData = PersistingAccountData {
-                    _accountEncryptionKey = ID.makeEncryptionKey cryptoParams (ID.cdvRegId cdv),
+                    _accountEncryptionKey = ID.makeEncryptionKey cryptoParams (ID.regId cdv),
                     _accountCredentials = [cdv],
-                    _accountMaxCredentialValidTo = ID.pValidTo (ID.cdvPolicy cdv),
+                    _accountMaxCredentialValidTo = ID.validTo cdv,
                     _accountStakeDelegate = Nothing,
                     _accountInstances = Set.empty,
                     ..

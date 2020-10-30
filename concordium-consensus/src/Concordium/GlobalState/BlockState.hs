@@ -70,7 +70,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
+import Concordium.ID.Types (AccountCredential, CredentialValidTo, AccountKeys)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |Index of the module in the module table. Reflects when the module was added
@@ -152,7 +152,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
-  getAccountCredentials :: Account m -> m [CredentialDeploymentValues]
+  getAccountCredentials :: Account m -> m [AccountCredential]
 
   -- |Get the last expiry time of a credential on the account.
   getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
@@ -202,7 +202,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   getAccountInstances :: Account m -> m (Set ContractAddress)
 
   -- |Create an empty account with the given public key, address and credential.
-  createNewAccount :: GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Account m)
+  createNewAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (Account m)
 
   -- |Update the public account balance
   updateAccountAmount :: Account m -> Amount -> m (Account m)

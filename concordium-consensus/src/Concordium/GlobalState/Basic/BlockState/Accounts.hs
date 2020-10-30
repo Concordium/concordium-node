@@ -68,7 +68,7 @@ putAccount !acct Accounts{..} =
 -- |Equivalent to calling putAccount and recordRegId in sequence.
 putAccountWithRegIds :: Account -> Accounts -> Accounts
 putAccountWithRegIds !acct accts =
-  foldl' (\accs currentAcc -> recordRegId (ID.cdvRegId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
+  foldl' (\accs currentAcc -> recordRegId (ID.regId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts -> Bool
