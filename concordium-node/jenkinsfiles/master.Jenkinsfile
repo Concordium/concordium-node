@@ -7,12 +7,12 @@ pipeline {
             }
         }
         stage('build') {
-            environment {
-                DOCKER_BUILDKIT = 1
-            }
             steps {
                 sshagent (credentials: ['6a7625a8-34f4-4c39-b0be-ed5b49aabc16']) {
-                    sh './scripts/download-genesis-data.sh && ./build-testnet-production-release.sh release default false'
+                    sh '''\
+                           ./scripts/download-genesis-data.sh
+                           ./build-testnet-production-release.sh release default false
+                       '''
                 }
             }
         }

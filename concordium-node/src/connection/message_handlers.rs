@@ -1,7 +1,7 @@
 //! Incoming network message handing.
 
 use crate::{
-    common::{get_current_stamp, p2p_peer::PeerStats, P2PNodeId, PeerType},
+    common::{p2p_peer::PeerStats, P2PNodeId, PeerType},
     configuration::{is_compatible_version, MAX_PEER_NETWORKS},
     connection::{ConnChange, Connection},
     network::{
@@ -14,7 +14,7 @@ use crate::{
 
 use failure::Fallible;
 
-use std::sync::{atomic::Ordering, Arc};
+use std::sync::Arc;
 
 impl Connection {
     /// Processes a network message based on its type.
@@ -108,10 +108,7 @@ impl Connection {
         Ok(())
     }
 
-    fn handle_pong(&self) -> Fallible<()> {
-        self.stats.last_pong.store(get_current_stamp(), Ordering::SeqCst);
-        Ok(())
-    }
+    fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
 
     fn handle_ban(&self, peer_to_ban: BanId, msg: Arc<[u8]>) -> Fallible<()> {
         self.handler.ban_node(peer_to_ban)?;
