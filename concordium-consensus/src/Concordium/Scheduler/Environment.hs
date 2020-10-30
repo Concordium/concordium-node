@@ -133,7 +133,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- FIXME: This method should not be here, but rather in the transaction monad.
   -- |Add account credential to an account address.
   -- Precondition: The account with this address exists in the block state.
-  addAccountCredential :: Account m -> ID.CredentialDeploymentValues -> m ()
+  addAccountCredential :: Account m -> ID.AccountCredential -> m ()
 
   -- |Create new account in the global state. Return @True@ if the account was
   --  successfully created and @False@ if the account address already existed.
@@ -856,7 +856,7 @@ logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ cred) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
@@ -867,7 +867,7 @@ logInvalidTransaction WithMetadata{..} fk =
 
 logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ wmdData) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ wmdData) ++ " was invalid with reason " ++ show fk
 
 logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
 logInvalidChainUpdate WithMetadata{..} fk =

@@ -9,6 +9,7 @@ module Concordium.Scheduler.Cost where
 import Data.Word
 
 import Concordium.Types
+import Concordium.ID.Types as ID
 import qualified Concordium.Wasm as Wasm
 
 -- |A newtype wrapper around ByteSize to be able to charge for lookup differently
@@ -159,8 +160,9 @@ transferAccount = 0
 
 -- |Cost to add a credential to an account. This cost is costant regardless of
 -- the details of the data. This might change.
-deployCredential :: Energy
-deployCredential = 35000
+deployCredential :: ID.CredentialType -> Energy
+deployCredential ID.Initial = 1000
+deployCredential ID.Normal = 35000
 
 -- |Cost to register a new baker.
 addBaker :: Energy
