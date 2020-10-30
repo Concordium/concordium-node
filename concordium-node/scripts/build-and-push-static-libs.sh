@@ -2,7 +2,7 @@
 
 set -e
 
-GHC_VERSION="8.8.3"
+GHC_VERSION="8.8.4"
 
 docker build -t concordium/static-libraries -f scripts/static-libraries.Dockerfile --ssh default . 
 
