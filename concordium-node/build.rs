@@ -3,7 +3,7 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(unix, not(feature = "static")))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-8.8.3";
+const GHC_VARIANT: &str = "x86_64-linux-ghc-8.8.4";
 
 #[cfg(all(unix, not(feature = "static")))]
 fn command_output(cmd: &mut Command) -> String {
