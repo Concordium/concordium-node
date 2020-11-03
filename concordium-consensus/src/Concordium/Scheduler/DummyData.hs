@@ -27,13 +27,6 @@ makeHeaderWithExpiry = Runner.TransactionHeader
 makeDummyHeader :: AccountAddress -> Nonce -> Energy -> Runner.TransactionHeader
 makeDummyHeader a n e = makeHeaderWithExpiry a n e dummyMaxTransactionExpiryTime
 
-{-# NOINLINE cdi1 #-}
-{-# NOINLINE cdi2 #-}
-{-# NOINLINE cdi3 #-}
-{-# NOINLINE cdi4 #-}
-{-# NOINLINE cdi5 #-}
-{-# NOINLINE cdi6 #-}
-{-# NOINLINE cdi7 #-}
 {-# WARNING cdi1 "Do not use in production." #-}
 cdi1 :: CredentialDeploymentInformation
 cdi1 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-1.json" >>= embedFile)
@@ -57,6 +50,19 @@ cdi6 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/crede
 {-# WARNING cdi7 "Do not use in production." #-}
 cdi7 :: CredentialDeploymentInformation
 cdi7 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-7.json" >>= embedFile)
+
+{-# WARNING icdi1 "Do not use in production." #-}
+icdi1 :: InitialCredentialDeploymentInfo
+icdi1 = readInitialCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/initial-credential-1.json" >>= embedFile)
+{-# WARNING icdi2 "Do not use in production." #-}
+icdi2 :: InitialCredentialDeploymentInfo
+icdi2 = readInitialCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/initial-credential-2.json" >>= embedFile)
+{-# WARNING icdi3 "Do not use in production." #-}
+icdi3 :: InitialCredentialDeploymentInfo
+icdi3 = readInitialCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/initial-credential-3.json" >>= embedFile)
+{-# WARNING icdi4 "Do not use in production." #-}
+icdi4 :: InitialCredentialDeploymentInfo
+icdi4 = readInitialCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/initial-credential-4.json" >>= embedFile)
 
 {-# WARNING dummyBlockSize "Do not use in production." #-}
 dummyBlockSize :: Integer
