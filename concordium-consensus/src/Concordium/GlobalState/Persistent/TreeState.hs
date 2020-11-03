@@ -641,7 +641,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                 else do
                  logErrorAndThrowTS $
                       "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
-            finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = deleteAndFinalizeStatus wmdHash
+            finTrans WithMetadata{wmdData=CredentialDeployment{},..} = deleteAndFinalizeStatus wmdHash
             finTrans WithMetadata{wmdData=ChainUpdate cu,..} = do
                 let sn = updateSeqNumber (uiHeader cu)
                     uty = updateType (uiPayload cu)
