@@ -7,6 +7,7 @@ import qualified SchedulerTests.ReceiveContextTest(tests)
 import qualified SchedulerTests.TrySendTest(tests)
 import qualified SchedulerTests.FibonacciSelfMessageTest(tests)
 import qualified SchedulerTests.AccountTransactionSpecs(tests)
+import qualified SchedulerTests.InitialAccountCreationSpec(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
 import qualified SchedulerTests.Delegation(tests)
 import qualified SchedulerTests.CredentialTest(tests)
@@ -29,6 +30,7 @@ main = hspec $ do
          SchedulerTests.TrySendTest.tests
          SchedulerTests.FibonacciSelfMessageTest.tests
          SchedulerTests.AccountTransactionSpecs.tests
+         SchedulerTests.InitialAccountCreationSpec.tests
          SchedulerTests.BakerTransactions.tests
          SchedulerTests.Delegation.tests
          SchedulerTests.CredentialTest.tests
