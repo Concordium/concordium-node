@@ -72,7 +72,7 @@ ENV COLLECTORD_URL=https://dashboard.eu.staging.concordium.com/nodes/post
 ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libtinfo6 libpq-dev liblmdb-dev jq
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
 COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
