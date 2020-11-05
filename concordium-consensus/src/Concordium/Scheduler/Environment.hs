@@ -304,7 +304,7 @@ class StaticInformation m => TransactionMonad m where
 
   -- |Transfer a scheduled amount from the first address to the second and run
   -- the computation in the modified environment.
-  withScheduledAmount :: Account m -> Account m -> Amount -> [(Timestamp, Amount)] -> m a -> m a
+  withScheduledAmount :: Account m -> Account m -> Amount -> [(Timestamp, Amount)] -> TransactionHash -> m a -> m a
 
   -- |Replace encrypted amounts on an account up to (but not including) the
   -- given limit with a new amount.
@@ -440,12 +440,12 @@ addAmountToCS acc !amnt !cs = do
 
 -- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
 {-# INLINE addScheduledAmountToCS #-}
-addScheduledAmountToCS :: AccountOperations m => Account m -> [(Timestamp, Amount)] -> ChangeSet -> m ChangeSet
-addScheduledAmountToCS _ [] cs = return cs
-addScheduledAmountToCS acc !rel@((fstRel, _):_) !cs = do
+addScheduledAmountToCS :: AccountOperations m => Account m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet -> m ChangeSet
+addScheduledAmountToCS _ ([], _) cs = return cs
+addScheduledAmountToCS acc rel@(((fstRel, _):_), _) !cs = do
   addr <- getAccountAddress acc
-  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe rel (++ rel))
-                                                   Nothing -> Just (emptyAccountUpdate addr & auReleaseSchedule ?~ rel))
+  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
+                                                   Nothing -> Just (emptyAccountUpdate addr & auReleaseSchedule ?~ [rel]))
               & addedReleaseSchedules %~ (Map.alter (\case
                                                         Nothing -> Just fstRel
                                                         Just rel' -> Just $ min fstRel rel') addr)
@@ -734,10 +734,10 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     cont
 
   {-# INLINE withScheduledAmount #-}
-  withScheduledAmount fromAcc toAcc sentAmount releases cont = do
+  withScheduledAmount fromAcc toAcc sentAmount releases txh cont = do
     cs <- use changeSet
     cs' <- addAmountToCS fromAcc (amountDiff 0 sentAmount) cs
-    cs'' <- addScheduledAmountToCS toAcc releases cs'
+    cs'' <- addScheduledAmountToCS toAcc (releases, txh) cs'
     changeSet .= cs''
     cont
 
