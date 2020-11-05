@@ -1,64 +1,40 @@
-{-# LANGUAGE DerivingVia, UndecidableInstances, DeriveGeneric #-}
+{-# LANGUAGE DerivingVia, UndecidableInstances, DeriveGeneric, OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.AccountReleaseScheduleTest where
 
 import Test.Hspec
 import Concordium.GlobalState.Persistent.BlobStore
-import qualified Concordium.GlobalState.Persistent.Accounts as P
-import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import Control.Monad.Trans.Reader
 import System.IO.Temp
 import Control.Exception
 import System.FilePath
 import Concordium.GlobalState.BlockState
-import qualified Concordium.GlobalState.Persistent.Account as PA
-import qualified Data.Set as Set
-import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as OrdMap
-import qualified Concordium.Crypto.SignatureScheme as Sig
-import qualified Concordium.ID.Types as ID
 import Test.QuickCheck
 import Control.Monad
-import Concordium.Crypto.DummyData
-import GlobalStateTests.Accounts
 import Concordium.Types
-import Concordium.Crypto.BlsSignature
-import Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.AnonymityRevokers
-import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
-import Concordium.GlobalState.Classes
 import Concordium.GlobalState.DummyData
-import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.LMDB.Helpers
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
-import Concordium.GlobalState.Persistent.LMDB
 import Concordium.GlobalState.Persistent.TreeState
-import Concordium.GlobalState.TreeState
 import Concordium.Logger
-import Concordium.Types.HashableTo
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
-import qualified Concordium.Types.Transactions as Trns
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Basic.BlockState as BS
-import Control.Monad.Trans.Except
-import Control.Monad.State.Class
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Account
-import Debug.Trace
 import Data.List
-import GHC.Generics
 import Data.Word
 import Data.IORef
 import Data.Maybe
@@ -67,6 +43,7 @@ import qualified  Control.Monad.Reader.Class as R
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Data.Foldable
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Data.Aeson (eitherDecode)
 
 type ThisMonadConcrete = BlockStateM
                 (PairGSContext () PBS.PersistentBlockStateContext)
@@ -86,6 +63,11 @@ type ThisMonadConcrete = BlockStateM
                          (SkovData HashedBlockState)
                          (SkovPersistentData () PBS.HashedPersistentBlockState)))
                    LogIO)
+
+dummyTransactionHash :: TransactionHash
+dummyTransactionHash = case eitherDecode "\"f26a45adbb7d5cbefd9430d1eac665bd225fb3d8e04efb288d99a0347f0b8868\"" of
+  Left e -> error e
+  Right v -> v
 
 tests :: Spec
 tests = describe "GlobalState.AccountReleaseScheduleTest"
@@ -115,7 +97,7 @@ tests = describe "GlobalState.AccountReleaseScheduleTest"
               bs1 = _unhashedBlockState $ _bpState (bs ^. pairStateLeft . Concordium.GlobalState.Basic.TreeState.focusBlock)
               bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
               -- find two accounts, just the first two
-              ~a@[(accA, amA), (accB, amB)] = take 2 $ map (\(_, ac) -> (_accountAddress $ _accountPersisting ac, _accountAmount ac)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
+              ~a@[(accA, _), (accB, _)] = take 2 $ map (\(_, ac) -> (_accountAddress $ _accountPersisting ac, _accountAmount ac)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
               -- create the list of release schedules for each account
               rsA = map (\e -> [(accA, e)]) txsBA :: [[(AccountAddress, [(Timestamp, Amount)])]]
               rsB = map (\e -> [(accB, e)]) txsAB :: [[(AccountAddress, [(Timestamp, Amount)])]]
@@ -127,8 +109,8 @@ tests = describe "GlobalState.AccountReleaseScheduleTest"
           -- add all the releases
           bs' <- foldlM (\b e -> do
                            b' <- bsoAddReleaseSchedule b [(fst $ head e, minimum $ map fst $ snd $ head e)]
-                           b'' <- bsoModifyAccount b' ((emptyAccountUpdate (fst $ head e)) { _auReleaseSchedule = Just $ snd $ head e })
-                           checkB b' b e
+                           b'' <- bsoModifyAccount b' ((emptyAccountUpdate (fst $ head e)) { _auReleaseSchedule = Just [(snd $ head e, dummyTransactionHash)] })
+                           checkB b'' b e
                            return b') (bs1, bs2) (rsA ++ rsB)
 
           times <- sort . map Timestamp <$> liftIO (generate $ listOf1 $ choose (tsMillis (snd' $ head allSorted) `div` 2, tsMillis (snd' $ last allSorted) * 2) :: IO [Word64])
@@ -136,7 +118,7 @@ tests = describe "GlobalState.AccountReleaseScheduleTest"
 
           -- remove releases at random times
 
-          bs'' <- foldlM (\b (prevTime, thisTime) -> do
+          _ <- foldlM (\b (prevTime, thisTime) -> do
                             b' <- bsoProcessReleaseSchedule b thisTime
                             checkP b' b (takeWhile ((< thisTime) . snd') $ dropWhile ((< prevTime) . snd') allSorted) thisTime
                             return b') bs' times'
@@ -150,7 +132,6 @@ thd' (_, _, x) = x
 checkP :: (BS.BlockState, PBS.PersistentBlockState) -> (BS.BlockState, PBS.PersistentBlockState) -> [(AccountAddress, Timestamp, Amount)] -> Timestamp -> ThisMonadConcrete ()
 checkP (newB, newP) (oldB, _) removedNow thisTime = do
   let brs = _blockReleaseSchedule newB
-      oldbrs = _blockReleaseSchedule oldB
   -- we only have keys that are past this time
   assert (all (> thisTime) $ OrdMap.elems brs) $ return ()
   -- check that the persistent version is the same as the basic one
@@ -167,12 +148,12 @@ checkP (newB, newP) (oldB, _) removedNow thisTime = do
                               (Just acc', Just acc) -> let (rels', rels) = (_accountReleaseSchedule acc', _accountReleaseSchedule acc)
                                                       in
                                                         -- the sum of stakes is equal to the total
-                                                        (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpBalance) &&
+                                                        (sum (OrdMap.map fst (rels' ^. pendingReleases)) == rels' ^. totalLockedUpBalance) &&
                                                         -- this chunk of amounts is the difference in amounts between blockstates
                                                         sum (map snd l) == rels' ^. totalLockedUpBalance + rels ^. totalLockedUpBalance &&
                                                         all (> thisTime) (OrdMap.keys (rels' ^. pendingReleases)) &&
                                                         -- the items have been removed
-                                                        rels ^. pendingReleases == foldl' (\m (t, v) -> OrdMap.insert t v m) (rels' ^. pendingReleases) l &&
+                                                        rels ^. pendingReleases == foldl' (\m (t, v) -> OrdMap.insert t (v, [dummyTransactionHash]) m) (rels' ^. pendingReleases) l &&
                                                         all (\(t, _) -> isNothing (OrdMap.lookup t (rels' ^. pendingReleases))) l
                               _ -> False) items) $ return ()
 
@@ -197,14 +178,14 @@ checkB (newB, newP) (oldB, _) e = do
                               (Just acc', Just acc) -> let (rels', rels) = (_accountReleaseSchedule acc', _accountReleaseSchedule acc)
                                                       in
                                                         -- the sum of stakes is equal to the total
-                                                        (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpBalance) &&
+                                                        (sum (OrdMap.map fst (rels' ^. pendingReleases)) == rels' ^. totalLockedUpBalance) &&
                                                         -- this chunk of amounts is the difference in amounts between blockstates
                                                         sum (map snd l) == rels' ^. totalLockedUpBalance - rels ^. totalLockedUpBalance &&
                                                         -- the amount on the account has been added as expected
                                                         acc' ^. accountAmount - rels' ^. totalLockedUpBalance == acc ^. accountAmount &&
                                                         -- the items are present or added up
                                                         all (\(t, v) -> case (OrdMap.lookup t (rels' ^. pendingReleases), OrdMap.lookup t (rels ^. pendingReleases)) of
-                                                                         (Just v', Nothing) -> v' == v
-                                                                         (Just v', Just v'') -> v == v' - v''
+                                                                         (Just v', Nothing) -> v' == (v, [dummyTransactionHash])
+                                                                         (Just (v', txh'), Just (v'', txh'')) -> v == v' - v'' && dummyTransactionHash:txh'' == txh'
                                                                          _ -> False) l
                               _ -> False) e) $ return ()
