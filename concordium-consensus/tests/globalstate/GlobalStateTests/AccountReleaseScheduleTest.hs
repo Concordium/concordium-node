@@ -126,7 +126,8 @@ tests = describe "GlobalState.AccountReleaseScheduleTest"
 
           -- add all the releases
           bs' <- foldlM (\b e -> do
-                           b' <- bsoAddReleaseSchedule b e
+                           b' <- bsoAddReleaseSchedule b [(fst $ head e, minimum $ map fst $ snd $ head e)]
+                           b'' <- bsoModifyAccount b' ((emptyAccountUpdate (fst $ head e)) { _auReleaseSchedule = Just $ snd $ head e })
                            checkB b' b e
                            return b') (bs1, bs2) (rsA ++ rsB)
 
@@ -151,7 +152,7 @@ checkP (newB, newP) (oldB, _) removedNow thisTime = do
   let brs = _blockReleaseSchedule newB
       oldbrs = _blockReleaseSchedule oldB
   -- we only have keys that are past this time
-  assert (all (> thisTime) $ OrdMap.keys brs) $ return ()
+  assert (all (> thisTime) $ OrdMap.elems brs) $ return ()
   -- check that the persistent version is the same as the basic one
   ctx <- PBS.pbscBlobStore . _pairContextRight <$> R.ask
   brsP <- liftIO $ runReaderT (do
@@ -182,9 +183,9 @@ checkB (newB, newP) (oldB, _) e = do
   let brs = _blockReleaseSchedule newB
       oldbrs = _blockReleaseSchedule oldB
   -- check that the blockstate map has the items
-  assert (all (\(a, l) -> all (\(t, _) -> case OrdMap.lookup t brs of
-                                          Just v -> a == v
-                                          Nothing -> False) l) e) $ return ()
+  assert (all (\(a, l) -> case OrdMap.lookup a brs of
+                           Just v -> minimum (map fst l) == v
+                           Nothing -> False) e) $ return ()
   -- check that the persistent version is the same as the basic one
   ctx <- PBS.pbscBlobStore . _pairContextRight <$> R.ask
   brsP <- liftIO $ runReaderT (do
@@ -199,6 +200,8 @@ checkB (newB, newP) (oldB, _) e = do
                                                         (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpBalance) &&
                                                         -- this chunk of amounts is the difference in amounts between blockstates
                                                         sum (map snd l) == rels' ^. totalLockedUpBalance - rels ^. totalLockedUpBalance &&
+                                                        -- the amount on the account has been added as expected
+                                                        acc' ^. accountAmount - rels' ^. totalLockedUpBalance == acc ^. accountAmount &&
                                                         -- the items are present or added up
                                                         all (\(t, v) -> case (OrdMap.lookup t (rels' ^. pendingReleases), OrdMap.lookup t (rels ^. pendingReleases)) of
                                                                          (Just v', Nothing) -> v' == v
