@@ -355,7 +355,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         -- If we change the amount, update the delegate
         & (blockBirkParameters . birkCurrentBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
-                                   ((accountUpdates ^. auAmount . non 0) + (amountToDelta . fromMaybe 0 $ foldl' (+) 0 . map snd <$> accountUpdates ^. auReleaseSchedule)))
+                                   ((accountUpdates ^. auAmount . non 0) + (amountToDelta . fromMaybe 0 $ foldl' (+) 0 . concatMap (\(l, _) -> (map snd l)) <$> accountUpdates ^. auReleaseSchedule)))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account

@@ -96,9 +96,9 @@ updateAccount !upd
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
     maybeUpdate (Just x) f = f x
-    updateReleaseSchedule = maybeUpdate (upd ^. auReleaseSchedule) (\d acc -> acc & accountReleaseSchedule %~ addReleases d
+    updateReleaseSchedule = maybeUpdate (upd ^. auReleaseSchedule) (\d acc -> acc & accountReleaseSchedule %~ (flip (foldl' (flip addReleases))) d
                                                                                  -- the amount that is scheduled is also added to the account amount
-                                                                                 & accountAmount +~ foldl' (+) 0 (map snd d))
+                                                                                 & accountAmount +~ foldl' (+) 0 (concatMap (\(l,_) -> map snd l) d))
     updateNonce = maybeUpdate (upd ^. auNonce) (accountNonce .~)
     updateAmount = maybeUpdate (upd ^. auAmount) $ \d -> accountAmount %~ applyAmountDelta d
     updateEncryptedAmount acc = foldr updateSingle acc (upd ^. auEncrypted)

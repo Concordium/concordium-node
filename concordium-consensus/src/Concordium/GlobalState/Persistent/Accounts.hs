@@ -238,7 +238,7 @@ updateAccount !upd !acc = do
   pData <- loadBufferedRef pDataRef
   rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
   let (stakeDelta, releaseSchedule) = case upd ^. auReleaseSchedule of
-        Just l -> (amountToDelta $ foldl' (+) 0 (map snd l), addReleases l rData)
+        Just l -> (amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l), foldl' (flip addReleases) rData l)
         Nothing -> (amountToDelta 0, rData)
   encAmount <- loadBufferedRef (acc ^. accountEncryptedAmount)
   let updateSingle Add{..} = addIncomingEncryptedAmount newAmount

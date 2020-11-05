@@ -21,13 +21,12 @@ import Data.Serialize
 import Data.Aeson (ToJSON)
 import qualified Data.Aeson as AE
 import Concordium.Utils.Serialization
-import Data.Maybe
 
 -- | Contains the amounts that are locked for a given account as well as
 -- their release dates.
 data AccountReleaseSchedule = AccountReleaseSchedule {
   -- | The priority queue with the locked amounts
-  _pendingReleases :: !(Map Timestamp Amount),
+  _pendingReleases :: !(Map Timestamp (Amount, [TransactionHash])),
   -- | The total amount that is locked for this account
   _totalLockedUpBalance :: !Amount
   } deriving (Show, Eq)
@@ -41,7 +40,7 @@ instance ToJSON AccountReleaseSchedule where
 instance Serialize AccountReleaseSchedule where
   get = do
     _pendingReleases <- getSafeMapOf get get
-    let _totalLockedUpBalance = foldl' (+) 0 _pendingReleases
+    let _totalLockedUpBalance = foldl' (\acc (a, _) -> acc + a) 0 _pendingReleases
     return AccountReleaseSchedule{..}
   put AccountReleaseSchedule{..} =
     putSafeMapOf putWord64be put put _pendingReleases
@@ -51,12 +50,12 @@ emptyAccountReleaseSchedule :: AccountReleaseSchedule
 emptyAccountReleaseSchedule = AccountReleaseSchedule Map.empty 0
 
 -- | Add a list of amounts to this @AccountReleaseSchedule@.
-addReleases :: [(Timestamp, Amount)] -> AccountReleaseSchedule -> AccountReleaseSchedule
-addReleases l AccountReleaseSchedule{..} = go _pendingReleases _totalLockedUpBalance l
+addReleases :: ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> AccountReleaseSchedule
+addReleases (l, txh) AccountReleaseSchedule{..} = go _pendingReleases _totalLockedUpBalance l
   where go _pendingReleases _totalLockedUpBalance [] = AccountReleaseSchedule {..}
         go p t ((i, v):xs) =
-          let f (Just v') = Just (v' + v) -- if there is another release at this timestamp, sum them
-              f Nothing = Just v
+          let f (Just (v', txh')) = Just (v' + v, txh:txh') -- if there is another release at this timestamp, sum them
+              f Nothing = Just (v, [txh])
               !p' = Map.alter f i p
               !t' = t + v
           in
@@ -66,7 +65,7 @@ addReleases l AccountReleaseSchedule{..} = go _pendingReleases _totalLockedUpBal
 unlockAmountsUntil :: Timestamp -> AccountReleaseSchedule -> (Amount, AccountReleaseSchedule)
 unlockAmountsUntil up ars = let !pq = ars ^. pendingReleases
                                 (!toRemove, x, !toKeep) = Map.splitLookup up pq -- remove all items in which @timestamp <= up@
-                                minusAmount = foldl' (+) (fromMaybe 0 x) toRemove
+                                minusAmount = foldl' (\acc (a, _) -> acc + a) (maybe 0 fst x) toRemove
                             in
                               (minusAmount, ars & pendingReleases .~ toKeep
                                                 & totalLockedUpBalance -~ minusAmount)

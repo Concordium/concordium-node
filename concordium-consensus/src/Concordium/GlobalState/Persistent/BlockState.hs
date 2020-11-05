@@ -587,7 +587,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     (Nothing, Nothing) -> return $ bspBirkParameters bsp
                     _ -> do
                       let amnt = fromMaybe (amountToDelta 0) _auAmount
-                          rels = maybe (amountToDelta 0) (\rel -> amountToDelta (foldl' (+) 0 (map snd rel))) _auReleaseSchedule
+                          rels = maybe (amountToDelta 0) (\rel -> amountToDelta (foldl' (+) 0 (concatMap (\(l, _) -> map snd l) rel))) _auReleaseSchedule
                       newCurrBakers <- modifyStake delegate (amnt + rels) (bspBirkParameters bsp ^. birkCurrentBakers)
                       return $ bspBirkParameters bsp & birkCurrentBakers .~ newCurrBakers
                 _ -> return $ bspBirkParameters bsp

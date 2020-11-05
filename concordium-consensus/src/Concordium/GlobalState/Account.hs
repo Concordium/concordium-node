@@ -174,7 +174,7 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally update the signature threshold
   ,_auSignThreshold :: !(Maybe SignatureThreshold)
   -- |Optionally update the locked stake on the account.
-  ,_auReleaseSchedule :: !(Maybe [(Timestamp, Amount)])
+  ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving(Eq)
 makeLenses ''AccountUpdate
 
