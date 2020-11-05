@@ -450,22 +450,20 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoProcessReleaseSchedule #-}
     bsoProcessReleaseSchedule bs ts = do
-      if Map.null (bs ^. blockReleaseSchedule)
+      let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) $ bs ^. blockReleaseSchedule
+      if Map.null accountsToRemove
         then return bs
         else
-        let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) $ bs ^. blockReleaseSchedule
-            f (ba, readded) addr =
-              let ba' = ba & ix addr %~ \acc -> let (_, newReleaseSchedule) = unlockAmountsUntil ts (acc ^. accountReleaseSchedule)
-                                               in
-                                                 acc & accountReleaseSchedule .~ newReleaseSchedule
-                  readded' = case Map.lookupMin =<< fmap (_pendingReleases . _accountReleaseSchedule) (ba' ^? ix addr) of
-                               Just (k, _) -> (addr, k) : readded
-                               Nothing -> readded
-              in (ba', readded')
-            (blockAccounts', readd) = foldl' f (bs ^. blockAccounts, []) (Map.keys accountsToRemove)
+        let f (ba, brs) addr =
+              let ba' = ba & ix addr . accountReleaseSchedule %~ snd . unlockAmountsUntil ts
+                  brs' = case Map.lookupMin =<< fmap (_pendingReleases . _accountReleaseSchedule) (ba' ^? ix addr) of
+                               Just (k, _) -> Map.insert addr k brs
+                               Nothing -> brs
+              in (ba', brs')
+            (blockAccounts', blockReleaseSchedule'') = foldl' f (bs ^. blockAccounts, blockReleaseSchedule') (Map.keys accountsToRemove)
         in
           return $! bs & blockAccounts .~ blockAccounts'
-                       & blockReleaseSchedule .~ foldl' (\b (x, y) -> Map.insert x y b) blockReleaseSchedule' readd
+                       & blockReleaseSchedule .~ blockReleaseSchedule''
 
 
     {-# INLINE bsoGetCurrentAuthorizations #-}
@@ -482,8 +480,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       let f relSchedule (addr, t) = Map.alter (\case
                                                   Nothing -> Just t
                                                   Just t' -> Just $ min t' t) addr relSchedule
-          blockReleaseSchedule' = foldl' f (bs ^. blockReleaseSchedule) rel
-      return $! bs & blockReleaseSchedule .~ blockReleaseSchedule'
+          updateBRS brs = foldl' f brs rel
+      return $! bs & blockReleaseSchedule %~ updateBRS
 
     {-# INLINE bsoGetEnergyRate #-}
     bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . cpEnergyRate

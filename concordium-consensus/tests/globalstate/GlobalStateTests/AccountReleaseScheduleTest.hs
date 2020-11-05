@@ -166,9 +166,9 @@ checkP (newB, newP) (oldB, _) removedNow thisTime = do
                               (Just acc', Just acc) -> let (rels', rels) = (_accountReleaseSchedule acc', _accountReleaseSchedule acc)
                                                       in
                                                         -- the sum of stakes is equal to the total
-                                                        (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpStake) &&
+                                                        (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpBalance) &&
                                                         -- this chunk of amounts is the difference in amounts between blockstates
-                                                        sum (map snd l) == rels' ^. totalLockedUpStake + rels ^. totalLockedUpStake &&
+                                                        sum (map snd l) == rels' ^. totalLockedUpBalance + rels ^. totalLockedUpBalance &&
                                                         all (> thisTime) (OrdMap.keys (rels' ^. pendingReleases)) &&
                                                         -- the items have been removed
                                                         rels ^. pendingReleases == foldl' (\m (t, v) -> OrdMap.insert t v m) (rels' ^. pendingReleases) l &&
@@ -196,9 +196,9 @@ checkB (newB, newP) (oldB, _) e = do
                               (Just acc', Just acc) -> let (rels', rels) = (_accountReleaseSchedule acc', _accountReleaseSchedule acc)
                                                       in
                                                         -- the sum of stakes is equal to the total
-                                                        (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpStake) &&
+                                                        (sum (rels' ^. pendingReleases) == rels' ^. totalLockedUpBalance) &&
                                                         -- this chunk of amounts is the difference in amounts between blockstates
-                                                        sum (map snd l) == rels' ^. totalLockedUpStake - rels ^. totalLockedUpStake &&
+                                                        sum (map snd l) == rels' ^. totalLockedUpBalance - rels ^. totalLockedUpBalance &&
                                                         -- the items are present or added up
                                                         all (\(t, v) -> case (OrdMap.lookup t (rels' ^. pendingReleases), OrdMap.lookup t (rels ^. pendingReleases)) of
                                                                          (Just v', Nothing) -> v' == v
