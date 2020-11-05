@@ -350,7 +350,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
               validCredExists <- existsValidCredential cm targetAccount
               unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential twsTo)
 
-              withScheduledAmount senderAccount targetAccount transferAmount twsSchedule $ return senderAddress
+              withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return senderAddress
 
         k ls senderAddress = do
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -1184,7 +1184,7 @@ handleDeployCredential cdi cdiHash = do
                           if not accExistsAlready && check then do
                             -- Add the account to the state, but only if the credential was valid and the account does not exist
                             _ <- putNewAccount account
-                
+
                             mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                           else return $ Just (TxInvalid AccountCredentialInvalid)
 
