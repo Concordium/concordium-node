@@ -207,6 +207,20 @@ impl P2p for RpcServerImpl {
                 (Ok(_), ConsensusFfiResponse::Success) => Ok(Response::new(BoolResponse {
                     value: true,
                 })),
+                (Ok(_), ConsensusFfiResponse::DuplicateEntry) => Ok(Response::new(BoolResponse {
+                    value: false,
+                })),
+                (Ok(_), ConsensusFfiResponse::DeserializationError) => {
+                    Ok(Response::new(BoolResponse {
+                        value: false,
+                    }))
+                }
+                (Ok(_), ConsensusFfiResponse::Stale) => Ok(Response::new(BoolResponse {
+                    value: false,
+                })),
+                (Ok(_), ConsensusFfiResponse::InvalidResult) => Ok(Response::new(BoolResponse {
+                    value: false,
+                })),
                 (Err(e), ConsensusFfiResponse::Success) => {
                     warn!("Couldn't put a transaction in the outbound queue due to {:?}", e);
                     Err(Status::new(
