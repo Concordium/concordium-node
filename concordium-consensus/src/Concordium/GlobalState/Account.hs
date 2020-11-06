@@ -14,6 +14,7 @@ import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.ID.Types
 import Concordium.Types
 
@@ -111,9 +112,9 @@ instance Serialize PersistingAccountData where
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> PersistingAccountData -> Hash.Hash
-makeAccountHash n a eas pd = Hash.hashLazy $ runPutLazy $
-  put n >> put a >> put eas >> put pd
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseSchedule -> PersistingAccountData -> Hash.Hash
+makeAccountHash n a eas ars pd = Hash.hashLazy $ runPutLazy $
+  put n >> put a >> put eas >> put ars >> put pd
 
 {-# INLINE addCredential #-}
 addCredential :: HasPersistingAccountData d => AccountCredential -> d -> d
@@ -172,11 +173,13 @@ data AccountUpdate = AccountUpdate {
   ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
   -- |Optionally update the signature threshold
   ,_auSignThreshold :: !(Maybe SignatureThreshold)
+  -- |Optionally update the locked stake on the account.
+  ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving(Eq)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- |Optionally add a credential to an account.
 {-# INLINE updateCredential #-}
