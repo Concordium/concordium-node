@@ -56,6 +56,7 @@ import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
@@ -195,6 +196,9 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- |Get the baker to which this account's stake is delegated (if any)
   getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
 
+  -- |Get the release schedule for an account.
+  getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
+
   -- |The set of instances belonging to this account
   -- TODO: Revisit choice of datastructure. Additions and removals
   -- are expected to be rare. The set is traversed when stake delegation
@@ -296,7 +300,7 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m Basic.Updates
-    
+
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -433,6 +437,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Process queued updates.
   bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
+  -- |Unlock the amounts up to the given timestamp
+  bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
+
   -- |Get the current 'Authorizations' for validating updates.
   bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
 
@@ -441,6 +448,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Enqueue an update to take effect at the specified time.
   bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
+
+  -- |Add the given accounts and timestamps to the per-block account release schedule.
+  -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
+  bsoAddReleaseSchedule :: UpdatableBlockState m -> [(AccountAddress, Timestamp)] -> m (UpdatableBlockState m)
 
   -- |Get the current energy rate.
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
@@ -560,6 +571,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountStakeDelegate = lift . getAccountStakeDelegate
+  getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountInstances = lift . getAccountInstances
   createNewAccount gc ks addr = lift . createNewAccount gc ks addr
   updateAccountAmount acc = lift . updateAccountAmount acc
@@ -571,6 +583,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}
   {-# INLINE getAccountStakeDelegate #-}
+  {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountInstances #-}
   {-# INLINE createNewAccount #-}
   {-# INLINE updateAccountAmount #-}
@@ -604,9 +617,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
+  bsoProcessReleaseSchedule s = lift . bsoProcessReleaseSchedule s
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
   bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
+  bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
@@ -636,9 +651,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoUpdateBirkParameters #-}
   {-# INLINE bsoProcessUpdateQueues #-}
+  {-# INLINE bsoProcessReleaseSchedule #-}
   {-# INLINE bsoGetCurrentAuthorizations #-}
   {-# INLINE bsoGetNextUpdateSequenceNumber #-}
   {-# INLINE bsoEnqueueUpdate #-}
+  {-# INLINE bsoAddReleaseSchedule #-}
   {-# INLINE bsoGetEnergyRate #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where

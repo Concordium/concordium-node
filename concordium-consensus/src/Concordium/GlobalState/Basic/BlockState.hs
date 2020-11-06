@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Basic.BlockState where
 
+import Data.Map (Map)
 import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Data.Map.Strict as Map
@@ -13,6 +14,7 @@ import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe
 import Control.Monad
+import Data.Foldable
 
 import GHC.Generics (Generic)
 
@@ -33,6 +35,7 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (regId)
 
@@ -40,6 +43,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Serialize
+
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The current stake of bakers. All updates should be to this state.
@@ -83,6 +87,7 @@ data BlockState = BlockState {
     _blockBirkParameters :: !BasicBirkParameters,
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !Updates,
+    _blockReleaseSchedule :: !(Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
     _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
 } deriving (Show)
 
@@ -117,6 +122,7 @@ emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams =
       _blockIdentityProviders = makeHashed IPS.emptyIdentityProviders
       _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
       _blockUpdates = initialUpdates auths chainParams
+      _blockReleaseSchedule = Map.empty
 
 -- |Convert a 'BlockState' to a 'HashedBlockState' by computing
 -- the state hash.
@@ -193,7 +199,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getTransactionOutcomesHash #-}
     getTransactionOutcomesHash bs = return (getHash $ bs ^. blockTransactionOutcomes)
-    
+
     {-# INLINE getStateHash #-}
     getStateHash = return . view blockStateHash
 
@@ -220,7 +226,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
 
     {-# INLINE getCurrentElectionDifficulty #-}
     getCurrentElectionDifficulty bs = return (bs ^. blockUpdates . currentParameters . cpElectionDifficulty)
-    
+
     {-# INLINE getUpdates #-}
     getUpdates bs = return (bs ^. blockUpdates)
 
@@ -243,6 +249,8 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
   getAccountEncryptionKey acc = return $ acc ^. accountEncryptionKey
 
   getAccountStakeDelegate acc = return $ acc ^. accountStakeDelegate
+
+  getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
 
   getAccountInstances acc = return $ acc ^. accountInstances
 
@@ -347,7 +355,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         -- If we change the amount, update the delegate
         & (blockBirkParameters . birkCurrentBakers
                     %~ modifyStake (account ^. accountStakeDelegate)
-                                   (accountUpdates ^. auAmount . non 0))
+                                   ((accountUpdates ^. auAmount . non 0) + (amountToDelta . fromMaybe 0 $ foldl' (+) 0 . concatMap (\(l, _) -> (map snd l)) <$> accountUpdates ^. auReleaseSchedule)))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account
@@ -411,6 +419,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             stake = acct ^. accountAmount +
                 sum [Instances.instanceAmount inst |
                         Just inst <- Set.toList (acct ^. accountInstances) <&> flip Instances.getInstance (bs ^. blockInstances)]
+
             bs' = bs & blockBirkParameters . birkCurrentBakers %~ removeStake (acct ^. accountStakeDelegate) stake . addStake target stake
                      & blockAccounts . ix aaddr %~ (accountStakeDelegate .~ target)
 
@@ -439,6 +448,24 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts = return $! bs & blockUpdates %~ processUpdateQueues ts
 
+    {-# INLINE bsoProcessReleaseSchedule #-}
+    bsoProcessReleaseSchedule bs ts = do
+      let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) $ bs ^. blockReleaseSchedule
+      if Map.null accountsToRemove
+        then return bs
+        else
+        let f (ba, brs) addr =
+              let ba' = ba & ix addr . accountReleaseSchedule %~ snd . unlockAmountsUntil ts
+                  brs' = case Map.lookupMin =<< fmap (_pendingReleases . _accountReleaseSchedule) (ba' ^? ix addr) of
+                               Just (k, _) -> Map.insert addr k brs
+                               Nothing -> brs
+              in (ba', brs')
+            (blockAccounts', blockReleaseSchedule'') = foldl' f (bs ^. blockAccounts, blockReleaseSchedule') (Map.keys accountsToRemove)
+        in
+          return $! bs & blockAccounts .~ blockAccounts'
+                       & blockReleaseSchedule .~ blockReleaseSchedule''
+
+
     {-# INLINE bsoGetCurrentAuthorizations #-}
     bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations . unhashed
 
@@ -447,6 +474,14 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoEnqueueUpdate #-}
     bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
+
+    {-# INLINE bsoAddReleaseSchedule #-}
+    bsoAddReleaseSchedule bs rel = do
+      let f relSchedule (addr, t) = Map.alter (\case
+                                                  Nothing -> Just t
+                                                  Just t' -> Just $ min t' t) addr relSchedule
+          updateBRS brs = foldl' f brs rel
+      return $! bs & blockReleaseSchedule %~ updateBRS
 
     {-# INLINE bsoGetEnergyRate #-}
     bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . cpEnergyRate
@@ -503,6 +538,7 @@ initialState _blockBirkParameters cryptoParams genesisAccounts ips anonymityRevo
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     _blockUpdates = initialUpdates auths chainParams
+    _blockReleaseSchedule = Map.empty
     _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
               bshBirkParameters = getHash _blockBirkParameters,
               bshCryptographicParameters = getHash _blockCryptographicParameters,
