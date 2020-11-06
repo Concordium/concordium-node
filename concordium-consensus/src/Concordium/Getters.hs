@@ -223,8 +223,10 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               instances <- BS.getAccountInstances acc
               encrypted <- BS.getAccountEncryptedAmount acc
               encryptionKey <- BS.getAccountEncryptionKey acc
+              releaseSchedule <- BS.getAccountReleaseSchedule acc
               return $ object ["accountNonce" .= nonce
                               ,"accountAmount" .= amount
+                              , "accountReleaseSchedule" .= releaseSchedule
                                 -- credentials, most recent first
                               ,"accountCredentials" .= map (Versioned 0) creds
                               ,"accountDelegation" .= delegate

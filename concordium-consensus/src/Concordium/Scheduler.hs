@@ -54,6 +54,7 @@ import Concordium.GlobalState.BlockState (AccountOperations(..))
 import Concordium.GlobalState.BakerInfo(BakerInfo(..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 import Concordium.GlobalState.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -114,7 +115,9 @@ checkHeader meta = do
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
     Just acc -> do
-      amnt <- getAccountAmount acc
+      -- the available amount is @total - locked@
+      totalAmnt <- getAccountAmount acc
+      amnt <- (totalAmnt -) . ARS._totalLockedUpBalance <$> (getAccountReleaseSchedule acc)
       nextNonce <- getAccountNonce acc
       let txnonce = transactionNonce meta
       let expiry = thExpiry $ transactionHeader meta
@@ -286,10 +289,79 @@ dispatch msg = do
                    TransferToPublic{..} ->
                      handleTransferToPublic (mkWTC TTTransferToPublic) ttpData
 
+                   TransferWithSchedule{..} ->
+                     handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
             Just summary -> return $ Just $ TxValid summary
+
+handleTransferWithSchedule ::
+  SchedulerMonad m
+  => WithDepositContext m
+  -> AccountAddress
+  -> [(Timestamp, Amount)]
+  -> m (Maybe TransactionSummary)
+handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
+  where senderAccount = wtc ^. wtcSenderAccount
+        txHash = wtc ^. wtcTransactionHash
+        meta = wtc ^. wtcTransactionHeader
+
+        c = do
+          senderAddress <- getAccountAddress senderAccount
+          -- the expensive operations start now, so we charge.
+
+          -- After we've checked all of that, we charge.
+          tickEnergy (Cost.transferWithSchedule $ length twsSchedule)
+
+          -- we do not allow for self scheduled transfers
+          when (twsTo == senderAddress) $ rejectTransaction (ScheduledSelfTransfer twsTo)
+
+          -- Get the amount available for the account
+          senderAmount <- getCurrentAmount (Right senderAccount)
+
+          -- check that we are not going to send an empty schedule
+          case twsSchedule of
+            [] -> rejectTransaction ZeroScheduledAmount
+            (firstRelease@(firstTimestamp, _) : restOfReleases) -> do
+
+              -- check that the first timestamp has not yet passed
+              cm <- getChainMetadata
+              when (firstTimestamp < slotTime cm) $! rejectTransaction FirstScheduledReleaseExpired
+
+              -- Check that the release schedule is strictly increasing, and that all amounts are non-zero, while also computing the sum
+              (_, transferAmount) <- foldM (\(prev, acc) (i,v) -> if prev >= i
+                                                                then rejectTransaction NonIncreasingSchedule
+                                                                else if v == 0
+                                                                     then rejectTransaction ZeroScheduledAmount
+                                                                     else return (i, acc + v)) firstRelease restOfReleases
+
+              -- check that this is not sending 0 tokens
+              unless (transferAmount > 0) $! rejectTransaction ZeroScheduledAmount
+
+              -- check if the available amount in the origin account is enough
+              unless (senderAmount >= transferAmount) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) transferAmount)
+
+              -- check the target account
+              targetAccount <- getCurrentAccount twsTo `rejectingWith` InvalidAccountReference twsTo
+              -- Check that the account has a valid credential and reject the transaction if not
+              -- (it is not allowed to send to accounts without valid credential).
+              validCredExists <- existsValidCredential cm targetAccount
+              unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential twsTo)
+
+              withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return senderAddress
+
+        k ls senderAddress = do
+          (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+          chargeExecutionCost txHash senderAccount energyCost
+          commitChanges (ls ^. changeSet)
+          return (TxSuccess [TransferredWithSchedule{etwsFrom = senderAddress,
+                                                     etwsTo = twsTo,
+                                                     etwsAmount = twsSchedule}],
+                    energyCost,
+                    usedEnergy)
+
 
 handleTransferToPublic ::
   SchedulerMonad m
@@ -1112,7 +1184,7 @@ handleDeployCredential cdi cdiHash = do
                           if not accExistsAlready && check then do
                             -- Add the account to the state, but only if the credential was valid and the account does not exist
                             _ <- putNewAccount account
-                
+
                             mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                           else return $ Just (TxInvalid AccountCredentialInvalid)
 
