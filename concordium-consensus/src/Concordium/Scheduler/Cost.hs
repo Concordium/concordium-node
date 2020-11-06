@@ -231,3 +231,9 @@ pubToSecTransfer = 100
 -- encrypted amount transfer.
 secToPubTransfer :: Energy
 secToPubTransfer = 16000
+
+
+-- |Cost of executing a transfer with schedule.
+-- Linear cost on the number of releases.
+transferWithSchedule :: Int -> Energy
+transferWithSchedule numReleases = 100 * fromIntegral numReleases
