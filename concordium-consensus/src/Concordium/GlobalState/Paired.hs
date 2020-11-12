@@ -82,9 +82,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (UpdatableBlockState (BSML lc r lg s m),
                 UpdatableBlockState (BSMR rc r rg s m))
-    type BirkParameters (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (BirkParameters (BSML lc r lg s m),
-                BirkParameters (BSMR rc r rg s m))
     type Bakers (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (Bakers (BSML lc r lg s m),
                 Bakers (BSMR rc r rg s m))
@@ -206,12 +203,18 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getContractInstanceList ls)
         a2 <- coerceBSMR (getContractInstanceList rs)
         assert (((==) `on` fmap instanceHash) a1 a2) $ return a1
-    getBlockBirkParameters (ls, rs) = do
-        a1 <- coerceBSML $ getBlockBirkParameters ls
-        a2 <- coerceBSMR $ getBlockBirkParameters rs
-        seedState1 <- coerceBSML (getSeedState a1)
-        seedState2 <- coerceBSMR (getSeedState a2)
-        assert (seedState1 == seedState2) $ return (a1, a2)
+    getSeedState (ls, rs) = do
+        ss1 <- coerceBSML (getSeedState ls)
+        ss2 <- coerceBSMR (getSeedState rs)
+        assert (ss1 == ss2) $ return ss1
+    getCurrentEpochBakers (ls, rs) = do
+        b1 <- coerceBSML (getCurrentEpochBakers ls)
+        b2 <- coerceBSMR (getCurrentEpochBakers rs)
+        assert (b1 == b2) $ return b1
+    getSlotBakers (ls, rs) s = do
+        b1 <- coerceBSML (getSlotBakers ls s)
+        b2 <- coerceBSMR (getSlotBakers rs s)
+        assert (b1 == b2) $ return b1
     getRewardStatus (ls, rs) = do
         a1 <- coerceBSML (getRewardStatus ls)
         a2 <- coerceBSMR (getRewardStatus rs)
@@ -304,89 +307,16 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         k2 <- coerceBSMR (getAccountEncryptionKey acc2)
         assert (k1 == k2) $ return k1
 
-    getAccountStakeDelegate (acc1, acc2) = do
-        bid1 <- coerceBSML (getAccountStakeDelegate acc1)
-        bid2 <- coerceBSMR (getAccountStakeDelegate acc2)
-        assert (bid1 == bid2) $ return bid1
-
     getAccountInstances (acc1, acc2) = do
         ais1 <- coerceBSML (getAccountInstances acc1)
         ais2 <- coerceBSMR (getAccountInstances acc2)
         assert (ais1 == ais2) $ return ais1
-
-    createNewAccount gc keys addr regId = do
-        acc1 <- coerceBSML (createNewAccount gc keys addr regId)
-        acc2 <- coerceBSMR (createNewAccount gc keys addr regId)
-        assert ((getHash acc1 :: H.Hash) == getHash acc2) $
-          return (acc1, acc2)
 
     updateAccountAmount (acc1, acc2) amnt = do
         acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
         acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
         assert ((getHash acc1 :: H.Hash) == getHash acc2) $
           return (acc1', acc2')
-
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BakerQuery (BSML lc r ls s m), BakerQuery (BSMR rc r rs s m))
-        => BakerQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
-  getBakerStake (bkrs1, bkrs2) bid = do
-    s1 <- coerceBSML (getBakerStake bkrs1 bid)
-    s2 <- coerceBSMR (getBakerStake bkrs2 bid)
-    assert (s1 == s2) $ return s1
-
-  getBakerFromKey (bkrs1, bkrs2) k = do
-    b1 <- coerceBSML (getBakerFromKey bkrs1 k)
-    b2 <- coerceBSMR (getBakerFromKey bkrs2 k)
-    assert (b1 == b2) $ return b1
-
-  getTotalBakerStake (bkrs1, bkrs2) = do
-    s1 <- coerceBSML (getTotalBakerStake bkrs1)
-    s2 <- coerceBSMR (getTotalBakerStake bkrs2)
-    assert (s1 == s2) $ return s1
-
-  getBakerInfo (bkrs1, bkrs2) bid = do
-    bi1 <- coerceBSML (getBakerInfo bkrs1 bid)
-    bi2 <- coerceBSMR (getBakerInfo bkrs2 bid)
-    assert (bi1 == bi2) $ return bi1
-
-  getFullBakerInfos (bkrs1, bkrs2) = do
-    bi1 <- coerceBSML (getFullBakerInfos bkrs1)
-    bi2 <- coerceBSMR (getFullBakerInfos bkrs2)
-    assert (bi1 == bi2) $ return bi1
-
-instance (Monad m,
-          C.HasGlobalStateContext (PairGSContext lc rc) r,
-          BirkParametersOperations (BSML lc r ls s m),
-          BirkParametersOperations (BSMR rc r rs s m))
-        => BirkParametersOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
-  getSeedState (bps1, bps2) = do
-    s1 <- coerceBSML (getSeedState bps1)
-    s2 <- coerceBSMR (getSeedState bps2)
-    assert (s1 == s2) $ return s1
-
-  updateBirkParametersForNewEpoch ss (bps1, bps2) = do
-    bps1' <- coerceBSML (updateBirkParametersForNewEpoch ss bps1)
-    bps2' <- coerceBSMR (updateBirkParametersForNewEpoch ss bps2)
-    return (bps1', bps2')
-
-  getCurrentBakers (bps1, bps2) = do
-    cb1 <- coerceBSML (getCurrentBakers bps1)
-    cb2 <- coerceBSMR (getCurrentBakers bps2)
-    fbi1 <- coerceBSML (getFullBakerInfos cb1)
-    fbi2 <- coerceBSMR (getFullBakerInfos cb2)
-    assert (fbi1 == fbi2) $ return (cb1, cb2)
-
-  getLotteryBakers (bps1, bps2) = do
-    lb1 <- coerceBSML (getLotteryBakers bps1)
-    lb2 <- coerceBSMR (getLotteryBakers bps2)
-    fbi1 <- coerceBSML (getFullBakerInfos lb1)
-    fbi2 <- coerceBSMR (getFullBakerInfos lb2)
-    assert (fbi1 == fbi2) $ return (lb1, lb2)
-
-  updateSeedState ss (bps1, bps2) = do
-    bps1' <- coerceBSML (updateSeedState ss bps1)
-    bps2' <- coerceBSMR (updateSeedState ss bps2)
-    return (bps1', bps2')
-
 
 instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -415,10 +345,17 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoRegIdExists bs1 regid
         r2 <- coerceBSMR $ bsoRegIdExists bs2 regid
         assert (r1 == r2) $ return r1
-    bsoPutNewAccount (bs1, bs2) (acct1, acct2) = do
-        (r1, bs1') <- coerceBSML $ bsoPutNewAccount bs1 acct1
-        (r2, bs2') <- coerceBSMR $ bsoPutNewAccount bs2 acct2
-        assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoCreateAccount (bs1, bs2) gc keys addr cred = do
+        (r1, bs1') <- coerceBSML $ bsoCreateAccount bs1 gc keys addr cred
+        (r2, bs2') <- coerceBSMR $ bsoCreateAccount bs2 gc keys addr cred
+        case (r1, r2) of
+            (Just a1, Just a2) ->
+                assert ((getHash a1 :: H.Hash) == getHash a2) $ return (Just (a1, a2), (bs1', bs2'))
+            (Nothing, Nothing) -> return (Nothing, (bs1', bs2'))
+            (Nothing, _) ->
+                error "Account creation failed in left implementation but not right"
+            (_, Nothing) ->
+                error "Account creation failed in right implementation but not left"
     bsoPutNewInstance (bs1, bs2) f = do
         (r1, bs1') <- coerceBSML $ bsoPutNewInstance bs1 f
         (r2, bs2') <- coerceBSMR $ bsoPutNewInstance bs2 f
@@ -451,21 +388,33 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetExecutionCost bs1
         r2 <- coerceBSMR $ bsoGetExecutionCost bs2
         assert (r1 == r2) $ return r1
-    bsoGetBlockBirkParameters (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetBlockBirkParameters bs1
-        r2 <- coerceBSMR $ bsoGetBlockBirkParameters bs2
-        return (r1, r2)
-    bsoAddBaker (bs1, bs2) bci = do
-        (r1, bs1') <- coerceBSML $ bsoAddBaker bs1 bci
-        (r2, bs2') <- coerceBSMR $ bsoAddBaker bs2 bci
+    bsoGetSeedState (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetSeedState bs1
+        r2 <- coerceBSMR $ bsoGetSeedState bs2
+        assert (r1 == r2) $ return r1
+    bsoSetSeedState (bs1, bs2) ss = do
+        bs1' <- coerceBSML $ bsoSetSeedState bs1 ss
+        bs2' <- coerceBSMR $ bsoSetSeedState bs2 ss
+        return (bs1', bs2')
+    bsoTransitionEpochBakers (bs1, bs2) epoch = do
+        bs1' <- coerceBSML $ bsoTransitionEpochBakers bs1 epoch
+        bs2' <- coerceBSMR $ bsoTransitionEpochBakers bs2 epoch
+        return (bs1', bs2')
+    bsoAddBaker (bs1, bs2) addr bkrAdd = do
+        (r1, bs1') <- coerceBSML $ bsoAddBaker bs1 addr bkrAdd
+        (r2, bs2') <- coerceBSMR $ bsoAddBaker bs2 addr bkrAdd
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoUpdateBaker (bs1, bs2) bupd = do
-        (r1, bs1') <- coerceBSML $ bsoUpdateBaker bs1 bupd
-        (r2, bs2') <- coerceBSMR $ bsoUpdateBaker bs2 bupd
+    bsoUpdateBakerKeys (bs1, bs2) addr bkrKUpd = do
+        (r1, bs1') <- coerceBSML $ bsoUpdateBakerKeys bs1 addr bkrKUpd
+        (r2, bs2') <- coerceBSMR $ bsoUpdateBakerKeys bs2 addr bkrKUpd
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoRemoveBaker (bs1, bs2) bid = do
-        (r1, bs1') <- coerceBSML $ bsoRemoveBaker bs1 bid
-        (r2, bs2') <- coerceBSMR $ bsoRemoveBaker bs2 bid
+    bsoUpdateBakerStake (bs1, bs2) addr bkrSUpd = do
+        (r1, bs1') <- coerceBSML $ bsoUpdateBakerStake bs1 addr bkrSUpd
+        (r2, bs2') <- coerceBSMR $ bsoUpdateBakerStake bs2 addr bkrSUpd
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoRemoveBaker (bs1, bs2) addr = do
+        (r1, bs1') <- coerceBSML $ bsoRemoveBaker bs1 addr
+        (r2, bs2') <- coerceBSMR $ bsoRemoveBaker bs2 addr
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoSetInflation (bs1, bs2) rate = do
         bs1' <- coerceBSML $ bsoSetInflation bs1 rate
@@ -478,10 +427,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoDecrementCentralBankGTU (bs1, bs2) amt = do
         (r1, bs1') <- coerceBSML $ bsoDecrementCentralBankGTU bs1 amt
         (r2, bs2') <- coerceBSMR $ bsoDecrementCentralBankGTU bs2 amt
-        assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoDelegateStake (bs1, bs2) acct bid = do
-        (r1, bs1') <- coerceBSML $ bsoDelegateStake bs1 acct bid
-        (r2, bs2') <- coerceBSMR $ bsoDelegateStake bs2 acct bid
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoGetIdentityProvider (bs1, bs2) ipid = do
         r1 <- coerceBSML $ bsoGetIdentityProvider bs1 ipid
@@ -502,10 +447,6 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoAddSpecialTransactionOutcome (bs1, bs2) sto = do
         bs1' <- coerceBSML $ bsoAddSpecialTransactionOutcome bs1 sto
         bs2' <- coerceBSMR $ bsoAddSpecialTransactionOutcome bs2 sto
-        return (bs1', bs2')
-    bsoUpdateBirkParameters (bs1, bs2) (bps1, bps2) = do
-        bs1' <- coerceBSML $ bsoUpdateBirkParameters bs1 bps1
-        bs2' <- coerceBSMR $ bsoUpdateBirkParameters bs2 bps2
         return (bs1', bs2')
     bsoProcessUpdateQueues (bs1, bs2) ts = do
         bs1' <- coerceBSML $ bsoProcessUpdateQueues bs1 ts

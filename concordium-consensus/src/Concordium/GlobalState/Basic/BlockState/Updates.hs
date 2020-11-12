@@ -199,10 +199,10 @@ processUpdateQueues
     -- ^Current timestamp
     -> Updates
     -> Updates
-processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..},_currentParameters = ChainParameters{..}, ..} = Updates {
+processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{..}, ..} = Updates {
             _currentAuthorizations = newAuthorizations,
             _currentProtocolUpdate = newProtocolUpdate,
-            _currentParameters = makeChainParameters newElectionDifficulty newEuroPerEnergy newMicroGTUPerEuro,
+            _currentParameters = makeChainParameters newElectionDifficulty newEuroPerEnergy newMicroGTUPerEuro _cpBakerCooldownEpochs,
             _pendingUpdates = PendingUpdates {
                     _pAuthorizationQueue = newAuthorizationQueue,
                     _pProtocolQueue = newProtocolQueue,

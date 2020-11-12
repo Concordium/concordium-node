@@ -193,6 +193,17 @@ getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> L.lookup ai accountTable
 
+-- |Retrieve an account and its index from a given address.
+-- Returns @Nothing@ if no such account exists.
+getAccountWithIndex :: MonadBlobStore m => AccountAddress -> Accounts -> m (Maybe (AccountIndex, PersistentAccount))
+getAccountWithIndex addr Accounts{..} = Trie.lookup addr accountMap >>= \case
+        Nothing -> return Nothing
+        Just ai -> fmap (ai, ) <$> L.lookup ai accountTable
+
+-- |Retrieve the account at a given index.
+indexedAccount :: MonadBlobStore m => AccountIndex -> Accounts -> m (Maybe PersistentAccount)
+indexedAccount ai Accounts{..} = L.lookup ai accountTable
+
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.
 unsafeGetAccount :: MonadBlobStore m => AccountAddress -> Accounts -> m PersistentAccount
@@ -230,6 +241,15 @@ updateAccounts fupd addr a0@Accounts{..} = Trie.lookup addr accountMap >>= \case
             Nothing -> return (Nothing, a0)
             Just (res, act') -> return (Just res, a0 {accountTable = act'})
 
+-- |Perform an update to an account with the given index.
+-- Does nothing (returning @Nothing@) if the account does not exist.
+-- This should not be used to alter the address of an account (which is
+-- disallowed).
+updateAccountsAtIndex :: MonadBlobStore m => (PersistentAccount -> m (a, PersistentAccount)) -> AccountIndex -> Accounts -> m (Maybe a, Accounts)
+updateAccountsAtIndex fupd ai a0@Accounts{..} = L.update fupd ai accountTable >>= \case
+        Nothing -> return (Nothing, a0)
+        Just (res, act') -> return (Just res, a0 {accountTable = act'})
+
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
 updateAccount :: MonadBlobStore m => AccountUpdate -> PersistentAccount -> m PersistentAccount
@@ -246,8 +266,11 @@ updateAccount !upd !acc = do
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountEncryptedAmount .~ newEncryptedAmountRef
+  bkrHash <- case acc ^. accountBaker of
+        Null -> return nullAccountBakerHash
+        Some bkr -> getHashM bkr
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount pdata
+  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount pdata bkrHash
   case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         (mNewCred, mKeyUpd, mNewThreshold) -> do
