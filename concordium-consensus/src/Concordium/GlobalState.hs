@@ -124,14 +124,6 @@ deriving via PureBlockStateMonad m
              => AccountOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance MonadLogger m
-             => BakerQuery (MemoryBlockStateM r g s m)
-
-deriving via PureBlockStateMonad m
-    instance (MonadLogger m)
-             => BirkParametersOperations (MemoryBlockStateM r g s m)
-
-deriving via PureBlockStateMonad m
     instance (MonadLogger m,
               BlockStateQuery (MemoryBlockStateM r g s m))
              => BlockStateOperations (MemoryBlockStateM r g s m)
@@ -167,24 +159,6 @@ deriving via PersistentBlockStateMonad
               PersistentBlockStateContext
               (FocusGlobalStateM PersistentBlockStateContext g m)
     instance (MonadIO m,
-              BakerQuery (PersistentBlockStateMonad
-                           PersistentBlockStateContext
-                           (FocusGlobalStateM PersistentBlockStateContext g m)))
-             => BakerQuery (PersistentBlockStateM r g s m)
-
-deriving via PersistentBlockStateMonad
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
-    instance (MonadIO m,
-              BirkParametersOperations (PersistentBlockStateMonad
-                                         PersistentBlockStateContext
-                                         (FocusGlobalStateM PersistentBlockStateContext g m)))
-             => BirkParametersOperations (PersistentBlockStateM r g s m)
-
-deriving via PersistentBlockStateMonad
-              PersistentBlockStateContext
-              (FocusGlobalStateM PersistentBlockStateContext g m)
-    instance (MonadIO m,
               BlockStateOperations (PersistentBlockStateMonad
                                      PersistentBlockStateContext
                                      (FocusGlobalStateM PersistentBlockStateContext g m)))
@@ -211,7 +185,7 @@ deriving via PersistentBlockStateMonad
 -- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
 -- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BakerQuery, BlockStateOperations, BlockStateStorage, BirkParametersOperations)
+    deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage)
 
 -- * Specializations
 type MemoryTreeStateM bs m = TreeStateM (SkovData bs) m
@@ -288,16 +262,6 @@ deriving via BlockStateM c r g s m
     instance (Monad m,
               AccountOperations (BlockStateM c r g s m))
              => AccountOperations (GlobalStateM db c r g s m)
-
-deriving via BlockStateM c r g s m
-    instance (Monad m,
-              BakerQuery (BlockStateM c r g s m))
-             => BakerQuery (GlobalStateM db c r g s m)
-
-deriving via BlockStateM c r g s m
-    instance (Monad m,
-              BirkParametersOperations (BlockStateM c r g s m))
-             => BirkParametersOperations (GlobalStateM db c r g s m)
 
 deriving via BlockStateM c r g s m
     instance (BlockStateQuery (GlobalStateM db c r g s m),

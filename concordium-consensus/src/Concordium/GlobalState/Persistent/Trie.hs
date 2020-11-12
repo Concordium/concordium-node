@@ -28,6 +28,7 @@ import qualified Data.Map.Strict as Map
 import Concordium.Types (AccountAddress, BakerId(..), ModuleRef(..))
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as SHA256
+import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
@@ -49,7 +50,14 @@ instance FixedTrieKey SHA256.Hash
 deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
+instance FixedTrieKey Bls.PublicKey
 
+-- |Class for Trie keys that respect the 'Ord' instance.
+-- That is, @a `compare` b == unpackKey a `compare` unpackKey b@.
+class (Ord a, FixedTrieKey a) => OrdFixedTrieKey a
+instance OrdFixedTrieKey Word64
+instance OrdFixedTrieKey Word32
+deriving via Word64 instance OrdFixedTrieKey BakerId
 
 -- |Trie with keys all of same fixed length treated as lists of bytes.
 -- The first parameter of 'TrieF' is the type of keys, which should
@@ -194,6 +202,11 @@ mapReduceF mfun = mr [] <=< mproject
                 handleBranch _ Null = return mempty
                 handleBranch i (Some r) = mr (keyPrefix ++ [fromIntegral i]) =<< mproject r
             mconcat . V.toList <$> V.imapM handleBranch vec
+
+-- |Essentially 'mapReduceF', but the constraint implies that keys are traversed lowest to
+-- highest with respect to their 'Ord' instance.
+mapReduceAscF :: (MRecursive m t, Base t ~ TrieF k v, OrdFixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
+mapReduceAscF = mapReduceF
 
 -- |Compute the common prefix and distinct suffixes of two lists.
 commonPrefix :: (Eq a) => [a] -> [a] -> ([a], [a], [a])
@@ -385,6 +398,10 @@ adjust adj k (TrieN s t) = do
 keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]
 keys EmptyTrieN = return []
 keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
+
+-- |Get the list of keys of a trie in ascending order.
+keysAsc :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m [k]
+keysAsc = keys
 
 -- |Convert from a trie using 'Fix' (i.e. direct unrolling) to a trie using a different fixpoint combinator.
 fromTrie :: forall m fix k v. (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v) => TrieN Fix k v -> m (TrieN fix k v)
