@@ -515,7 +515,6 @@ runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEn
 instance BlockStateTypes (LocalT r m) where
     type BlockState (LocalT r m) = BlockState m
     type UpdatableBlockState (LocalT r m) = UpdatableBlockState m
-    type BirkParameters (LocalT r m) = BirkParameters m
     type Bakers (LocalT r m) = Bakers m
     type Account (LocalT r m) = Account m
 
