@@ -28,9 +28,8 @@ stages:
       - consensus-rust/target
       - crypto/rust-src/target
       - crypto/lib
-      - smart-contracts/wasmer-interp/target
+      - smart-contracts/wasm-chain-integration/target
       - smart-contracts/lib
-      - wasm/.stack-work
 
   before_script:
     - rustc --version && cargo --version
