@@ -654,8 +654,8 @@ handleInitContract wtc initAmount modref initName param =
             -- Withdraw the amount the contract is initialized with from the sender account.
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
-            -- FIXME: miExposedReceive should be replaced after we have some naming scheme.
-            let ins = makeInstance modref initName (Wasm.miExposedReceive iface) iface model initAmount (thSender meta)
+            let receiveMethods = OrdMap.findWithDefault Set.empty initName (Wasm.miExposedReceive iface)
+            let ins = makeInstance modref initName receiveMethods iface model initAmount (thSender meta)
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes

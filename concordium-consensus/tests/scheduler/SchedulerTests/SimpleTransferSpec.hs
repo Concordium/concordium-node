@@ -41,13 +41,13 @@ testCases =
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/send-tokens-test.wasm" "init" ""
+      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/send-tokens-test.wasm" "init_send" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0, alesKP)]
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "receive" ""
+      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "send.receive" ""
                 , metadata = makeDummyHeader alesAccount 3 70000
                 , keys = [(0, alesKP)]
                 }
