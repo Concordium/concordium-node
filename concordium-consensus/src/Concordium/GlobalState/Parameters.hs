@@ -313,7 +313,7 @@ data GenesisAccount = GenesisAccount {
   gaAddress :: !AccountAddress,
   gaVerifyKeys :: !ID.AccountKeys,
   gaBalance :: !Amount,
-  gaCredential :: !ID.CredentialDeploymentInformation,
+  gaCredential :: !ID.AccountCredentialWithProofs,
   gaBaker :: !(Maybe GenesisBaker)
 }
 
@@ -443,7 +443,7 @@ parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
 
         mkAccount (GenesisAccount{..}, bid) =
-          let cdv = ID.cdiValues gaCredential in
+          let cdv = ID.values gaCredential in
           newAccount genesisCryptographicParameters gaVerifyKeys gaAddress cdv
                 & accountAmount .~ gaBalance
                 & case gaBaker of

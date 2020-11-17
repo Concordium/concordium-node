@@ -15,6 +15,7 @@ import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.ID.Types
 import Concordium.Types
 
@@ -29,7 +30,7 @@ data PersistingAccountData = PersistingAccountData {
   _accountAddress :: !AccountAddress
   ,_accountEncryptionKey :: !AccountEncryptionKey
   ,_accountVerificationKeys :: !AccountKeys
-  ,_accountCredentials :: ![CredentialDeploymentValues]
+  ,_accountCredentials :: ![AccountCredential]
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
   ,_accountInstances :: !(Set.Set ContractAddress)
@@ -105,7 +106,7 @@ instance Serialize PersistingAccountData where
     _accountVerificationKeys <- get
     _accountCredentials <- get
     when (null _accountCredentials) $ fail "Account has no credentials"
-    let _accountMaxCredentialValidTo = maximum (pValidTo . cdvPolicy <$> _accountCredentials)
+    let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
     _accountInstances <- Set.fromList <$> get
     return PersistingAccountData{..}
 
@@ -147,14 +148,14 @@ nullAccountBakerHash = Hash.hash ""
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> PersistingAccountData -> AccountBakerHash -> Hash.Hash
-makeAccountHash n a eas pd abh = Hash.hashLazy $ runPutLazy $
-  put n >> put a >> put eas >> put pd >> put abh
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseSchedule -> PersistingAccountData -> AccountBakerHash -> Hash.Hash
+makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
+  put n >> put a >> put eas >> put ars >> put pd >> put abh
 
 {-# INLINE addCredential #-}
-addCredential :: HasPersistingAccountData d => CredentialDeploymentValues -> d -> d
+addCredential :: HasPersistingAccountData d => AccountCredential -> d -> d
 addCredential cdv = (accountCredentials %~ (cdv:))
-  . (accountMaxCredentialValidTo %~ max (pValidTo (cdvPolicy cdv)))
+  . (accountMaxCredentialValidTo %~ max (validTo cdv))
 
 {-# INLINE setKey #-}
 -- |Set a at a given index to a given value. The value of 'Nothing' will remove the key.
@@ -203,20 +204,22 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally an update the encrypted amount.
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally a new credential.
-  ,_auCredential :: !(Maybe CredentialDeploymentValues)
+  ,_auCredential :: !(Maybe AccountCredential)
   -- |Optionally an update to the account keys
   ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
   -- |Optionally update the signature threshold
   ,_auSignThreshold :: !(Maybe SignatureThreshold)
+  -- |Optionally update the locked stake on the account.
+  ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving(Eq)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- |Optionally add a credential to an account.
 {-# INLINE updateCredential #-}
-updateCredential :: (HasPersistingAccountData d) => Maybe CredentialDeploymentValues -> d -> d
+updateCredential :: (HasPersistingAccountData d) => Maybe AccountCredential -> d -> d
 updateCredential = maybe id addCredential
 
 -- |Optionally update the verification keys and signature threshold for an account.

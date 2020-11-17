@@ -23,6 +23,7 @@ import Concordium.ID.Parameters
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import Concordium.GlobalState.BakerInfo
 
@@ -168,6 +169,12 @@ instance MonadBlobStore m => Cacheable m PersistentAccountBaker where
     cachedBaker <- cache (_accountBakerInfo pab)
     return pab{_accountBakerInfo = cachedBaker}
 
+-- |Get the hash of an account's baker.
+hashAccountBaker :: MonadBlobStore m => Nullable (BufferedRef PersistentAccountBaker) -> m AccountBakerHash
+{-# INLINE hashAccountBaker #-}
+hashAccountBaker Null = return nullAccountBakerHash
+hashAccountBaker (Some r) = getHashM r
+
 data PersistentAccount = PersistentAccount {
   -- |Next available nonce for this account.
   _accountNonce :: !Nonce
@@ -176,6 +183,8 @@ data PersistentAccount = PersistentAccount {
   -- |List of encrypted amounts on the account.
   -- TODO (MRA) create bufferedref list
   ,_accountEncryptedAmount :: !(BufferedRef PersistentAccountEncryptedAmount)
+  -- |Schedule of releases on the account.
+  ,_accountReleaseSchedule :: !(BufferedRef AccountReleaseSchedule)
   -- |A pointer to account data that changes rarely
   ,_persistingData :: !(BufferedRef PersistingAccountData)
   -- |The baker info
@@ -191,10 +200,12 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
     storeUpdate PersistentAccount{..} = do
         (pAccData, accData) <- storeUpdate _persistingData
         (pEnc, encData) <- storeUpdate _accountEncryptedAmount
+        (pSched, schedData) <- storeUpdate _accountReleaseSchedule
         (pBkr, bkrData) <- storeUpdate _accountBaker
         let persistentAcc = PersistentAccount {
                 _persistingData = accData,
                 _accountEncryptedAmount = encData,
+                _accountReleaseSchedule = schedData,
                 _accountBaker = bkrData,
                 ..
             }
@@ -203,6 +214,7 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
                     put _accountAmount
                     pAccData
                     pEnc
+                    pSched
                     pBkr
         return (putAccs, persistentAcc)
     store a = fst <$> storeUpdate a
@@ -211,18 +223,19 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
         _accountAmount <- get
         mAccDataPtr <- load
         mAccountEncryptedAmountPtr <- load
+        mAccountReleaseSchedulePtr <- load
         mAccountBaker <- load
         return $ do
           _persistingData <- cache =<< mAccDataPtr
           _accountEncryptedAmount <- cache =<< mAccountEncryptedAmountPtr
+          _accountReleaseSchedule <- cache =<< mAccountReleaseSchedulePtr
           _accountBaker <- cache =<< mAccountBaker
           pData <- loadBufferedRef _persistingData
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
-          bakerHash <- case _accountBaker of
-            Null -> return nullAccountBakerHash
-            Some b -> getHashM b
-          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' pData bakerHash
+          sData <- loadBufferedRef _accountReleaseSchedule
+          bakerHash <- hashAccountBaker _accountBaker
+          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' sData pData bakerHash
           return PersistentAccount {..}
 
 instance (MonadBlobStore m) => Cacheable m PersistentAccount where
@@ -240,12 +253,12 @@ instance HashableTo Hash.Hash PersistentAccount where
 instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 
 -- |Create an empty account with the given public key, encryption key, address and credential.
-newAccount :: MonadBlobStore m => GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m PersistentAccount
+newAccount :: MonadBlobStore m => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m PersistentAccount
 newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   let newPData = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (cdvRegId credential),
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
         _accountCredentials = [credential],
-        _accountMaxCredentialValidTo = pValidTo (cdvPolicy credential),
+        _accountMaxCredentialValidTo = validTo credential,
         _accountInstances = Set.empty,
         ..
         }
@@ -255,9 +268,11 @@ newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   accountEncryptedAmountData <- initialPersistentAccountEncryptedAmount
   baseEncryptedAmountData <- loadPersistentAccountEncryptedAmount accountEncryptedAmountData
   _accountEncryptedAmount <- makeBufferedRef accountEncryptedAmountData
+  let relSched = emptyAccountReleaseSchedule
+  _accountReleaseSchedule <- makeBufferedRef relSched
   return PersistentAccount {
         _accountBaker = Null,
-        _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData newPData nullAccountBakerHash,
+        _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData relSched newPData nullAccountBakerHash,
         ..
     }
 
@@ -266,35 +281,34 @@ makePersistentAccount :: MonadBlobStore m => Transient.Account -> m PersistentAc
 makePersistentAccount tacc@Transient.Account{..} = do
   let _accountHash = getHash tacc
   _persistingData <- makeBufferedRef _accountPersisting
-  _accountEncryptedAmount <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
+  _accountEncryptedAmount' <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
+  _accountReleaseSchedule' <- makeBufferedRef _accountReleaseSchedule
   _accountBaker <- case _accountBaker of
     Nothing -> return Null
     Just Transient.AccountBaker{..} -> do
       abiRef <- makeBufferedRef _accountBakerInfo
       Some <$> makeBufferedRef PersistentAccountBaker{_accountBakerInfo = abiRef, ..}
-  return PersistentAccount {..}
+  return PersistentAccount {_accountEncryptedAmount = _accountEncryptedAmount', _accountReleaseSchedule = _accountReleaseSchedule', ..}
 
 -- |Recompute the hash of an account.
 rehashAccount :: MonadBlobStore m => PersistentAccount -> m PersistentAccount
 rehashAccount pac = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
+  sdata <- refLoad (_accountReleaseSchedule pac)
   pdata <- refLoad (_persistingData pac)
-  bkrHash <- case _accountBaker pac of
-    Null -> return nullAccountBakerHash
-    Some bkr -> getHashM bkr
-  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac pdata bkrHash
+  bkrHash <- hashAccountBaker (_accountBaker pac)
+  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac sdata pdata bkrHash
   return pac{_accountHash = newHash}
 
 -- |Set the baker of an account.
 setPersistentAccountBaker :: MonadBlobStore m => PersistentAccount -> Nullable PersistentAccountBaker -> m PersistentAccount
 setPersistentAccountBaker pac pab = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
+  sdata <- refLoad (_accountReleaseSchedule pac)
   pdata <- refLoad (_persistingData pac)
-  bkrHash <- case pab of
-    Null -> return nullAccountBakerHash
-    Some bkr -> getHashM bkr
   pabRef <- mapM refMake pab
-  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac pdata bkrHash
+  bkrHash <- hashAccountBaker pabRef
+  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac sdata pdata bkrHash
   return pac{_accountHash = newHash, _accountBaker = pabRef}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
@@ -302,6 +316,7 @@ sameAccount :: MonadBlobStore m => Transient.Account -> PersistentAccount -> m B
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
+  _accountReleaseSchedule <- loadBufferedRef _accountReleaseSchedule
   _accountBaker <- case _accountBaker of
     Null -> return Nothing
     Some ref -> do
@@ -334,13 +349,12 @@ setPAD :: MonadBlobStore m
 setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
+  rs <- loadBufferedRef _accountReleaseSchedule
   let newPData = f pData
   newPDataRef <- makeBufferedRef newPData
-  bkrHash <- case _accountBaker of
-    Null -> return nullAccountBakerHash
-    Some bkr -> getHashM bkr
+  bkrHash <- hashAccountBaker _accountBaker
   return $ acc & persistingData .~ newPDataRef
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac newPData bkrHash
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac rs newPData bkrHash
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
