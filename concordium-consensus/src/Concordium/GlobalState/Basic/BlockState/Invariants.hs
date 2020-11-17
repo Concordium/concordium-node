@@ -21,6 +21,7 @@ import Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 
 import Concordium.Types
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
@@ -52,8 +53,14 @@ invariantBlockState bs = do
     where
         checkAccount (creds, amp, bal, bakerIds, bakerKeys, ninsts) (i, acct) = do
             let addr = acct ^. accountAddress
+            -- check that we didn't already find this credential
             creds' <- foldM checkCred creds (acct ^. accountCredentials)
+            -- check that we didn't already find this same account
             when (Map.member addr amp) $ Left $ "Duplicate account address: " ++ show (acct ^. accountAddress)
+            let lockedBalance = acct ^. accountReleaseSchedule . totalLockedUpBalance
+            -- check that the locked balance is the same as the sum of the pending releases
+            unless (lockedBalance == sum (Map.map fst (acct ^. accountReleaseSchedule . pendingReleases))) $ Left "Total locked balance doesn't sum up to the pending releases stake"
+            -- check that the instances exist and add their amounts to my balance
             !myBal <- foldM (checkInst addr) (acct ^. accountAmount) (acct ^. accountInstances)
             (bakerIds', bakerKeys') <- case acct ^. accountBaker of
                     Nothing -> return (bakerIds, bakerKeys)
@@ -64,7 +71,7 @@ invariantBlockState bs = do
                         unless (Set.member (binfo ^. bakerAggregationVerifyKey) bakerKeys) $ Left "Baker aggregation key is missing from active bakers"
                         return (Set.delete (BakerId i) bakerIds, Set.delete (binfo ^. bakerAggregationVerifyKey) bakerKeys)
             return (creds', Map.insert addr i amp, bal + myBal, bakerIds', bakerKeys', ninsts + fromIntegral (Set.size (acct ^. accountInstances)))
-        checkCred creds (ID.cdvRegId -> cred)
+        checkCred creds (ID.regId -> cred)
             | cred `Set.member` creds = Left $ "Duplicate credential: " ++ show cred
             | otherwise = return $ Set.insert cred creds
         checkInst owner bal caddr = case bs ^? blockInstances . ix caddr of

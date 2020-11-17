@@ -33,12 +33,14 @@ import Data.IORef
 import Control.Monad.Reader.Class
 import Control.Monad.Trans
 import Control.Monad
+import Data.Foldable
+import Data.Maybe
+import Control.Exception
 import Lens.Micro.Platform
 import Concordium.Utils
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
-import Data.Maybe
 
 import GHC.Generics (Generic)
 
@@ -77,6 +79,8 @@ import Concordium.GlobalState.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TransientReleaseSchedule
+
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
 data BlockStatePointers = BlockStatePointers {
@@ -89,6 +93,7 @@ data BlockStatePointers = BlockStatePointers {
     bspBirkParameters :: !PersistentBirkParameters,
     bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
     bspUpdates :: !(BufferedRef Updates),
+    bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
     bspTransactionOutcomes :: !Transactions.TransactionOutcomes
 }
@@ -128,6 +133,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
         (pbps, bspBirkParameters') <- storeUpdate bspBirkParameters
         (pcryptps, bspCryptographicParameters') <- storeUpdate bspCryptographicParameters
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
+        (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
         let putBSP = do
                 paccts
                 pinsts
@@ -139,6 +145,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
                 pcryptps
                 put bspTransactionOutcomes
                 pupdates
+                preleases
         return (putBSP, bsp0 {
                     bspAccounts = bspAccounts',
                     bspInstances = bspInstances',
@@ -147,7 +154,8 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
                     bspAnonymityRevokers = bspAnonymityRevokers',
                     bspBirkParameters = bspBirkParameters',
                     bspCryptographicParameters = bspCryptographicParameters',
-                    bspUpdates = bspUpdates'
+                    bspUpdates = bspUpdates',
+                    bspReleaseSchedule = bspReleaseSchedule'
                 })
     store bsp = fst <$> storeUpdate bsp
     load = do
@@ -161,6 +169,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
         mcryptps <- label "Cryptographic parameters" load
         bspTransactionOutcomes <- label "Transaction outcomes" get
         mUpdates <- label "Updates" load
+        mReleases <- label "Release schedule" load
         return $! do
             bspAccounts <- maccts
             bspInstances <- minsts
@@ -170,6 +179,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
             bspBirkParameters <- mbps
             bspCryptographicParameters <- mcryptps
             bspUpdates <- mUpdates
+            bspReleaseSchedule <- mReleases
             return $! BlockStatePointers{..}
 
 instance MonadBlobStore m => Cacheable m BlockStatePointers where
@@ -182,6 +192,7 @@ instance MonadBlobStore m => Cacheable m BlockStatePointers where
         birkParams <- cache bspBirkParameters
         cryptoParams <- cache bspCryptographicParameters
         upds <- cache bspUpdates
+        rels <- cache bspReleaseSchedule
         return BlockStatePointers{
             bspAccounts = accts,
             bspInstances = insts,
@@ -192,6 +203,7 @@ instance MonadBlobStore m => Cacheable m BlockStatePointers where
             bspBirkParameters = birkParams,
             bspCryptographicParameters = cryptoParams,
             bspUpdates = upds,
+            bspReleaseSchedule = rels,
             bspTransactionOutcomes = bspTransactionOutcomes
         }
 
@@ -338,6 +350,7 @@ makePersistent Basic.BlockState{..} = do
   cryptographicParameters <- bufferHashed _blockCryptographicParameters
   blockAccounts <- Accounts.makePersistent _blockAccounts
   updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
+  rels <- makeBufferedRef _blockReleaseSchedule
   bsp <-
     makeBufferedRef $
       BlockStatePointers
@@ -350,7 +363,8 @@ makePersistent Basic.BlockState{..} = do
           bspBirkParameters = persistentBirkParameters,
           bspCryptographicParameters = cryptographicParameters,
           bspTransactionOutcomes = _blockTransactionOutcomes,
-          bspUpdates = updates
+          bspUpdates = updates,
+          bspReleaseSchedule = rels
         }
   bps <- liftIO $ newIORef $! bsp
   hashBlockState bps
@@ -375,7 +389,7 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
   bspUpdates <- refMake =<< initialUpdates auths chainParams
-
+  bspReleaseSchedule <- refMake $ Map.empty
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
             bspInstances = Instances.emptyInstances,
@@ -756,15 +770,15 @@ doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doCreateAccount :: MonadBlobStore m => PersistentBlockState -> ID.GlobalContext -> ID.AccountKeys -> AccountAddress -> ID.CredentialDeploymentValues ->  m (Maybe PersistentAccount, PersistentBlockState)
-doCreateAccount pbs cryptoParams verifKeys acctAddr cdv = do
-        acct <- newAccount cryptoParams verifKeys acctAddr cdv
+doCreateAccount :: MonadBlobStore m => PersistentBlockState -> ID.GlobalContext -> ID.AccountKeys -> AccountAddress -> ID.AccountCredential ->  m (Maybe PersistentAccount, PersistentBlockState)
+doCreateAccount pbs cryptoParams verifKeys acctAddr credential = do
+        acct <- newAccount cryptoParams verifKeys acctAddr credential
         bsp <- loadPBS pbs
         -- Add the account
         (res, accts1) <- Accounts.putNewAccount acct (bspAccounts bsp)
         if res then do
             -- Record the RegId
-            accts2 <- Accounts.recordRegId (ID.cdvRegId cdv) accts1
+            accts2 <- Accounts.recordRegId (ID.regId credential) accts1
             (Just acct,) <$> storePBS pbs (bsp {bspAccounts = accts2})
         else
             return (Nothing, pbs)
@@ -776,7 +790,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         (_, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
         accts2 <- case _auCredential of
-            Just cdi -> Accounts.recordRegId (ID.cdvRegId cdi) accts1
+            Just cdi -> Accounts.recordRegId (ID.regId cdi) accts1
             Nothing -> return accts1
         storePBS pbs (bsp {bspAccounts = accts2})
     where
@@ -948,6 +962,33 @@ doProcessUpdateQueues pbs ts = do
         u' <- processUpdateQueues ts (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
 
+doProcessReleaseSchedule :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m PersistentBlockState
+doProcessReleaseSchedule pbs ts = do
+        bsp <- loadPBS pbs
+        releaseSchedule <- loadBufferedRef (bspReleaseSchedule bsp)
+        if Map.null releaseSchedule
+          then return pbs
+          else do
+          let (accountsToRemove, blockReleaseSchedule') = Map.partition (<= ts) releaseSchedule
+              f (ba, readded) addr = do
+                let upd acc = do
+                      rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
+                      let (_, rData') = TransientReleaseSchedule.unlockAmountsUntil ts rData
+                      rDataRef <- makeBufferedRef rData'
+                      pData <- loadBufferedRef (acc ^. persistingData)
+                      eData <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
+                      bkrHash <- hashAccountBaker (acc ^. accountBaker)
+                      return (Map.lookupMin . TransientReleaseSchedule._pendingReleases $ rData',
+                                acc & accountReleaseSchedule .~ rDataRef
+                                    & accountHash .~ makeAccountHash (_accountNonce acc) (_accountAmount acc) eData rData' pData bkrHash)
+                (toRead, ba') <- Accounts.updateAccounts upd addr ba
+                return (ba', case join toRead of
+                               Just (t, _) -> (addr, t) : readded
+                               Nothing -> readded)
+          (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
+          bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
+          storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
+
 doGetCurrentAuthorizations :: MonadBlobStore m => PersistentBlockState -> m Authorizations
 doGetCurrentAuthorizations pbs = do
         bsp <- loadPBS pbs
@@ -959,6 +1000,16 @@ doEnqueueUpdate pbs effectiveTime payload = do
         bsp <- loadPBS pbs
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
+
+doAddReleaseSchedule :: MonadBlobStore m => PersistentBlockState -> [(AccountAddress, Timestamp)] -> m PersistentBlockState
+doAddReleaseSchedule pbs rel = do
+        bsp <- loadPBS pbs
+        releaseSchedule <- loadBufferedRef (bspReleaseSchedule bsp)
+        let f relSchedule (addr, t) = Map.alter (\case
+                                                    Nothing -> Just t
+                                                    Just t' -> Just $ min t' t) addr relSchedule
+        bspReleaseSchedule' <- makeBufferedRef $ foldl' f releaseSchedule rel
+        storePBS pbs bsp {bspReleaseSchedule = bspReleaseSchedule'}
 
 doGetEnergyRate :: MonadBlobStore m => PersistentBlockState -> m EnergyRate
 doGetEnergyRate pbs = do
@@ -1029,16 +1080,17 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 
   getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
+  getAccountReleaseSchedule acc = loadBufferedRef (acc ^. accountReleaseSchedule)
+
   getAccountInstances acc = acc ^^. accountInstances
 
   updateAccountAmount acc amnt = do
     let newAcc@PersistentAccount{..} = acc & accountAmount .~ amnt
     pData <- loadBufferedRef _persistingData
     encData <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-    bakerHash <- case _accountBaker of
-        Null -> return nullAccountBakerHash
-        Some b -> getHashM b
-    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encData pData bakerHash
+    rsData <- loadBufferedRef _accountReleaseSchedule
+    bakerHash <- hashAccountBaker _accountBaker
+    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encData rsData pData bakerHash
 
 instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
@@ -1070,9 +1122,11 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoSetTransactionOutcomes = doSetTransactionOutcomes
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoProcessUpdateQueues = doProcessUpdateQueues
+    bsoProcessReleaseSchedule = doProcessReleaseSchedule
     bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
+    bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
 
 instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m) where

@@ -53,6 +53,7 @@ import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Account
 
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
 import Concordium.GlobalState.Parameters
@@ -66,7 +67,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (CredentialDeploymentValues, CredentialValidTo, AccountKeys)
+import Concordium.ID.Types (AccountCredential, CredentialValidTo, AccountKeys)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |Index of the module in the module table. Reflects when the module was added
@@ -146,7 +147,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
-  getAccountCredentials :: Account m -> m [CredentialDeploymentValues]
+  getAccountCredentials :: Account m -> m [AccountCredential]
 
   -- |Get the last expiry time of a credential on the account.
   getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
@@ -185,6 +186,9 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
       let toTake = Seq.take (fromIntegral (index - _startIndex)) $ maybe id ((Seq.:<|) . fst) _aggregatedAmount _incomingEncryptedAmounts
       in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
     else return Nothing
+
+  -- |Get the release schedule for an account.
+  getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
 
   -- |The set of instances belonging to this account
   -- TODO: Revisit choice of datastructure. Additions and removals
@@ -255,7 +259,7 @@ class (AccountOperations m) => BlockStateQuery m where
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m Basic.Updates
-    
+
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -277,7 +281,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Otherwise, the new account is returned, and the credential is added to the known credentials.
   --
   -- It is not checked if the account's credential is a duplicate.
-  bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountKeys -> AccountAddress -> CredentialDeploymentValues -> m (Maybe (Account m), UpdatableBlockState m)
+  bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
   -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
@@ -451,6 +455,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Process queued updates.
   bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
+  -- |Unlock the amounts up to the given timestamp
+  bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
+
   -- |Get the current 'Authorizations' for validating updates.
   bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
 
@@ -459,6 +466,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Enqueue an update to take effect at the specified time.
   bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
+
+  -- |Add the given accounts and timestamps to the per-block account release schedule.
+  -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
+  bsoAddReleaseSchedule :: UpdatableBlockState m -> [(AccountAddress, Timestamp)] -> m (UpdatableBlockState m)
 
   -- |Get the current energy rate.
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
@@ -569,6 +580,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
+  getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountInstances = lift . getAccountInstances
   updateAccountAmount acc = lift . updateAccountAmount acc
   {-# INLINE getAccountAddress #-}
@@ -578,6 +590,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}
+  {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountInstances #-}
   {-# INLINE updateAccountAmount #-}
 
@@ -611,9 +624,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
+  bsoProcessReleaseSchedule s = lift . bsoProcessReleaseSchedule s
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
   bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
+  bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
@@ -644,9 +659,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoProcessUpdateQueues #-}
+  {-# INLINE bsoProcessReleaseSchedule #-}
   {-# INLINE bsoGetCurrentAuthorizations #-}
   {-# INLINE bsoGetNextUpdateSequenceNumber #-}
   {-# INLINE bsoEnqueueUpdate #-}
+  {-# INLINE bsoAddReleaseSchedule #-}
   {-# INLINE bsoGetEnergyRate #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where

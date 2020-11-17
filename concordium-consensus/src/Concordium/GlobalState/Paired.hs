@@ -121,7 +121,7 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
     blockTransactions (PairBlockData (l, r)) = assert (blockTransactions l == blockTransactions r) $
         blockTransactions l
     blockTransactionOutcomesHash (PairBlockData (l, r)) = assert (blockTransactionOutcomesHash l == blockTransactionOutcomesHash r) $ blockTransactionOutcomesHash l
-    blockStateHash (PairBlockData (l, r)) = assert (blockStateHash l == blockStateHash r) $ blockStateHash l 
+    blockStateHash (PairBlockData (l, r)) = assert (blockStateHash l == blockStateHash r) $ blockStateHash l
     verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) $ vbsl
         where
             vbsl = verifyBlockSignature l
@@ -170,7 +170,7 @@ coerceBSML = coerce
 coerceBSMR :: BSMR rc r rs s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceBSMR = coerce
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
@@ -264,7 +264,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         u2 <- coerceBSMR (getUpdates bps2)
         assert (u1 == u2) $ return u1
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
 
     getAccountAddress (acc1, acc2) = do
@@ -307,6 +307,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         k2 <- coerceBSMR (getAccountEncryptionKey acc2)
         assert (k1 == k2) $ return k1
 
+    getAccountReleaseSchedule (acc1, acc2) = do
+        ars1 <- coerceBSML (getAccountReleaseSchedule acc1)
+        ars2 <- coerceBSMR (getAccountReleaseSchedule acc2)
+        assert (ars1 == ars2) $ return ars1
+
     getAccountInstances (acc1, acc2) = do
         ais1 <- coerceBSML (getAccountInstances acc1)
         ais2 <- coerceBSMR (getAccountInstances acc2)
@@ -318,7 +323,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         assert ((getHash acc1 :: H.Hash) == getHash acc2) $
           return (acc1', acc2')
 
-instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
+instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
@@ -452,6 +457,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoProcessUpdateQueues bs1 ts
         bs2' <- coerceBSMR $ bsoProcessUpdateQueues bs2 ts
         return (bs1', bs2')
+    bsoProcessReleaseSchedule (bs1, bs2) ts = do
+        bs1' <- coerceBSML $ bsoProcessReleaseSchedule bs1 ts
+        bs2' <- coerceBSMR $ bsoProcessReleaseSchedule bs2 ts
+        return (bs1', bs2')
     bsoGetCurrentAuthorizations (bs1, bs2) = do
         a1 <- coerceBSML $ bsoGetCurrentAuthorizations bs1
         a2 <- coerceBSMR $ bsoGetCurrentAuthorizations bs2
@@ -464,6 +473,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoEnqueueUpdate bs1 tt p
         bs2' <- coerceBSMR $ bsoEnqueueUpdate bs2 tt p
         return (bs1', bs2')
+    bsoAddReleaseSchedule (bs1, bs2) tt = do
+        bs1' <- coerceBSML $ bsoAddReleaseSchedule bs1 tt
+        bs2' <- coerceBSMR $ bsoAddReleaseSchedule bs2 tt
+        return (bs1', bs2')
     bsoGetEnergyRate (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetEnergyRate bs1
         r2 <- coerceBSMR $ bsoGetEnergyRate bs2
@@ -475,8 +488,8 @@ instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
     BlockStateStorage (BSML lc r ls s m),
     BlockStateStorage (BSMR rc r rs s m),
-    HashableTo H.Hash (Account (BSML lc r ls s m)),
-    HashableTo H.Hash (Account (BSMR rc r rs s m)))
+    HashableTo H.Hash (Account (BSML lc r ls s m)),
+    HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateStorage (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
     thawBlockState (bs1, bs2) = do
         ubs1 <- coerceBSML $ thawBlockState bs1
