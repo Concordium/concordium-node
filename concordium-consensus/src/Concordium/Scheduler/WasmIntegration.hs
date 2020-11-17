@@ -7,9 +7,9 @@ import Foreign.Marshal.Alloc
 import Foreign.Storable
 import Data.Word
 import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LText
 import qualified Data.Text.Encoding as Text
 import Data.Serialize
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
@@ -21,12 +21,16 @@ import Concordium.Crypto.FFIHelpers(rs_free_array_len)
 import Concordium.Types
 import Concordium.Wasm
 
-import qualified Language.Wasm as LW
-import qualified Language.Wasm.Structure as LW
+foreign import ccall "validate_and_process"
+   validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
+                        -> CSize -- ^Length of the module source.
+                        -> Ptr CSize -- ^Length of the artifact.
+                        -> Ptr CSize -- ^Total length of the output.
+                        -> IO (Ptr Word8) -- ^Null, or artifact + exports.
 
-foreign import ccall unsafe "call_init"
-   call_init :: Ptr Word8 -- ^Pointer to the Wasm module.
-             -> CSize -- ^Length of the Wasm module.
+foreign import ccall "call_init"
+   call_init :: Ptr Word8 -- ^Pointer to the Wasm artifact.
+             -> CSize -- ^Length of the Wasm artifact.
              -> Ptr Word8 -- ^Pointer to the serialized chain meta + init ctx.
              -> CSize -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -39,9 +43,9 @@ foreign import ccall unsafe "call_init"
              -> IO (Ptr Word8) -- ^New state and logs, if applicable, or null, signaling out-of-energy.
 
 
-foreign import ccall unsafe "call_receive"
-   call_receive :: Ptr Word8 -- ^Pointer to the Wasm module.
-             -> CSize -- ^Length of the Wasm module.
+foreign import ccall "call_receive"
+   call_receive :: Ptr Word8 -- ^Pointer to the Wasm artifact.
+             -> CSize -- ^Length of the Wasm artifact.
              -> Ptr Word8 -- ^Pointer to the serialized receive context.
              -> CSize  -- ^Length of the preceding data.
              -> Word64 -- ^Amount
@@ -87,7 +91,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                           len <- peek outputLenPtr
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
-        wasmBytes = imWasmSource . miModule $ miface
+        wasmBytes = artifact . imWasmArtifact . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encode initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
@@ -157,7 +161,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                             len <- peek outputLenPtr
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
-        wasmBytes = imWasmSource . miModule $ miface
+        wasmBytes = artifact . imWasmArtifact . miModule $ miface
         initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
@@ -172,32 +176,46 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
 -- compilation or instrumentation) that is needed to apply the exported
 -- functions from it in an efficient way.
 processModule :: WasmModule -> Maybe ModuleInterface
-processModule modl =
-  case LW.decode (wasmSource modl) of
-    Right modul -> case LW.validate modul of
-                    Right _ -> do
-                      let miSize = fromIntegral (BS.length (wasmSource modl))
-                          miModuleRef = getModuleRef modl
-                          miModule = InstrumentedWasmModule{ imWasmVersion = wasmVersion modl, imWasmSource = wasmSource modl }
-                      (miExposedInit, miExposedReceive) <- processExports modul
-                      return ModuleInterface{..}
-                    Left err -> error $ "Validation error: " ++ show err
-    Left err -> error $ "Module not well-formed: " ++ show err
+processModule modl = do
+  (bs, artifactLen) <- ffiResult
+  case getExports (BS.drop artifactLen bs) of
+    Left _ -> Nothing
+    Right (miExposedInit, miExposedReceive) ->
+      let miSize = fromIntegral (BS.length (wasmSource modl))
+          miModuleRef = getModuleRef modl
+          miModule = InstrumentedWasmModule{
+            imWasmVersion = wasmVersion modl,
+            imWasmArtifact = ModuleArtifact (BS.take artifactLen bs),
+            ..
+            }
+      in Just ModuleInterface{..}
 
-  where processExports modul = do
-          -- get the exported functions only, we don't care about globals and whatnot.
-          -- TODO: We will care about memory though, but that is not done right now.
-          let exports = [name | LW.Export{..} <- LW.exports modul, case desc of
-                                                                    LW.ExportFunc _ -> True
-                                                                    _ -> False ]
-          -- TODO: This does not do any groupings, and probably we want a
-          -- different naming convention.
-          foldM (\(i,r) name ->
-                   let name' = LText.toStrict name in
-                   -- TODO: We should also be checking here that there are no duplicates.
-                   if "init" `Text.isPrefixOf` name' then Just (Set.insert (InitName name') i, r)
-                   else if "receive" `Text.isPrefixOf` name' then Just (i, Set.insert (ReceiveName name') r)
-                   else Nothing)
-                (Set.empty, Set.empty)
-                exports
-          -- TODO: Validate import names as well. Only the module is validated by the validate function.
+  where ffiResult = unsafeDupablePerformIO $ do
+          BSU.unsafeUseAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
+            alloca $ \artifactLenPtr ->
+              alloca $ \outputLenPtr -> do
+                outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) artifactLenPtr outputLenPtr
+                if outPtr == nullPtr then return Nothing
+                else do
+                  len <- peek outputLenPtr
+                  bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
+                  artifactLen <- peek artifactLenPtr
+                  return (Just (bs, fromIntegral artifactLen))
+
+        getExports bs =
+          flip runGet bs $ do
+            len <- fromIntegral <$> getWord16be
+            namesByteStrings <- replicateM len getByteStringWord16
+            let names = foldM (\(inits, receives) name -> do
+                          case Text.decodeUtf8' name of
+                            Left _ -> Nothing
+                            Right nameText | isValidInitName nameText -> return (Set.insert (InitName nameText) inits, receives)
+                                           | isValidReceiveName nameText ->
+                                               let cname = "init_" <> Text.takeWhile (/= '.') nameText
+                                               in return (inits, Map.insertWith Set.union (InitName cname) (Set.singleton (ReceiveName nameText)) receives)
+                                           | otherwise -> Nothing
+                          ) (Set.empty, Map.empty) namesByteStrings
+            case names of
+              Nothing -> fail "Incorrect response from FFI call."
+              Just x -> return x
+ 
