@@ -625,7 +625,7 @@ handleInitContract wtc initAmount modref initName param =
             -- size available before.
             tickEnergy Cost.lookupBytesPre
             iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = Wasm.miSize iface
+            let iSize = Wasm.moduleSize . Wasm.miSourceModule $ iface
             tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).

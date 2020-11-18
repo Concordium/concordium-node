@@ -243,7 +243,10 @@ getContractInfo hash sfsRef addr = runStateQuery sfsRef $
             Just istance -> let params = instanceParameters istance
                             in return $ object ["model" .= instanceModel istance
                                                ,"owner" .= instanceOwner params
-                                               ,"amount" .= instanceAmount istance]
+                                               ,"amount" .= instanceAmount istance
+                                               ,"methods" .= instanceReceiveFuns params
+                                               ,"name" .= instanceInitName params
+                                               ,"sourceModule" .= instanceContractModule params]
 
 getRewardStatus :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getRewardStatus hash sfsRef = runStateQuery sfsRef $
@@ -283,7 +286,7 @@ getModuleList hash sfsRef = runStateQuery sfsRef $
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
 
 
--- FIXME: This should not return an instrumented module, but rather the module as deployed.
+-- |Get the moduel source as it was deployed to the chain.
 getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe Wasm.WasmModule)
 getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
   resolveBlock hash >>=
@@ -292,9 +295,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
             st <- queryBlockState bp
             BS.getModule st mhash >>= \case
               Nothing -> return Nothing
-              Just modul -> return . Just $
-                  let iModule = Wasm.miModule . BS.moduleInterface $ modul
-                  in Wasm.WasmModule (Wasm.imWasmVersion iModule) (Wasm.imWasmSource iModule)
+              Just modul -> return . Just . Wasm.miSourceModule . BS.moduleInterface $ modul
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
