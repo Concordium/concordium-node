@@ -2,6 +2,7 @@
 module GlobalStateTests.Instances where
 
 import Data.Word
+import Data.Maybe
 import qualified Data.Text as Text
 import qualified Data.Set as Set
 import Control.Monad
@@ -50,11 +51,27 @@ invariantInstanceTable (Tree c0 t) = do
 invariantInstances :: Instances -> Either String ()
 invariantInstances = invariantInstanceTable . _instances
 
-genReceiveNames :: Gen (Set.Set Wasm.ReceiveName)
+-- These generators name contracts as numbers to make sure the names are valid.
+genInitName :: Gen Wasm.InitName
+genInitName =
+  Wasm.InitName . Text.pack . ("init_" ++) . show <$> (arbitrary :: Gen Word)
+
+genReceiveName :: Gen Wasm.ReceiveName
+genReceiveName = do
+  contract <- show <$> (arbitrary :: Gen Word)
+  receive <- show <$> (arbitrary :: Gen Word)
+  return . Wasm.ReceiveName . Text.pack $ receive ++ "." ++ contract
+
+
+genReceiveNames :: Gen (Map.Map Wasm.InitName (Set.Set Wasm.ReceiveName))
 genReceiveNames = do
   n <- choose (1,10)
-  ns <- fmap (Wasm.ReceiveName . Text.pack) <$> vector n
-  return $ Set.fromList ns
+  ns <- replicateM n $ do
+    i <- genInitName
+    m <- choose (0,10)
+    receives <- replicateM m genReceiveName
+    return (i, Set.fromList receives)
+  return $ Map.fromList ns
 
 genContractState :: Gen Wasm.ContractState
 genContractState = do
@@ -69,19 +86,19 @@ makeArbitraryInstance = do
         receiveNames <- genReceiveNames
         contractState <- genContractState
         n <- choose (0,1000)
-        iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.InstrumentedWasmModule 0 . BS.pack <$> vector n
+        iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.InstrumentedWasmModule 0 . Wasm.ModuleArtifact . BS.pack <$> vector n
         amount <- Amount <$> arbitrary
         owner <- AccountAddress . FBS.pack <$> (vector 21)
-        return $ makeInstance modRef initName receiveNames (iface (fromIntegral n)) contractState amount owner
+        return $ makeInstance modRef initName (fromMaybe Set.empty (snd <$> Map.lookupMin receiveNames)) (iface (fromIntegral n)) contractState amount owner
 
 makeDummyInstance :: InstanceData -> ContractAddress -> Instance
 makeDummyInstance (InstanceData model amount) =
         makeInstance modRef initName receiveNames (iface 0) model amount owner
     where
         modRef = ModuleRef (H.hash "module")
-        initName = Wasm.InitName "init"
-        receiveNames = Set.singleton (Wasm.ReceiveName "receive")
-        iface = Wasm.ModuleInterface modRef Set.empty Set.empty (Wasm.InstrumentedWasmModule 0 "<empty>")
+        initName = Wasm.InitName "init_"
+        receiveNames = Set.singleton (Wasm.ReceiveName ".receive")
+        iface = Wasm.ModuleInterface modRef Set.empty Map.empty (Wasm.InstrumentedWasmModule 0 (Wasm.ModuleArtifact "<empty>"))
         owner = AccountAddress . FBS.pack . replicate 21 $ 0
 
 data InstanceData = InstanceData Wasm.ContractState Amount
