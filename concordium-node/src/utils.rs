@@ -1,18 +1,17 @@
 //! Miscellaneous utilities.
 
-use concordium_dns::dns;
-
 use crate::{self as p2p_client, configuration as config};
-
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
+use concordium_dns::dns;
+use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer, Verifier};
 use env_logger::{Builder, Env};
 use failure::Fallible;
-use hacl_star::ed25519::{keypair, PublicKey, SecretKey, Signature};
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
 use std::fs::File;
 use std::{
+    convert::TryFrom,
     io::{Cursor, Write},
     net::{IpAddr, SocketAddr},
     str::{self, FromStr},
@@ -256,16 +255,23 @@ pub fn generate_bootstrap_dns(
     record_length: usize,
     peers: &[String],
 ) -> Result<Vec<String>, &'static str> {
-    let secret_key = SecretKey(input_key);
-    let public_key = secret_key.get_public();
+    let secret_key = match SecretKey::from_bytes(&input_key) {
+        Ok(sk) => sk,
+        Err(_) => return Err("Invalid secret key."),
+    };
+    let public_key = PublicKey::from(&secret_key);
+    let kp = Keypair {
+        secret: secret_key,
+        public: public_key,
+    };
 
-    let mut return_buffer = base64::encode(&public_key.0);
+    let mut return_buffer = base64::encode(public_key.as_bytes());
 
     match serialize_bootstrap_peers(peers) {
         Ok(ref content) => {
             return_buffer.push_str(content);
-            let signature = secret_key.signature(content.as_bytes());
-            return_buffer.push_str(&base64::encode(&(signature.0)[..]));
+            let signature = kp.sign(content.as_bytes());
+            return_buffer.push_str(&base64::encode(&signature.to_bytes() as &[u8]));
         }
         Err(_) => {
             return Err("Couldn't parse peers given");
@@ -324,9 +330,11 @@ fn read_peers_from_dns_entries(
                             }
                             match base64::decode(&buffer[4..48]) {
                                 Ok(input_pub_key_bytes) => {
-                                    let mut pub_key_bytes: [u8; 32] = Default::default();
-                                    pub_key_bytes.copy_from_slice(&input_pub_key_bytes[..32]);
-                                    let public_key = PublicKey(pub_key_bytes);
+                                    let public_key: PublicKey =
+                                        match PublicKey::from_bytes(&input_pub_key_bytes[..32]) {
+                                            Ok(pk) => pk,
+                                            Err(_) => return Err("Invalid public key."),
+                                        };
                                     let mut bytes_taken_for_nodes = 0;
 
                                     match &buffer[49..53].parse::<u16>() {
@@ -416,7 +424,14 @@ fn read_peers_from_dns_entries(
                                                         sig_bytes[..64].clone_from_slice(
                                                             &signature_bytes[..64],
                                                         );
-                                                        let signature = Signature(sig_bytes);
+                                                        let signature = match Signature::try_from(
+                                                            &sig_bytes as &[u8],
+                                                        ) {
+                                                            Ok(sig) => sig,
+                                                            Err(_) => {
+                                                                return Err("Signature invalid")
+                                                            }
+                                                        };
                                                         let content_peers = ret
                                                             .iter()
                                                             .map(|addr| {
@@ -431,10 +446,13 @@ fn read_peers_from_dns_entries(
                                                             &content_peers,
                                                         ) {
                                                             Ok(content) => {
-                                                                if public_key.verify(
-                                                                    content.as_bytes(),
-                                                                    &signature,
-                                                                ) {
+                                                                if public_key
+                                                                    .verify(
+                                                                        content.as_bytes(),
+                                                                        &signature,
+                                                                    )
+                                                                    .is_ok()
+                                                                {
                                                                     Ok(ret)
                                                                 } else {
                                                                     Err("Signature invalid")
@@ -471,7 +489,7 @@ fn read_peers_from_dns_entries(
     }
 }
 
-pub fn generate_ed25519_key() -> [u8; 32] { (keypair(OsRng).0).0 }
+pub fn generate_ed25519_key() -> SecretKey { SecretKey::generate(&mut OsRng::default()) }
 
 pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPreferences)> {
     // Get config and app preferences
@@ -514,8 +532,10 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
 
 #[cfg(test)]
 mod tests {
+    use std::convert::TryFrom;
+
     use crate::utils::*;
-    use hacl_star::ed25519::SecretKey;
+    use ed25519_dalek::{SecretKey, Verifier};
 
     const PRIVATE_TEST_KEY: [u8; 32] = [
         0xbe, 0xd2, 0x3a, 0xdd, 0x4d, 0x34, 0xab, 0x7a, 0x12, 0xa9, 0xa6, 0xab, 0x2b, 0xaf, 0x97,
@@ -526,18 +546,14 @@ mod tests {
     #[test]
     pub fn test_generate_public_key() {
         const EXPECTED: &str = "fc5d9f06051570d9da9dfd1b3d9b7353e22d764244dcf6b9c665cc21f63df8f2";
-        let secret_key = SecretKey {
-            0: PRIVATE_TEST_KEY,
-        };
-        assert_eq!(EXPECTED, to_hex_string(&secret_key.get_public().0));
+        let secret_key = SecretKey::from_bytes(&PRIVATE_TEST_KEY).unwrap();
+        assert_eq!(EXPECTED, to_hex_string(PublicKey::from(&secret_key).as_bytes()));
     }
 
     #[test]
     pub fn test_sign_verify() {
         const INPUT: &str = "00002IP401001001001008888IP6deadbeaf00000000000000000000000009999";
-        let secret_key = SecretKey {
-            0: PRIVATE_TEST_KEY,
-        };
+        let secret_key = SecretKey::from_bytes(&PRIVATE_TEST_KEY).unwrap();
         let signature = secret_key.signature(INPUT.as_bytes());
         let signature_hex = base64::encode(&signature.0.to_vec());
         let signature_unhexed = base64::decode(&signature_hex).unwrap();
@@ -545,19 +561,17 @@ mod tests {
         for i in 0..64 {
             decoded_signature[i] = signature_unhexed[i];
         }
-        assert!(secret_key.get_public().verify(INPUT.as_bytes(), &Signature {
-            0: decoded_signature,
-        }));
+        assert!(PublicKey::from(&secret_key)
+            .verify(INPUT.as_bytes(), &Signature::try_from(&decoded_signature as &[u8]))
+            .is_ok());
     }
 
     #[test]
     pub fn test_dns_generated() {
         let peers: Vec<String> =
             vec!["10.10.10.10:8888".to_string(), "dead:beef:::9999".to_string()];
-        let secret_key = SecretKey {
-            0: PRIVATE_TEST_KEY,
-        };
-        let public_b64_key = base64::encode(&secret_key.get_public().0);
+        let secret_key = SecretKey::from_bytes(&PRIVATE_TEST_KEY).unwrap();
+        let public_b64_key = base64::encode(&PublicKey::from(&secret_key));
         match generate_bootstrap_dns(PRIVATE_TEST_KEY, 240, &peers) {
             Ok(res) => match read_peers_from_dns_entries(res, &public_b64_key) {
                 Ok(peers) => {
