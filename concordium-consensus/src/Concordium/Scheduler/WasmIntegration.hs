@@ -181,13 +181,13 @@ processModule modl = do
   case getExports (BS.drop artifactLen bs) of
     Left _ -> Nothing
     Right (miExposedInit, miExposedReceive) ->
-      let miSize = fromIntegral (BS.length (wasmSource modl))
-          miModuleRef = getModuleRef modl
+      let miModuleRef = getModuleRef modl
           miModule = InstrumentedWasmModule{
             imWasmVersion = wasmVersion modl,
             imWasmArtifact = ModuleArtifact (BS.take artifactLen bs),
             ..
             }
+          miSourceModule = modl
       in Just ModuleInterface{..}
 
   where ffiResult = unsafeDupablePerformIO $ do
