@@ -80,7 +80,10 @@ type ModuleIndex = Word64
 
 -- |Module stored in block state.
 data Module = Module {
+    -- | A processed interface useful for execution.
+    -- The interface also retains a pointer to the original module source.
     moduleInterface :: !Wasm.ModuleInterface,
+    -- |Index of this module in the module table.
     moduleIndex :: !ModuleIndex
 }
 
