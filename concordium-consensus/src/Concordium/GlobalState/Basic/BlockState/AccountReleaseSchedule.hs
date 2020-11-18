@@ -35,7 +35,14 @@ makeLenses ''AccountReleaseSchedule
 instance ToJSON AccountReleaseSchedule where
   toJSON AccountReleaseSchedule{..} =
     AE.object ["total" AE..= _totalLockedUpBalance,
-               "schedule" AE..= Map.toAscList _pendingReleases]
+               "schedule" AE..= map toObject (Map.toAscList _pendingReleases)]
+
+    where toObject :: (Timestamp, (Amount, [TransactionHash])) -> AE.Value
+          toObject (timestamp, (amount, hashes)) = AE.object [
+            "timestamp" AE..= timestamp,
+            "amount" AE..= amount,
+            "transactions" AE..= hashes
+            ]
 
 instance Serialize AccountReleaseSchedule where
   get = do
