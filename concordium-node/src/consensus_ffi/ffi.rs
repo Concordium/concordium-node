@@ -395,6 +395,10 @@ extern "C" {
         consensus: *mut consensus_runner,
         block_hash: *const u8,
     ) -> *const c_char;
+    pub fn getCryptographicParameters(
+        consensus: *mut consensus_runner,
+        block_hash: *const u8,
+    ) -> *const c_char;
     pub fn importBlocks(
         consensus: *mut consensus_runner,
         import_file_path: *const u8,
@@ -711,6 +715,14 @@ impl ConsensusContainer {
     pub fn get_anonymity_revokers(&self, block_hash: &str) -> String {
         let block_hash = CString::new(block_hash).unwrap();
         wrap_c_call_string!(self, consensus, |consensus| getAllAnonymityRevokers(
+            consensus,
+            block_hash.as_ptr() as *const u8
+        ))
+    }
+
+    pub fn get_cryptographic_parameters(&self, block_hash: &str) -> String {
+        let block_hash = CString::new(block_hash).unwrap();
+        wrap_c_call_string!(self, consensus, |consensus| getCryptographicParameters(
             consensus,
             block_hash.as_ptr() as *const u8
         ))
