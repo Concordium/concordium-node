@@ -18,21 +18,16 @@ makeRust args flags = do
     rawSystemExit verbosity "mkdir" ["-p", "../smart-contracts/lib"]
 
     -- This way of determining the platform is not ideal.
+    notice verbosity "Calling 'cargo build'"
+    rawSystemExitWithEnv verbosity "cargo"
+        ["build", "--release", "--manifest-path", "../smart-contracts/wasm-chain-integration/Cargo.toml"]
+        (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
     case buildOS of
-        -- On Windows, we work around to build wasmer using the msvc toolchain
-        -- because it doesn't currently work with gnu.
-        Windows -> do
-            notice verbosity "Calling 'cargo build'"
-            rawSystemExitWithEnv verbosity "cargo"
-                ["build", "--release", "--manifest-path", "../smart-contracts/wasm-chain-integration/Cargo.toml"]
-                (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
+       Windows -> do
             -- Copy just the dynamic library, since it doesn't link with the static one.
             notice verbosity "Copying wasmer_interp.dll"
             rawSystemExit verbosity "cp" ["-u", "../smart-contracts/wasm-chain-integration/target/release/wasm_chain_integration.dll", "../smart-contracts/lib/"]
-        _ -> do
-            rawSystemExitWithEnv verbosity "cargo"
-                ["build", "--release", "--manifest-path", "../smart-contracts/wasm-chain-integration/Cargo.toml"]
-                (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
+       _ -> do
             rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libwasm_chain_integration.a", "../smart-contracts/lib/"]
             case buildOS of
                 OSX ->
