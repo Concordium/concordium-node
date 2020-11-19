@@ -31,6 +31,6 @@
     )
 
     (memory (;0;) 1)
-    (export "init" (func $init))
-    (export "receive" (func $receive))
+    (export "init_send" (func $init))
+    (export "send.receive" (func $receive))
 )
