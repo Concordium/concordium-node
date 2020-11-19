@@ -341,6 +341,14 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
                 "finalizationPeriodEMSD" .= (sqrt <$> (stats ^. Stat.finalizationPeriodEMVar))
             ]
 
+getCryptographicParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO (Maybe (Versioned Parameters.CryptographicParameters))
+getCryptographicParameters hash sfsRef = runStateQuery sfsRef $ do
+  resolveBlock hash >>=
+    \case Nothing -> return Nothing
+          Just bp -> do
+            st <- queryBlockState bp
+            Just . Versioned 0 <$> BS.getCryptographicParameters st
+
 getBlockInfo :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m)) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
