@@ -773,6 +773,20 @@ getBirkParameters cptr blockcstr = do
       logm External LLTrace $ "Replying with" ++ show bps
       jsonValueToCString bps
 
+-- |Get the cryptographic parameters in a given block. The block must be given as a
+-- null-terminated base16 encoding of the block hash.
+-- The return value is a null-terminated JSON-encoded object.
+-- The returned string should be freed by calling 'freeCStr'.
+getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
+getCryptographicParameters cptr blockcstr = do
+    c <- deRefStablePtr cptr
+    let logm = consensusLogMethod c
+    logm External LLDebug "Received request for cryptographic parameters."
+    withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
+      params <- runConsensusQuery c (Get.getCryptographicParameters hash)
+      logm External LLTrace $ "Replying."
+      jsonValueToCString (AE.toJSON params)
+
 
 -- |Check whether we are a baker from the perspective of the best block.
 -- Returns -1 if we are not added as a baker.
@@ -1135,6 +1149,7 @@ foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString
 foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> IO CString
 foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
 foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
+foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
