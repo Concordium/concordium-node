@@ -80,7 +80,10 @@ type ModuleIndex = Word64
 
 -- |Module stored in block state.
 data Module = Module {
+    -- | A processed interface useful for execution.
+    -- The interface also retains a pointer to the original module source.
     moduleInterface :: !Wasm.ModuleInterface,
+    -- |Index of this module in the module table.
     moduleIndex :: !ModuleIndex
 }
 
@@ -300,6 +303,9 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m Basic.Updates
+
+    -- |Get the current cryptographic parameters of the chain.
+    getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
 
 -- |Block state update operations parametrized by a monad. The operations which
@@ -530,6 +536,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -548,6 +555,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getNextUpdateSequenceNumber #-}
   {-# INLINE getCurrentElectionDifficulty #-}
   {-# INLINE getUpdates #-}
+  {-# INLINE getCryptographicParameters #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs
