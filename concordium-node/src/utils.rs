@@ -271,7 +271,7 @@ pub fn generate_bootstrap_dns(
         Ok(ref content) => {
             return_buffer.push_str(content);
             let signature = kp.sign(content.as_bytes());
-            return_buffer.push_str(&base64::encode(&signature.to_bytes() as &[u8]));
+            return_buffer.push_str(&base64::encode(&signature.to_bytes()[..]));
         }
         Err(_) => {
             return Err("Couldn't parse peers given");
@@ -425,7 +425,7 @@ fn read_peers_from_dns_entries(
                                                             &signature_bytes[..64],
                                                         );
                                                         let signature = match Signature::try_from(
-                                                            &sig_bytes as &[u8],
+                                                            &sig_bytes[..],
                                                         ) {
                                                             Ok(sig) => sig,
                                                             Err(_) => {
@@ -554,15 +554,21 @@ mod tests {
     pub fn test_sign_verify() {
         const INPUT: &str = "00002IP401001001001008888IP6deadbeaf00000000000000000000000009999";
         let secret_key = SecretKey::from_bytes(&PRIVATE_TEST_KEY).unwrap();
-        let signature = secret_key.signature(INPUT.as_bytes());
-        let signature_hex = base64::encode(&signature.0.to_vec());
+        let public = PublicKey::from(&secret_key);
+        let kp = Keypair {
+            secret: secret_key,
+            public,
+        };
+        let signature = kp.sign(INPUT.as_bytes());
+        let signature_hex = base64::encode(&signature.to_bytes()[..]);
         let signature_unhexed = base64::decode(&signature_hex).unwrap();
         let mut decoded_signature: [u8; 64] = [0; 64];
         for i in 0..64 {
             decoded_signature[i] = signature_unhexed[i];
         }
-        assert!(PublicKey::from(&secret_key)
-            .verify(INPUT.as_bytes(), &Signature::try_from(&decoded_signature as &[u8]))
+        assert!(kp
+            .public
+            .verify(INPUT.as_bytes(), &Signature::try_from(&decoded_signature[..]).unwrap())
             .is_ok());
     }
 

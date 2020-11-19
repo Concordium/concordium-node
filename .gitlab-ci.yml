@@ -37,11 +37,11 @@ stages:
     - scripts/test-genesis.sh 1-bakers.tar.gz
     - scripts/test-genesis.sh 5-bakers.tar.gz
     - scripts/test-genesis.sh 20-bakers.tar.gz
-    - scripts/test-genesis.sh 1000-bakers.tar.gz
+    # - scripts/test-genesis.sh 1000-bakers.tar.gz
     - scripts/test-genesis.sh 1-bakers.tar.gz 0
     - scripts/test-genesis.sh 5-bakers.tar.gz 2
     - scripts/test-genesis.sh 20-bakers.tar.gz 10
-    - scripts/test-genesis.sh 1000-bakers.tar.gz 200
+    # - scripts/test-genesis.sh 1000-bakers.tar.gz 200
 
 .generic-lint:
   extends: .generic
