@@ -304,6 +304,9 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m Basic.Updates
 
+    -- |Get the current cryptographic parameters of the chain.
+    getCryptographicParameters :: BlockState m -> m CryptographicParameters
+
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -533,6 +536,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getContractInstance #-}
@@ -551,6 +555,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getNextUpdateSequenceNumber #-}
   {-# INLINE getCurrentElectionDifficulty #-}
   {-# INLINE getUpdates #-}
+  {-# INLINE getCryptographicParameters #-}
 
 instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
   getBakerStake bs = lift . getBakerStake bs

@@ -931,6 +931,7 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
     getCurrentElectionDifficulty = doGetCurrentElectionDifficulty . hpbsPointers
     getUpdates = doGetUpdates . hpbsPointers
+    getCryptographicParameters = doGetCryptoParams . hpbsPointers
 
 doGetBakerStake :: MonadBlobStore m => PersistentBakers -> BakerId -> m (Maybe Amount)
 doGetBakerStake bs bid =
