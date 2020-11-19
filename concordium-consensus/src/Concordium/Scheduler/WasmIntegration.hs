@@ -20,6 +20,7 @@ import Control.Monad
 import Concordium.Crypto.FFIHelpers(rs_free_array_len)
 import Concordium.Types
 import Concordium.Wasm
+import Concordium.Utils.Serialization
 
 foreign import ccall "validate_and_process"
    validate_and_process :: Ptr Word8 -- ^Pointer to the Wasm module source.
