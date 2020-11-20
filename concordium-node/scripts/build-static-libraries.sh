@@ -104,7 +104,6 @@ subsection "STACK: OK"
 section "Copying ghc libraries"
 
 mkdir -p /target/{profiling,vanilla}/{ghc,cabal,concordium}
-mkdir -p /target-sc/{profiling,vanilla}/{ghc,cabal,concordium}
 mkdir -p /binaries/{lib,bin}
 for lib in $(find /usr/local/lib/ghc-$GHC_VERSION -type f -name "*_p.a"); do
     cp $lib /target/profiling/ghc/
@@ -133,7 +132,6 @@ for l in /target/profiling/ghc/libCffi_p.a \
              $(find /target/vanilla/ghc -name "*[debug|l].a"); do
     rm $l;
 done
-cp -r /target/* /target-sc/
 
 #############################################################################################################################
 section "Preparing project"
@@ -151,8 +149,8 @@ cd /build
 
 stack ls dependencies > /dev/null # to generate the cabal files
 
-cabal freeze --constraint="Concordium -dynamic" \
-      --constraint="globalstate-types +disable-smart-contracts"
+cabal freeze --constraint="Concordium -dynamic"
+
 while IFS= read -r line
 do
     p=$(echo "$line" | cut -d' ' -f1)
@@ -173,7 +171,7 @@ subsection "Pre-check in crypto libs: OK"
 #############################################################################################################################
 section "Build the project in default mode"
 
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all --extra-lib-dirs $(pwd)/crypto/rust-src/target/release --extra-lib-dirs $(pwd)/smart-contracts/wasmer-interp/target/release
+LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasm-chain-integration/target/release cabal build all --extra-lib-dirs $(pwd)/crypto/rust-src/target/release --extra-lib-dirs $(pwd)/smart-contracts/wasm-chain-integration/target/release
 
 subsection "Project built: OK"
 
@@ -188,31 +186,12 @@ done
 subsection "Libraries copied: OK"
 
 #############################################################################################################################
-section "Build the project with smart contracts"
-
-sed -i 's/globalstate-types +disable-smart-contracts/globalstate-types -disable-smart-contracts/g' cabal.project.freeze
-
-LD_LIBRARY_PATH=$(pwd)/crypto/rust-src/target/release:$(pwd)/smart-contracts/wasmer-interp/target/release cabal build all --extra-lib-dirs $(pwd)/crypto/rust-src/target/release --extra-lib-dirs $(pwd)/smart-contracts/wasmer-interp/target/release
-
-subsection "Project build: OK"
-
-for lib in $(find . -type f -name "*inplace.a"); do
-    cp $(pwd)/$lib /target-sc/vanilla/concordium/;
-done
-
-for lib in $(find . -type f -name "*_p.a"); do
-    cp $(pwd)/$lib /target-sc/profiling/concordium/;
-done
-
-subsection "Libraries copied: OK"
-
-#############################################################################################################################
 section "Build the rust utility binaries"
 
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/Concordium-0.1.0.0/x/genesis/build/genesis/genesis /binaries/bin/
 cp dist-newstyle/build/x86_64-linux/ghc-$GHC_BUILDER_VERSION/globalstate-types-0.1.0.0/x/generate-update-keys/build/generate-update-keys/generate-update-keys /binaries/bin
 cp $(pwd)/crypto/rust-src/target/release/*.so /binaries/lib/
-cp $(pwd)/smart-contracts/wasmer-interp/target/release/*.so /binaries/lib/
+cp $(pwd)/smart-contracts/wasm-chain-integration/target/release/*.so /binaries/lib/
 (
     cd crypto/rust-bins &&
     cargo build --release
@@ -224,17 +203,15 @@ cp $(pwd)/crypto/rust-bins/target/release/{client,genesis_tool,generate_testdata
 section "Copy other libraries"
 for lib in $(find ~/.cabal/store/ghc-$GHC_VERSION/ -type f -name "*[^_p].a"); do
     cp $lib /target/vanilla/cabal;
-    cp $lib /target-sc/vanilla/cabal;
 done
 
 for lib in $(find ~/.cabal/store/ghc-$GHC_VERSION/ -type f -name "*_p.a"); do
     cp $lib /target/profiling/cabal;
-    cp $lib /target-sc/profiling/cabal;
 done
 
 subsection "Cabal libraries: OK"
 
-mkdir -p /{target,target-sc}/rust
+mkdir -p /target/rust
 cp -r $(pwd)/crypto/rust-src/target/release/*.a /target/rust/
 
 subsection "Rust libraries: OK"
@@ -246,13 +223,6 @@ strip --strip-debug /target/vanilla/cabal/libHS* \
                 /target/profiling/concordium/libHS* \
                 /target/vanilla/ghc/lib* \
                 /target/profiling/ghc/lib* \
-                /target-sc/vanilla/cabal/libHS* \
-                /target-sc/vanilla/concordium/libHS* \
-                /target-sc/profiling/cabal/libHS* \
-                /target-sc/profiling/concordium/libHS* \
-                /target-sc/profiling/concordium/libHS* \
-                /target-sc/vanilla/ghc/lib* \
-                /target-sc/profiling/ghc/lib*
 
 strip --strip-debug /binaries/bin/* \
             /binaries/lib/*
@@ -288,8 +258,8 @@ ar rcs libRcommon.a
 ar rcs libRcrypto.a crypto/*.o
 rm -r crypto
 
-cp /build/smart-contracts/wasmer-interp/target/release/libwasmer_interp.a /target/rust/libwasmer_interp.a
-ar x libwasmer_interp.a
+cp /build/smart-contracts/wasm-chain-integration/target/release/libwasm_chain_integration.a /target/rust/libwasm_chain_integration.a
+ar x libwasm_chain_integration.a
 
 set +e
 
@@ -304,10 +274,8 @@ done
 
 set -e
 
-rm libwasmer_interp.a
-ar rcs libwasmer_interp.a *.o
-
-cp -r /target/rust/* /target-sc/rust/
+rm libwasm_chain_integration.a
+ar rcs libwasm_chain_integration.a *.o
 
 cd /build
 
@@ -316,9 +284,4 @@ section "Done!"
 
 tar czf static-consensus-$GHC_VERSION.tar.gz /target
 tar czf static-consensus-binaries-$GHC_VERSION.tar.gz /binaries
-rm -rf /target
-mv /target-sc /target
-tar czf static-consensus-$GHC_VERSION-sc.tar.gz /target
-tar czf static-consensus-binaries-$GHC_VERSION-sc.tar.gz /binaries
-
 rm -rf /target /binaries
