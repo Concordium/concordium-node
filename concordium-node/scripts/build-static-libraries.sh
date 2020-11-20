@@ -50,8 +50,6 @@ cd /build
         cargo check
 )
 
-sed -i -z "s/linking\n    Manual: True\n    Default: False\n\n/linking\n    Manual: True\n    Default: True\n\n/g" crypto/concordium-crypto.cabal
-
 stack build --profile --flag "Concordium:-dynamic" --stack-yaml stack.integer-simple.yaml
 
 for lib in $(find .stack-work -type f -name "*.a" ! -name "*_p.a"); do
