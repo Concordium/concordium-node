@@ -12,7 +12,7 @@ pipeline {
                     sh '''\
                            ./scripts/download-genesis-data.sh
                            ./scripts/download-genesis-complementary-bundle.sh
-                           ./scripts/build-docker-compose-image.sh develop sc true
+                           ./scripts/build-docker-compose-image.sh develop default true
                            docker push concordium/dev-client:develop
                        '''
                 }
