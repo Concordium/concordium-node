@@ -55,11 +55,11 @@ sed -i -z "s/linking\n    Manual: True\n    Default: False\n\n/linking\n    Manu
 stack build --profile --flag "Concordium:-dynamic" --stack-yaml stack.integer-simple.yaml
 
 for lib in $(find .stack-work -type f -name "*.a" ! -name "*_p.a"); do
-    cp $(pwd)/$lib /target-sc/vanilla/concordium/;
+    cp $(pwd)/$lib /target/vanilla/concordium/;
 done
 
 for lib in $(find .stack-work -type f -name "*_p.a"); do
-    cp $(pwd)/$lib /target-sc/profiling/concordium/;
+    cp $(pwd)/$lib /target/profiling/concordium/;
 done
 
 #############################################################################################################################
