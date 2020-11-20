@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.4.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "0.4.2" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -40,7 +40,7 @@ crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common"
 parking_lot = "0.11"
 structopt = "0.3"
 rand = "0.7"
-hacl-star = { git = "https://github.com/quininer/rust-hacl-star", rev = "3680bccbf75e86276a9a00bcfa3b40460ac26073" }
+ed25519-dalek = "=1.0.0"
 mio = { version = "0.7", features = ["os-poll", "tcp"] }
 log = "0.4"
 env_logger = "0.7"
