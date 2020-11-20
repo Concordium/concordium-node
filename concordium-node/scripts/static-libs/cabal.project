@@ -1,1 +1,1 @@
-packages: ./wasm ./Concordium ./globalstate-types ./globalstate-mockup/globalstate ./crypto ./scheduler ./globalstate-mockup/deps/haskell-lmdb
+packages: ./Concordium ./globalstate-types ./globalstate-mockup/globalstate ./crypto ./scheduler ./globalstate-mockup/deps/haskell-lmdb

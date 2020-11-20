@@ -23,7 +23,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
 pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
-    other.major == 0 && other.minor == 4
+    other.major == 0 && other.minor == 4 && other.patch >= 2
 }
 
 /// The maximum size of objects accepted from the network.
@@ -74,7 +74,7 @@ pub struct DatabaseEmitterConfig {
     )]
     pub delay_between_batches: u64,
 
-    #[structopt(long = "batche-size", help = "Size of each batch to emit", default_value = "40")]
+    #[structopt(long = "batch-size", help = "Size of each batch to emit", default_value = "40")]
     pub batch_sizes: u64,
 
     #[structopt(

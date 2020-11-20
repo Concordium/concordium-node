@@ -665,6 +665,21 @@ impl P2p for RpcServerImpl {
         })
     }
 
+    async fn get_cryptographic_parameters(
+        &self,
+        req: Request<BlockHash>,
+    ) -> Result<Response<JsonResponse>, Status> {
+        authenticate!(req, self.access_token);
+        call_consensus!(
+            self,
+            "GetCryptographicParameters",
+            JsonResponse,
+            |cc: &ConsensusContainer| {
+                cc.get_cryptographic_parameters(&req.get_ref().block_hash)
+            }
+        )
+    }
+
     async fn get_block_summary(
         &self,
         req: Request<BlockHash>,
