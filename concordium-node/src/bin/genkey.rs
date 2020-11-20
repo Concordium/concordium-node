@@ -1,7 +1,7 @@
 #![recursion_limit = "1024"]
 
+use ed25519_dalek::{PublicKey, SecretKey};
 use failure::Fallible;
-use hacl_star::ed25519::SecretKey;
 use p2p_client::utils::{generate_ed25519_key, to_hex_string};
 use std::{fs::OpenOptions, io::Write, process::exit};
 use structopt::StructOpt;
@@ -30,15 +30,17 @@ pub fn main() -> Fallible<()> {
     if !std::path::Path::new(&conf.keyfile).exists() || conf.force_overwrite {
         match OpenOptions::new().read(true).write(true).create(true).open(&conf.keyfile) {
             Ok(mut file) => {
-                let key: [u8; 32] = generate_ed25519_key();
-                let secret_key = SecretKey(key);
-                let public_key = secret_key.get_public();
-                match file.write_all(&key) {
+                let secret_key: SecretKey = generate_ed25519_key();
+                let public_key = PublicKey::from(&secret_key);
+                match file.write_all(secret_key.as_bytes().as_ref()) {
                     Ok(_) => {
                         println!("Key written to {}", &conf.keyfile);
-                        println!("Public key is {}", to_hex_string(&public_key.0));
+                        println!("Public key is {}", to_hex_string(public_key.as_bytes()));
                         if conf.print_key {
-                            println!("Key written to file is {}", to_hex_string(&key));
+                            println!(
+                                "Key written to file is {}",
+                                to_hex_string(secret_key.as_bytes())
+                            );
                         }
                     }
                     Err(e) => {
