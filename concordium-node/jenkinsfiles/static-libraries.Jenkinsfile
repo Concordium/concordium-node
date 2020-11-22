@@ -1,5 +1,10 @@
 pipeline {
     agent any
+
+    environment {
+         GHC_VERSION = '8.8.4'
+    }
+
     stages {
         stage('ecr-login') {
             steps {
