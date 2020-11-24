@@ -554,23 +554,19 @@ handleDeployModule wtc psize mod =
       tickEnergy (Cost.deployModule (fromIntegral psize))
       case Wasm.processModule mod of
         Nothing -> rejectTransaction ModuleNotWF
-        Just iface -> return iface
+        Just iface -> do
+          let mhash = Wasm.miModuleRef iface
+          exists <- isJust <$> getModuleInterfaces mhash
+          when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
+          return (iface, mhash)
 
-    k ls iface = do
+    k ls (iface, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
-      b <- commitModule iface
-      let mhash = Wasm.miModuleRef iface
-      if b then
-        return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
-          else
-        -- FIXME: Check whether the module exists already at the beginning of this handler.
-        -- Doing it before typechecking will often save effort in the failure case, e.g. in case
-        -- typechecking results in module lookups anyway.
-        -- With checking the transaction type even before fully deserializing the payload,
-        -- this check can be done even earlier, since the module hash is the hash of module serialization.
-        return (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
+      -- We know the module does not exist at this point, so we can ignore the return value.
+      _ <- commitModule iface
+      return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
 -- | Tick energy for storing the given 'Value'.
 -- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
@@ -592,7 +588,7 @@ getCurrentContractInstanceTicking ::
   => ContractAddress
   -> m Instance
 getCurrentContractInstanceTicking cref = do
-  tickEnergy $ Cost.lookupBytesPre
+  tickEnergy Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
   -- Compute the size of the contract state value and charge for the lookup based on this size.
   -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
@@ -757,8 +753,8 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   let newModel = Wasm.newState result
       txOut = Wasm.messages result
       -- Charge for eventually storing the new contract state (even if it might not be stored
-  -- in the end because the transaction fails).
-  -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+      -- in the end because the transaction fails).
+      -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
   tickEnergyValueStorage newModel
   -- Process the generated messages in the new context (transferred amount, updated state) in
   -- sequence from left to right, depth first.
