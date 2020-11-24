@@ -28,7 +28,6 @@ Environment variables only apply to the default build. This links with shared Ha
    - libHSglobalstate-0.1.0.0
    - libHSlmdb-0.2.5
    - libHSscheduler-0.1.0.0
-   - libHSwasm-0.1.0
 
    This only applies to non-windows platforms. It is not used on other platforms.
    On Windows the Concordium haskell package is built with a `standalone` option which embeds all dependent libraries into one single DLL.
