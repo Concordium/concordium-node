@@ -830,7 +830,8 @@ doProcessReleaseSchedule pbs ts = do
                       rDataRef <- makeBufferedRef rData'
                       pData <- loadBufferedRef (acc ^. persistingData)
                       eData <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
-                      return $ (Map.lookupMin . TransientReleaseSchedule._pendingReleases $ rData',
+                      return $ (Map.lookupMin . undefined -- TransientReleaseSchedule._pendingReleases
+                                $ rData',
                                 acc & accountReleaseSchedule .~ rDataRef
                                     & accountHash .~ makeAccountHash (_accountNonce acc) (_accountAmount acc) eData rData' pData)
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
