@@ -1143,27 +1143,6 @@ handleDeployCredential cdi cdiHash = do
                     cryptoParams <- getCryptoParams
                     -- we have two options. One is that we are deploying a credential on an existing account.
                     case ID.cdvAccount ncdv of
-                      ID.ExistingAccount aaddr ->
-                        -- first check whether an account with the address exists in the global store
-                        -- if it does not we cannot deploy the credential.
-                        getAccount aaddr >>= \case
-                          Nothing -> return $ Just (TxInvalid (NonExistentAccount aaddr))
-                          Just account -> do
-                                -- otherwise we just try to add a credential to the account
-                                -- but only if the credential is from the same identity provider
-                                -- as the existing ones on the account.
-                                -- Since we always maintain this invariant it is sufficient to check
-                                -- for one credential only.
-                                credentials <- getAccountCredentials account
-                                keys <- getAccountVerificationKeys account
-                                let sameIP = case credentials of
-                                        [] -> True
-                                        (cred:_) -> ID.ipId cred == credentialIP
-                                if sameIP && AH.verifyCredential cryptoParams ipInfo arsInfos (Just keys) cdiBytes then do
-                                  addAccountCredential account cdv
-                                  mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                                else
-                                  return $ Just (TxInvalid AccountCredentialInvalid)
                       ID.NewAccount keys threshold ->
                         -- account does not yet exist, so create it, but we need to be careful
                         if null keys || length keys > 255 then
