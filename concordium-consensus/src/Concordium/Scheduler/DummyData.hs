@@ -44,9 +44,9 @@ cdi4 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/crede
 {-# WARNING cdi5 "Do not use in production." #-}
 cdi5 :: CredentialDeploymentInformation
 cdi5 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-5.json" >>= embedFile)
-{-# WARNING cdi6 "Do not use in production." #-}
-cdi6 :: CredentialDeploymentInformation
-cdi6 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-6.json" >>= embedFile)
+-- {-# WARNING cdi6 "Do not use in production." #-}
+-- cdi6 :: CredentialDeploymentInformation
+-- cdi6 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-6.json" >>= embedFile)
 {-# WARNING cdi7 "Do not use in production." #-}
 cdi7 :: CredentialDeploymentInformation
 cdi7 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-7.json" >>= embedFile)

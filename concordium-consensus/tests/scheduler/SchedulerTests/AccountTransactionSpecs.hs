@@ -38,7 +38,7 @@ transactionsInput = map (Types.fromCDI 0) $ [
   cdi3,
   cdi4, -- should fail because repeated credential ID
   cdi5,
-  cdi6, -- deploy just a new predicate
+  -- cdi6, -- deploy just a new predicate
   cdi7  -- should run out of gas (see initial amount on the sender account)
   ]
 
@@ -74,7 +74,7 @@ checkAccountCreationResult ::
      Types.BankStatus)
   -> Assertion
 checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) = do
-  assertEqual "All but the 4th and 6th transactions should fail." 2 (length fails)
+  assertEqual "All but the 4th transaction should fail." 1 (length fails)
   assertEqual "Account should keep the initial amount." initialAmount (stateAles ^. accountAmount)
   assertEqual "Execution cost should be 0." 0 (bankState ^. Types.executionCost)
   assertEqual "Total amount of tokens is maintained." initialAmount (stateAles ^. accountAmount + bankState ^. Types.executionCost)

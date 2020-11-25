@@ -1143,7 +1143,6 @@ handleDeployCredential cdi cdiHash = do
                     cryptoParams <- getCryptoParams
                     -- we have two options. One is that we are deploying a credential on an existing account.
                     case ID.cdvAccount ncdv of
-                      ID.ExistingAccount _ -> return $ Just (TxInvalid AccountCredentialInvalid)
                       ID.NewAccount keys threshold ->
                         -- account does not yet exist, so create it, but we need to be careful
                         if null keys || length keys > 255 then
