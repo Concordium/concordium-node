@@ -18,6 +18,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.BakerInfo
 
@@ -133,6 +134,42 @@ instance Serialize BakerPendingChange where
     1 -> ReduceStake <$> get <*> get
     2 -> RemoveBaker <$> get
     _ -> fail "Invalid BakerPendingChange"
+
+-- |A baker associated with an account.
+data AccountBaker = AccountBaker {
+  _stakedAmount :: !Amount,
+  _stakeEarnings :: !Bool,
+  _accountBakerInfo :: !BakerInfo,
+  _bakerPendingChange :: !BakerPendingChange
+} deriving (Eq, Show)
+
+makeLenses ''AccountBaker
+
+instance Serialize AccountBaker where
+  put AccountBaker{..} = do
+    put _stakedAmount
+    put _stakeEarnings
+    put _accountBakerInfo
+    put _bakerPendingChange
+  get = do
+    _stakedAmount <- get
+    _stakeEarnings <- get
+    _accountBakerInfo <- get
+    _bakerPendingChange <- get
+    -- If there is a pending reduction, check that it is actually a reduction.
+    case _bakerPendingChange of
+      ReduceStake amt _
+        | amt > _stakedAmount -> fail "Pending stake reduction is not a reduction in stake"
+      _ -> return ()
+    return AccountBaker{..}
+
+instance HashableTo AccountBakerHash AccountBaker where
+  getHash AccountBaker{..}
+    = makeAccountBakerHash
+        _stakedAmount
+        _stakeEarnings
+        _accountBakerInfo
+        _bakerPendingChange
 
 type AccountBakerHash = Hash.Hash
 

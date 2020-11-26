@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards, BangPatterns, TypeFamilies #-}
 module Concordium.GlobalState.BakerInfo where
 
+import Data.Ratio
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -83,6 +84,11 @@ fullBaker FullBakers{..} bid = binSearch 0 (Vec.length fullBakerInfos - 1)
                   Nothing
           GT -> Nothing
 
+lotteryBaker :: FullBakers -> BakerId -> Maybe (BakerInfo, LotteryPower)
+lotteryBaker fbs bid = lp <$> fullBaker fbs bid
+    where
+      lp fb = (fb ^. bakerInfo, fb ^. bakerStake % bakerTotalStake fbs)
+
 data BakerKeyUpdate = BakerKeyUpdate {
   -- |New public sign key
   bkuSignKey :: !BakerSignVerifyKey,
@@ -93,7 +99,7 @@ data BakerKeyUpdate = BakerKeyUpdate {
 }
 
 data BakerKeyUpdateResult
-  = BKUSuccess
+  = BKUSuccess !BakerId
   -- ^The keys were updated successfully
   | BKUInvalidBaker
   -- ^The account is not currently a baker
@@ -109,26 +115,24 @@ bakerKeyUpdateToInfo _bakerIdentity BakerKeyUpdate{..} = BakerInfo {
       ..
     }
 
-data BakerStakeUpdate = BakerStakeUpdate {
-  -- |The new desired stake. 'Nothing' if no change required.
-  bsuNewStake :: !(Maybe Amount),
-  -- |Whether to restake any earnings. 'Nothing' if no change required.
-  bsuStakeEarnings :: !(Maybe Bool)
-}
-
 data BakerStakeUpdateResult
-  = BSUStakeIncreased
+  = BSUStakeIncreased !BakerId
   -- ^The stake was increased. (Takes effect in epoch after next.)
-  | BSUStakeReduced !Epoch
-  -- ^The stake was reduced. (Takes effect 1 epoch after the given epoch.)
-  | BSUStakeUnchanged
+  | BSUStakeReduced !BakerId !Epoch
+  -- ^The stake was reduced, effective from the given epoch.
+  | BSUStakeUnchanged !BakerId
   -- ^The stake was not changed. (Either no change was specified, or the amount was identical.)
   | BSUInvalidBaker
   -- ^The specified baker was not valid.
-  | BSUChangePending
+  | BSUChangePending !BakerId
   -- ^A stake change is already pending, so the change could not be made.
-  | BSUInsufficientBalance
-  -- ^The balance of the account is not sufficient for the new stake.
+  deriving (Eq, Ord, Show)
+
+data BakerRestakeEarningsUpdateResult
+  = BREUUpdated !BakerId
+  -- ^The flag was updated.
+  | BREUInvalidBaker
+  -- ^The specified baker was not valid.
   deriving (Eq, Ord, Show)
 
 data BakerAdd = BakerAdd {
@@ -145,18 +149,17 @@ data BakerAddResult
   -- ^Adding baker successful.
   | BAInvalidAccount
   -- ^Account unknown.
-  | BAAlreadyBaker
+  | BAAlreadyBaker !BakerId
   -- ^The account is already registered as a baker.
-  | BAInsufficientBalance
-  -- ^The balance was less than the specified stake.
   | BADuplicateAggregationKey
   -- ^The aggregation key already exists.
   deriving (Eq, Ord, Show)
+
 data BakerRemoveResult
-  = BRRemoved !Epoch
-  -- ^The baker was removed, effective 1 epoch after the given epoch.
+  = BRRemoved !BakerId !Epoch
+  -- ^The baker was removed, effective from the given epoch.
   | BRInvalidBaker
   -- ^This is not a valid baker.
-  | BRChangePending
+  | BRChangePending !BakerId
   -- ^A change is already pending on this baker.
   deriving (Eq, Ord, Show)

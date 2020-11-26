@@ -49,10 +49,12 @@ data ChainParameters = ChainParameters {
     -- This is derived, but will be computed when the other
     -- rates are updated since it is more useful.
     _cpEnergyRate :: !EnergyRate,
-    -- |Number of epochs that bakers must cool down when
-    -- removing stake. (This is in addition to the 2 epochs
-    -- between changes happening and taking effect.)
-    _cpBakerCooldownEpochs :: !Epoch
+    -- |Number of additional epochs that bakers must cool down when
+    -- removing stake. The cool-down will effectively be 2 epochs
+    -- longer than this value, since at any given time, the bakers
+    -- (and stakes) for the current and next epochs have already
+    -- been determined.
+    _cpBakerExtraCooldownEpochs :: !Epoch
 } deriving (Eq, Show)
 
 makeChainParameters ::
@@ -65,7 +67,7 @@ makeChainParameters ::
     -> Epoch
     -- ^Baker cooldown
     -> ChainParameters
-makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro _cpBakerCooldownEpochs = ChainParameters{..}
+makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro _cpBakerExtraCooldownEpochs = ChainParameters{..}
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
 
@@ -85,16 +87,16 @@ cpMicroGTUPerEuro = lens _cpMicroGTUPerEuro (\cp mgtupe -> cp {_cpMicroGTUPerEur
 cpEnergyRate :: SimpleGetter ChainParameters EnergyRate
 cpEnergyRate = to _cpEnergyRate
 
-{-# INLINE cpBakerCooldownEpochs #-}
-cpBakerCooldownEpochs :: Lens' ChainParameters Epoch
-cpBakerCooldownEpochs = lens _cpBakerCooldownEpochs (\cp bce -> cp {_cpBakerCooldownEpochs = bce})
+{-# INLINE cpBakerExtraCooldownEpochs #-}
+cpBakerExtraCooldownEpochs :: Lens' ChainParameters Epoch
+cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_cpBakerExtraCooldownEpochs = bce})
 
 instance Serialize ChainParameters where
   put ChainParameters{..} = do
     put _cpElectionDifficulty
     put _cpEuroPerEnergy
     put _cpMicroGTUPerEuro
-    put _cpBakerCooldownEpochs
+    put _cpBakerExtraCooldownEpochs
   get = makeChainParameters <$> get <*> get <*> get <*> get
 
 instance HashableTo Hash.Hash ChainParameters where
@@ -115,7 +117,7 @@ instance ToJSON ChainParameters where
       "electionDifficulty" AE..= _cpElectionDifficulty,
       "euroPerEnergy" AE..= _cpEuroPerEnergy,
       "microGTUPerEuro" AE..= _cpMicroGTUPerEuro,
-      "bakerCooldownEpochs" AE..= _cpBakerCooldownEpochs
+      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs
     ]
 
 data VoterInfo = VoterInfo {
