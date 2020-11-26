@@ -10,6 +10,7 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
 import Data.HashMap.Strict as Map
+import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
 import Data.Functor.Identity
 
@@ -26,8 +27,8 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState (PureBlockStateMonad(..), BlockState)
-import Concordium.GlobalState.TreeState hiding (BlockState)
-import Concordium.GlobalState.Basic.BlockState.Bakers
+import Concordium.GlobalState.TreeState
+    ( BlockStateTypes(UpdatableBlockState), MGSTrans(..) )
 import qualified Concordium.GlobalState.Types as GS
 
 -- |Chain metadata together with the maximum allowed block energy.
@@ -146,9 +147,10 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return caddr
 
-  {-# INLINE putNewAccount #-}
-  putNewAccount !account = do
-    (res, s') <- lift . flip bsoPutNewAccount account =<< use schedulerBlockState
+  {-# INLINE createAccount #-}
+  createAccount cparams akeys addr credential = do
+    s <- use schedulerBlockState
+    (res, s') <- lift (bsoCreateAccount s cparams akeys addr credential)
     schedulerBlockState .= s'
     return res
 
@@ -198,7 +200,8 @@ instance (MonadReader ContextState m,
                        )
                   s'
                   (cs ^. accountUpdates))
-    schedulerBlockState .= s''
+    s''' <- lift (bsoAddReleaseSchedule s'' (OrdMap.toList $ cs ^. addedReleaseSchedules))
+    schedulerBlockState .= s'''
 
   -- Observe a single transaction footprint.
   {-# INLINE observeTransactionFootprint #-}
@@ -229,50 +232,40 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoNotifyEncryptedBalanceChange s amntDiff)
     schedulerBlockState .= s'
 
-  {-# INLINE getBakerAccountAddress #-}
-  getBakerAccountAddress bid = do
-    s <- use schedulerBlockState
-    lift (bsoGetBakerAccountAddress s bid)
-
   {-# INLINE addBaker #-}
-  addBaker binfo = do
+  addBaker acct badd = do
     s <- use schedulerBlockState
-    (bid, s') <- lift (bsoAddBaker s binfo)
+    (ret, s') <- lift (bsoAddBaker s acct badd)
     schedulerBlockState .= s'
-    return bid
+    return ret
 
   {-# INLINE removeBaker #-}
-  removeBaker bid = do
+  removeBaker badd = do
     s <- use schedulerBlockState
-    (_, s') <- lift (bsoRemoveBaker s bid)
+    (ret, s') <- lift (bsoRemoveBaker s badd)
     schedulerBlockState .= s'
+    return ret
 
-  {-# INLINE updateBakerSignKey #-}
-  updateBakerSignKey bid signKey = do
+  {-# INLINE updateBakerKeys #-}
+  updateBakerKeys badd keyUpd = do
     s <- use schedulerBlockState
-    (r, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buSignKey ?~ signKey))
+    (r, s') <- lift (bsoUpdateBakerKeys s badd keyUpd)
     schedulerBlockState .= s'
     return r
 
-  {-# INLINE updateBakerAccount #-}
-  updateBakerAccount bid bacc = do
+  {-# INLINE updateBakerStake #-}
+  updateBakerStake badd bsu = do
     s <- use schedulerBlockState
-    (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAccount ?~ bacc))
-    -- updating the account cannot fail, so we ignore the return value.
-    schedulerBlockState .= s'
-
-  {-# INLINE updateBakerAggregationKey #-}
-  updateBakerAggregationKey bid bavkey = do
-    s <- use schedulerBlockState
-    (r, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buAggregationKey ?~ bavkey))
+    (r, s') <- lift (bsoUpdateBakerStake s badd bsu)
     schedulerBlockState .= s'
     return r
 
-  {-# INLINE updateBakerElectionKey #-}
-  updateBakerElectionKey bid bevkey = do
+  {-# INLINE updateBakerRestakeEarnings #-}
+  updateBakerRestakeEarnings badd bre = do
     s <- use schedulerBlockState
-    (_, s') <- lift (bsoUpdateBaker s (emptyBakerUpdate bid & buElectionKey ?~ bevkey))
+    (r, s') <- lift (bsoUpdateBakerRestakeEarnings s badd bre)
     schedulerBlockState .= s'
+    return r
 
   {-# INLINE updateAccountKeys #-}
   updateAccountKeys accAddr newKeys = do
@@ -293,13 +286,6 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ RemoveKeys keyIdxs
                                                                & auSignThreshold .~ threshold))
     schedulerBlockState .= s'
-
-  {-# INLINE delegateStake #-}
-  delegateStake acc bid = do
-    s <- use schedulerBlockState
-    (r, s') <- lift (bsoDelegateStake s acc bid)
-    schedulerBlockState .= s'
-    return r
 
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do

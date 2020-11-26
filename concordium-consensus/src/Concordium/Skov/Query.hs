@@ -7,13 +7,11 @@ import qualified Data.List as List
 import qualified Data.Sequence as Seq
 import Data.Foldable
 
-import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Finalization
 import Concordium.Types
-import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Skov.CatchUp.Types
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
@@ -29,11 +27,13 @@ doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
+{-
 doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointerType m -> m (BirkParameters m)
 {- - INLINE doGetBirkParameters - -}
 doGetBirkParameters slot bp = do
         params <- getBlockBirkParameters =<< blockState bp
         slotDependentBirkParameters slot params
+-}
 
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
 {- - INLINE doGetCurrentHeight - -}

@@ -33,7 +33,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BakerQuery, BirkParametersOperations, BlockStateStorage, BlockStateOperations)
+import Concordium.GlobalState.BlockState (BlockStateQuery, AccountOperations, BlockStateStorage, BlockStateOperations)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Classes as C
 import Concordium.Logger
@@ -90,7 +90,7 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     nextFinalizationIndex :: m FinalizationIndex
     -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
     --  Retrieves AdvanceTime and StableTime directly from genesis block
-    getBirkParameters :: Slot -> BlockPointerType m -> m (BirkParameters m)
+    --getBirkParameters :: Slot -> BlockPointerType m -> m (BirkParameters m)
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
@@ -162,7 +162,7 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     blockAtFinIndex = lift . blockAtFinIndex
     recordAtFinIndex = lift . recordAtFinIndex
     nextFinalizationIndex = lift nextFinalizationIndex
-    getBirkParameters slot bp = lift $ getBirkParameters slot bp
+    --getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData
     genesisBlock = lift genesisBlock
     getCurrentHeight = lift getCurrentHeight
@@ -239,10 +239,8 @@ deriving via (MGSTrans SkovQueryMonadT m) instance ATITypes m => ATITypes (SkovQ
 deriving via (MGSTrans SkovQueryMonadT m) instance GlobalStateTypes m => GlobalStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance AccountOperations m => AccountOperations (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance BakerQuery m => BakerQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance BirkParametersOperations m => BirkParametersOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
@@ -267,7 +265,7 @@ instance (Monad m,
     {- - INLINE nextFinalizationIndex - -}
     nextFinalizationIndex = lift TS.getNextFinalizationIndex
     {- - INLINE getBirkParameters - -}
-    getBirkParameters slot = lift . doGetBirkParameters slot
+    -- getBirkParameters slot = lift . doGetBirkParameters slot
     {- - INLINE getGenesisData - -}
     getGenesisData = lift TS.getGenesisData
     {- - INLINE genesisBlock - -}

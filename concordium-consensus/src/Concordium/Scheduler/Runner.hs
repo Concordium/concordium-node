@@ -4,6 +4,7 @@ module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
 
+import Data.Maybe
 import Data.Text(Text)
 import Data.Word
 
@@ -22,7 +23,6 @@ import Concordium.Wasm(WasmModule(..))
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.Types as Types
 
-import Data.Serialize
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
@@ -67,44 +67,34 @@ transactionHelper t =
     (TJSON meta (Transfer to amnt) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.Transfer to amnt))
     (TJSON meta AddBaker{..} keys) ->
-      let abElectionVerifyKey = bvfkey
-          abSignatureVerifyKey = bsigvfkey
-          abAggregationVerifyKey = baggvfkey
-          abAccount = baccountAddress
-          challenge = runPut (put abElectionVerifyKey <> put abSignatureVerifyKey <> put abAggregationVerifyKey <> put abAccount)
+      let abElectionVerifyKey = bElectionVerifyKey
+          abSignatureVerifyKey = bSignVerifyKey
+          abAggregationVerifyKey = bAggregateVerifyKey
+          abBakingStake = bInitialStake
+          abRestakeEarnings = bRestakeEarnings
+          challenge = Types.addBakerChallenge (thSender meta) bElectionVerifyKey bSignVerifyKey bAggregateVerifyKey
       in do
-        Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bvfSecretKey abElectionVerifyKey)
-        Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bsigkey bsigvfkey)
-        Just abProofAccount' <- liftIO $ Proofs.proveDlog25519KP challenge baccountKeyPair
-        let abProofAccount = Types.singletonAOP abProofAccount' -- FIXME: This only works for simple accounts.
-            abProofAggregation = Bls.proveKnowledgeOfSK challenge baggsigkey -- TODO: Make sure enough context data is included that this proof can't be reused.
+        Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bElectionSecretKey bElectionVerifyKey)
+        Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bSignSecretKey bSignVerifyKey)
+        let abProofAggregation = Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
         return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
-    (TJSON meta (RemoveBaker bid) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.RemoveBaker bid))
-    (TJSON meta (UpdateBakerAccount bid ubaAddress kp) keys) ->
-      let challenge = runPut (put bid <> put ubaAddress)
+    (TJSON meta RemoveBaker keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.RemoveBaker)
+    (TJSON meta UpdateBakerStake{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerStake{..}))
+    (TJSON meta UpdateBakerRestakeEarnings{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerRestakeEarnings{..}))
+    (TJSON meta UpdateBakerKeys{..} keys) ->
+      let
+          ubkElectionVerifyKey = bElectionVerifyKey
+          ubkSignatureVerifyKey = bSignVerifyKey
+          ubkAggregationVerifyKey = bAggregateVerifyKey
+          challenge = Types.updateBakerKeyChallenge (thSender meta) bElectionVerifyKey bSignVerifyKey bAggregateVerifyKey
       in do
-        Just ubaProof' <- liftIO $ Proofs.proveDlog25519KP challenge kp
-        let ubaProof = Types.singletonAOP ubaProof' -- FIXME: This only works for simple accounts.
-        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAccount bid ubaAddress ubaProof))
-    (TJSON meta (UpdateBakerSignKey bid ubsKey signkey) keys) ->
-      let challenge = runPut (put bid <> put ubsKey)
-      in do
-        Just ubsProof <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 signkey ubsKey)
-        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerSignKey bid ubsKey ubsProof))
-    (TJSON meta (DelegateStake bid) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.DelegateStake bid))
-    (TJSON meta UndelegateStake keys) ->
-      return $ signTx keys meta (Types.encodePayload Types.UndelegateStake)
-    (TJSON meta (UpdateBakerAggregationVerifyKey bid publicKey secretKey) keys) ->
-      let challenge = runPut (put bid <> put publicKey)
-          proof = Bls.proveKnowledgeOfSK challenge secretKey
-      in return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerAggregationVerifyKey bid publicKey proof))
-    (TJSON meta (UpdateBakerElectionKey bid sk pk) keys) ->
-      let challenge = runPut (put bid <> put pk)
-      in do
-        Just ubekProof <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair sk pk)
-        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerElectionKey bid pk ubekProof))
+        Just ubkProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bElectionSecretKey bElectionVerifyKey)
+        Just ubkProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bSignSecretKey bSignVerifyKey)
+        let ubkProofAggregation = Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
+        return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerKeys{..}))
     (TJSON meta (UpdateAccountKeys keyUpdates) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.UpdateAccountKeys keyUpdates))
     (TJSON meta (RemoveAccountKeys keyIdxs threshold) keys) ->
@@ -117,6 +107,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload Types.EncryptedAmountTransfer{..})
     (TJSON meta TransferToPublic{..} keys) ->
       return $ signTx keys meta (Types.encodePayload Types.TransferToPublic{..})
+    (TJSON meta TransferWithSchedule{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.TransferWithSchedule{..})
 
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.AccountTransaction]
@@ -156,46 +148,31 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                  | Transfer { toaddress :: AccountAddress
                             , amount :: Amount
                             }
-                 -- FIXME: These should be updated to support more than one keypair for the account.
-                 -- Need to demonstrate knowledge of all the relevant keys.
                  | AddBaker {
-                     bvfkey :: BakerElectionVerifyKey,
-                     bvfSecretKey :: VRF.SecretKey,
-                     bsigvfkey :: BakerSignVerifyKey,
-                     baggvfkey :: BakerAggregationVerifyKey,
-                     baggsigkey :: BakerAggregationPrivateKey,
-                     bsigkey :: BlockSig.SignKey,
-                     baccountAddress :: AccountAddress,
-                     baccountKeyPair :: Sig.KeyPair
+                   bElectionVerifyKey :: BakerElectionVerifyKey,
+                   bElectionSecretKey :: VRF.SecretKey,
+                   bSignVerifyKey :: BakerSignVerifyKey,
+                   bSignSecretKey :: BlockSig.SignKey,
+                   bAggregateVerifyKey :: BakerAggregationVerifyKey,
+                   bAggregateSecretKey :: BakerAggregationPrivateKey,
+                   bInitialStake :: Amount,
+                   bRestakeEarnings :: Bool
                  }
-                 | RemoveBaker {
-                     rbId :: !BakerId
+                 | RemoveBaker
+                 | UpdateBakerStake {
+                     ubsStake :: !Amount
                      }
-                 -- FIXME: These should be updated to support more than one keypair.
-                 | UpdateBakerAccount {
-                     ubaId :: !BakerId,
-                     ubaAddress :: !AccountAddress,
-                     ubaKeyPair :: !Sig.KeyPair
+                 | UpdateBakerRestakeEarnings {
+                     ubreRestakeEarnings :: !Bool
                      }
-                 | UpdateBakerSignKey {
-                     ubsId :: !BakerId,
-                     ubsKey :: !BakerSignVerifyKey,
-                     ubsSecretKey :: !BlockSig.SignKey
-                     }
-                 | DelegateStake {
-                     dsID :: !BakerId
-                     }
-                 | UndelegateStake
-                 | UpdateBakerAggregationVerifyKey {
-                     ubavkId :: !BakerId,
-                     ubavkKey :: !BakerAggregationVerifyKey,
-                     ubavkPrivateKey :: !BakerAggregationPrivateKey
-                     }
-                 | UpdateBakerElectionKey {
-                     ubekId :: !BakerId,
-                     ubekSecretKey :: !VRF.SecretKey,
-                     ubekPublicKey :: !VRF.PublicKey
-                     }
+                 | UpdateBakerKeys {
+                    bElectionVerifyKey :: BakerElectionVerifyKey,
+                    bElectionSecretKey :: VRF.SecretKey,
+                    bSignVerifyKey :: BakerSignVerifyKey,
+                    bSignSecretKey :: BlockSig.SignKey,
+                    bAggregateVerifyKey :: BakerAggregationVerifyKey,
+                    bAggregateSecretKey :: BakerAggregationPrivateKey
+                    }
                  | UpdateAccountKeys {
                      uakUpdates :: !(Map.Map KeyIndex AccountVerificationKey)
                      }
@@ -216,6 +193,10 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                      }
                  | TransferToPublic {
                      ttpData :: !SecToPubAmountTransferData
+                     }
+                 | TransferWithSchedule {
+                     twsTo :: !AccountAddress,
+                     twsSchedule :: ![(Timestamp, Amount)]
                      }
                  deriving(Show, Generic)
 

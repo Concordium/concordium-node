@@ -13,6 +13,7 @@ import qualified Data.HashMap.Strict as HMap
 import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Foldable
 
 import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
@@ -27,10 +28,11 @@ import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
-import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, emptyAccountUpdate)
+import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate, stakedAmount)
 import Concordium.GlobalState.BlockState (AccountOperations(..))
-import Concordium.GlobalState.BakerInfo(BakerError)
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 
 import Control.Exception(assert)
 
@@ -133,11 +135,14 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- FIXME: This method should not be here, but rather in the transaction monad.
   -- |Add account credential to an account address.
   -- Precondition: The account with this address exists in the block state.
-  addAccountCredential :: Account m -> ID.CredentialDeploymentValues -> m ()
+  addAccountCredential :: Account m -> ID.AccountCredential -> m ()
 
-  -- |Create new account in the global state. Return @True@ if the account was
-  --  successfully created and @False@ if the account address already existed.
-  putNewAccount :: Account m -> m Bool
+  -- |Create and add an empty account with the given public key, address and credential.
+  -- If an account with the given address already exists, @Nothing@ is returned.
+  -- Otherwise, the new account is returned, and the credential is added to the known credentials.
+  --
+  -- It is not checked if the account's credential is a duplicate.
+  createAccount :: CryptographicParameters -> ID.AccountKeys -> AccountAddress -> ID.AccountCredential -> m (Maybe (Account m))
 
   -- |Notify energy used by the current execution.
   -- Add to the current running total of energy used.
@@ -178,41 +183,84 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- *Operations related to bakers.
 
-  -- |Get the baker information, or 'Nothing' if a baker with the given baker id
-  -- doesn't exist.
-  getBakerAccountAddress :: BakerId -> m (Maybe AccountAddress)
+  -- |Register this account as a baker.
+  -- The following results are possible:
+  --
+  -- * @BASuccess id@: the baker was created with the specified 'BakerId'.
+  --   @id@ is always chosen to be the account index.
+  --
+  -- * @BAInvalidAccount@: the address does not resolve to a valid account.
+  --
+  -- * @BAAlreadyBaker@: the account is already registered as a baker.
+  --
+  -- * @BAInsufficientBalance@: the balance on the account is insufficient to
+  --   stake the specified amount.
+  --
+  -- * @BADuplicateAggregationKey@: the aggregation key is already in use.
+  --
+  -- Note that if two results could apply, the first in this list takes precedence.  
+  addBaker :: AccountAddress -> BakerAdd -> m BakerAddResult
 
-  -- |Add a new baker with a fresh baker id.
-  -- Moreover also update the next available baker id.
-  -- If succesful, return the baker's ID
-  -- If the baker's signature key or aggregation key is already in used it returns
-  -- a baker error (either DuplicateSignKey or DuplicateAggregationKey)
-  addBaker :: BakerInfo -> m (Either BakerError BakerId)
+  -- |Remove the baker associated with an account.
+  -- The removal takes effect after a cooling-off period.
+  -- Removal may fail if the baker is already cooling-off from another change (e.g. stake reduction).
+  --
+  -- The following results are possible:
+  --
+  -- * @BRRemoved e@: the baker was removed, and will be in cooling-off until epoch @e@.
+  --   The change will take effect in epoch @e+1@.
+  --
+  -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
+  --
+  -- * @BRChangePending@: the baker is currently in a cooling-off period and so cannot be removed.
+  removeBaker :: AccountAddress -> m BakerRemoveResult
 
-  -- |Remove a baker with the given id from the baker pool.
-  removeBaker :: BakerId -> m ()
+  -- |Update the keys associated with an account.
+  -- It is assumed that the keys have already been checked for validity/ownership as
+  -- far as is necessary.
+  -- The only check on the keys is that the aggregation key is not a duplicate.
+  --
+  -- The following results are possible:
+  --
+  -- * @BKUSuccess@: the keys were updated
+  --
+  -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
+  --
+  -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
+  updateBakerKeys :: AccountAddress -> BakerKeyUpdate -> m BakerKeyUpdateResult
 
-  -- |Replace the given baker's verification key with the given value.
-  -- Return 'True' if the signing key was updated, and 'False' in case
-  -- it lead to a duplicate signing key.
-  -- Precondition: the baker exists.
-  updateBakerSignKey :: BakerId -> BakerSignVerifyKey -> m Bool
+  -- |Update the stake associated with an account.
+  -- A reduction in stake will be delayed by the current cool-off period.
+  -- A change will not be made if there is already a cooling-off change
+  -- pending for the baker.
+  --
+  -- The following results are possible:
+  --
+  -- * @BSUStakeIncreased@: the baker's stake was increased.
+  --   This will take effect in the epoch after next.
+  --
+  -- * @BSUStakeReduced e@: the baker's stake was reduced.
+  --   This will cool-off until epoch @e@ and take effect in epoch @e+1@.
+  --
+  -- * @BSUStakeUnchanged@: there is no change to the baker's stake, but this update was successful.
+  --
+  -- * @BSUInvalidBaker@: the account does not exist, or is not currently a baker.
+  --
+  -- * @BSUChangePending@: the change could not be made since the account is already in a cooling-off period.
+  --
+  -- * @BSUInsufficientBalance@: the account does not have sufficient balance to cover the staked amount.
+  updateBakerStake :: AccountAddress -> Amount -> m BakerStakeUpdateResult
 
-  -- |Replace the given baker's reward account with the given value.
-  -- Precondition: the baker exists and the reward account
-  -- also exists in the global state.
-  updateBakerAccount :: BakerId -> AccountAddress -> m ()
+  -- |Update whether the baker automatically restakes the rewards it earns.
+  --
+  -- The following results are possible:
+  --
+  -- * @BREUUpdated id@: the flag was updated.
+  --
+  -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
+  updateBakerRestakeEarnings :: AccountAddress -> Bool -> m BakerRestakeEarningsUpdateResult
 
-  -- |Replace the given baker's aggregation verification key with the given
-  -- value. Return true if the key was succesfully updated and false in case
-  -- it leads to a duplicate aggregation key.
-  -- Precondition: The baker exists.
-  updateBakerAggregationKey :: BakerId -> BakerAggregationVerifyKey -> m Bool
-
-  -- |Replace the given baker's election verification key with the given key
-  -- Return true if the key was succesfully updated and false otherwise.
-  -- Precondition: the baker exists.
-  updateBakerElectionKey :: BakerId -> BakerElectionVerifyKey -> m ()
+  -- *Operations on account keys
 
   -- |Replaces the account verification keys at the indices specified by the map
   -- with the ones specified by the map
@@ -236,14 +284,6 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- * The account does not have keys defined at the indices specified by the map
   -- * The new threshold does not exceed the new total number of keys
   addAccountKeys :: AccountAddress -> Map.Map ID.KeyIndex AccountVerificationKey ->  Maybe ID.SignatureThreshold -> m ()
-
-  -- |Delegate the stake from an account to a baker. The baker is not assumed to exist.
-  -- Returns 'True' if the delegation was successful, and 'False' if the baker is
-  -- not valid.
-  -- Delegating to `Nothing` undelegates the stake from any baker that it was delegated
-  -- to in the past.
-  -- Precondition: the account exists.
-  delegateStake :: AccountAddress -> Maybe BakerId -> m Bool
 
   -- *Other metadata.
 
@@ -301,6 +341,10 @@ class StaticInformation m => TransactionMonad m where
   -- computation in the modified environment.
   withContractToContractAmount :: Instance -> Instance -> Amount -> m a -> m a
 
+  -- |Transfer a scheduled amount from the first address to the second and run
+  -- the computation in the modified environment.
+  withScheduledAmount :: Account m -> Account m -> Amount -> [(Timestamp, Amount)] -> TransactionHash -> m a -> m a
+
   -- |Replace encrypted amounts on an account up to (but not including) the
   -- given limit with a new amount.
   replaceEncryptedAmount :: Account m -> EncryptedAmountAggIndex -> EncryptedAmount -> m ()
@@ -339,18 +383,26 @@ class StaticInformation m => TransactionMonad m where
   withToAccountAmount (Left i) = withContractToAccountAmount i
   withToAccountAmount (Right a) = withAccountToAccountAmount a
 
-  getCurrentAccount :: AccountAddress -> m (Maybe (Account m))
-
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
-  {-# INLINE getCurrentAmount #-}
-  getCurrentAmount :: Either Instance (Account m) -> m Amount
-  getCurrentAmount (Left i) = getCurrentContractAmount i
-  getCurrentAmount (Right a) = getCurrentAccountAmount a
+  {-# INLINE getCurrentAvailableAmount #-}
+  getCurrentAvailableAmount :: Either Instance (Account m) -> m Amount
+  getCurrentAvailableAmount (Left i) = getCurrentContractAmount i
+  getCurrentAvailableAmount (Right a) = getCurrentAccountAvailableAmount a
 
-  -- |Get the current amount on the given account. This value changes
-  -- throughout the execution of the transaction.
-  getCurrentAccountAmount :: Account m -> m Amount
+  -- |Get an account with its state at the start of the transaction.
+  getStateAccount :: AccountAddress -> m (Maybe (Account m))
+
+  -- |Get the current total public balance of an account.
+  -- This accounts for any pending changes in the course of execution of the transaction.
+  -- This includes any funds that cannot be spent due to lock-up or baking.
+  getCurrentAccountTotalAmount :: Account m -> m Amount
+
+  -- |Get the current available public balance of an account.
+  -- This accounts for any pending changes in the course of execution of the transaction.
+  -- The available balance excludes funds that are locked due to a lock-up release schedule
+  -- or due to being staked for baking, or both.  That is @available = total - max locked staked@.
+  getCurrentAccountAvailableAmount :: Account m -> m Amount
 
   -- |Same as above, but for contracts.
   getCurrentContractAmount :: Instance -> m Amount
@@ -404,12 +456,13 @@ data ChangeSet = ChangeSet
     ,_instanceUpdates :: !(HMap.HashMap ContractAddress (AmountDelta, Wasm.ContractState)) -- ^Contracts whose states changed.
     ,_instanceInits :: !(HSet.HashSet ContractAddress) -- ^Contracts that were initialized.
     ,_encryptedChange :: !AmountDelta -- ^Change in the encrypted balance of the system as a result of this contract's execution.
+    ,_addedReleaseSchedules :: !(Map.Map AccountAddress Timestamp) -- ^The release schedules added to accounts on this block, to be added on the per block map.
     }
 
 makeLenses ''ChangeSet
 
 emptyCS :: TransactionHash -> ChangeSet
-emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HSet.empty 0
+emptyCS txHash = ChangeSet txHash HMap.empty HMap.empty HSet.empty 0 Map.empty
 
 csWithAccountDelta :: TransactionHash -> AccountAddress -> AmountDelta -> ChangeSet
 csWithAccountDelta txHash addr !amnt =
@@ -422,11 +475,23 @@ addAmountToCS acc !amnt !cs = do
   addr <- getAccountAddress acc
   -- Check whether there already is an 'AccountUpdate' for the given account in the changeset.
   -- If so, modify it accordingly, otherwise add a new entry.
-  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case Just x -> Just (x + amnt)
-                                                                                             Nothing -> Just amnt
+  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auAmount %~ \case
+                                                                       Just x -> Just (x + amnt)
+                                                                       Nothing -> Just amnt
                                                                     )
                                                    Nothing -> Just (emptyAccountUpdate addr & auAmount ?~ amnt))
 
+-- |Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
+{-# INLINE addScheduledAmountToCS #-}
+addScheduledAmountToCS :: AccountOperations m => Account m -> ([(Timestamp, Amount)], TransactionHash) -> ChangeSet -> m ChangeSet
+addScheduledAmountToCS _ ([], _) cs = return cs
+addScheduledAmountToCS acc rel@(((fstRel, _):_), _) !cs = do
+  addr <- getAccountAddress acc
+  return $ cs & accountUpdates . at addr %~ (\case Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
+                                                   Nothing -> Just (emptyAccountUpdate addr & auReleaseSchedule ?~ [rel]))
+              & addedReleaseSchedules %~ (Map.alter (\case
+                                                        Nothing -> Just fstRel
+                                                        Just rel' -> Just $ min fstRel rel') addr)
 
 -- |Modify the amount on the given account in the changeset by a given delta.
 -- It is assumed that the account is already in the changeset and that its balance
@@ -515,7 +580,6 @@ runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEn
 instance BlockStateTypes (LocalT r m) where
     type BlockState (LocalT r m) = BlockState m
     type UpdatableBlockState (LocalT r m) = UpdatableBlockState m
-    type Bakers (LocalT r m) = Bakers m
     type Account (LocalT r m) = Account m
 
 {-# INLINE energyUsed #-}
@@ -710,6 +774,14 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet %= addContractAmountToCS fromAcc (amountDiff 0 amount)
     cont
 
+  {-# INLINE withScheduledAmount #-}
+  withScheduledAmount fromAcc toAcc sentAmount releases txh cont = do
+    cs <- use changeSet
+    cs' <- addAmountToCS fromAcc (amountDiff 0 sentAmount) cs
+    cs'' <- addScheduledAmountToCS toAcc (releases, txh) cs'
+    changeSet .= cs''
+    cont
+
   replaceEncryptedAmount acc aggIndex newAmount = do
     addr <- getAccountAddress acc
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= ReplaceUpTo{..}
@@ -734,14 +806,6 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= AddSelf{..}
     changeSet . encryptedChange += amountToDelta transferredAmount
 
-  getCurrentAccount addr = do
-    liftLocal (getAccount addr) >>= \case
-      Just acc -> do
-        amnt <- getCurrentAccountAmount acc
-        updatedAcc <- updateAccountAmount acc amnt
-        return $ Just updatedAcc
-      Nothing -> return Nothing
-
   getCurrentContractInstance addr = do
     newStates <- use (changeSet . instanceUpdates)
     liftLocal $! do
@@ -755,10 +819,55 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
               let !updated = updateInstance delta newmodel i
               in return (Just updated)
 
+  {-# INLINE getStateAccount #-}
+  getStateAccount = liftLocal . getAccount
+
+  getCurrentAccountTotalAmount acc = do
+    addr <- getAccountAddress acc
+    oldTotal <- getAccountAmount acc
+    !txCtx <- ask
+    -- If the account is the sender, subtract the deposit
+    let netDeposit = if txCtx ^. tcTxSender == addr
+          then oldTotal - (txCtx ^. tcDepositedAmount)
+          else oldTotal
+    macc <- use (changeSet . accountUpdates . at addr)
+    case macc of
+      Just upd -> do
+        -- Apply any pending delta and add any new scheduled releases
+        let newReleases = case upd ^. auReleaseSchedule of
+                Nothing -> 0
+                Just l -> foldl' (\t l' -> t + foldl' (+) 0 (snd <$> fst l')) 0 l
+        return $ applyAmountDelta (upd ^. auAmount . non 0) netDeposit + newReleases
+      Nothing -> return netDeposit
+
+  getCurrentAccountAvailableAmount acc = do
+    addr <- getAccountAddress acc
+    oldTotal <- getAccountAmount acc
+    oldLockedUp <- ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
+    bkr <- getAccountBaker acc
+    let staked = maybe 0 (^. stakedAmount) bkr
+    !txCtx <- ask
+    -- If the account is the sender, subtract the deposit
+    let netDeposit = if txCtx ^. tcTxSender == addr
+          then oldTotal - (txCtx ^. tcDepositedAmount)
+          else oldTotal
+    macc <- use (changeSet . accountUpdates . at addr)
+    case macc of
+      Just upd -> do
+        -- Apply any pending delta and add any new scheduled releases
+        let newReleases = case upd ^. auReleaseSchedule of
+                Nothing -> 0
+                Just l -> foldl' (\t l' -> t + foldl' (+) 0 (snd <$> fst l')) 0 l
+        return $ applyAmountDelta (upd ^. auAmount . non 0) netDeposit + newReleases
+                  - max (oldLockedUp + newReleases) staked
+      Nothing -> return $ netDeposit - max oldLockedUp staked
+
+{-}
   {-# INLINE getCurrentAccountAmount #-}
   getCurrentAccountAmount acc = do
     addr <- getAccountAddress acc
-    amnt <- getAccountAmount acc
+    totalAmnt <- getAccountAmount acc
+    amnt <- (totalAmnt -) . ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
     !txCtx <- ask
     -- additional delta that arises due to the deposit
     let additionalDelta =
@@ -772,6 +881,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
         -- the deposited amount
         return $ applyAmountDelta additionalDelta (applyAmountDelta (upd ^. auAmount . non 0) amnt)
       Nothing -> return (applyAmountDelta additionalDelta amnt)
+-}
 
   {-# INLINE getCurrentContractAmount #-}
   getCurrentContractAmount inst = do
@@ -855,7 +965,7 @@ logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ cred) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
@@ -866,7 +976,7 @@ logInvalidTransaction WithMetadata{..} fk =
 
 logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.cdvRegId . ID.cdiValues $ wmdData) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ wmdData) ++ " was invalid with reason " ++ show fk
 
 logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
 logInvalidChainUpdate WithMetadata{..} fk =

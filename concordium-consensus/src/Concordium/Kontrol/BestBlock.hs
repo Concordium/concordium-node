@@ -11,10 +11,12 @@ import qualified Data.Sequence as Seq
 import Control.Exception (assert)
 
 import Concordium.Types
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
+
 import Concordium.Skov.Monad
 import Concordium.Birk.LeaderElection
 import Concordium.GlobalState.TreeState(Branches, BlockPointerType)
@@ -28,15 +30,15 @@ blockLuck block = case blockFields block of
             -- These are the parameters which determine valid bakers, election difficulty,
             -- that determine the luck of the block itself.
             parent <- bpParent block
-            params <- getBirkParameters (blockSlot block) parent
-            baker  <- birkEpochBaker (blockBaker bf) params
-            ts <- getSlotTimestamp (blockSlot block)
             parentState <- blockState parent
+            bakers <- getSlotBakers parentState (blockSlot block)
+            let baker = lotteryBaker bakers (blockBaker bf)
+            ts <- getSlotTimestamp (blockSlot block)
             elDiff <- getElectionDifficulty parentState ts
             case baker of
                 Nothing -> assert False $ return zeroLuck -- This should not happen, since it would mean the block was baked by an invalid baker
                 Just (_, lotteryPower) ->
-                    return (electionLuck elDiff lotteryPower (blockProof bf))
+                    return $! electionLuck elDiff lotteryPower (blockProof bf)
 
 compareBlocks :: (SkovQueryMonad m, BlockPointerMonad m)
               => BlockPointerType m
