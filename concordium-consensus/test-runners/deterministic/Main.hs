@@ -255,7 +255,7 @@ initialState = do
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
                                 dummyAuthorizations
-                                (makeChainParameters (makeElectionDifficulty 0.2) 1 1)
+                                (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"
@@ -338,9 +338,9 @@ stepConsensus =
                             ((t', _) : _) -> ssEvents %= addEvent (PEvent t' (TransactionEvent r))
                 (PEvent t (BakerEvent i ev)) -> displayBakerEvent i ev >> case ev of
                     EBake sl -> do
-                        bakerIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
+                        bIdentity <- (^. bsIdentity) . (Vec.! i) <$> use ssBakers
                         let doBake =
-                                bakeForSlot bakerIdentity sl
+                                bakeForSlot bIdentity sl
                         mb <- runBaker t i doBake
                         forM_ (bpBlock <$> mb) $ \case
                             GenesisBlock{} -> return ()

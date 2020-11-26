@@ -5,7 +5,6 @@
     DerivingVia #-}
 module Concordium.Afgjort.Finalize.Types where
 
-import qualified Data.Map as Map
 import qualified Data.Vector as Vec
 import Data.Vector(Vector)
 import Data.Word
@@ -73,25 +72,22 @@ committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
 -- |Create a finalization committee by selecting only the bakers whose stake exceeds
 -- a certain fraction of the total stake. The fraction is taken from the FinalizationParameters.
-makeFinalizationCommittee :: FinalizationParameters -> Amount -> Map.Map BakerId FullBakerInfo -> FinalizationCommittee
+makeFinalizationCommittee :: FinalizationParameters -> Amount -> FullBakers -> FinalizationCommittee
 makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = FinalizationCommittee {..}
     where
-        voters = filterFinalizationBakers finalizationCommitteeMaxSize bakers totalGTU
-        parties = Vec.fromList $ zipWith makeParty [0..] voters
-        makeParty partyIndex (partyBakerId, FullBakerInfo {_bakerInfo = BakerInfo {..}, ..}) = PartyInfo {
+        parties = Vec.imap makeParty $ Vec.filter isInCommittee $ fullBakerInfos bakers
+        minStake = totalGTU `div` fromIntegral finalizationCommitteeMaxSize
+        isInCommittee FullBakerInfo{..} = _bakerStake >= minStake
+        makeParty party FullBakerInfo {_bakerInfo = BakerInfo {..}, ..} = PartyInfo {
+                    partyBakerId = _bakerIdentity,
                     partyWeight = VoterPower $ fromIntegral _bakerStake,
                     partySignKey = _bakerSignatureVerifyKey,
                     partyVRFKey = _bakerElectionVerifyKey,
                     partyBlsKey = _bakerAggregationVerifyKey,
-                    ..
+                    partyIndex = fromIntegral party
                 }
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
-
--- |Filter out the bakers whose stake exceeds the total stake fraction.
-filterFinalizationBakers :: FinalizationCommitteeSize -> Map.Map BakerId FullBakerInfo -> Amount -> [(BakerId, FullBakerInfo)]
-filterFinalizationBakers maxSize bakers totalGTU =
-    filter (\(_, FullBakerInfo{..}) -> fromIntegral _bakerStake >= totalGTU `div` fromIntegral maxSize) $ Map.toList bakers
 
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: !BlockHash,

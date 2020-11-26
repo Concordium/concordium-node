@@ -43,7 +43,7 @@ import Concordium.Birk.Bake as Baker
 
 import Concordium.Afgjort.Finalize
 import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction, getBirkParameters, MessageType, getCatchUpStatus, getBlocksAtHeight)
+import Concordium.Skov hiding (receiveTransaction, MessageType, getCatchUpStatus, getBlocksAtHeight)
 import qualified Concordium.Skov as Skov
 import Concordium.Afgjort.Finalize.Types(getExactVersionedFPM, putVersionedFPMV0)
 import Concordium.Logger
@@ -217,12 +217,8 @@ callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> inv
 
 
 genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisDataV1{..} = Basic.initialState
-                       (Basic.makeBirkParameters
-                            genesisBakers
-                            genesisBakers
-                            genesisBakers
-                            genesisSeedState)
+genesisState GenesisDataV2{..} = Basic.initialState
+                       genesisSeedState
                        genesisCryptographicParameters
                        genesisAccounts
                        genesisIdentityProviders
@@ -777,6 +773,7 @@ getBirkParameters cptr blockcstr = do
 -- |Check whether we are a baker from the perspective of the best block.
 -- Returns -1 if we are not added as a baker.
 -- Returns -2 if we are added as a baker, but not part of the baking committee yet.
+-- Returns -3 if we have keys that do not match the baker's public keys on the chain.
 -- Returns >= 0 if we are part of the baking committee. The return value is the
 -- baker id as appearing in blocks.
 bakerIdBestBlock :: StablePtr ConsensusRunner -> IO Int64
@@ -784,27 +781,25 @@ bakerIdBestBlock cptr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLTrace "Checking whether we are a baker."
+    let passive = do
+          logm External LLTrace "Passive consensus, not a baker."
+          return (-1)
+    let active :: SyncRunner (ActiveConfig a) -> IO Int64
+        active s = do
+          let bid = syncBakerIdentity s
+          status <- runConsensusQuery c (Get.bakerStatusBestBlock bid)
+          let r = case status of
+                  Get.ActiveBaker -> fromIntegral $ bakerId bid
+                  Get.InactiveBaker -> (-2)
+                  Get.NoBaker -> (-1)
+                  Get.BadKeys -> (-3)
+          logm External LLTrace $ "Replying with " ++ show r ++ " (" ++ show status ++ ")"
+          return r
     case c of
-      PassiveRunner _ -> do
-        logm External LLTrace "Passive consensus, not a baker."
-        return (-1)
-      PassiveRunnerWithLog _ -> do
-        logm External LLTrace "Passive consensus, not a baker."
-        return (-1)
-      BakerRunner s -> do
-        logm External LLTrace "Active consensus, querying best block."
-        let bid = syncBakerIdentity s
-        let signKey = Baker.bakerSignPublicKey bid
-        r <- runConsensusQuery c (Get.bakerIdBestBlock signKey)
-        logm External LLTrace $ "Replying with " ++ show r
-        return r
-      BakerRunnerWithLog s -> do
-        logm External LLTrace "Active consensus, querying best block."
-        let bid = syncBakerIdentity s
-        let signKey = Baker.bakerSignPublicKey bid
-        r <- runConsensusQuery c (Get.bakerIdBestBlock signKey)
-        logm External LLTrace $ "Replying with " ++ show r
-        return r
+      PassiveRunner _ -> passive
+      PassiveRunnerWithLog _ -> passive
+      BakerRunner s -> active s
+      BakerRunnerWithLog s -> active s
 
 -- |Check if we are members of the finalization committee.
 -- Returns 0 for 'False' and 1 for 'True'.

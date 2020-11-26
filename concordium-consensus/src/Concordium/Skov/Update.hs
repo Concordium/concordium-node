@@ -30,7 +30,7 @@ import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(.
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
-import qualified Concordium.Kontrol.UpdateLeaderElectionParameters as UEP
+import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
 import Concordium.Logger
 import Concordium.TimeMonad
@@ -309,11 +309,18 @@ addBlock block = do
             check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
                 -- get Birk parameters from the __parent__ block. The baker must have existed in that
                 -- block's state in order that the current block is valid
-                bps <- getBirkParameters (blockSlot block) parentP
+                {-bps <- getBirkParameters (blockSlot block) parentP
                 baker <- birkEpochBaker (blockBaker block) bps
-                nonce <- birkLeadershipElectionNonce bps
-                slotTime <- getSlotTimestamp (blockSlot block)
+                nonce <- birkLeadershipElectionNonce bps-}
                 parentState <- blockState parentP
+                -- Determine the baker and its lottery power
+                bakers <- getSlotBakers parentState (blockSlot block)
+                let baker = lotteryBaker bakers (blockBaker block)
+                -- Determine the leadership election nonce
+                parentSeedState <- getSeedState parentState
+                let nonce = computeLeadershipElectionNonce parentSeedState (blockSlot block)
+                -- Determine the election difficulty
+                slotTime <- getSlotTimestamp (blockSlot block)
                 elDiff <- getElectionDifficulty parentState slotTime
                 logEvent Skov LLTrace $ "Verifying block with election difficulty " ++ show elDiff
                 case baker of
@@ -336,10 +343,10 @@ addBlock block = do
                         -- And check baker key matches claimed key.
                         -- The signature is checked using the claimed key already in doStoreBlock for blocks which were received from the network.
                         check "Baker key claimed in block did not match actual baker key" (_bakerSignatureVerifyKey == blockBakerKey block) $ do
+                            -- Update the seed state with the block nonce
+                            let newSeedState = updateSeedState (blockSlot block) (blockNonce block) parentSeedState
                             let ts = blockTransactions block
-                            -- possibly add the block nonce in the seed state
-                            bps' <- updateSeedState (UEP.updateSeedState (blockSlot block) (blockNonce block)) bps
-                            executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) bps' ts >>= \case
+                            executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) newSeedState ts >>= \case
                                 Left err -> do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock "execution failure"

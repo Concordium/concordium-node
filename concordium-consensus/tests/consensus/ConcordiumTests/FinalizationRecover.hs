@@ -4,7 +4,7 @@ module ConcordiumTests.FinalizationRecover where
 import Control.Monad
 import Data.Proxy
 import Control.Monad.IO.Class
-import qualified Data.Map.Strict as Map
+import qualified Data.Vector as Vec
 
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
@@ -15,15 +15,11 @@ import Concordium.Startup
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
-import qualified Concordium.GlobalState.Basic.BlockState as BS
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.DummyData as Dummy
-import Concordium.Types
 
 import Test.Hspec
 
@@ -36,9 +32,7 @@ dummyArs = emptyAnonymityRevokers
 -- type TreeConfig = DiskTreeDiskBlockConfig
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData@GenesisDataV1{..} = return $ MTMBConfig rt genData blockS
-  where blockS = BS.emptyBlockState birkParams Dummy.dummyCryptographicParameters Dummy.dummyAuthorizations Dummy.dummyChainParameters
-        birkParams = BS.makeBirkParameters genesisBakers genesisBakers genesisBakers genesisSeedState
+makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (Dummy.basicGenesisState genData)
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
@@ -56,23 +50,28 @@ genesis nBakers =
     Dummy.dummyChainParameters
 
 makeFinalizationInstance :: BakerIdentity -> FinalizationInstance
-makeFinalizationInstance (BakerIdentity k1 k2 k3) = FinalizationInstance k1 k2 k3
+makeFinalizationInstance bid = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
 
 setup :: Word -> IO [(FinalizationState (), FinalizationState ())]
 setup nBakers = do
-  let (genData@GenesisDataV1{..}, bakers) = genesis nBakers
+  let (genData@GenesisDataV2{..}, bakers) = genesis nBakers
+  let fbi = Vec.fromList (snd <$> bakers)
+  let fullBakers = FullBakers {
+          fullBakerInfos = fbi,
+          bakerTotalStake = sum (_bakerStake <$> fbi)
+        }
   let initialState inst =
         initialFinalizationState
         inst
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
+        fullBakers
         (genesisTotalGTU genData)
   let initialPassiveState =
         initialPassiveFinalizationState
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
-        (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ _bakerMap genesisBakers])
+        fullBakers
         (genesisTotalGTU genData)
   let finInstances = map (makeFinalizationInstance . fst) bakers
   (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))

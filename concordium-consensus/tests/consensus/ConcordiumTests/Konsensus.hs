@@ -30,7 +30,6 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 import qualified Concordium.GlobalState.Block as B
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Basic.BlockPointer
@@ -48,9 +47,7 @@ import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 
-import qualified Concordium.Crypto.VRF as VRF
 import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
@@ -62,8 +59,6 @@ import Concordium.Logger
 import Concordium.Birk.Bake
 import Concordium.TimeMonad
 import Concordium.Startup
-
-import Concordium.Kontrol.UpdateLeaderElectionParameters (slotDependentSeedState)
 
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
@@ -246,18 +241,12 @@ invariantSkovData TS.SkovData{..} = addContext $ do
                 parentEpoch = SeedState.epoch parentSeedState
             unless (currentEpoch == parentEpoch) $
                     -- The leadership election nonce should change every epoch
-                    checkBinary (/=) (SeedState.currentSeed seedState) (SeedState.currentSeed parentSeedState)
+                    checkBinary (/=) (SeedState.currentLeadershipElectionNonce seedState) (SeedState.currentLeadershipElectionNonce parentSeedState)
                             "/=" ("Epoch " ++ show currentEpoch ++ " seed: " ) ("Epoch " ++ show parentEpoch ++ " seed: " )
-            let nextEpochParams =
-                    case slotDependentSeedState (currentSlot + SeedState.epochLength seedState) seedState of
-                         Just newSeedState ->
-                             BState.basicUpdateBirkParametersForNewEpoch newSeedState params
-                         Nothing ->
-                             params
-            let prevEpochBakers = BState._birkPrevEpochBakers params
-            let futureLotteryBakers = BState._birkLotteryBakers nextEpochParams
-            -- This epoch's prevEpochBakers should be the next epoch's lotterybakers
-            checkBinary (==) prevEpochBakers futureLotteryBakers "==" "baker state of previous epoch " " lottery bakers in next epoch "
+            when (currentEpoch == parentEpoch + 1) $
+                -- The current epoch bakers should be the next epoch bakers of the parent
+                checkBinary (==) (BState._birkCurrentEpochBakers params) (BState._birkNextEpochBakers parentParams)
+                    "==" ("Epoch " ++ show currentEpoch ++ " current bakers") ("Epoch " ++ show parentEpoch ++ " next bakers")
         addContext (Left err) = Left $ "Blocks: " ++ show _blockTable ++ "\n\n" ++ err
         addContext r = r
 
@@ -273,9 +262,9 @@ invariantSkovFinalization (SkovState sd@TS.SkovData{..} FinalizationState{..} _ 
                     max (1 + _finsMinSkip) $ if (bpHeight lfb - bpHeight (runIdentity $ BS._bpLastFinalized lfb)) == oldGap then truncate ((oldGap * 4) % 5) else 2 * oldGap
         checkBinary (==) _finsHeight (bpHeight lfb + nextGap) "==" "finalization height"  "calculated finalization height"
         let prevState  = BState._unhashedBlockState $ BS._bpState lfb
-            prevBakers = _bakerMap $ BState._birkCurrentBakers $ BState._blockBirkParameters prevState
+            prevBakers = epochToFullBakers $ _unhashed $ BState._birkCurrentEpochBakers $ BState._blockBirkParameters prevState
             prevGTU    = _totalGTU $ _unhashed $ BState._blockBank prevState
-        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU (Map.fromAscList $ [ (i, x) | (i, Just x) <- L.toAscPairList $ prevBakers])) "==" "finalization committee" "calculated finalization committee"
+        checkBinary (==) _finsCommittee (makeFinalizationCommittee finParams prevGTU prevBakers) "==" "finalization committee" "calculated finalization committee"
         when (null (parties _finsCommittee)) $ Left "Empty finalization committee"
         let bakerInFinCommittee = Vec.any bakerEqParty (parties _finsCommittee)
             bakerEqParty PartyInfo{..} = baker ^. bakerInfo . bakerSignatureVerifyKey == partySignKey
@@ -379,7 +368,7 @@ selectFromSeq g s =
 
 newtype DummyTimer = DummyTimer Integer
 
-type States = Vec.Vector (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
+type States = Vec.Vector (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 
 data ExecState = ExecState {
     _esEventPool :: EventPool,
@@ -511,16 +500,6 @@ genTransferTransactions minAmount maxAmount kpAccountPairs = gtt [] . Map.fromLi
 initialEvents :: States -> EventPool
 initialEvents states = Seq.fromList [(x, EBake 1) | x <- [0..length states -1]]
 
-makeBaker :: BakerId -> Amount -> Gen (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair)
-makeBaker bid initAmount = resize 0x20000000 $ do
-        ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- Dummy.genBlockKeyPair
-        blssk                  <- fst . Dummy.randomBlsSecretKey . mkStdGen <$> arbitrary
-        let spk = Sig.verifyKey sk
-        let blspk = Bls.derivePublicKey blssk
-        let (account, kp) = makeBakerAccountKP bid initAmount
-        return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account, kp)
-
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
@@ -530,9 +509,9 @@ mateuszAmount = Amount (2 ^ (40 :: Int))
 -- Initial states for the tests that don't attempt to change the members of the finalization committee.
 initialiseStates :: Int -> FinalizationCommitteeSize -> PropertyM IO States
 initialiseStates n maxFinComSize = do
-        let bns = [0..fromIntegral n - 1]
-        bis <- mapM (\i -> (i,) <$> pick (makeBaker i (mateuszAmount * 4))) bns
-        createInitStates bis maxFinComSize [Dummy.createCustomAccount mateuszAmount Dummy.mateuszKP Dummy.mateuszAccount]
+        let bis = makeBakersByStake $ replicate n (mateuszAmount * 4)
+        let extraAccounts = [Dummy.createCustomAccount mateuszAmount Dummy.mateuszKP Dummy.mateuszAccount]
+        createInitStates bis extraAccounts maxFinComSize
 
 -- Initial states for the test in which we want finalization-committee members to change.
 -- The `averageStake` amount is a stake such that
@@ -542,15 +521,38 @@ initialiseStates n maxFinComSize = do
 -- `averageStake`; and we pick `b` bakers whose stake will be lower and who therefore won't be in the committee.
 initialiseStatesTransferTransactions :: Int -> Int -> Amount -> Amount -> FinalizationCommitteeSize -> PropertyM IO States
 initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = do
-        let fs          = [0..fromIntegral f - 1]
-            bs          = fromIntegral <$> [fromIntegral f..f + b - 1]
-            finComStake = averageStake + stakeDiff
-            restStake   = averageStake - stakeDiff
-            bakers s    = mapM (\i -> (i,) <$> pick (makeBaker i s))
-        finBs    <- bakers finComStake fs
-        nonFinBs <- bakers restStake bs
-        createInitStates (finBs ++ nonFinBs) maxFinComSize []
+        let stakes = replicate f (averageStake + stakeDiff) ++ replicate b (averageStake - stakeDiff)
+        createInitStates (makeBakersByStake stakes) [] maxFinComSize
 
+createInitStates :: [(BakerIdentity, FullBakerInfo, Account, SigScheme.KeyPair)] -> [Account] -> FinalizationCommitteeSize -> PropertyM IO States
+createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM createState bis)
+    where
+        seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+        bakerAccounts = (^. _3) <$> bis
+        gen = GenesisDataV2 {
+                genesisTime = 0,
+                genesisSlotDuration = 1,
+                genesisSeedState = seedState,
+                genesisAccounts = bakerAccounts ++ extraAccounts,
+                genesisFinalizationParameters = finalizationParameters maxFinComSize,
+                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                genesisIdentityProviders = emptyIdentityProviders,
+                genesisAnonymityRevokers = Dummy.dummyArs,
+                genesisMintPerSlot = 10,
+                genesisMaxBlockEnergy = (Energy maxBound),
+                genesisAuthorizations = dummyAuthorizations,
+                genesisChainParameters = dummyChainParameters
+            }
+        createState (bid, binfo, acct, kp) = do
+            let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
+                config = SkovConfig
+                    (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
+                    (ActiveFinalization fininst)
+                    NoHandler
+            (initCtx, initState) <- runSilentLogger (initialiseSkov config)
+            return (bid, binfo, (kp, acct ^. accountAddress), initCtx, initState)
+
+{-
 createInitStates :: [(BakerId, (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
 createInitStates bis maxFinComSize extraAccounts = do
         let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
@@ -566,6 +568,7 @@ createInitStates bis maxFinComSize extraAccounts = do
                                        (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
                                        return (bid, binfo, kp, initCtx, initState))
         Vec.fromList <$> createStates bis
+-}
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
@@ -598,7 +601,7 @@ withInitialStatesTransferTransactions n trcount maxFinComSize r = monadicIO $ do
             minTransferAmount = 10 ^ (3 :: Int)
             maxTransferAmount = 10 ^ (6 :: Int)
         s0 <- initialiseStatesTransferTransactions finComSize (n - finComSize) averageStake stakeDiff maxFinComSize
-        let kpAddressPairs = Vec.toList $ (\(_, binfo, kp, _, _) -> (kp, binfo ^. bakerInfo . bakerAccount)) <$> s0
+        let kpAddressPairs = Vec.toList $ (\(_, _, kpa, _, _) -> kpa) <$> s0
         trs <- pick . genTransferTransactions minTransferAmount maxTransferAmount kpAddressPairs $ trcount
         gen <- pick $ mkStdGen <$> arbitrary
         liftIO $ r gen s0 (makeExecState $ initialEvents s0 <> Seq.fromList [(x, ETransaction tr)

@@ -8,9 +8,7 @@ import Control.Monad.Trans.State
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Lens.Micro.Platform
-import System.Random
 
-import Test.QuickCheck
 import Test.Hspec
 
 import Concordium.Afgjort.Finalize
@@ -20,16 +18,11 @@ import Concordium.Afgjort.WMVBA
 
 import Concordium.Birk.Bake
 
-import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.Crypto.DummyData
 import Concordium.Crypto.SHA256
-import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import Concordium.GlobalState.Block
@@ -44,7 +37,7 @@ import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
-import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
+import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import Concordium.Types
 import Concordium.Types.HashableTo
@@ -270,32 +263,32 @@ assertEqual :: (Show x, Eq x, Monad m) => String -> x -> x -> m ()
 assertEqual msg expected actual =
     unless (expected == actual) $ error $ msg ++ ":\nExpected: " ++ show expected ++ "\n=Actual:" ++ show actual
 
-makeBaker :: Amount -> BakerId -> Gen BakerInformation
-makeBaker initAmount bid = resize 0x20000000 $ do
-        ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- genBlockKeyPair
-        blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
-        let spk     = Sig.verifyKey sk
-        let blspk   = Bls.derivePublicKey blssk
-        let account = makeBakerAccount bid initAmount
-        return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account)
-
 -- Create initial states for two bakers, a finalization committee member, and a list of additional finalization committee members
 createInitStates :: Int -> IO (BakerState, BakerState, BakerState, [BakerState])
 createInitStates additionalFinMembers = do
     let bakerAmount = 10 ^ (4 :: Int)
         finMemberAmount = bakerAmount * 10 ^ (6 :: Int)
-    baker1 <- generate $ makeBaker bakerAmount 0
-    baker2 <- generate $ makeBaker bakerAmount 1
-    finMember <- generate $ makeBaker finMemberAmount 2
-    finMembers <- generate $ mapM (makeBaker finMemberAmount . fromIntegral ) [3 .. 2 + additionalFinMembers]
-    let bis = baker1 : baker2 : finMember : finMembers
-        genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
+    let bis@(baker1:baker2:finMember:finMembers) = makeBakersByStake ([bakerAmount, bakerAmount, finMemberAmount] ++ take additionalFinMembers (repeat finMemberAmount))
+    let 
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-        bakerAccounts = map (\(_, _, acc) -> acc) bis
+        bakerAccounts = map (\(_, _, acc, _) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters Dummy.dummyCryptographicParameters emptyIdentityProviders Dummy.dummyArs 10 (Energy maxBound) dummyAuthorizations cps
-        createState = liftIO . (\(_, bid, _) -> do
+        gen = GenesisDataV2 {
+                genesisTime = 0,
+                genesisSlotDuration = 1,
+                genesisSeedState = seedState,
+                genesisAccounts = bakerAccounts,
+                genesisFinalizationParameters = finalizationParameters,
+                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                genesisIdentityProviders = emptyIdentityProviders,
+                genesisAnonymityRevokers = Dummy.dummyArs,
+                genesisMintPerSlot = 10,
+                genesisMaxBlockEnergy = (Energy maxBound),
+                genesisAuthorizations = dummyAuthorizations,
+                genesisChainParameters = cps
+            }
+
+        createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
                                            (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))

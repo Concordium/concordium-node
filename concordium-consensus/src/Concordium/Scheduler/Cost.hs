@@ -9,6 +9,7 @@ module Concordium.Scheduler.Cost where
 import Data.Word
 
 import Concordium.Types
+import Concordium.ID.Types as ID
 import qualified Concordium.Wasm as Wasm
 
 -- |A newtype wrapper around ByteSize to be able to charge for lookup differently
@@ -159,8 +160,9 @@ transferAccount = 0
 
 -- |Cost to add a credential to an account. This cost is costant regardless of
 -- the details of the data. This might change.
-deployCredential :: Energy
-deployCredential = 35000
+deployCredential :: ID.CredentialType -> Energy
+deployCredential ID.Initial = 1000
+deployCredential ID.Normal = 35000
 
 -- |Cost to register a new baker.
 addBaker :: Energy
@@ -170,31 +172,17 @@ addBaker = 3000
 removeBaker :: Energy
 removeBaker = 0
 
--- |Cost to update the baker's reward account.
-updateBakerAccount :: Energy
-updateBakerAccount = 90
+-- |Cost to update a baker's stake.
+updateBakerStake :: Energy
+updateBakerStake = 90
 
--- |Cost to update the baker's signature verification key.
-updateBakerSignKey :: Energy
-updateBakerSignKey = 90
+-- |Cost to update whether a baker restakes its earnings
+updateBakerRestakeEarnings :: Energy
+updateBakerRestakeEarnings = 0
 
--- |Cost to update an account's stake delegate.
--- This is parametrised by the number of smart contract instances
--- owned by the account.
--- TODO This cost is examplary, and a suitable relation for the parameters has to be determined.
-updateStakeDelegate :: Int -> Energy
-updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50
-
--- |Cost to update baker aggregation key
--- The main part here is checking a dlog proof, and that cost is essentially
--- the same as the cost in adding a baker - 3 * updateBakerSignKey.
-updateBakerAggregationVerifyKey :: Energy
-updateBakerAggregationVerifyKey = 2700
-
--- |Cost to update baker election key.
--- The underlying computation is the same as for updating the baker or account key.
-updateBakerElectionKey :: Energy
-updateBakerElectionKey = 90
+-- |Cost to update a baker's keys.
+updateBakerKeys :: Energy
+updateBakerKeys = 2980
 
 -- |Cost to update existing account keys. Parametrised by amount of keys to update
 -- The cost of this transaction is the cost of deserializing Ed25519 verification keys
@@ -229,3 +217,9 @@ pubToSecTransfer = 100
 -- encrypted amount transfer.
 secToPubTransfer :: Energy
 secToPubTransfer = 16000
+
+
+-- |Cost of executing a transfer with schedule.
+-- Linear cost on the number of releases.
+transferWithSchedule :: Int -> Energy
+transferWithSchedule numReleases = 100 * fromIntegral numReleases
