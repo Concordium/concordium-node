@@ -17,8 +17,7 @@ COPY ./genesis-data ./genesis-data
 RUN --mount=type=ssh ./init.build.env.sh
 
 ### Baker id gen
-RUN \
-    rustup install nightly-2020-06-10 && \
+RUN rustup install nightly-2020-06-10 && \
     cd baker_id_gen && \
     cargo +nightly-2020-06-10 build --release && \
     mv target/release/baker_id_gen ../baker_id_generator && \
@@ -55,7 +54,7 @@ EXPOSE 9090
 EXPOSE 8900
 EXPOSE 10000
 
-RUN apt-get update && apt-get install -y unbound curl postgresql-server-dev-12 liblmdb0
+RUN apt-get update && apt-get install -y unbound curl postgresql-server-dev-12 libnuma1
 
 COPY --from=build /build-project/baker_id_generator /baker_id_generator
 COPY --from=build /build-project/start.sh /start.sh

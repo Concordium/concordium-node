@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e 
+set -ex
 
 ln -s /usr/lib/libtinfo.so.6 /usr/lib/libtinfo.so.5
 CONSENSUS_VERSION=$( cat CONSENSUS_VERSION ) 
