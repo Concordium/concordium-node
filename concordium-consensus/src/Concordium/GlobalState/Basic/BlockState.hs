@@ -3,19 +3,20 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
 module Concordium.GlobalState.Basic.BlockState where
 
 import Data.Map (Map)
 import Lens.Micro.Platform
 import Data.Foldable
 import Data.Maybe
+import Data.Semigroup
 import qualified Data.Map.Strict as Map
 import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import qualified Data.Vector as Vec
 import Control.Monad
-import Data.Foldable
 
 import GHC.Generics (Generic)
 
@@ -177,7 +178,6 @@ type instance GT.BlockStatePointer HashedBlockState = ()
 instance GT.BlockStateTypes (PureBlockStateMonad m) where
     type BlockState (PureBlockStateMonad m) = HashedBlockState
     type UpdatableBlockState (PureBlockStateMonad m) = BlockState
-    type Bakers (PureBlockStateMonad m) = EpochBakers
     type Account (PureBlockStateMonad m) = Account
 
 instance ATITypes (PureBlockStateMonad m) where
@@ -197,6 +197,10 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getAccount #-}
     getAccount bs aaddr =
       return $ bs ^? blockAccounts . ix aaddr
+
+    {-# INLINE getBakerAccount #-}
+    getBakerAccount bs (BakerId ai) =
+      return $ bs ^? blockAccounts . Accounts.indexedAccount ai
 
     {-# INLINE getModuleList #-}
     getModuleList bs = return $ bs ^. blockModules . to Modules.moduleList
@@ -302,20 +306,7 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountInstances acc = return $ acc ^. accountInstances
 
-  updateAccountAmount acc amnt = return $ acc & accountAmount .~ amnt
-
-{-
-instance Monad m => BS.BakerQuery (PureBlockStateMonad m) where
-
-  getBakerStake bs bid = return $ snd <$> epochBaker bid bs
-
-  getTotalBakerStake bs = return $ _bakerTotalStake bs
-
-  getBakerInfo bs bid = return $ fst <$> epochBaker bid bs
-
-  getFullBakerInfos bks = return $ Map.fromAscList 
-          [(_bakerIdentity bi, FullBakerInfo bi (_bakerStakes bks Vec.! i)) | (bi, i) <- zip (Vec.toList (_bakerInfos bks)) [0..]]
--}
+  getAccountBaker acc = return $ acc ^. accountBaker
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
@@ -404,10 +395,14 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         where
             oldBPs = bs ^. blockBirkParameters
             curActiveBIDs = Set.toAscList (oldBPs ^. birkActiveBakers . activeBakers)
+            -- Add a baker to the accumulated set of bakers for the new next bakers
             accumBakers bkr@(BakerId bid) (bs0, bkrs0) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
                 Just acct -> case acct ^. accountBaker of
                   Just abkr@AccountBaker{..} -> case _bakerPendingChange of
                     RemoveBaker remEpoch
+                      -- The baker will be removed in the next epoch, so do not add it to the list
+                      | remEpoch == newEpoch + 1 -> (bs0, bkrs0)
+                      -- The baker is now removed, so do not add it to the list and remove it as an active baker
                       | remEpoch <= newEpoch -> (
                               bs0
                                 -- remove baker id and aggregation key from active bakers
@@ -418,6 +413,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                               bkrs0
                               )
                     ReduceStake newAmt redEpoch
+                      -- Reduction takes effect in the next epoch
+                      | redEpoch == newEpoch + 1 -> (bs0, (_accountBakerInfo, newAmt) : bkrs0)
+                      -- Reduction is complete, so update the account accordingly.
                       | redEpoch <= newEpoch -> (
                               bs0
                                 & blockAccounts . Accounts.indexedAccount bid %~
@@ -442,10 +440,8 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
         -- Account is already a baker
-        Just (_, Account{_accountBaker = Just _}) -> (BAAlreadyBaker, bs)
+        Just (ai, Account{_accountBaker = Just _}) -> (BAAlreadyBaker (BakerId ai), bs)
         Just (ai, Account{..})
-          -- Account does not have enough to stake
-          | _accountAmount < baStake -> (BAInsufficientBalance, bs)
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
           -- All checks pass, add the baker
@@ -468,7 +464,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
           | bkuAggregationKey /= _bakerAggregationVerifyKey _accountBakerInfo
           , bkuAggregationKey `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BKUDuplicateAggregationKey, bs)
           -- The aggregation key is not a duplicate, so update the baker
-          | otherwise -> (BKUSuccess, bs
+          | otherwise -> (BKUSuccess (BakerId ai), bs
               & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~
                 ab{_accountBakerInfo = bakerKeyUpdateToInfo (_accountBakerInfo ^. bakerIdentity) bku}
               & blockBirkParameters . birkActiveBakers . aggregationKeys %~ Set.insert bkuAggregationKey . Set.delete (_bakerAggregationVerifyKey _accountBakerInfo)
@@ -476,44 +472,57 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         -- Cannot resolve the account, or it is not a baker
         _ -> (BKUInvalidBaker, bs)
 
-    bsoUpdateBakerStake bs aaddr BakerStakeUpdate{..} = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+    bsoUpdateBakerStake bs aaddr newStake = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
         Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..})
           -- A change is already pending
-          | _bakerPendingChange /= NoChange -> (BSUChangePending, bs)
-          -- The amount is less than the desired stake
-          | Just newStake <- bsuNewStake
-          , _accountAmount < newStake -> (BSUInsufficientBalance, bs)
+          | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
           -- We can make the change
           | otherwise ->
-              let updateStakeEarnings
-                    | Just se <- bsuStakeEarnings = stakeEarnings .~ se
-                    | otherwise = id
-                  (res, updateStake)
-                    | Just newStake <- bsuNewStake = case compare newStake _stakedAmount of
+              let (res, updateStake) = case compare newStake _stakedAmount of
                           LT -> let curEpoch = epoch $ _birkSeedState $ _blockBirkParameters bs
-                                    cooldown = bs ^. blockUpdates . currentParameters . cpBakerCooldownEpochs
-                                in (BSUStakeReduced (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
-                          EQ -> (BSUStakeUnchanged, id)
-                          GT -> (BSUStakeIncreased, stakedAmount .~ newStake)
-                    | otherwise = (BSUStakeUnchanged, id)
-              in (res, bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & updateStakeEarnings . updateStake))
+                                    cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
+                                in (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
+                          EQ -> (BSUStakeUnchanged (BakerId ai), id)
+                          GT -> (BSUStakeIncreased (BakerId ai), stakedAmount .~ newStake)
+              in (res, bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & updateStake))
         -- The account is not valid or has no baker
         _ -> (BSUInvalidBaker, bs)
+
+    bsoUpdateBakerRestakeEarnings bs aaddr newRestakeEarnings = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+        -- The account is valid and has a baker
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..}) ->
+          if newRestakeEarnings == _stakeEarnings
+          -- No actual change
+          then (BREUUpdated (BakerId ai), bs)
+          -- A real change
+          else (BREUUpdated (BakerId ai), bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ ab{_stakeEarnings = newRestakeEarnings})
+        _ -> (BREUInvalidBaker, bs)
 
     bsoRemoveBaker bs aaddr = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
         Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..})
           -- A change is already pending
-          | _bakerPendingChange /= NoChange -> (BRChangePending, bs)
+          | _bakerPendingChange /= NoChange -> (BRChangePending (BakerId ai), bs)
           -- We can make the change
           | otherwise ->
               let curEpoch = epoch $ _birkSeedState $ _blockBirkParameters bs
-                  cooldown = bs ^. blockUpdates . currentParameters . cpBakerCooldownEpochs
-              in (BRRemoved (curEpoch + cooldown), 
+                  cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
+              in (BRRemoved (BakerId ai) (curEpoch + cooldown), 
                   bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & bakerPendingChange .~ RemoveBaker (curEpoch + cooldown)))
         -- The account is not valid or has no baker
         _ -> (BRInvalidBaker, bs)
+
+    -- This uses that baker identities are account indexes.  The account with the corresponing
+    -- index (if any) is given the reward.  If the account has a baker (which it preseumably should) then
+    -- the stake is increased correspondingly if 'stakeEarnings' is set.
+    bsoRewardBaker bs (BakerId ai) reward = return (getFirst <$> mfaddr, bs')
+      where
+        (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
+        payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountBaker . traversed %~ updateBaker)
+        updateBaker bkr
+          | _stakeEarnings bkr = bkr & stakedAmount +~ reward
+          | otherwise = bkr
 
     bsoSetInflation bs amnt = return $
         bs & blockBank . unhashed . Rewards.mintedGTUPerSlot .~ amnt
@@ -616,7 +625,7 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     cacheBlockState = return
 
 -- |Initial block state.
-initialState :: BasicBirkParameters
+initialState :: SeedState
              -> CryptographicParameters
              -> [Account]
              -> IPS.IdentityProviders
@@ -625,8 +634,9 @@ initialState :: BasicBirkParameters
              -> Authorizations
              -> ChainParameters
              -> BlockState
-initialState _blockBirkParameters cryptoParams genesisAccounts ips anonymityRevokers mintPerSlot auths chainParams = BlockState {..}
+initialState seedState cryptoParams genesisAccounts ips anonymityRevokers mintPerSlot auths chainParams = BlockState {..}
   where
+    _blockBirkParameters = initialBirkParameters genesisAccounts seedState
     _blockCryptographicParameters = makeHashed cryptoParams
     _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts genesisAccounts
     _blockInstances = Instances.emptyInstances

@@ -24,7 +24,7 @@ import Concordium.ID.Parameters
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
+import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
 import Concordium.GlobalState.BakerInfo
 
 -- | The persistent version of the encrypted amount structure per account.

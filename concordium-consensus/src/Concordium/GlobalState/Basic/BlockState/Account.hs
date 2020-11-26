@@ -23,44 +23,8 @@ import Concordium.ID.Parameters
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.BakerInfo
 
 import Concordium.Types
-
-data AccountBaker = AccountBaker {
-  _stakedAmount :: !Amount,
-  _stakeEarnings :: !Bool,
-  _accountBakerInfo :: !BakerInfo,
-  _bakerPendingChange :: !BakerPendingChange
-} deriving (Eq, Show)
-
-makeLenses ''AccountBaker
-
-instance S.Serialize AccountBaker where
-  put AccountBaker{..} = do
-    S.put _stakedAmount
-    S.put _stakeEarnings
-    S.put _accountBakerInfo
-    S.put _bakerPendingChange
-  get = do
-    _stakedAmount <- S.get
-    _stakeEarnings <- S.get
-    _accountBakerInfo <- S.get
-    _bakerPendingChange <- S.get
-    -- If there is a pending reduction, check that it is actually a reduction.
-    case _bakerPendingChange of
-      ReduceStake amt _
-        | amt > _stakedAmount -> fail "Pending stake reduction is not a reduction in stake"
-      _ -> return ()
-    return AccountBaker{..}
-
-instance HashableTo AccountBakerHash AccountBaker where
-  getHash AccountBaker{..}
-    = makeAccountBakerHash
-        _stakedAmount
-        _stakeEarnings
-        _accountBakerInfo
-        _bakerPendingChange
 
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data Account = Account {

@@ -39,14 +39,14 @@ import Concordium.Types.DummyData
 {-# WARNING basicGenesisState "Do not use in production" #-}
 basicGenesisState :: GenesisData -> Basic.BlockState
 basicGenesisState genData =
-  let birkParams = initialBirkParameters (genesisAccounts genData) (genesisSeedState genData)
-   in Basic.initialState
-        birkParams
+  Basic.initialState
+        (genesisSeedState genData)
         (genesisCryptographicParameters genData)
         (genesisAccounts genData)
         (genesisIdentityProviders genData)
         (genesisAnonymityRevokers genData)
-        (genesisMintPerSlot genData)        (genesisAuthorizations genData)
+        (genesisMintPerSlot genData)
+        (genesisAuthorizations genData)
         (genesisChainParameters genData)
 
 -- kp :: Int -> Sig.KeyPair
@@ -191,7 +191,7 @@ emptyBirkParameters :: Accounts -> BasicBirkParameters
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 167
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 166
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState

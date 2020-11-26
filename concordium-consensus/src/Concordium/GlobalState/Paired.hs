@@ -13,6 +13,7 @@ import Control.Exception
 import Control.Monad.Reader.Class
 import Control.Monad.State.Class
 import Control.Monad.IO.Class
+import Control.Monad
 import Data.Coerce
 import Data.Function
 import qualified Data.Sequence as Seq
@@ -82,9 +83,6 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
     type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (UpdatableBlockState (BSML lc r lg s m),
                 UpdatableBlockState (BSMR rc r rg s m))
-    type Bakers (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (Bakers (BSML lc r lg s m),
-                Bakers (BSMR rc r rg s m))
     type Account (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
             = (Account (BSML lc r lg s m),
                 Account (BSMR rc r rg s m))
@@ -187,6 +185,17 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+    getBakerAccount (ls, rs) bid = do
+        a1 <- coerceBSML (getBakerAccount ls bid)
+        a2 <- coerceBSMR (getBakerAccount rs bid)
+        case (a1, a2) of
+          (Just a1', Just a2') ->
+            assert ((getHash a1' :: H.Hash) == getHash a2') $
+              return $ Just (a1', a2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) -> error $ "Cannot get account for baker " ++ show bid ++ " in left implementation"
+          (_, Nothing) -> error $ "Cannot get account for baker " ++ show bid ++ " in right implementation"
     getContractInstance (ls, rs) caddr = do
         c1 <- coerceBSML (getContractInstance ls caddr)
         c2 <- coerceBSMR (getContractInstance rs caddr)
@@ -230,6 +239,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getStateHash (ls, rs) = do
         a1 <- coerceBSML (getStateHash ls)
         a2 <- coerceBSMR (getStateHash rs)
+        unless (a1 == a2) $ error $ "State hash mismatch:\n  " ++ show a1 ++ "\n  " ++ show a2
         assert (a1 == a2) $ return a1
     getOutcomes (ls, rs) = do
         a1 <- coerceBSML (getOutcomes ls)
@@ -317,11 +327,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ais2 <- coerceBSMR (getAccountInstances acc2)
         assert (ais1 == ais2) $ return ais1
 
-    updateAccountAmount (acc1, acc2) amnt = do
-        acc1' <- coerceBSML (updateAccountAmount acc1 amnt)
-        acc2' <- coerceBSMR (updateAccountAmount acc2 amnt)
-        assert ((getHash acc1 :: H.Hash) == getHash acc2) $
-          return (acc1', acc2')
+    getAccountBaker (acc1, acc2) = do
+        ab1 <- coerceBSML (getAccountBaker acc1)
+        ab2 <- coerceBSMR (getAccountBaker acc2)
+        assert (ab1 == ab2) $ return ab1
 
 instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
         => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
@@ -417,9 +426,17 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoUpdateBakerStake bs1 addr bkrSUpd
         (r2, bs2') <- coerceBSMR $ bsoUpdateBakerStake bs2 addr bkrSUpd
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoUpdateBakerRestakeEarnings (bs1, bs2) aaddr restake = do
+        (r1, bs1') <- coerceBSML $ bsoUpdateBakerRestakeEarnings bs1 aaddr restake
+        (r2, bs2') <- coerceBSMR $ bsoUpdateBakerRestakeEarnings bs2 aaddr restake
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoRemoveBaker (bs1, bs2) addr = do
         (r1, bs1') <- coerceBSML $ bsoRemoveBaker bs1 addr
         (r2, bs2') <- coerceBSMR $ bsoRemoveBaker bs2 addr
+        assert (r1 == r2) $ return (r1, (bs1', bs2'))
+    bsoRewardBaker (bs1, bs2) bid reward = do
+        (r1, bs1') <- coerceBSML $ bsoRewardBaker bs1 bid reward
+        (r2, bs2') <- coerceBSMR $ bsoRewardBaker bs2 bid reward
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
     bsoSetInflation (bs1, bs2) rate = do
         bs1' <- coerceBSML $ bsoSetInflation bs1 rate
