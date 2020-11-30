@@ -437,7 +437,7 @@ doStoreBlock pb@GB.PendingBlock{..} = do
 
 -- |Store a block that is baked by this node in the tree.  The block
 -- is presumed to be valid.
-doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m)
+doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, OnSkov m)
         => PendingBlock          -- ^Block to add
         -> BlockPointerType m    -- ^Parent pointer
         -> BlockPointerType m     -- ^Last finalized pointer
@@ -446,9 +446,16 @@ doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov
 {- - INLINE doStoreBakedBlock - -}
 doStoreBakedBlock = \pb parent lastFin result -> do
         bp <- blockArrive pb parent lastFin result
-        finalizationBlockArrival bp
         onBlock bp
         return bp
+
+-- |Notify finalization when a block is baked.
+doFinalizeHandleBakedBlock :: (FinalizationMonad m)
+        => BlockPointerType m
+        -> m ()
+{- - INLINE doFinalizeHandleBakedBlock - -}
+doFinalizeHandleBakedBlock = \bp -> do
+        finalizationBlockArrival bp
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,
