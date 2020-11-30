@@ -14,7 +14,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
@@ -177,7 +177,7 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
           pData <- loadBufferedRef _persistingData
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
-          sData <- loadBufferedRef _accountReleaseSchedule
+          sData <- getHashM =<< loadBufferedRef _accountReleaseSchedule
           let _accountHash = makeAccountHash _accountNonce _accountAmount eData' sData pData
           return PersistentAccount {..}
 
@@ -198,10 +198,10 @@ instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.
 makePersistentAccount :: MonadBlobStore m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
-  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountReleaseSchedule _accountPersisting
+  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (getHash _accountReleaseSchedule) _accountPersisting
   _persistingData <- makeBufferedRef _accountPersisting
   _accountEncryptedAmount' <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
-  _accountReleaseSchedule' <- makeBufferedRef _accountReleaseSchedule
+  _accountReleaseSchedule' <- makeBufferedRef =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
   return PersistentAccount {_accountEncryptedAmount = _accountEncryptedAmount', _accountReleaseSchedule = _accountReleaseSchedule', ..}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
@@ -209,7 +209,7 @@ sameAccount :: MonadBlobStore m => Transient.Account -> PersistentAccount -> m B
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  _accountReleaseSchedule <- loadBufferedRef _accountReleaseSchedule
+  _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
   return $ sameAccountHash bAcc pAcc && Transient.Account{..} == bAcc
 
 -- |Checks whether the two arguments represent the same account by comparing the account hashes.
@@ -236,7 +236,7 @@ setPAD :: MonadBlobStore m
 setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  rs <- loadBufferedRef _accountReleaseSchedule
+  rs <- getHashM _accountReleaseSchedule
   let newPData = f pData
   newPDataRef <- makeBufferedRef newPData
   return $ acc & persistingData .~ newPDataRef

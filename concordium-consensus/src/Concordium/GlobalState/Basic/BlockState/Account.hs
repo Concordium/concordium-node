@@ -57,7 +57,7 @@ instance S.Serialize Account where
     return Account{..}
 
 instance HashableTo Hash.Hash Account where
-  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountReleaseSchedule _accountPersisting
+  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (getHash _accountReleaseSchedule) _accountPersisting
 
 -- |Create an empty account with the given public key, encryption key, address and credential.
 newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account

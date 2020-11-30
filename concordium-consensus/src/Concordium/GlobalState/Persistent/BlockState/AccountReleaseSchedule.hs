@@ -1,10 +1,12 @@
-{-# LANGUAGE TemplateHaskell, OverloadedStrings, ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell,
+             OverloadedStrings,
+             ScopedTypeVariables #-}
 {-|
 Module      : Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 Description : The data structure implementing account lock ups.
 
 This module defines a data structure that stores the amounts that are locked up
-for a given account. The defined data structure can be written to the disk and
+for a given account. The defined data structure  can be written to the disk and
 will be retrieved as needed. It can also be fully reconstructed from the disk.
 
 The structure consists of a vector and a priority queue:
@@ -43,23 +45,29 @@ module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   emptyAccountReleaseSchedule,
   addReleases,
   -- * Deletion
-  unlockAmountsUntil
+  unlockAmountsUntil,
+  -- * Conversions
+  loadPersistentAccountReleaseSchedule,
+  storePersistentAccountReleaseSchedule
   ) where
 
-import Lens.Micro.Platform
-import Concordium.Types
+import Concordium.Crypto.SHA256
 import Concordium.GlobalState.Persistent.BlobStore
-import Data.Map (Map)
-import qualified Data.Map.Strict as Map
-import Data.Vector (Vector)
-import qualified Data.Vector as Vector
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
+import Concordium.Types
+import Concordium.Types.HashableTo
+import Control.Monad
+import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List
-import Control.Monad
+import Data.Map (Map)
+import qualified Data.Map.Strict as Map
 import Data.Serialize
-import Concordium.Crypto.SHA256
-import Concordium.Types.HashableTo
-import qualified Data.ByteString as BS
+import Data.Vector (Vector)
+import qualified Data.Vector as Vector
+import Lens.Micro.Platform
+
+----------------------------------- Release ------------------------------------
 
 -- | A release represents the data that will be stored in the disk for each
 -- amount that has to be unlocked. Releases form a Null-terminated chain of
@@ -92,6 +100,8 @@ instance MonadBlobStore m => BlobStorable m Release where
     return $ do
       _rNext <- pNext
       return Release {..}
+
+--------------------------- Account release schedule ---------------------------
 
 -- | Stores schedules. New items are inserted with 'addReleases' and are removed
 -- with 'unlockAmountsUntil'.
@@ -143,6 +153,10 @@ instance MonadBlobStore m => MHashableTo m Hash AccountReleaseSchedule where
                                       itemHash <- getHashM r
                                       return $ prevB <> hashToByteString itemHash) (BS.empty) _arsValues
 
+instance MonadBlobStore m => Cacheable m AccountReleaseSchedule where
+
+------------------------------------- API --------------------------------------
+
 -- | The empty account release schedule.
 emptyAccountReleaseSchedule :: AccountReleaseSchedule
 emptyAccountReleaseSchedule = AccountReleaseSchedule Vector.empty Map.empty 0
@@ -169,15 +183,15 @@ addReleases (l, txh) ars = do
                & arsPrioQueue .~ arsPrioQueue'
                & arsTotalLockedUpBalance .~ arsTotalLockedUpBalance'
 
--- | Returns the amount that was unlocked and the new account release schedule
--- after removing the amounts whose timestamp was less or equal to the given
--- timestamp.
-unlockAmountsUntil :: forall m. MonadBlobStore m => Timestamp -> AccountReleaseSchedule -> m (Amount, AccountReleaseSchedule)
+-- | Returns the amount that was unlocked, the next timestamp for this account
+-- (if there is one) and the new account release schedule after removing the
+-- amounts whose timestamp was less or equal to the given timestamp.
+unlockAmountsUntil :: MonadBlobStore m => Timestamp -> AccountReleaseSchedule -> m (Amount, Maybe Timestamp, AccountReleaseSchedule)
 unlockAmountsUntil up ars = do
   let (toRemove, x, toKeep) = Map.splitLookup up (ars ^. arsPrioQueue)
   if Map.null toKeep
     -- If we are going to clear the whole release schedule then short-circuit
-    then return (ars ^. arsTotalLockedUpBalance, emptyAccountReleaseSchedule)
+    then return (ars ^. arsTotalLockedUpBalance, Nothing, emptyAccountReleaseSchedule)
     else do
     let
       -- create a list of tuples of:
@@ -207,9 +221,9 @@ unlockAmountsUntil up ars = do
       f _ ([], _) = error "This case cannot happen" -- group won't create empty lists so this is unreachable
 
     (arsValues', minusAmount) <- foldM f (ars ^. arsValues, 0) fullToRemove
-    return (minusAmount, ars & arsValues .~ arsValues'
-                             & arsPrioQueue .~ toKeep
-                             & arsTotalLockedUpBalance -~ minusAmount)
+    return (minusAmount, fst <$> Map.lookupMin toKeep, ars & arsValues .~ arsValues'
+                                                           & arsPrioQueue .~ toKeep
+                                                           & arsTotalLockedUpBalance -~ minusAmount)
 
 -- | Get the Nth element after repeating the monadic operation or after short-circuiting on the given function
 pickNthResultM :: Monad m => (a -> m (Bool, a)) -> a -> Int -> m a
@@ -220,3 +234,37 @@ pickNthResultM f i num
         then pickNthResultM f newI (num - 1)
         else return newI
   | otherwise = return i
+
+--------------------------------- Conversions ----------------------------------
+
+storePersistentAccountReleaseSchedule :: MonadBlobStore m => Transient.AccountReleaseSchedule -> m AccountReleaseSchedule
+storePersistentAccountReleaseSchedule Transient.AccountReleaseSchedule{..} = do
+  _arsValues <- Vector.mapM (\case
+                                Nothing -> return Null
+                                Just (r, t) -> fmap (, t) <$> foldrM (\(Transient.Release thisTimestamp thisAmount) nextRelease -> Some <$> makeHashedBufferedRef (Release thisTimestamp thisAmount nextRelease)) Null r) _values
+  return AccountReleaseSchedule{
+    _arsPrioQueue = _pendingReleases,
+    _arsTotalLockedUpBalance = _totalLockedUpBalance,
+    ..
+    }
+
+
+
+loadPersistentAccountReleaseSchedule :: MonadBlobStore m => AccountReleaseSchedule -> m Transient.AccountReleaseSchedule
+loadPersistentAccountReleaseSchedule AccountReleaseSchedule{..} = do
+  _values <- Vector.mapM (\case
+                             Null -> return Nothing
+                             Some (r, t) ->
+                               let go Release{..} = do
+                                     next <- case _rNext of
+                                               Null -> return []
+                                               Some n -> go =<< refLoad n
+                                     return $ Transient.Release _rTimestamp _rAmount : next
+                               in
+                                 Just . (, t) <$> (go =<< refLoad r)
+                         ) _arsValues
+  return Transient.AccountReleaseSchedule {
+  _pendingReleases = _arsPrioQueue,
+  _totalLockedUpBalance = _arsTotalLockedUpBalance,
+  ..
+  }
