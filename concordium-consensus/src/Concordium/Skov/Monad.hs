@@ -139,6 +139,8 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
         -> BlockPointerType m     -- ^Last finalized pointer
         -> ExecutionResult m  -- ^Result of the execution of the block.
         -> m (BlockPointerType m)
+    -- |Notify the finalization routine when a block is baked.
+    finalizeHandleBakedBlock :: BlockPointerType m -> m ()
     -- |Add a transaction to the transaction table.
     receiveTransaction :: BlockItem -> m UpdateResult
     -- |Finalize a block where the finalization record is known to be for the
@@ -202,11 +204,13 @@ deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMona
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
     storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
+    finalizeHandleBakedBlock pb = lift $ finalizeHandleBakedBlock pb
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     {- - INLINE storeBlock - -}
     {- - INLINE storeBakedBlock - -}
+    {- - INLINE finalizeHandleBakedBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}
     {- - INLINE handleCatchUpStatus - -}

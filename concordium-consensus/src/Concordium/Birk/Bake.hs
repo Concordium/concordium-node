@@ -223,6 +223,8 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp
     logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
+    -- notify the finalization routine after the invariants are re-established.
+    finalizeHandleBakedBlock newbp
     return newbp
 
 class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
