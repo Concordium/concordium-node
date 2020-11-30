@@ -14,7 +14,6 @@ import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.ID.Types
 import Concordium.Types
 
@@ -112,9 +111,9 @@ instance Serialize PersistingAccountData where
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseSchedule -> PersistingAccountData -> Hash.Hash
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> Hash.Hash -> PersistingAccountData -> Hash.Hash
 makeAccountHash n a eas ars pd = Hash.hashLazy $ runPutLazy $
-  put n >> put a >> put eas >> put ars >> put pd
+  put n >> put a >> put eas >> put (Hash.hashToByteString ars) >> put pd
 
 {-# INLINE addCredential #-}
 addCredential :: HasPersistingAccountData d => AccountCredential -> d -> d

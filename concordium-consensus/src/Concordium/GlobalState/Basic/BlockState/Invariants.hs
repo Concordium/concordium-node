@@ -6,6 +6,7 @@ module Concordium.GlobalState.Basic.BlockState.Invariants where
 
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import qualified Data.Vector as Vector
 import Control.Monad
 import Lens.Micro.Platform
 import Concordium.Utils
@@ -56,10 +57,9 @@ invariantBlockState bs = do
             creds' <- foldM checkCred creds (acct ^. accountCredentials)
             -- check that we didn't already find this same account
             when (Map.member addr amp) $ Left $ "Duplicate account address: " ++ show (acct ^. accountAddress)
-            let lockedBalance = acct ^. accountReleaseSchedule . undefined --totalLockedUpBalance
+            let lockedBalance = acct ^. accountReleaseSchedule . totalLockedUpBalance
             -- check that the locked balance is the same as the sum of the pending releases
-            unless (lockedBalance == sum (Map.map fst (acct ^. accountReleaseSchedule . undefined -- pendingReleases
-                                                      ))) $ Left "Total locked balance doesn't sum up to the pending releases stake"
+            unless (lockedBalance == sum [ am | Just (r, _) <- Vector.toList (acct ^. accountReleaseSchedule . values), Release _ am <- r ]) $ Left "Total locked balance doesn't sum up to the pending releases stake"
             -- check that the instances exist and add their amounts to my balance
             !myBal <- foldM (checkInst addr) (acct ^. accountAmount) (acct ^. accountInstances)
             -- construct a baker map with the information from the accounts
