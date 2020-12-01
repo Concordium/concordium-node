@@ -1,6 +1,6 @@
 use crate::{catch_up::*, consensus::*, messaging::*};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use concordium_common::{ConsensusFfiResponse, ConsensusIsIBakingCommitteeResponse, PacketType};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType};
 use crypto_common::Serial;
 use failure::{bail, format_err, Fallible};
 use std::{
@@ -647,7 +647,7 @@ impl ConsensusContainer {
         ))
     }
 
-    pub fn in_baking_committee(&self) -> ConsensusIsIBakingCommitteeResponse {
+    pub fn in_baking_committee(&self) -> ConsensusIsInBakingCommitteeResponse {
         wrap_c_committee_call!(self, |consensus| bakerIdBestBlock(consensus))
     }
 
