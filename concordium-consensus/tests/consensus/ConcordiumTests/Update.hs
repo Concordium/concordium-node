@@ -15,9 +15,7 @@ import Control.Monad.Trans.State
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Lens.Micro.Platform
-import System.Random
 
-import Test.QuickCheck
 import Test.Hspec
 
 import Concordium.Afgjort.Finalize
@@ -25,15 +23,11 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 
 import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.Crypto.DummyData
 import Concordium.Crypto.SHA256
-import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
@@ -45,7 +39,7 @@ import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
-import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters, makeBakersByStake)
+import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import Concordium.Types
 
@@ -53,7 +47,6 @@ import Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256 as Hash
 
 import qualified Concordium.GlobalState.DummyData as Dummy
-import qualified Concordium.Types.DummyData as DummyTypes
         
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0

@@ -10,6 +10,3 @@
 [submodule "smart-contracts"]
 	path = smart-contracts
 	url = ../../smart-contracts.git
-[submodule "wasm"]
-	path = wasm
-	url = ../../wasm.git

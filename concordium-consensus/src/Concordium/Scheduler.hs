@@ -851,7 +851,7 @@ checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
 -- |Add a baker for the sender account. The logic is as follows:
 -- 
---  * The transaction fails ('InsufficientStake') if the balance on the account
+--  * The transaction fails ('InsufficientBalanceForBakerStake') if the balance on the account
 --    (less the energy deposit) is below the amount to stake.
 --  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
 --  * The transaction fails ('AlreadyBaker') if the account is already a baker.
@@ -901,7 +901,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
 
           if accountBalance < abBakingStake then
             -- The balance is insufficient.
-            return (TxReject InsufficientStake, energyCost, usedEnergy)
+            return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
           else if electionP && signP && aggregationP then do
             -- The proof validates that the baker owns all the private keys,
             -- thus we can try to create the baker.
@@ -986,7 +986,7 @@ handleUpdateBakerStake wtc newStake =
       chargeExecutionCost txHash senderAccount energyCost
       if accountBalance < newStake then
         -- The balance is insufficient.
-        return (TxReject InsufficientStake, energyCost, usedEnergy)
+        return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
       else do
         res <- updateBakerStake senderAddress newStake
         case res of
