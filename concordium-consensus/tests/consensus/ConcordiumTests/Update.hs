@@ -97,18 +97,6 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
 
-{-
-makeBaker :: Amount -> BakerId -> Gen BakerInformation
-makeBaker initAmount bid = resize 0x20000000 $ do
-        ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- genBlockKeyPair
-        blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
-        let spk     = Sig.verifyKey sk
-        let blspk   = Bls.derivePublicKey blssk
-        let account = makeBakerAccount bid initAmount
-        return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account)
--}
-
 -- |Create initial states for two bakers
 createInitStates :: IO (BakerState, BakerState)
 createInitStates = do

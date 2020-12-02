@@ -862,27 +862,6 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
                   - max (oldLockedUp + newReleases) staked
       Nothing -> return $ netDeposit - max oldLockedUp staked
 
-{-}
-  {-# INLINE getCurrentAccountAmount #-}
-  getCurrentAccountAmount acc = do
-    addr <- getAccountAddress acc
-    totalAmnt <- getAccountAmount acc
-    amnt <- (totalAmnt -) . ARS._totalLockedUpBalance <$> getAccountReleaseSchedule acc
-    !txCtx <- ask
-    -- additional delta that arises due to the deposit
-    let additionalDelta =
-          if txCtx ^. tcTxSender == addr
-          then amountDiff 0 (txCtx ^. tcDepositedAmount)
-          else 0
-    macc <- (^. at addr) <$> use (changeSet . accountUpdates)
-    case macc of
-      Just upd ->
-        -- if we are looking up the account that initiated the transaction we also take into account
-        -- the deposited amount
-        return $ applyAmountDelta additionalDelta (applyAmountDelta (upd ^. auAmount . non 0) amnt)
-      Nothing -> return (applyAmountDelta additionalDelta amnt)
--}
-
   {-# INLINE getCurrentContractAmount #-}
   getCurrentContractAmount inst = do
     let amnt = instanceAmount inst
