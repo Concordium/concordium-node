@@ -313,15 +313,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the execution reward for the current block.
   bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
-  -- |Update the Birk parameters for the block being in a particular slot.
-  -- This updates the seed state to account for the given block nonce, and
-  -- potentially new epoch. It also updates the bakers in the event of a new
-  -- epoch.
-  --
-  -- TODO: This will likely need to be revised for when rewards are not paid
-  -- directly.
-  -- bsoUpdateBirkParameters :: UpdatableBlockState m -> BlockNonce -> Slot -> m (UpdatableBlockState m)
-
   -- |Get the seed state associated with the block state.
   bsoGetSeedState :: UpdatableBlockState m -> m SeedState
 
