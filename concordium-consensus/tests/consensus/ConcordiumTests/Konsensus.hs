@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, CPP, TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, CPP, TemplateHaskell, NumericUnderscores #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.Konsensus where
 
@@ -597,7 +597,7 @@ withInitialStatesTransferTransactions :: Int -> Int -> FinalizationCommitteeSize
 withInitialStatesTransferTransactions n trcount maxFinComSize r = monadicIO $ do
         let finComSize = n `div` 2
             averageStake = 10 ^ (15 :: Int)
-            stakeDiff = 500
+            stakeDiff = 10_200_000_000_000
             minTransferAmount = 10 ^ (3 :: Int)
             maxTransferAmount = 10 ^ (6 :: Int)
         s0 <- initialiseStatesTransferTransactions finComSize (n - finComSize) averageStake stakeDiff maxFinComSize
