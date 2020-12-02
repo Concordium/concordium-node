@@ -380,11 +380,6 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetExecutionCost bs =
       return $ bs ^. blockBank . unhashed . Rewards.executionCost
 
-{-
-    {-# INLINE bsoGetBlockBirkParameters #-}
-    bsoGetBlockBirkParameters = return . _blockBirkParameters
--}
-
     {-# INLINE bsoGetSeedState #-}
     bsoGetSeedState bs = return $! bs ^. blockBirkParameters . birkSeedState
     
