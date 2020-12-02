@@ -846,15 +846,11 @@ doPutNewInstance pbs fnew = do
         let ca = instanceAddress (instanceParameters inst)
         -- Update the owner account's set of instances
         let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
-        (mdelegate, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
-        -- Update the stake delegate
-        case mdelegate of
-            Nothing -> error "Invalid contract owner"
-            Just _ -> do
-                (ca,) <$> storePBS pbs bsp{
-                                    bspInstances = insts,
-                                    bspAccounts = accts
-                                }
+        (_, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
+        (ca,) <$> storePBS pbs bsp{
+                            bspInstances = insts,
+                            bspAccounts = accts
+                        }
     where
         fnew' ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
             params <- makeBufferedRef $ PersistentInstanceParameters {
