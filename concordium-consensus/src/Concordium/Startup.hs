@@ -66,7 +66,7 @@ makeBakerAccountKeys bid amount =
     (acct, kp, bkr)
   where
     vfKey = SigScheme.correspondingVerifyKey kp
-    credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
+    credential = dummyCredential address vfKey dummyMaxValidTo dummyCreatedAt
     acct = newAccount dummyCryptographicParameters
                 (makeSingletonAC vfKey) address credential
                 & accountAmount .~ amount

@@ -544,23 +544,19 @@ handleDeployModule wtc psize mod =
       tickEnergy (Cost.deployModule (fromIntegral psize))
       case Wasm.processModule mod of
         Nothing -> rejectTransaction ModuleNotWF
-        Just iface -> return iface
+        Just iface -> do
+          let mhash = Wasm.miModuleRef iface
+          exists <- isJust <$> getModuleInterfaces mhash
+          when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
+          return (iface, mhash)
 
-    k ls iface = do
+    k ls (iface, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       -- Add the module to the global state (module interface, value interface and module itself).
-      b <- commitModule iface
-      let mhash = Wasm.miModuleRef iface
-      if b then
-        return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
-          else
-        -- FIXME: Check whether the module exists already at the beginning of this handler.
-        -- Doing it before typechecking will often save effort in the failure case, e.g. in case
-        -- typechecking results in module lookups anyway.
-        -- With checking the transaction type even before fully deserializing the payload,
-        -- this check can be done even earlier, since the module hash is the hash of module serialization.
-        return (TxReject (ModuleHashAlreadyExists mhash), energyCost, usedEnergy)
+      -- We know the module does not exist at this point, so we can ignore the return value.
+      _ <- commitModule iface
+      return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
 -- | Tick energy for storing the given 'Value'.
 -- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
@@ -582,7 +578,7 @@ getCurrentContractInstanceTicking ::
   => ContractAddress
   -> m Instance
 getCurrentContractInstanceTicking cref = do
-  tickEnergy $ Cost.lookupBytesPre
+  tickEnergy Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
   -- Compute the size of the contract state value and charge for the lookup based on this size.
   -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
@@ -615,7 +611,7 @@ handleInitContract wtc initAmount modref initName param =
             -- size available before.
             tickEnergy Cost.lookupBytesPre
             iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = Wasm.miSize iface
+            let iSize = Wasm.moduleSize . Wasm.miSourceModule $ iface
             tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).
@@ -644,8 +640,8 @@ handleInitContract wtc initAmount modref initName param =
             -- Withdraw the amount the contract is initialized with from the sender account.
             cs' <- addAmountToCS senderAccount (amountDiff 0 initAmount) (ls ^. changeSet)
 
-            -- FIXME: miExposedReceive should be replaced after we have some naming scheme.
-            let ins = makeInstance modref initName (Wasm.miExposedReceive iface) iface model initAmount (thSender meta)
+            let receiveMethods = OrdMap.findWithDefault Set.empty initName (Wasm.miExposedReceive iface)
+            let ins = makeInstance modref initName receiveMethods iface model initAmount (thSender meta)
             addr <- putNewInstance ins
 
             -- add the contract initialization to the change set and commit the changes
@@ -747,8 +743,8 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   let newModel = Wasm.newState result
       txOut = Wasm.messages result
       -- Charge for eventually storing the new contract state (even if it might not be stored
-  -- in the end because the transaction fails).
-  -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+      -- in the end because the transaction fails).
+      -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
   tickEnergyValueStorage newModel
   -- Process the generated messages in the new context (transferred amount, updated state) in
   -- sequence from left to right, depth first.
@@ -1155,27 +1151,6 @@ handleDeployCredential cdi cdiHash = do
                     cryptoParams <- getCryptoParams
                     -- we have two options. One is that we are deploying a credential on an existing account.
                     case ID.cdvAccount ncdv of
-                      ID.ExistingAccount aaddr ->
-                        -- first check whether an account with the address exists in the global store
-                        -- if it does not we cannot deploy the credential.
-                        getAccount aaddr >>= \case
-                          Nothing -> return $ Just (TxInvalid (NonExistentAccount aaddr))
-                          Just account -> do
-                                -- otherwise we just try to add a credential to the account
-                                -- but only if the credential is from the same identity provider
-                                -- as the existing ones on the account.
-                                -- Since we always maintain this invariant it is sufficient to check
-                                -- for one credential only.
-                                credentials <- getAccountCredentials account
-                                keys <- getAccountVerificationKeys account
-                                let sameIP = case credentials of
-                                        [] -> True
-                                        (cred:_) -> ID.ipId cred == credentialIP
-                                if sameIP && AH.verifyCredential cryptoParams ipInfo arsInfos (Just keys) cdiBytes then do
-                                  addAccountCredential account cdv
-                                  mkSummary (TxSuccess [CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
-                                else
-                                  return $ Just (TxInvalid AccountCredentialInvalid)
                       ID.NewAccount keys threshold ->
                         -- account does not yet exist, so create it, but we need to be careful
                         if null keys || length keys > 255 then

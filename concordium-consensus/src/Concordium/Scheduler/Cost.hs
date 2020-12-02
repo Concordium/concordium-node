@@ -51,15 +51,21 @@ storeBytesBase = 5
 
 -- | Cost for storing 100 bytes.
 storeBytesPer100Byte :: Energy
-storeBytesPer100Byte = 50 -- NB: This number must be positive.
+storeBytesPer100Byte = 50 -- NB: This number must not be 0.
 
 -- | Cost for storing the given number of bytes. It is charged for every started 100 bytes.
 storeBytes :: Wasm.ByteSize -> Energy
 storeBytes n = storeBytesBase + ((fromIntegral n + 99) `div` 100) * storeBytesPer100Byte
 
+-- | Cost for storing the module of a given size.
+storeModule :: Wasm.ByteSize -> Energy
+-- the factor 2 is because we store about twice the size of the module.
+-- We need to store the source for API lookups, and the processed artifact.
+storeModule n = storeBytesBase + 2 * ((fromIntegral n + 99) `div` 100) * storeBytesPer100Byte
+
 -- | For a given amount of energy, determine the number of bytes that can be stored using that energy.
 maxStorage :: Energy -> Wasm.ByteSize
-maxStorage e = if e < storeBytesBase then 0
+maxStorage e = if e <= storeBytesBase then 0
                else fromIntegral $ ((e-storeBytesBase) * 100) `div` storeBytesPer100Byte
 
 -- | Cost for doing a pre-lookup (used to determine the cost for the actual lookup).
@@ -109,10 +115,6 @@ checkHeader size nSig =
   + (fromIntegral size) `div` 232
   + (fromIntegral nSig) * 53
 
--- |Cost for type checking a module or term based on its serialized size (excluding cost for
--- loading dependencies, see 'lookupModule'). This also includes cost for compiling.
-typeCheck :: Word64 -> Energy
-typeCheck size = (fromIntegral size) * 3 -- TODO find factor
 
 -- |Cost per import when typechecking a module. The argument is the size of the
 -- imported module as specified by its 'Interface'.
@@ -129,26 +131,15 @@ linkPer100Size = 1
 
 -- TODO Remove this summarization of only part of the transaction's cost.
 -- Maybe instead add 'storeModule' to abstract from 'storeBytes'.
--- |Cost to deploy the module (cost for typechecking and storing it), excluding cost for
--- loading dependencies (see 'lookupModule'). Also includes cost for compiling the module.
+-- |Cost to deploy the module (cost for validating, processing, and storing it).
 -- Computed from the serialized size of the module.
 deployModule :: Word64 -> Energy
 deployModule size =
-    typeCheck size
-  -- As we store considerably more than the source of the module (also interfaces), we add a factor.
-  + storeBytes (2 * fromIntegral size)
-
--- |Cost of type-checking and linking the parameters of the init method.
--- Dependent on the serialized size of the parameters.
-initParamsTypecheck :: Word64 -> Energy
-initParamsTypecheck = typeCheck
-
--- |Cost of type-checking and linking the message of the init method. Dependent
--- on the serialized size of the parameters. Note that this is only explicitly
--- charged for the top-level update. Inter-contract messages are known to be
--- type-correct and are already in linked/compiled form.
-updateMessageTypecheck :: Word64 -> Energy
-updateMessageTypecheck = typeCheck
+  -- the div 30 is derived from benchmarks, which indicate that processing
+  -- is a linear function of the input, with this factor.
+    fromIntegral (size `div` 30)
+  -- As we store about twice the size of the source of the module we add a factor.
+  + storeModule (fromIntegral size)
 
 -- |Fixed cost per generated inter-contract message.
 interContractMessage :: Energy

@@ -49,14 +49,14 @@ testCases =
                 }
         , (Success emptyExpect, emptySpec)
         )
-      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/try-send-test.wasm" "init" ""
+      , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/try-send-test.wasm" "init_try" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
                 , keys = [(0, alesKP)]
                 }
         , (Success emptyExpect, emptySpec)
         )
         -- valid account, should succeed in transferring
-      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "receive" toAddr
+      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr
                 , metadata = makeDummyHeader alesAccount 3 70000
                 , keys = [(0, alesKP)]
                 }
@@ -73,7 +73,7 @@ testCases =
                     }] , emptySpec)
         )
         -- transfer did not happen
-      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "receive" (BSS.pack (replicate 32 0) )
+      , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0) )
                 , metadata = makeDummyHeader alesAccount 4 70000
                 , keys = [(0, alesKP)]
                 }
