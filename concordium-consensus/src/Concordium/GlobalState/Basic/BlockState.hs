@@ -394,9 +394,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoTransitionEpochBakers bs newEpoch = return $! newbs
         where
             oldBPs = bs ^. blockBirkParameters
-            curActiveBIDs = Set.toAscList (oldBPs ^. birkActiveBakers . activeBakers)
+            curActiveBIDs = Set.toDescList (oldBPs ^. birkActiveBakers . activeBakers)
             -- Add a baker to the accumulated set of bakers for the new next bakers
-            accumBakers bkr@(BakerId bid) (bs0, bkrs0) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
+            accumBakers (bs0, bkrs0) bkr@(BakerId bid) = case bs ^? blockAccounts . Accounts.indexedAccount bid of
                 Just acct -> case acct ^. accountBaker of
                   Just abkr@AccountBaker{..} -> case _bakerPendingChange of
                     RemoveBaker remEpoch
@@ -425,7 +425,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                     _ -> (bs0, (_accountBakerInfo, _stakedAmount) : bkrs0)
                   Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not a baker"
                 Nothing -> error "Basic.bsoTransitionEpochBakers invariant violation: active baker account not valid"
-            (bs', bkrs) = foldr accumBakers (bs, []) curActiveBIDs
+            (bs', bkrs) = foldl' accumBakers (bs, []) curActiveBIDs
             newNextBakers = makeHashed $ EpochBakers {
               _bakerInfos = Vec.fromList (fst <$> bkrs),
               _bakerStakes = Vec.fromList (snd <$> bkrs),
