@@ -15,6 +15,7 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   Release(..),
   totalLockedUpBalance,
   values,
+  pendingReleases,
   emptyAccountReleaseSchedule,
   addReleases,
   unlockAmountsUntil
@@ -168,7 +169,9 @@ unlockAmountsUntil up ars =
                 let (toRemove', toKeep') = splitAt numOfItems item :: ([Release], [Release])
                     acumAmount = sum $ map amount toRemove'
                 in
-                  (v Vector.// [(idx, Just (toKeep', txh))], am + acumAmount)
+                  if null toKeep'
+                  then (v Vector.// [(idx, Nothing)], am + acumAmount)
+                  else (v Vector.// [(idx, Just (toKeep', txh))], am + acumAmount)
           (_values', minusAmount) = foldl' f (ars ^. values, 0) fullToRemove
       in
         (minusAmount, fst <$> Map.lookupMin toKeep, ars & values .~ _values'
