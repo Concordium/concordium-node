@@ -213,7 +213,7 @@ blockStateWithAlesAccount alesAmount otherAccounts =
 mkAccount :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
 mkAccount key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
   where
-    cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
+    cred = dummyCredential addr key dummyMaxValidTo dummyCreatedAt
 
 -- This generates an account with a single credential and single keypair, where
 -- the credential should already be considered expired. (Its valid-to date will be
@@ -222,16 +222,17 @@ mkAccount key addr amnt = newAccount dummyCryptographicParameters (makeSingleton
 mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
 mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
   where
-    cred = dummyCredential addr dummyLowValidTo dummyCreatedAt
+    cred = dummyCredential addr key dummyLowValidTo dummyCreatedAt
 
 -- This generates an account with a single credential, the given list of keys and signature threshold,
 -- which has sufficiently late expiry date, but is otherwise not well-formed.
 -- The keys are indexed in ascending order starting from 0
+-- The list of keys should be non-empty.
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
 mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
 mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
   where
-    cred = dummyCredential addr dummyMaxValidTo dummyCreatedAt
+    cred = dummyCredential addr (head keys) dummyMaxValidTo dummyCreatedAt
 
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
 makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> Account
@@ -242,7 +243,7 @@ makeFakeBakerAccount bid _bakerElectionVerifyKey _bakerSignatureVerifyKey _baker
     balance = 1000000000000
     staked = 999000000000
     vfKey = SigScheme.correspondingVerifyKey kp
-    credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
+    credential = dummyCredential address vfKey dummyMaxValidTo dummyCreatedAt
     acct = newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
@@ -260,6 +261,7 @@ makeFakeBakerAccount bid _bakerElectionVerifyKey _bakerSignatureVerifyKey _baker
 
 createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
 createCustomAccount amount kp address =
-    newAccount dummyCryptographicParameters (makeSingletonAC (SigScheme.correspondingVerifyKey kp)) address credential
+    newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
         & (accountAmount .~ amount)
-  where credential = dummyCredential address dummyMaxValidTo dummyCreatedAt
+  where credential = dummyCredential address vfKey dummyMaxValidTo dummyCreatedAt
+        vfKey = SigScheme.correspondingVerifyKey kp

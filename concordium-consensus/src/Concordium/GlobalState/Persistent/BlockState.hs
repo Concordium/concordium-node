@@ -1088,6 +1088,7 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
     getCurrentElectionDifficulty = doGetCurrentElectionDifficulty . hpbsPointers
     getUpdates = doGetUpdates . hpbsPointers
+    getCryptographicParameters = doGetCryptoParams . hpbsPointers
 
 instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m) where
 

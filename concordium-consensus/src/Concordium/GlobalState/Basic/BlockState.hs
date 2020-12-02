@@ -284,6 +284,11 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getUpdates #-}
     getUpdates bs = return (bs ^. blockUpdates)
 
+    {-# INLINE getCryptographicParameters #-}
+    getCryptographicParameters bs =
+      return $! bs ^. blockCryptographicParameters . unhashed
+
+
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountAddress acc = return $ acc ^. accountAddress
