@@ -37,3 +37,4 @@ EXPORTS
  importBlocks
  getAllIdentityProviders
  getAllAnonymityRevokers
+ getCryptographicParameters
