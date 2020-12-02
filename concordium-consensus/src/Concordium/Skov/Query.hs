@@ -27,14 +27,6 @@ doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
-{-
-doGetBirkParameters :: (BlockPointerMonad m, BlockStateQuery m) => Slot -> BlockPointerType m -> m (BirkParameters m)
-{- - INLINE doGetBirkParameters - -}
-doGetBirkParameters slot bp = do
-        params <- getBlockBirkParameters =<< blockState bp
-        slotDependentBirkParameters slot params
--}
-
 doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
 {- - INLINE doGetCurrentHeight - -}
 doGetCurrentHeight = do

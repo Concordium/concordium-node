@@ -309,9 +309,6 @@ addBlock block = do
             check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
                 -- get Birk parameters from the __parent__ block. The baker must have existed in that
                 -- block's state in order that the current block is valid
-                {-bps <- getBirkParameters (blockSlot block) parentP
-                baker <- birkEpochBaker (blockBaker block) bps
-                nonce <- birkLeadershipElectionNonce bps-}
                 parentState <- blockState parentP
                 -- Determine the baker and its lottery power
                 bakers <- getSlotBakers parentState (blockSlot block)

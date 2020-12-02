@@ -88,9 +88,6 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     recordAtFinIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
     -- |Determine the next index for finalization.
     nextFinalizationIndex :: m FinalizationIndex
-    -- |Retrieves the birk parameters for a slot, given a branch (in the form of a block pointer.)
-    --  Retrieves AdvanceTime and StableTime directly from genesis block
-    --getBirkParameters :: Slot -> BlockPointerType m -> m (BirkParameters m)
     -- |Get the genesis data.
     getGenesisData :: m GenesisData
     -- |Get the genesis block pointer.
@@ -162,7 +159,6 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     blockAtFinIndex = lift . blockAtFinIndex
     recordAtFinIndex = lift . recordAtFinIndex
     nextFinalizationIndex = lift nextFinalizationIndex
-    --getBirkParameters slot bp = lift $ getBirkParameters slot bp
     getGenesisData = lift getGenesisData
     genesisBlock = lift genesisBlock
     getCurrentHeight = lift getCurrentHeight

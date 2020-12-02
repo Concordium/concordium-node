@@ -552,32 +552,8 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
             (initCtx, initState) <- runSilentLogger (initialiseSkov config)
             return (bid, binfo, (kp, acct ^. accountAddress), initCtx, initState)
 
-{-
-createInitStates :: [(BakerId, (FullBakerInfo, BakerIdentity, Account, SigScheme.KeyPair))] -> FinalizationCommitteeSize -> [Account] -> PropertyM IO States
-createInitStates bis maxFinComSize extraAccounts = do
-        let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-            seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisDataV1 0 1 genesisBakers seedState (bakerAccounts ++ extraAccounts) (finalizationParameters maxFinComSize) Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
-            createStates = liftIO . mapM (\(_, (binfo, bid, _, kp)) -> do
-                                       let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
-                                           config = SkovConfig
-                                               (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
-                                               (ActiveFinalization fininst)
-                                               NoHandler
-                                       (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
-                                       return (bid, binfo, kp, initCtx, initState))
-        Vec.fromList <$> createStates bis
--}
-
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"
-
-{-
-
-instance Show SkovActiveState where
-    show sfs = show (sfs ^. TS.skov)
--}
 
 withInitialStates :: Int -> FinalizationCommitteeSize -> (StdGen -> States -> ExecState -> IO Property) -> Property
 withInitialStates n maxFinComSize r = monadicIO $ do
