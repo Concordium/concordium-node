@@ -684,7 +684,6 @@ instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
 instance MonadBlobStore m => BlobStorable m TransactionHash
 
--- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance MonadBlobStore m => BlobStorable m PersistingAccountData
 instance MonadBlobStore m => BlobStorable m Authorizations
