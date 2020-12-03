@@ -12,11 +12,13 @@ will be retrieved as needed. It can also be fully reconstructed from the disk.
 The structure consists of a vector and a priority queue:
 
 * The priority queue (implemented with a Map) maps timestamps to the index in
-which the schedule is stored in the vector.
+which the schedule is stored in the vector. The prority queue lives purely in
+memory and will be reconstructed when reading the structure from the disk.
 
 * The vector keeps a list of Nullable hashed buffered references to the first
 release of each schedule, which is a Null terminated linked list that points
-backwards in the BlobStore.
+backwards in the BlobStore. This vector is written to the disk and all its values
+are recursively written to the disk (see the description of the @Release@ datatype).
 
 Whenever a release schedule is completed, its entry in the vector will be
 replaced with a Null reference. Once every entry in the vector is empty (checked
@@ -28,15 +30,32 @@ structure, effectively resetting the size of the vector to 0.
 When the vector has only one schedule pending (@r@), the disk would look like
 this:
 
-> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [r1] |
+> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [Just (r1 <-)] |
 
-Supposing we then release the first amount, the new layout would be:
+which means that we have a linked chain or releases and then store a vector with a pointer to r1.
 
-> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [r1] | [r2] |
+Supposing we then release the first amount (@r1@), the new layout would be:
 
-And if we then add a new schedule (s):
+> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [Just (r1 <-)] | [Just (r2 <-)] |
 
-> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [r1] | [r2] | (Null <-) s2 | (s2 <-) s1 | [r2, s1] |
+where everything except the last item was already stored in the disk. Now we have an vector with an item that points to @r2@.
+
+And if we then add a new schedule (@s@):
+
+> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [Just (r1 <-)] | [Just (r2 <-)] | (Null <-) s2 | (s2 <-) s1 | [Just (r2 <-), Just (s1 <-)] |
+
+which has essentially added the @s_i@ releases and written a new vector that now also contains the pointer to @s1@.
+
+If we then have to unlock both @r2@ and @r3@, the new layout would be:
+
+> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [Just (r1 <-)] | [Just (r2 <-)] | (Null <-) s2 | (s2 <-) s1 | [Just (r2 <-), Just (s1 <-)] | [Nothing, Just (s1 <-)] |
+
+So we just stored a new vector in which the first item is empty.
+
+When all the releases in the vector have been released, we reset the vector to the empty one instead of keeping a list of empty values, so
+suppose now that we unlock @s1@ and @s2@, the new layout would be:
+
+> | (Null <-) r3 | (r3 <-) r2 | (r2 <-) r1 | [Just (r1 <-)] | [Just (r2 <-)] | (Null <-) s2 | (s2 <-) s1 | [Just (r2 <-), Just (s1 <-)] | [Nothing, Just (s1 <-)] | [] |
 -}
 module Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule (
   -- * Account Release Schedule type
@@ -66,6 +85,7 @@ import Data.Serialize
 import Data.Vector (Vector)
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
+import Concordium.Utils.Serialization
 
 ----------------------------------- Release ------------------------------------
 
@@ -118,9 +138,9 @@ instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
     let f accPut item = do
               pItem <- store item
               return (accPut >> pItem)
-    Vector.foldM' f (put $ Vector.length _arsValues) _arsValues
+    Vector.foldM' f (putLength $ Vector.length _arsValues) _arsValues
   load = do
-    numOfReleases <- get
+    numOfReleases <- getLength
     case numOfReleases of
       0 -> return $ return emptyAccountReleaseSchedule
       _ -> do
@@ -146,7 +166,7 @@ instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
 instance MonadBlobStore m => MHashableTo m Hash AccountReleaseSchedule where
   getHashM AccountReleaseSchedule{..} =
     if _arsTotalLockedUpBalance == 0
-    then return $ hash "EmptyAccountReleaseSchedule"
+    then return Transient.emptyAccountReleaseScheduleHash
     else hash <$> Vector.foldM' (\prevB -> \case
                                     Null -> return prevB
                                     Some (r, _) -> do
