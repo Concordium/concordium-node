@@ -16,7 +16,7 @@ pipeline {
                 DOCKER_BUILDKIT = 1
             }
             steps {
-                sshagent (credentials: ['6a7625a8-34f4-4c39-b0be-ed5b49aabc16']) {
+                sshagent (credentials: ['jenkins-gitlab-ssh']) {
                     sh './scripts/build-and-push-static-libs.sh'
                 }
             }
