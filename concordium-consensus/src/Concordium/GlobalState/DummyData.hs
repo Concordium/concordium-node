@@ -190,8 +190,27 @@ makeTestingGenesisData
 emptyBirkParameters :: Accounts -> BasicBirkParameters
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
 
+dummyRewardParameters :: RewardParameters
+dummyRewardParameters = RewardParameters {
+    _rpMintPerSlot = MintRate 1 12,
+    _rpMintDistrubution = MintDistribution {
+      _mdBakingReward = RewardFraction 60000, -- 60%
+      _mdFinalizationReward = RewardFraction 30000 -- 30%
+    },
+    _rpTransactionFeeDistribution = TransactionFeeDistribution {
+      _tfdBaker = RewardFraction 45000, -- 45%
+      _tfdGASAccount = RewardFraction 45000 -- 45%
+    },
+    _rpGASRewards = GASRewards {
+      _gasBaker = RewardFraction 25000, -- 25%
+      _gasFinalizationProof = RewardFraction 50, -- 0.05%
+      _gasAccountCreation = RewardFraction 200, -- 0.2%
+      _gasChainUpdate = RewardFraction 50 -- 0.05%
+    }
+}
+
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 166
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 168 10 dummyRewardParameters
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState

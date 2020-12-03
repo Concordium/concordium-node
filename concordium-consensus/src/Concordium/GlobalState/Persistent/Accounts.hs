@@ -30,8 +30,6 @@ import Concordium.Types.HashableTo
 import Data.Word
 import Data.Foldable (foldrM, foldl')
 
-type AccountIndex = Word64
-
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
 -- in which it was created.
