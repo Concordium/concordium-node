@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- |This module defines types for blockchain parameters, including genesis data,
 -- baker parameters and finalization parameters.
@@ -14,12 +15,14 @@ import GHC.Generics hiding (to)
 import Data.Serialize
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
+import Data.Maybe
 import Data.Ratio
 import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Common.Version
 import Concordium.Types
+import Concordium.Utils
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -33,9 +36,134 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
 import Data.Aeson.Types (FromJSON(..), ToJSON(..), (.:), (.:?), (.!=), withObject, object)
+import Data.Aeson.TH
 import Concordium.Types.Updates
 
 type CryptographicParameters = GlobalContext
+
+-- |The distribution of newly-minted GTU among bakers, finalizers,
+-- and the foundation account.  It must be the case that
+-- @m_dBakingReward + _mdFinalizationReward <= 1@. The remaining
+-- amount is the platform development charge.
+data MintDistribution = MintDistribution {
+    -- |BakingRewMintFrac: the fraction allocated to baker rewards
+    _mdBakingReward :: !RewardFraction,
+    -- |FinRewMintFrac: the fraction allocated to finalization rewards
+    _mdFinalizationReward :: !RewardFraction
+} deriving (Eq, Show)
+makeClassy ''MintDistribution
+
+instance ToJSON MintDistribution where
+  toJSON MintDistribution{..} = object [
+      "bakingReward" AE..= _mdBakingReward,
+      "finalizationReward" AE..= _mdFinalizationReward
+    ]
+instance FromJSON MintDistribution where
+  parseJSON = withObject "MintDistribution" $ \v -> do
+    _mdBakingReward <- v .: "bakingReward"
+    _mdFinalizationReward <- v .: "finalizationReward"
+    unless (isJust (_mdBakingReward `addRewardFraction` _mdFinalizationReward)) $ fail "Reward fractions exceed 100%"
+    return MintDistribution{..}
+
+instance Serialize MintDistribution where
+  put MintDistribution{..} = put _mdBakingReward >> put _mdFinalizationReward
+  get = do
+    _mdBakingReward <- get
+    _mdFinalizationReward <- get
+    unless (isJust (_mdBakingReward `addRewardFraction` _mdFinalizationReward)) $ fail "Reward fractions exceed 100%"
+    return MintDistribution{..}
+
+-- |The distribution of block transaction fees among the block
+-- baker, the GAS account, and the foundation account.  It
+-- must be the case that @_tfdBaker + _tfdGASAccount <= 1@.
+-- The remaining amount is the TransChargeFrac (paid to the
+-- foundation account).
+data TransactionFeeDistribution = TransactionFeeDistribution {
+    -- |BakerTransFrac: the fraction allocated to the baker
+    _tfdBaker :: !RewardFraction,
+    -- |The fraction allocated to the GAS account
+    _tfdGASAccount :: !RewardFraction
+} deriving (Eq, Show)
+makeClassy ''TransactionFeeDistribution
+
+instance ToJSON TransactionFeeDistribution where
+  toJSON TransactionFeeDistribution{..} = object [
+      "baker" AE..= _tfdBaker,
+      "gasAccount" AE..= _tfdGASAccount
+    ]
+instance FromJSON TransactionFeeDistribution where
+  parseJSON = withObject "TransactionFeeDistribution" $ \v -> do
+    _tfdBaker <- v .: "baker"
+    _tfdGASAccount <- v .: "gasAccount"
+    unless (isJust (_tfdBaker `addRewardFraction` _tfdGASAccount)) $ fail "Transaction fee fractions exceed 100%"
+    return TransactionFeeDistribution{..}
+
+instance Serialize TransactionFeeDistribution where
+  put TransactionFeeDistribution{..} = put _tfdBaker >> put _tfdGASAccount
+  get = do
+    _tfdBaker <- get
+    _tfdGASAccount <- get
+    unless (isJust (_tfdBaker `addRewardFraction` _tfdGASAccount)) $ fail "Transaction fee fractions exceed 100%"
+    return TransactionFeeDistribution{..}
+
+data GASRewards = GASRewards {
+  -- |BakerPrevTransFrac: fraction paid to baker
+  _gasBaker :: !RewardFraction,
+  -- |FeeAddFinalisationProof: fraction paid for including a
+  -- finalization proof in a block.
+  _gasFinalizationProof :: !RewardFraction,
+  -- |FeeAccountCreation: fraction paid for including each
+  -- account creation transaction in a block.
+  _gasAccountCreation :: !RewardFraction,
+  -- |FeeUpdate: fraction paid for including an update
+  -- transaction in a block.
+  _gasChainUpdate :: !RewardFraction
+} deriving (Eq, Show)
+makeClassy ''GASRewards
+
+$(deriveJSON AE.defaultOptions{AE.fieldLabelModifier = firstLower . drop 3} ''GASRewards)
+
+instance Serialize GASRewards where
+  put GASRewards{..} = do
+    put _gasBaker
+    put _gasFinalizationProof
+    put _gasAccountCreation
+    put _gasChainUpdate
+  get = do
+    _gasBaker <- get
+    _gasFinalizationProof <- get
+    _gasAccountCreation <- get
+    _gasChainUpdate <- get
+    return GASRewards{..}
+
+-- |Parameters affecting rewards.
+-- It must be that @rpBakingRewMintFrac + rpFinRewMintFrac < 1@
+data RewardParameters = RewardParameters {
+    -- |Per slot mint rate.
+    _rpMintPerSlot :: !MintRate,
+    -- |Distribution of newly-minted GTUs.
+    _rpMintDistrubution :: !MintDistribution,
+    -- |Distribution of transaction fees.
+    _rpTransactionFeeDistribution :: !TransactionFeeDistribution,
+    -- |Rewards paid from the GAS account.
+    _rpGASRewards :: !GASRewards
+} deriving (Eq, Show)
+makeClassy ''RewardParameters
+
+$(deriveJSON AE.defaultOptions{AE.fieldLabelModifier = firstLower . drop 3} ''RewardParameters)
+
+instance Serialize RewardParameters where
+  put RewardParameters{..} = do
+    put _rpMintPerSlot
+    put _rpMintDistrubution
+    put _rpTransactionFeeDistribution
+    put _rpGASRewards
+  get = do
+    _rpMintPerSlot <- get
+    _rpMintDistrubution <- get
+    _rpTransactionFeeDistribution <- get
+    _rpGASRewards <- get
+    return RewardParameters{..}
 
 -- |Updatable chain parameters.
 data ChainParameters = ChainParameters {
@@ -54,7 +182,12 @@ data ChainParameters = ChainParameters {
     -- longer than this value, since at any given time, the bakers
     -- (and stakes) for the current and next epochs have already
     -- been determined.
-    _cpBakerExtraCooldownEpochs :: !Epoch
+    _cpBakerExtraCooldownEpochs :: !Epoch,
+    -- |LimitAccountCreation: the maximum number of accounts
+    -- that may be created in one block.
+    _cpAccountCreationLimit :: !Word16,
+    -- |Reward parameters.
+    _cpRewardParameters :: !RewardParameters
 } deriving (Eq, Show)
 
 makeChainParameters ::
@@ -66,8 +199,19 @@ makeChainParameters ::
     -- ^uGTU:Euro rate
     -> Epoch
     -- ^Baker cooldown
+    -> Word16
+    -- ^Account creation limit
+    -> RewardParameters
+    -- ^Reward parameters
     -> ChainParameters
-makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro _cpBakerExtraCooldownEpochs = ChainParameters{..}
+makeChainParameters
+    _cpElectionDifficulty
+    _cpEuroPerEnergy
+    _cpMicroGTUPerEuro
+    _cpBakerExtraCooldownEpochs
+    _cpAccountCreationLimit
+    _cpRewardParameters
+      = ChainParameters{..}
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
 
@@ -91,13 +235,18 @@ cpEnergyRate = to _cpEnergyRate
 cpBakerExtraCooldownEpochs :: Lens' ChainParameters Epoch
 cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_cpBakerExtraCooldownEpochs = bce})
 
+instance HasRewardParameters ChainParameters where
+  rewardParameters = lens _cpRewardParameters (\cp rp -> cp {_cpRewardParameters = rp})
+
 instance Serialize ChainParameters where
   put ChainParameters{..} = do
     put _cpElectionDifficulty
     put _cpEuroPerEnergy
     put _cpMicroGTUPerEuro
     put _cpBakerExtraCooldownEpochs
-  get = makeChainParameters <$> get <*> get <*> get <*> get
+    put _cpAccountCreationLimit
+    put _cpRewardParameters
+  get = makeChainParameters <$> get <*> get <*> get <*> get <*> get <*> get
 
 instance HashableTo Hash.Hash ChainParameters where
   getHash = Hash.hash . encode
@@ -111,13 +260,17 @@ instance FromJSON ChainParameters where
       <*> v .: "euroPerEnergy"
       <*> v .: "microGTUPerEuro"
       <*> v .: "bakerCooldownEpochs"
+      <*> v .: "accountCreationLimit"
+      <*> v .: "rewardParameters"
 
 instance ToJSON ChainParameters where
   toJSON ChainParameters{..} = object [
       "electionDifficulty" AE..= _cpElectionDifficulty,
       "euroPerEnergy" AE..= _cpEuroPerEnergy,
       "microGTUPerEuro" AE..= _cpMicroGTUPerEuro,
-      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs
+      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs,
+      "accountCreationLimit" AE..= _cpAccountCreationLimit,
+      "rewardParameters" AE..= _cpRewardParameters
     ]
 
 data VoterInfo = VoterInfo {
