@@ -28,6 +28,7 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   values,
   pendingReleases,
   emptyAccountReleaseSchedule,
+  AccountReleaseScheduleHash(..),
   emptyAccountReleaseScheduleHash,
   addReleases,
   unlockAmountsUntil
@@ -147,6 +148,9 @@ instance Serialize AccountReleaseSchedule where
 -- λ: h2 = hash ((runPut $ put (3 :: Timestamp) >> put (5 :: Amount)) <> hashToByteString (hash (runPut $ put (4 :: Timestamp) >> put (10 :: Amount))))
 -- λ: hashOfHashes h1 h2
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
+
+newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash Hash
+ deriving (Serialize)
 
 emptyAccountReleaseScheduleHash :: Hash
 emptyAccountReleaseScheduleHash = hash "EmptyAccountReleaseSchedule"

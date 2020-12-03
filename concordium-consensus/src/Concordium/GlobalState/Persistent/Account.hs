@@ -13,6 +13,7 @@ import Control.Monad
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types.HashableTo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
@@ -178,7 +179,7 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
           sData <- getHashM =<< loadBufferedRef _accountReleaseSchedule
-          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' sData pData
+          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' (Transient.AccountReleaseScheduleHash sData) pData
           return PersistentAccount {..}
 
 instance (MonadBlobStore m) => Cacheable m PersistentAccount where
@@ -198,7 +199,7 @@ instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.
 makePersistentAccount :: MonadBlobStore m => Transient.Account -> m PersistentAccount
 makePersistentAccount Transient.Account{..} = do
-  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (getHash _accountReleaseSchedule) _accountPersisting
+  let _accountHash = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (Transient.AccountReleaseScheduleHash $ getHash _accountReleaseSchedule) _accountPersisting
   _persistingData <- makeBufferedRef _accountPersisting
   _accountEncryptedAmount' <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
   _accountReleaseSchedule' <- makeBufferedRef =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
@@ -240,7 +241,7 @@ setPAD f acc@PersistentAccount{..} = do
   let newPData = f pData
   newPDataRef <- makeBufferedRef newPData
   return $ acc & persistingData .~ newPDataRef
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac rs newPData
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac (Transient.AccountReleaseScheduleHash rs) newPData
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the

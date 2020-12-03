@@ -62,6 +62,7 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
@@ -833,7 +834,7 @@ doProcessReleaseSchedule pbs ts = do
                       eData <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)
                       return $ (nextTs,
                                 acc & accountReleaseSchedule .~ rDataRef
-                                    & accountHash .~ makeAccountHash (_accountNonce acc) (_accountAmount acc) eData rDataHash pData)
+                                    & accountHash .~ makeAccountHash (_accountNonce acc) (_accountAmount acc) eData (Transient.AccountReleaseScheduleHash rDataHash) pData)
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
                 return (ba', case join toRead of
                                Just t -> (addr, t) : readded
@@ -1002,7 +1003,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
       arsHash <- getHashM accountReleaseScheduleData
       _accountReleaseSchedule <- makeBufferedRef accountReleaseScheduleData
       _persistingData <- makeBufferedRef pData
-      let _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData arsHash pData
+      let _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData (Transient.AccountReleaseScheduleHash arsHash) pData
       return $ PersistentAccount {..}
 
   updateAccountAmount acc amnt = do
@@ -1010,7 +1011,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
     pData <- loadBufferedRef _persistingData
     encData <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
     rsData <- getHashM =<< loadBufferedRef _accountReleaseSchedule
-    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encData rsData pData
+    return $ newAcc & accountHash .~ makeAccountHash _accountNonce amnt encData (Transient.AccountReleaseScheduleHash rsData) pData
 
 instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
