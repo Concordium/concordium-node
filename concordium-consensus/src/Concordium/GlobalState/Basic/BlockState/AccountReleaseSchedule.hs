@@ -5,10 +5,21 @@
 Module      : Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 Description : The data structure implementing account lock ups.
 
-This module defines a data structure that stores the amounts that are locked
-up for a given account.
+This module defines a data structure that stores the amounts that are locked up
+for a given account.
 
-Amounts are stored in a map sorted by timestamp of release.
+The structure consists of a vector and a priority queue:
+
+* The priority queue (implemented with a Map) maps timestamps to the index in
+which the schedule is stored in the vector.
+
+* The vector keeps a list of items that are either Nothing if that schedule was completed
+or Just a list of releases if that schedule is not yet completed.
+
+Whenever a release schedule is completed, its entry in the vector will be
+replaced with a Nothing. Once every entry in the vector is empty (checked
+with the remaining total locked amount) it just resets the structure to an empty
+structure, effectively resetting the size of the vector to 0.
 -}
 module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule (
   AccountReleaseSchedule(..),
@@ -86,11 +97,15 @@ makeLenses ''AccountReleaseSchedule
 
 instance ToJSON AccountReleaseSchedule where
   toJSON AccountReleaseSchedule{..} =
-    AE.object ["total" AE..= _totalLockedUpBalance,
-               "schedule" AE..= map toObject (map (\x -> (fst (head x), foldl' (\(accB, accT) (_, (b, t)) -> (accB + b, t : accT)) (0, []) x)) $
-                                              groupBy ((==) `on` fst) $
-                                              sortOn fst
-                                              [ (tm, (a, t)) | Just (r, t) <- Vector.toList _values, Release tm a <- r ])]
+    let listOfReleasesByTimestamp = [ (tm, (a, t)) | Just (r, t) <- Vector.toList _values, Release tm a <- r ]
+        sortedAndGroupedByTimestamp = groupBy ((==) `on` fst) $ sortOn fst listOfReleasesByTimestamp
+        -- combine the elements for each timestamp by summing up the amounts and creating a list with the transaction hashes
+        -- @head@ is safe because group won't create empty lists.
+        schedule = map (\x -> (fst (head x), foldl' (\(accB, accT) (_, (b, t)) -> (accB + b, t : accT)) (0, []) x)) sortedAndGroupedByTimestamp
+    in
+      AE.object ["total" AE..= _totalLockedUpBalance,
+                 "schedule" AE..= map toObject schedule]
+
 
     where toObject :: (Timestamp, (Amount, [TransactionHash])) -> AE.Value
           toObject (timestamp, (amount, hashes)) = AE.object [
@@ -102,14 +117,11 @@ instance ToJSON AccountReleaseSchedule where
 instance Serialize AccountReleaseSchedule where
   get = do
     vecLength <- getLength
-    _values <- Vector.replicateM vecLength getMaybe--  do
-                                               -- hasItem <- getWord8
-                                               -- if hasItem == 0
-                                               --   then return Nothing
-                                               --   else do
-                                               --     item <- get
-                                               --     txh <- get
-                                               --     return $ Just (item, txh))
+    _values <- Vector.replicateM vecLength (getMaybe (do
+                                                         l <- getLength
+                                                         item <- sequence $ replicate l get
+                                                         txh <- get
+                                                         return (item, txh)))
     let (_pendingReleases, _totalLockedUpBalance) =
           Vector.ifoldl' (\acc idx -> \case
                              Nothing -> acc
@@ -123,12 +135,10 @@ instance Serialize AccountReleaseSchedule where
     return AccountReleaseSchedule{..}
   put AccountReleaseSchedule{..} = do
     putLength $ Vector.length _values
-    Vector.mapM_ (putMaybe -- \case
-                    -- Nothing -> putWord8 0
-                    -- Just (rel, txh) -> do
-                    --   putWord8 1
-                    --   put rel
-                    --   put txh
+    Vector.mapM_ (putMaybe (\(rel, txh) -> do
+                               putLength $ length rel
+                               mapM_ put rel
+                               put txh)
                  ) _values
 
 -- λ: getHash $ addReleases ([(3,5), (4,10)], th) $ addReleases ([(1,2), (3,4)], th) emptyAccountReleaseSchedule :: Hash
