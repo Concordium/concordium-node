@@ -246,7 +246,14 @@ unlockAmountsUntil up ars = do
                                                            & arsTotalLockedUpBalance -~ minusAmount)
 
 -- | Get the Nth element after repeating the monadic operation or after short-circuiting on the given function
-pickNthResultM :: Monad m => (a -> m (Bool, a)) -> a -> Int -> m a
+--
+-- This function is kind of equivalent to @head . drop num <$> iterateM f i@ if @iterateM :: (a -> m a) -> a -> m [a]@ existed. but also with
+-- short-circuit if the function @f@ returns @(False, _)@.
+pickNthResultM :: Monad m
+               => (a -> m (Bool, a)) -- ^ The iteration function. If it returns @(False,_)@ this function will terminate
+               -> a -- ^ The initial element
+               -> Int -- ^ Number of times we want to repeat this operation
+               -> m a
 pickNthResultM f i num
   | num > 0 = do
       (continue, newI) <- f i
