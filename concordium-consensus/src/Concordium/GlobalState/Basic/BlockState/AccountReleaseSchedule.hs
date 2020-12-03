@@ -173,7 +173,7 @@ emptyAccountReleaseSchedule = AccountReleaseSchedule Vector.empty Map.empty 0
 addReleases :: ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> AccountReleaseSchedule
 addReleases (l, txh) ars =
   let newIdx = Vector.length $ _values ars
-      (chain, totalAmount, timestamps) = foldr (\(t, a) (next, am, ts) -> (Release t a : next, am + a, t:ts)) ([], 0, []) l in
+      (chain, totalAmount, timestamps) = foldr' (\(t, a) (next, am, ts) -> (Release t a : next, am + a, t:ts)) ([], 0, []) l in
     ars & values %~ flip Vector.snoc (Just (chain, txh))
         & pendingReleases %~ flip (foldl' (\m t -> Map.alter (maybe (Just [newIdx]) (Just . (newIdx :))) t m)) timestamps
         & totalLockedUpBalance +~ totalAmount
