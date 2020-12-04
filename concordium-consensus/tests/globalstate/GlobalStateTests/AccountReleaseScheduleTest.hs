@@ -64,8 +64,8 @@ type ThisMonadConcrete = BlockStateM
 
 --------------------------------- Test values ----------------------------------
 
-instance Arbitrary Timestamp where
-  arbitrary = Timestamp <$> arbitrary
+genTimestamp :: Gen Timestamp
+genTimestamp = Timestamp <$> arbitrary
 
 dummyTransactionHash :: TransactionHash
 dummyTransactionHash = case eitherDecode "\"f26a45adbb7d5cbefd9430d1eac665bd225fb3d8e04efb288d99a0347f0b8868\"" of
@@ -75,7 +75,7 @@ dummyTransactionHash = case eitherDecode "\"f26a45adbb7d5cbefd9430d1eac665bd225f
 transactions :: Int -> IO [[(Timestamp, Amount)]]
 transactions numOfSchedules = do
   let numReleasesInEach = map getPositive <$> vectorOf numOfSchedules arbitrary
-      listsOfTimestamps = fmap (sort . nub . map ((`mod` 200) . getPositive)) . flip vectorOf arbitrary
+      listsOfTimestamps = fmap (sort . nub . map (`mod` 200)) . flip vectorOf genTimestamp
       listsOfTuples = mapM (flip fmap ((`mod` 200) . getPositive <$> arbitrary) . (,))
   generate $ numReleasesInEach >>= mapM (listsOfTimestamps >=> listsOfTuples)
 
