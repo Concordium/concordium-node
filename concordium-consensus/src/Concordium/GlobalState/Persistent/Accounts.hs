@@ -27,7 +27,6 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transie
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
-import Data.Word
 import Data.Foldable (foldrM, foldl')
 
 -- |Representation of the set of accounts on the chain.

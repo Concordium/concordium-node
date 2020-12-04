@@ -45,7 +45,6 @@ basicGenesisState genData =
         (genesisAccounts genData)
         (genesisIdentityProviders genData)
         (genesisAnonymityRevokers genData)
-        (genesisMintPerSlot genData)
         (genesisAuthorizations genData)
         (genesisChainParameters genData)
 
@@ -170,7 +169,6 @@ makeTestingGenesisData
   genesisChainParameters
     = GenesisDataV2 {..}
     where
-        genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters =
           FinalizationParameters {
@@ -210,7 +208,7 @@ dummyRewardParameters = RewardParameters {
 }
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 168 10 dummyRewardParameters
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 168 10 dummyRewardParameters 0
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState
@@ -257,7 +255,7 @@ mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographic
 makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> Account
 makeFakeBakerAccount bid _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey =
     acct & accountAmount .~ balance
-      & accountBaker .~ Just bkr
+      & accountBaker ?~ bkr
   where
     balance = 1000000000000
     staked = 999000000000

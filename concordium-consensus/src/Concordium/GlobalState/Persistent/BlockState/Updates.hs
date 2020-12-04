@@ -455,3 +455,8 @@ lookupEnergyRate uref = do
         Updates{..} <- refLoad uref
         StoreSerialized ChainParameters{..} <- refLoad currentParameters
         return _cpEnergyRate
+
+lookupCurrentParameters :: (MonadBlobStore m) => BufferedRef Updates -> m ChainParameters
+lookupCurrentParameters uref = do
+        Updates{..} <- refLoad uref
+        unStoreSerialized <$> refLoad currentParameters
