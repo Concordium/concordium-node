@@ -187,7 +187,9 @@ data ChainParameters = ChainParameters {
     -- that may be created in one block.
     _cpAccountCreationLimit :: !Word16,
     -- |Reward parameters.
-    _cpRewardParameters :: !RewardParameters
+    _cpRewardParameters :: !RewardParameters,
+    -- |Foundation account index.
+    _cpFoundationAccount :: !AccountIndex
 } deriving (Eq, Show)
 
 makeChainParameters ::
@@ -203,6 +205,8 @@ makeChainParameters ::
     -- ^Account creation limit
     -> RewardParameters
     -- ^Reward parameters
+    -> AccountIndex
+    -- ^Foundation account
     -> ChainParameters
 makeChainParameters
     _cpElectionDifficulty
@@ -211,6 +215,7 @@ makeChainParameters
     _cpBakerExtraCooldownEpochs
     _cpAccountCreationLimit
     _cpRewardParameters
+    _cpFoundationAccount
       = ChainParameters{..}
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
@@ -235,6 +240,10 @@ cpEnergyRate = to _cpEnergyRate
 cpBakerExtraCooldownEpochs :: Lens' ChainParameters Epoch
 cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_cpBakerExtraCooldownEpochs = bce})
 
+{-# INLINE cpFoundationAccount #-}
+cpFoundationAccount :: Lens' ChainParameters AccountIndex
+cpFoundationAccount = lens _cpFoundationAccount (\cp fa -> cp {_cpFoundationAccount = fa})
+
 instance HasRewardParameters ChainParameters where
   rewardParameters = lens _cpRewardParameters (\cp rp -> cp {_cpRewardParameters = rp})
 
@@ -246,7 +255,8 @@ instance Serialize ChainParameters where
     put _cpBakerExtraCooldownEpochs
     put _cpAccountCreationLimit
     put _cpRewardParameters
-  get = makeChainParameters <$> get <*> get <*> get <*> get <*> get <*> get
+    put _cpFoundationAccount
+  get = makeChainParameters <$> get <*> get <*> get <*> get <*> get <*> get <*> get
 
 instance HashableTo Hash.Hash ChainParameters where
   getHash = Hash.hash . encode
@@ -262,6 +272,7 @@ instance FromJSON ChainParameters where
       <*> v .: "bakerCooldownEpochs"
       <*> v .: "accountCreationLimit"
       <*> v .: "rewardParameters"
+      <*> v .: "foundationAccountIndex"
 
 instance ToJSON ChainParameters where
   toJSON ChainParameters{..} = object [
@@ -270,7 +281,8 @@ instance ToJSON ChainParameters where
       "microGTUPerEuro" AE..= _cpMicroGTUPerEuro,
       "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs,
       "accountCreationLimit" AE..= _cpAccountCreationLimit,
-      "rewardParameters" AE..= _cpRewardParameters
+      "rewardParameters" AE..= _cpRewardParameters,
+      "foundationAccountIndex" AE..= _cpFoundationAccount
     ]
 
 data VoterInfo = VoterInfo {
@@ -326,7 +338,6 @@ data GenesisDataV2 = GenesisDataV2 {
     genesisCryptographicParameters :: !CryptographicParameters,
     genesisIdentityProviders :: !IdentityProviders,
     genesisAnonymityRevokers :: !AnonymityRevokers,
-    genesisMintPerSlot :: !Amount,
     genesisMaxBlockEnergy :: !Energy,
     genesisAuthorizations :: !Authorizations,
     genesisChainParameters :: !ChainParameters
@@ -347,7 +358,6 @@ getGenesisDataV2 = do
     genesisCryptographicParameters <- get
     genesisIdentityProviders <- get
     genesisAnonymityRevokers <- get
-    genesisMintPerSlot <- get
     genesisMaxBlockEnergy <- get
     genesisAuthorizations <- get
     genesisChainParameters <- get
@@ -363,7 +373,6 @@ putGenesisDataV2 GenesisDataV2{..} = do
     put genesisCryptographicParameters
     put genesisIdentityProviders
     put genesisAnonymityRevokers
-    put genesisMintPerSlot
     put genesisMaxBlockEnergy
     put genesisAuthorizations
     put genesisChainParameters
@@ -500,7 +509,6 @@ data GenesisParametersV2 = GenesisParametersV2 {
     gpAnonymityRevokers :: AnonymityRevokers,
     -- |Initial accounts
     gpInitialAccounts :: [GenesisAccount],
-    gpMintPerSlot :: Amount,
     -- |Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy,
     -- |The initial update authorizations
@@ -524,7 +532,6 @@ instance FromJSON GenesisParametersV2 where
         let hasBaker GenesisAccount{gaBaker=Nothing} = False
             hasBaker _ = True
         unless (any hasBaker gpInitialAccounts) $ fail "Must have at least one baker at genesis"
-        gpMintPerSlot <-  v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         gpAuthorizations <- v .: "updateAuthorizations"
         gpChainParameters <- v .: "chainParameters"
@@ -550,7 +557,7 @@ data RuntimeParameters = RuntimeParameters {
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
   rpEarlyBlockThreshold :: !Timestamp,
-  -- |Number of insertions to be performed in the trasnaction table before running
+  -- |Number of insertions to be performed in the transaction table before running
   -- a purge to remove long living transactions that have not been executed for more
   -- than `rpTransactionsKeepAliveTime` seconds.
   rpInsertionsBeforeTransactionPurge :: !Int,
@@ -592,12 +599,11 @@ instance FromJSON RuntimeParameters where
 parametersToGenesisData :: GenesisParameters -> GenesisData
 parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
     where
-        genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
 
-        mkAccount (GenesisAccount{..}, bid) =
+        mkAccount GenesisAccount{..} bid =
           let cdv = ID.values gaCredential in
           newAccount genesisCryptographicParameters gaVerifyKeys gaAddress cdv
                 & accountAmount .~ gaBalance
@@ -614,7 +620,7 @@ parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
                       },
                       _bakerPendingChange = NoChange
                     }
-        genesisAccounts = map mkAccount (zip gpInitialAccounts [0..])
+        genesisAccounts = zipWith mkAccount gpInitialAccounts [0..]
         genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders

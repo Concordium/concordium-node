@@ -37,17 +37,20 @@ invariantBlockState bs = do
         let untrackedRegIds = Set.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
         unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
         let
-            tenc = bs ^. blockBank . unhashed . Rewards.totalEncryptedGTU
-            tcb = bs ^. blockBank . unhashed . Rewards.centralBankGTU
-            txc = bs ^. blockBank . unhashed . Rewards.executionCost
+            bank = bs ^. blockBank . unhashed
+            tenc = bank ^. Rewards.totalEncryptedGTU
+            brew = bank ^. Rewards.bakingRewardAccount
+            frew = bank ^. Rewards.finalizationRewardAccount
+            gas = bank ^. Rewards.gasAccount
         checkBinary (==)
-            (totalBalance + tenc + tcb + txc)
-            (bs ^. blockBank . unhashed . Rewards.totalGTU)
+            (totalBalance + tenc + brew + frew + gas)
+            (bank ^. Rewards.totalGTU)
             "=="
             ("Total account balances (" ++ show totalBalance ++
                 ") + total encrypted (" ++ show tenc ++
-                ") + central bank (" ++ show tcb ++
-                ") + execution cost (" ++ show txc ++ ")")
+                ") + baking reward account (" ++ show brew ++
+                ") + finalization reward account (" ++ show frew ++
+                ") + GAS account (" ++ show gas ++ ")")
             "Total GTU"
         checkBinary (==) amp (bs ^. blockAccounts . to Account.accountMap) "==" "computed account map" "recorded account map"
     where
@@ -79,7 +82,7 @@ invariantBlockState bs = do
             Just inst -> do
                 checkBinary (==) owner (instanceOwner $ instanceParameters inst) "==" "account claiming contract ownership" "contract's indicated owner"
                 -- TODO: Add more instance invariant checking
-                return $ bal + (instanceAmount inst)
+                return $ bal + instanceAmount inst
         checkEpochBakers EpochBakers{..} = do
             checkBinary (==) (Vec.length _bakerInfos) (Vec.length _bakerStakes) "==" "#baker infos" "#baker stakes"
             checkBinary (==) _bakerTotalStake (sum _bakerStakes) "==" "baker total stake" "sum of baker stakes"

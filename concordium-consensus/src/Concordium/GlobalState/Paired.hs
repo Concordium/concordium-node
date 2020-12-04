@@ -120,7 +120,7 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
         blockTransactions l
     blockTransactionOutcomesHash (PairBlockData (l, r)) = assert (blockTransactionOutcomesHash l == blockTransactionOutcomesHash r) $ blockTransactionOutcomesHash l
     blockStateHash (PairBlockData (l, r)) = assert (blockStateHash l == blockStateHash r) $ blockStateHash l
-    verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) $ vbsl
+    verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) vbsl
         where
             vbsl = verifyBlockSignature l
     putBlockV1 (PairBlockData (l, _)) = putBlockV1 l
@@ -135,7 +135,7 @@ instance (BlockPendingData l, BlockPendingData r) => BlockPendingData (PairBlock
     blockReceiveTime (PairBlockData (l, r)) = assert (blockReceiveTime l == blockReceiveTime r) $ blockReceiveTime l
 
 instance (Eq l, Eq r) => Eq (PairBlockData l r) where
-    (PairBlockData (l1, r1)) == (PairBlockData (l2, r2)) = assert ((l1 == l2) == (r1 == r2)) $ (l1 == l2)
+    (PairBlockData (l1, r1)) == (PairBlockData (l2, r2)) = assert ((l1 == l2) == (r1 == r2)) $ l1 == l2
 
 instance (Ord l, Ord r) => Ord (PairBlockData l r) where
     compare (PairBlockData (l1, _)) (PairBlockData (l2, _)) = compare l1 l2
@@ -173,7 +173,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
-        assert (((==) `on` (fmap moduleInterface)) m1 m2) $ return m1
+        assert (((==) `on` fmap moduleInterface) m1 m2) $ return m1
     getAccount (ls, rs) addr = do
         a1 <- coerceBSML (getAccount ls addr)
         a2 <- coerceBSMR (getAccount rs addr)
@@ -391,22 +391,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model
         bs2' <- coerceBSMR $ bsoModifyInstance bs2 caddr delta model
         return (bs1', bs2')
-    bsoNotifyExecutionCost (bs1, bs2) amt = do
-        bs1' <- coerceBSML $ bsoNotifyExecutionCost bs1 amt
-        bs2' <- coerceBSMR $ bsoNotifyExecutionCost bs2 amt
-        return (bs1', bs2')
     bsoNotifyEncryptedBalanceChange (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoNotifyEncryptedBalanceChange bs1 amt
         bs2' <- coerceBSMR $ bsoNotifyEncryptedBalanceChange bs2 amt
         return (bs1', bs2')
-    bsoNotifyIdentityIssuerCredential (bs1, bs2) idid = do
-        bs1' <- coerceBSML $ bsoNotifyIdentityIssuerCredential bs1 idid
-        bs2' <- coerceBSMR $ bsoNotifyIdentityIssuerCredential bs2 idid
-        return (bs1', bs2')
-    bsoGetExecutionCost (bs1, bs2) = do
-        r1 <- coerceBSML $ bsoGetExecutionCost bs1
-        r2 <- coerceBSMR $ bsoGetExecutionCost bs2
-        assert (r1 == r2) $ return r1
     bsoGetSeedState (bs1, bs2) = do
         r1 <- coerceBSML $ bsoGetSeedState bs1
         r2 <- coerceBSMR $ bsoGetSeedState bs2
@@ -443,18 +431,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         (r1, bs1') <- coerceBSML $ bsoRewardBaker bs1 bid reward
         (r2, bs2') <- coerceBSMR $ bsoRewardBaker bs2 bid reward
         assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoSetInflation (bs1, bs2) rate = do
-        bs1' <- coerceBSML $ bsoSetInflation bs1 rate
-        bs2' <- coerceBSMR $ bsoSetInflation bs2 rate
+    bsoRewardFoundationAccount (bs1, bs2) reward = do
+        bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
+        bs2' <- coerceBSMR $ bsoRewardFoundationAccount bs2 reward
         return (bs1', bs2')
     bsoMint (bs1, bs2) amt = do
-        (r1, bs1') <- coerceBSML $ bsoMint bs1 amt
-        (r2, bs2') <- coerceBSMR $ bsoMint bs2 amt
-        assert (r1 == r2) $ return (r1, (bs1', bs2'))
-    bsoDecrementCentralBankGTU (bs1, bs2) amt = do
-        (r1, bs1') <- coerceBSML $ bsoDecrementCentralBankGTU bs1 amt
-        (r2, bs2') <- coerceBSMR $ bsoDecrementCentralBankGTU bs2 amt
-        assert (r1 == r2) $ return (r1, (bs1', bs2'))
+        bs1' <- coerceBSML $ bsoMint bs1 amt
+        bs2' <- coerceBSMR $ bsoMint bs2 amt
+        return (bs1', bs2')
     bsoGetIdentityProvider (bs1, bs2) ipid = do
         r1 <- coerceBSML $ bsoGetIdentityProvider bs1 ipid
         r2 <- coerceBSMR $ bsoGetIdentityProvider bs2 ipid
@@ -503,6 +487,31 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoGetEnergyRate bs1
         r2 <- coerceBSMR $ bsoGetEnergyRate bs2
         assert (r1 == r2) $ return r1
+    bsoGetChainParameters (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetChainParameters bs1
+        r2 <- coerceBSMR $ bsoGetChainParameters bs2
+        assert (r1 == r2) $ return r1
+    bsoGetEpochBlocksBaked (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetEpochBlocksBaked bs1
+        r2 <- coerceBSMR $ bsoGetEpochBlocksBaked bs2
+        assert (r1 == r2) $ return r1
+    bsoNotifyBlockBaked (bs1, bs2) bid = do
+        bs1' <- coerceBSML $ bsoNotifyBlockBaked bs1 bid
+        bs2' <- coerceBSMR $ bsoNotifyBlockBaked bs2 bid
+        return (bs1', bs2')
+    bsoClearEpochBlocksBaked (bs1, bs2) = do
+        bs1' <- coerceBSML $ bsoClearEpochBlocksBaked bs1
+        bs2' <- coerceBSMR $ bsoClearEpochBlocksBaked bs2
+        return (bs1', bs2')
+    bsoGetBankStatus (bs1, bs2) = do
+        r1 <- coerceBSML $ bsoGetBankStatus bs1
+        r2 <- coerceBSMR $ bsoGetBankStatus bs2
+        assert (r1 == r2) $ return r1
+    bsoSetRewardAccounts (bs1, bs2) rew = do
+        bs1' <- coerceBSML $ bsoSetRewardAccounts bs1 rew
+        bs2' <- coerceBSMR $ bsoSetRewardAccounts bs2 rew
+        return (bs1', bs2')
+
 
 type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer b)
 
@@ -533,7 +542,7 @@ instance (MonadLogger m,
     saveBlockState (bs1, bs2) = do
         p1 <- coerceBSML $ saveBlockState bs1
         p2 <- coerceBSMR $ saveBlockState bs2
-        return $ (p1, p2)
+        return (p1, p2)
     loadBlockState h (p1, p2) = do
         bs1 <- coerceBSML $ loadBlockState h p1
         bs2 <- coerceBSMR $ loadBlockState h p2

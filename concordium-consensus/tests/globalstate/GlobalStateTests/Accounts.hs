@@ -73,7 +73,7 @@ checkEquivalent ba pa = do
     sameAccPair ::
       (MonadBlobStore m) =>
       Bool -> -- accumulator for the fold in 'sameAccList'
-      ((BAT.AccountIndex, BA.Account), (P.AccountIndex, PA.PersistentAccount)) -> -- the pairs to be compared
+      ((AccountIndex, BA.Account), (AccountIndex, PA.PersistentAccount)) -> -- the pairs to be compared
       m Bool
     sameAccPair b ((bInd, bAcc), (pInd, pAcc)) = do
       sameAcc <- PA.sameAccount bAcc pAcc
