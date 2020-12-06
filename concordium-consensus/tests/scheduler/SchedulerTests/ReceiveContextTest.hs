@@ -12,7 +12,9 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 
+import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState.Accounts
@@ -83,7 +85,8 @@ checkReceiveResult (suc, fails, instances) = do
         selfAddress = Types.ContractAddress 0 0,
         selfBalance = 9, -- balance it was initialized with
         sender = Types.AddressAccount alesAccount,
-        owner = alesAccount
+        owner = alesAccount,
+        rcSenderPolicy = mkSenderPolicy . head $ (mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials)
         }
   let expectedState = Types.encodeChainMeta chainMeta <> encodeReceiveContext receiveCtx
   assertEqual "Instance model is the chain metadata + receive context." model expectedState
