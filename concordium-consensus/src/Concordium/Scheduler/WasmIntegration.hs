@@ -93,7 +93,7 @@ applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResu
                           bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                           return (Just bs)
         wasmBytes = artifact . imWasmArtifact . miModule $ miface
-        initCtxBytes = encodeChainMeta cm <> encode initCtx
+        initCtxBytes = encodeChainMeta cm <> encodeInitContext initCtx
         paramBytes = BSS.fromShort (parameter param)
         energy = fromIntegral iEnergy
         amountWord = _amount amnt
