@@ -86,7 +86,7 @@ checkReceiveResult (suc, fails, instances) = do
         selfBalance = 9, -- balance it was initialized with
         sender = Types.AddressAccount alesAccount,
         owner = alesAccount,
-        rcSenderPolicy = mkSenderPolicy . head $ (mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials)
+        rcSenderPolicies = map mkSenderPolicy $ (mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials)
         }
   let expectedState = Types.encodeChainMeta chainMeta <> encodeReceiveContext receiveCtx
   assertEqual "Instance model is the chain metadata + receive context." model expectedState
