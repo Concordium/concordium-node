@@ -636,10 +636,10 @@ handleInitContract wtc initAmount modref initName param =
             -- is in the future we should be mindful of which balance is exposed.
             -- NB: Using head here feels unsafe, but the global state should maintain that any account
             -- must have credentials.
-            newestCredential <- head <$> getAccountCredentials senderAccount
+            senderCredentials <- getAccountCredentials senderAccount
             let initCtx = Wasm.InitContext{
                   initOrigin = thSender meta,
-                  icSenderPolicy = Wasm.mkSenderPolicy newestCredential
+                  icSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
                }
             result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
                        `rejectingWith'` wasmRejectToRejectReason
@@ -754,7 +754,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
         selfBalance = instanceAmount istance,
         sender = senderAddr,
         owner = instanceOwner iParams,
-        rcSenderPolicy = Wasm.mkSenderPolicy (head senderCredentials)
+        rcSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
         }
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
