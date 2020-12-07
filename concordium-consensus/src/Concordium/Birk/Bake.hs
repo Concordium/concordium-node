@@ -37,7 +37,7 @@ import Concordium.Kontrol.BestBlock
 import qualified Concordium.Kontrol.UpdateLeaderElectionParameters as UEP
 import Concordium.Afgjort.Finalize
 import Concordium.Skov
-import Concordium.Skov.Update (updateFocusBlockTo)
+import Concordium.Skov.Update (blockArrive, onBlock, updateFocusBlockTo, OnSkov)
 
 import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..))
 import Concordium.Scheduler.Types(FilteredTransactions(..))
@@ -180,8 +180,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- commit the new pending transactions to the tree state
     putPendingTransactions ptWithAllUnprocessed
 
-
-doBakeForSlot :: (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+doBakeForSlot :: (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
@@ -214,15 +213,18 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
     stateHash <- getStateHash (_finalState result)
     pb <- makePendingBlock bakerSignKey slot (bpHash bb) bakerId electionProof nonce finData (map fst (ftAdded filteredTxs)) stateHash transactionOutcomesHash receiveTime
-    newbp <- storeBakedBlock pb
-                         bb
-                         lastFinal
-                         result
+    -- Add the baked block to the tree.
+    newbp <- blockArrive pb bb lastFinal result
     -- re-establish invariants in the transaction table/pending table/anf table.
     maintainTransactions newbp filteredTxs
     -- update the current focus block to the newly created block to maintain invariants.
     putFocusBlock newbp
     logEvent Baker LLInfo $ "Finished bake block " ++ show newbp
+    -- notify the finalization routine after the invariants are re-established.
+    lift (finalizationBlockArrival newbp)
+    -- notify of the baked block.
+    lift (onBlock newbp)
+
     return newbp
 
 class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
@@ -233,6 +235,6 @@ class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
-instance (FinalizationMonad (SkovT h c m), MonadIO m, SkovMonad (SkovT h c m), TreeStateMonad (SkovT h c m)) =>
+instance (FinalizationMonad (SkovT h c m), MonadIO m, SkovMonad (SkovT h c m), TreeStateMonad (SkovT h c m), OnSkov (SkovT h c m)) =>
         BakerMonad (SkovT h c m) where
     bakeForSlot = doBakeForSlot
