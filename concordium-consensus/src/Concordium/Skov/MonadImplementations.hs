@@ -277,10 +277,6 @@ instance (
         => SkovMonad (SkovT h c m) where
     {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
-    {- - INLINE storeBakedBlock - -}
-    storeBakedBlock = doStoreBakedBlock
-    {- - INLINE finalizeHandleBakedBlock - -}
-    finalizeHandleBakedBlock = doFinalizeHandleBakedBlock
     {- - INLINE receiveTransaction - -}
     receiveTransaction tr = doReceiveTransaction tr 0
     {- - INLINE trustedFinalize - -}
