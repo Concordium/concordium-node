@@ -887,7 +887,7 @@ logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ cred) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
@@ -898,7 +898,7 @@ logInvalidTransaction WithMetadata{..} fk =
 
 logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ wmdData) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId $ wmdData) ++ " was invalid with reason " ++ show fk
 
 logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
 logInvalidChainUpdate WithMetadata{..} fk =
