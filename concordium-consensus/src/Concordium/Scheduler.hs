@@ -634,8 +634,6 @@ handleInitContract wtc initAmount modref initName param =
             -- sender account. Thus if the initialization function were to observe the current balance it would
             -- be amount - deposit. Currently this is in any case not exposed in contracts, but in case it
             -- is in the future we should be mindful of which balance is exposed.
-            -- NB: Using head here feels unsafe, but the global state should maintain that any account
-            -- must have credentials.
             senderCredentials <- getAccountCredentials senderAccount
             let initCtx = Wasm.InitContext{
                   initOrigin = thSender meta,

@@ -89,7 +89,49 @@ testSingleAttribute = do
       assertEqual "No logs should be produced." [] logs
       assertEqual "State should be the singleton 0" (ContractState (BS.singleton 0)) newState
 
+
+testTwoPoliciesTwoAttributes :: Assertion
+testTwoPoliciesTwoAttributes = do
+  iface <- setup "testTwoPoliciesTwoAttributes"
+  let initCtx4 = InitContext{
+        initOrigin = alesAccount,
+        icSenderPolicies = [
+            SenderPolicy{
+                spIdentityProvider = IP_ID 17,
+                spCreatedAt = 123,
+                spValidTo = 123,
+                spItems = [
+                    (mapping Map.! "countryOfResidence",
+                     AttributeValue (BSS.toShort (BS.pack [1..31]))
+                    )
+                    ]
+                },
+              SenderPolicy{
+                spIdentityProvider = IP_ID 25,
+                spCreatedAt = 456,
+                spValidTo = 456+10,
+                spItems = [
+                    (mapping Map.! "countryOfResidence",
+                     AttributeValue (BSS.toShort (BS.pack [1..31]))
+                    ),
+                    (mapping Map.! "dob",
+                     AttributeValue (BSS.toShort (BS.pack (replicate 13 17)))
+                    )
+                    ]
+                }
+            ]
+        }
+  let res4 = applyInitFun iface Types.dummyChainMeta initCtx4 (InitName "init_context_test_3") (Parameter mempty) 0 1000000
+  case res4 of
+    Nothing -> assertFailure "Initialization failed due to out of energy."
+    Just (Left execFailure, _) -> assertFailure $ "Initalizatio failed due to " ++ show execFailure
+    Just (Right SuccessfulResultData{..}, _) -> do
+      assertEqual "No logs should be produced." [] logs
+      assertEqual "State should be the singleton 0" (ContractState (BS.singleton 0)) newState
+
+
 tests :: Spec
 tests = describe "Init policies test." $ do
   specify "Test with no attributes" testNoAttributes
   specify "Test with single attribute" testSingleAttribute
+  specify "Test with two policies and attributes" testTwoPoliciesTwoAttributes
