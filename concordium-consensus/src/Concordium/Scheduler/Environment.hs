@@ -333,15 +333,15 @@ class StaticInformation m => TransactionMonad m where
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either Instance (Account m) -> Instance -> Amount -> m a -> m a
-  withToContractAmount (Left i) = withContractToContractAmount i
+  withToContractAmount :: Either (Account m, Instance) (Account m) -> Instance -> Amount -> m a -> m a
+  withToContractAmount (Left (_, i)) = withContractToContractAmount i
   withToContractAmount (Right a) = withAccountToContractAmount a
 
   -- |Transfer an amount from the first given instance or account to the account in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToAccountAmount #-}
-  withToAccountAmount :: Either Instance (Account m) -> Account m -> Amount -> m a -> m a
-  withToAccountAmount (Left i) = withContractToAccountAmount i
+  withToAccountAmount :: Either (Account m, Instance) (Account m) -> Account m -> Amount -> m a -> m a
+  withToAccountAmount (Left (_, i)) = withContractToAccountAmount i
   withToAccountAmount (Right a) = withAccountToAccountAmount a
 
   -- |Get the current amount available for an account.
@@ -353,8 +353,8 @@ class StaticInformation m => TransactionMonad m where
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
   {-# INLINE getCurrentAmount #-}
-  getCurrentAmount :: Either Instance (Account m) -> m Amount
-  getCurrentAmount (Left i) = getCurrentContractAmount i
+  getCurrentAmount :: Either (Account m, Instance) (Account m) -> m Amount
+  getCurrentAmount (Left (_, i)) = getCurrentContractAmount i
   getCurrentAmount (Right a) = getCurrentAccountAmount a
 
   -- |Get the current amount on the given account. This value changes
