@@ -300,7 +300,13 @@ data GenesisAccount = GenesisAccount {
   gaAddress :: !AccountAddress,
   gaVerifyKeys :: !ID.AccountKeys,
   gaBalance :: !Amount,
-  gaCredential :: !ID.AccountCredentialWithProofs
+  -- |We only need the credential values. However when parsing we parse a full
+  -- credential, due to some legacy format issues, and then extract the values.
+  -- The legacy issues are that the commitments are part of the "proofs" object
+  -- in the credential, which, in JSON, is represented just as a hex-string.
+  -- This should be reworked at some point, so that it is more principled than
+  -- the current, slighly hacky, solution.
+  gaCredential :: !ID.AccountCredential
 }
 
 instance FromJSON GenesisAccount where
@@ -310,8 +316,10 @@ instance FromJSON GenesisAccount where
     gaBalance <- obj .: "balance"
     Versioned{..} <- obj .: "credential"
     unless (vVersion == 0) $ fail "Only V0 credentials supported in genesis."
-    gaCredential <- parseJSON vValue
-    return GenesisAccount{..}
+    gaCredentialFull <- parseJSON vValue
+    case ID.values gaCredentialFull of
+      Nothing -> fail "Account credential is malformed."
+      Just gaCredential -> return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
@@ -436,8 +444,7 @@ parametersToGenesisData GenesisParametersV1{..} = GenesisDataV1{..}
             (gaBalance gbAccount)
 
         mkAccount GenesisAccount{..} =
-          let cdv = ID.values gaCredential in
-          newAccount genesisCryptographicParameters gaVerifyKeys gaAddress cdv
+          newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
                 & accountAmount .~ gaBalance
         -- Baker accounts will have no special privileges.
         -- We ignore any specified delegation target.
