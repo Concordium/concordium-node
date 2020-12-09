@@ -56,6 +56,8 @@ data TestParameters = TestParameters
   , tpInitialBlockState :: BlockState
     -- | Limit on the total energy the processed transactions can use.
   , tpEnergyLimit :: Energy
+    -- | Limit on the number of credential deployments that can occur in a block.
+  , tpMaxCredentials :: CredentialsPerBlockLimit
     -- | Limit on the total size of the processed transactions.
   , tpSizeLimit :: Integer
   }
@@ -65,6 +67,7 @@ defaultParams = TestParameters
   { tpChainMeta = dummyChainMeta
   , tpInitialBlockState = createBlockState Acc.emptyAccounts
   , tpEnergyLimit = maxBound
+  , tpMaxCredentials = maxBound
   , tpSizeLimit = fromIntegral $ (maxBound :: Int)
   }
 
@@ -96,17 +99,18 @@ data ProcessResult
 runWithIntermediateStates ::
   TestParameters
   -> [TransactionJSON]
-  -> IO [(ProcessResult, BlockState)]
+  -> IO [(ProcessResult, BlockState, Amount)]
 runWithIntermediateStates TestParameters{..} transactions = do
   -- Create actual 'Transaction's from the 'TransactionJSON'.
   txs <- processUngroupedTransactions transactions
-  return $ reverse $ fst $
-    foldl' (\(acc, st) tx ->
+  return $ reverse $ (^. _1) $
+    foldl' (\(acc, st, feesAccum) tx ->
                             let (ft@Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions tpSizeLimit (fromTransactions [tx]))
                                     tpChainMeta
                                     tpEnergyLimit
+                                    tpMaxCredentials
                                     st
                             in if length ftAdded + length ftFailed + length ftUnprocessed == 1
                                   && (length ftFailedCredentials + length ftUnprocessedCredentials == 0)
@@ -116,10 +120,10 @@ runWithIntermediateStates TestParameters{..} transactions = do
                                        | not $ null ftFailed = Failed $ snd $ head ftFailed
                                        | not $ null ftUnprocessed = Unprocessed
                                        | otherwise = error "Failure in test setup."
-                                 in ((res, st' ^. Types.ssBlockState):acc, st' ^. Types.schedulerBlockState)
+                                 in ((res, st' ^. Types.ssBlockState, feesAccum + st' ^. Types.schedulerExecutionCosts):acc, st' ^. Types.schedulerBlockState, feesAccum + st' ^. Types.schedulerExecutionCosts)
                                else error $ "Failure in test setup: Expected one regular transaction in result, but got " ++ show ft
             )
-                      ([], tpInitialBlockState)
+                      ([], tpInitialBlockState, 0)
                       (perAccountTransactions txs)
 
 
@@ -144,11 +148,11 @@ mkSpec TestCase{..} =
   describe "Checking results" $
     forM_ (zip3 [(1 :: Integer)..] results resultSpecs) $
       \( number
-       , (res, bs)
+       , (res, bs, fees)
        , (resultSpec, bsSpec)
        ) -> describe ("Transaction " ++ show number) $ do
         specify "New block state satisfies invariant" $
-          case invariantBlockState bs of
+          case invariantBlockState bs fees of
             Left f -> expectationFailure f
             Right _ -> return ()
         describe "Checks on block state" $ bsSpec bs

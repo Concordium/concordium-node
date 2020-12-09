@@ -224,22 +224,24 @@ transactionsInput =
 type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
                      [(Types.Transaction, Types.FailureKind)],
                      BasicBirkParameters)],
-                    BlockState)
+                    BlockState,
+                    Types.Amount)
 
 runWithIntermediateStates :: IO TestResult
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
-  let (res, state) = foldl (\(acc, st) tx ->
+  let (res, state, feeTotal) = foldl (\(acc, st, fees) tx ->
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
                                     Types.dummyChainMeta
                                     maxBound
+                                    maxBound
                                     st
-                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState))
-                         ([], initialBlockState)
+                            in (acc ++ [(getResults ftAdded, ftFailed, st' ^. Types.ssBlockState . blockBirkParameters)], st' ^. Types.schedulerBlockState, fees + st' ^. Types.schedulerExecutionCosts))
+                         ([], initialBlockState, 0)
                          (Types.perAccountTransactions txs)
-  return (res, state)
+  return (res, state, feeTotal)
 
 keysL :: L.LFMBTree Types.BakerId (Maybe FullBakerInfo) -> [Types.BakerId]
 keysL t = let l = L.toAscPairList t in
@@ -250,10 +252,10 @@ getL t bid = fromJust $ join $ L.lookup bid t
 
 tests :: Spec
 tests = do
-  (results, endState) <- runIO runWithIntermediateStates
+  (results, endState, feeTotal) <- runIO runWithIntermediateStates
   describe "Baker transactions." $ do
     specify "Result state satisfies invariant" $
-        case invariantBlockState endState of
+        case invariantBlockState endState feeTotal of
             Left f -> expectationFailure f
             Right _ -> return ()
     specify "Correct number of transactions" $

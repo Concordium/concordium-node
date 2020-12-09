@@ -188,7 +188,6 @@ main = cmdArgsRun mode >>=
               let totalGTU = genesisTotalGTU genData
 
               putStrLn ""
-              putStrLn $ "Mint per slot amount: " ++ show genesisMintPerSlot
               putStrLn $ "Genesis total GTU: " ++ show totalGTU
               putStrLn $ "Maximum block energy: " ++ show genesisMaxBlockEnergy
 
@@ -213,6 +212,25 @@ main = cmdArgsRun mode >>=
               putStrLn $ "  - Euro per Energy rate: " ++ show _cpEuroPerEnergy
               putStrLn $ "  - microGTU per Euro rate: " ++ show _cpMicroGTUPerEuro
               putStrLn $ "  - baker extra cooldown epochs: " ++ show _cpBakerExtraCooldownEpochs
+              putStrLn $ "  - maximum credential deployments per block: " ++ show _cpAccountCreationLimit
+              putStrLn "  - reward parameters:"
+              putStrLn $ "    + mint rate per slot: " ++ show (_cpRewardParameters ^. rpMintPerSlot)
+              putStrLn "    + mint distribution:"
+              putStrLn $ "      * baking reward: " ++ show (_cpRewardParameters ^. mdBakingReward)
+              putStrLn $ "      * finalization reward: " ++ show (_cpRewardParameters ^. mdFinalizationReward)
+              putStrLn "    + transaction fee distribution:"
+              putStrLn $ "      * baker: " ++ show (_cpRewardParameters ^. tfdBaker)
+              putStrLn $ "      * GAS account: " ++ show (_cpRewardParameters ^. tfdGASAccount)
+              putStrLn "    + GAS rewards:"
+              putStrLn $ "      * baking a block: " ++ show (_cpRewardParameters ^. gasBaker)
+              putStrLn $ "      * adding a finalization proof: " ++ show (_cpRewardParameters ^. gasBaker)
+              putStrLn $ "      * adding a credential deployment: " ++ show (_cpRewardParameters ^. gasBaker)
+              putStrLn $ "      * adding a chain update: " ++ show (_cpRewardParameters ^. gasBaker)
+
+              let foundAcc = case genesisAccounts ^? ix (fromIntegral _cpFoundationAccount) of
+                    Nothing -> "INVALID (" ++ show _cpFoundationAccount ++ ")"
+                    Just acc -> show (_accountAddress $ _accountPersisting acc) ++ " (" ++ show _cpFoundationAccount ++ ")"
+              putStrLn $ "  - foundation account: " ++ foundAcc
 
               putStrLn ""
               putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters

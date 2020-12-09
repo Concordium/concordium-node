@@ -77,9 +77,10 @@ testMaxBlockEnergy = do
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
             Types.dummyChainMeta
             maxBlockEnergy
+            maxBound
             initialBlockState
     let gstate = finState ^. Types.ssBlockState
-    case invariantBlockState gstate of
+    case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftFailedCredentials, ftUnprocessed, concat (Types.perAccountTransactions ts))
 

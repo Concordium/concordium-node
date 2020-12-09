@@ -72,9 +72,10 @@ testSimpleTransfer = do
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             Types.dummyChainMeta
             maxBound
+            maxBound
             initialBlockState
     let gstate = finState ^. Types.ssBlockState
-    case invariantBlockState gstate of
+    case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure f
         Right _ -> return ()
     return (getResults ftAdded,

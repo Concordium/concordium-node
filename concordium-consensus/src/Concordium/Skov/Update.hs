@@ -26,12 +26,13 @@ import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.AccountTransactionIndex
 
-import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult)
+import Concordium.Scheduler.TreeStateEnvironment(executeFrom, ExecutionResult'(..), ExecutionResult, FinalizerInfo)
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
@@ -71,6 +72,11 @@ updateFocusBlockTo newBB = do
                 GT -> do
                   parent <- bpParent oBB
                   updatePTs parent nBB forw (reversePTT (blockTransactions oBB) pts)
+
+makeFinalizerInfo :: FinalizationCommittee -> FinalizerInfo
+makeFinalizerInfo = fmap finfo . parties
+    where
+        finfo p = (partyBakerId p, partyWeight p)
 
 -- |A monad implementing 'OnSkov' provides functions for responding to
 -- a block being added to the tree, and a finalization record being verified.
@@ -267,7 +273,7 @@ addBlock block = do
             case blockFinalizationData block of
                 -- If the block contains no finalization data, it is trivially valid and
                 -- inherits the last finalized pointer from the parent.
-                NoFinalizationData -> tryAddParentLastFin parentP =<< bpLastFinalized parentP
+                NoFinalizationData -> tryAddParentLastFin parentP Nothing =<< bpLastFinalized parentP
                 -- If the block contains a finalization record...
                 BlockFinalizationData finRec@FinalizationRecord{finalizationBlockPointer=finBP,..} -> do
                     -- Get whichever block was finalized at the previous index.
@@ -285,8 +291,8 @@ addBlock block = do
                             -- record for.  Furthermore, if the parent block is finalized now,
                             -- it has to be the last finalized block.
                             getBlockStatus (bpHash parentP) >>= \case
-                                Just (BlockAlive{}) -> return True
-                                Just (BlockFinalized{}) -> do
+                                Just BlockAlive{} -> return True
+                                Just BlockFinalized{} -> do
                                     -- The last finalized block may have changed as a result
                                     -- of the call to finalizationReceiveRecord.
                                     (lf, _) <- getLastFinalized
@@ -297,14 +303,17 @@ addBlock block = do
                     -- check that the finalized block at the previous index
                     -- is the last finalized block of the parent
                     check "invalid finalization" (finOK && previousFinalized == Just (bpLastFinalizedHash  parentP)) $
-                        -- Check that the finalized block at the given index
-                        -- is actually the one named in the finalization record.
-                        blockAtFinIndex finalizationIndex >>= \case
-                            Just fbp -> check "finalization inconsistency" (bpHash fbp == finBP) $
-                                            tryAddParentLastFin parentP fbp
-                            Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
-        tryAddParentLastFin :: BlockPointerType m -> BlockPointerType m -> m UpdateResult
-        tryAddParentLastFin parentP lfBlockP =
+                        finalizationUnsettledRecordAt finalizationIndex >>= \case
+                            Nothing -> invalidBlock $ "no unsettled finalization at index " ++ show finalizationIndex
+                            Just (_,committee,_) ->
+                                -- Check that the finalized block at the given index
+                                -- is actually the one named in the finalization record.
+                                blockAtFinIndex finalizationIndex >>= \case
+                                    Just fbp -> check "finalization inconsistency" (bpHash fbp == finBP) $
+                                                    tryAddParentLastFin parentP (Just (makeFinalizerInfo committee)) fbp
+                                    Nothing -> invalidBlock $ "no finalized block at index " ++ show finalizationIndex
+        tryAddParentLastFin :: BlockPointerType m -> Maybe FinalizerInfo -> BlockPointerType m -> m UpdateResult
+        tryAddParentLastFin parentP mfinInfo lfBlockP =
             -- Check that the blockSlot is beyond the parent slot
             check ("block slot (" ++ show (blockSlot block) ++ ") not later than parent block slot (" ++ show (blockSlot parentP) ++ ")") (blockSlot parentP < blockSlot block) $ do
                 -- get Birk parameters from the __parent__ block. The baker must have existed in that
@@ -343,7 +352,7 @@ addBlock block = do
                             -- Update the seed state with the block nonce
                             let newSeedState = updateSeedState (blockSlot block) (blockNonce block) parentSeedState
                             let ts = blockTransactions block
-                            executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) newSeedState ts >>= \case
+                            executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) mfinInfo newSeedState ts >>= \case
                                 Left err -> do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock "execution failure"

@@ -40,9 +40,9 @@ import Concordium.Kontrol.BestBlock
 import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
 import Concordium.Skov
-import Concordium.Skov.Update (updateFocusBlockTo)
+import Concordium.Skov.Update (updateFocusBlockTo, makeFinalizerInfo)
 
-import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..))
+import Concordium.Scheduler.TreeStateEnvironment(constructBlock, ExecutionResult, ExecutionResult'(..), FinalizerInfo)
 import Concordium.Scheduler.Types(FilteredTransactions(..))
 
 import Concordium.Logger
@@ -81,15 +81,16 @@ processTransactions
     -> SeedState
     -> BlockPointerType m
     -> BlockPointerType m
+    -> Maybe FinalizerInfo
     -> BakerId
     -> m (FilteredTransactions, ExecutionResult m)
-processTransactions slot ss bh finalizedP bid = do
+processTransactions slot ss bh finalizedP mfinInfo bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
   -- at this point we can construct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
   slotTime <- getSlotTimestamp slot
-  constructBlock slot slotTime bh finalizedP bid ss
+  constructBlock slot slotTime bh finalizedP bid mfinInfo ss
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
@@ -218,19 +219,19 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     logEvent Baker LLInfo $ "Won lottery in " ++ show slot ++ "(lottery power: " ++ show lotteryPower ++ "; election difficulty: " ++ show elDiff ++ ")"
     let nonce = computeBlockNonce leNonce slot bakerElectionKey
     nfr <- lift (nextFinalizationRecord bb)
-    (lastFinal, finData) <- case nfr of
-        Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
-        Just finRec ->
+    (lastFinal, mfinInfo, finData) <- case nfr of
+        Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
+        Just (_, finCom, finRec) ->
             resolveBlock (finalizationBlockPointer finRec) >>= \case
                 -- It is possible that we have a finalization proof but we
                 -- don't actually have the block that was finalized.
                 -- Possibly we should not even bake in this situation.
-                Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
-                Just finBlock -> return (finBlock, BlockFinalizationData finRec)
+                Nothing -> (, Nothing, NoFinalizationData) <$> bpLastFinalized bb
+                Just finBlock -> return (finBlock, Just (makeFinalizerInfo finCom), BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
     let newSeedState = updateSeedState slot nonce oldSeedState
     -- Results = {_energyUsed, _finalState, _transactionLog}
-    (filteredTxs, result) <- lift (processTransactions slot newSeedState bb lastFinal bakerId)
+    (filteredTxs, result) <- lift (processTransactions slot newSeedState bb lastFinal mfinInfo bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
