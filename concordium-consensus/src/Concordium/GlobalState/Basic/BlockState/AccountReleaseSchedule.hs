@@ -50,7 +50,7 @@ instance Serialize AccountReleaseSchedule where
     let _totalLockedUpBalance = foldl' (\acc (a, _) -> acc + a) 0 _pendingReleases
     return AccountReleaseSchedule{..}
   put AccountReleaseSchedule{..} =
-    putSafeMapOf putWord64be put put _pendingReleases
+    putSafeMapOf put put _pendingReleases
 
 -- | Create an empty account release schedule
 emptyAccountReleaseSchedule :: AccountReleaseSchedule

@@ -871,6 +871,14 @@ doRewardFoundationAccount pbs reward = do
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = newAccounts})
 
+doGetFoundationAccount :: MonadBlobStore m => PersistentBlockState -> m PersistentAccount
+doGetFoundationAccount pbs = do
+        bsp <- loadPBS pbs
+        foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
+        macc <- Accounts.indexedAccount foundationAccount (bspAccounts bsp)
+        case macc of
+            Nothing -> error "bsoGetFoundationAccount: invalid foundation account"
+            Just acc -> return acc
 
 doMint :: MonadBlobStore m => PersistentBlockState -> MintAmounts -> m PersistentBlockState
 doMint pbs mint = do
@@ -1264,6 +1272,7 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoRemoveBaker = doRemoveBaker
     bsoRewardBaker = doRewardBaker
     bsoRewardFoundationAccount = doRewardFoundationAccount
+    bsoGetFoundationAccount = doGetFoundationAccount
     bsoMint = doMint
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers

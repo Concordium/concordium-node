@@ -26,8 +26,8 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 checkBinary :: (Show a, Show b) => (a -> b -> Bool) -> a -> b -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
-invariantBlockState :: BlockState -> Either String ()
-invariantBlockState bs = do
+invariantBlockState :: BlockState -> Amount -> Either String ()
+invariantBlockState bs extraBalance = do
         (creds, amp, totalBalance, remainingIds, remainingKeys, ninstances) <- foldM checkAccount (Set.empty, Map.empty, 0, bs ^. blockBirkParameters . birkActiveBakers . activeBakers, bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys, 0) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
         unless (Set.null remainingIds) $ Left $ "Active bakers with no baker record: " ++ show (Set.toList remainingIds)
         unless (Set.null remainingKeys) $ Left $ "Unaccounted for baker aggregation keys: " ++ show (Set.toList remainingKeys)
@@ -43,14 +43,15 @@ invariantBlockState bs = do
             frew = bank ^. Rewards.finalizationRewardAccount
             gas = bank ^. Rewards.gasAccount
         checkBinary (==)
-            (totalBalance + tenc + brew + frew + gas)
+            (totalBalance + tenc + brew + frew + gas + extraBalance)
             (bank ^. Rewards.totalGTU)
             "=="
             ("Total account balances (" ++ show totalBalance ++
                 ") + total encrypted (" ++ show tenc ++
                 ") + baking reward account (" ++ show brew ++
                 ") + finalization reward account (" ++ show frew ++
-                ") + GAS account (" ++ show gas ++ ")")
+                ") + GAS account (" ++ show gas ++
+                ") + extra balance (" ++ show extraBalance ++ ")")
             "Total GTU"
         checkBinary (==) amp (bs ^. blockAccounts . to Account.accountMap) "==" "computed account map" "recorded account map"
     where

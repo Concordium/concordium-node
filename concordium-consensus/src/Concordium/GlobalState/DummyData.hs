@@ -191,7 +191,7 @@ emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (account
 dummyRewardParameters :: RewardParameters
 dummyRewardParameters = RewardParameters {
     _rpMintPerSlot = MintRate 1 12,
-    _rpMintDistrubution = MintDistribution {
+    _rpMintDistribution = MintDistribution {
       _mdBakingReward = RewardFraction 60000, -- 60%
       _mdFinalizationReward = RewardFraction 30000 -- 30%
     },
