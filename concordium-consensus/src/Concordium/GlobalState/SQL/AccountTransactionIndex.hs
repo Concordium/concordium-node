@@ -21,6 +21,7 @@ import Database.Persist.Postgresql.JSON()
 import Database.Persist.TH
 import Data.Pool
 import qualified Data.Aeson as AE
+import qualified Data.Map as Map
 
 import Control.Monad.Logger
 import Control.Monad.Reader
@@ -60,29 +61,20 @@ type PersistentTransactionOutcome = Either TransactionSummary SpecialTransaction
 -- into the postgresql backend. Note that this will make only one database commit as it uses
 -- `runSqlConn` internally.
 writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
-writeEntries pool BlockContext{..} ati sto = do
+writeEntries pool BlockContext{..} ati stos = do
   runPostgres pool c
   where c :: ReaderT SqlBackend (NoLoggingT IO) ()
         c = do
-          let createSummary :: v -> (v -> PersistentTransactionOutcome) -> Summary
-              createSummary v constructor = Summary {
-                summaryBlock = ByteStringSerialized bcHash,
-                summarySummary = AE.toJSON (constructor v),
-                summaryTimestamp = bcTime,
-                summaryHeight = bcHeight}
+          let
               -- In these collections the transaction outcomes are
               -- mapped to the database values.
               atiWithDatabaseValues = reverse $ -- reverse is because the latest entry is the head of the list
-                fmap (\(k, v) -> (createSummary v Left
+                fmap (\(k, v) -> (createSummary (Left v)
                                 , Entry (ByteStringSerialized k))) (accountLogIndex ati)
 
               ctiWithDatabaseValues = reverse $
-                fmap (\(k, v) -> (createSummary v Left
+                fmap (\(k, v) -> (createSummary (Left v)
                                 , ContractEntry (contractIndex k) (contractSubindex k))) (contractLogIndex ati)
-
-              stoWithDatabaseValues =
-                fmap (\v ->  (createSummary v Right
-                            , Entry (ByteStringSerialized $ stoBakerAccount v))) sto
 
               -- Insert all the Summaries, get the keys in the same query (postgresql does it in one query)
               -- and insert all the entries after adding the correct `Key Summary` to each one of them.
@@ -98,5 +90,21 @@ writeEntries pool BlockContext{..} ati sto = do
 
           runInsertion atiWithDatabaseValues
           runContractInsertion ctiWithDatabaseValues
-          runInsertion stoWithDatabaseValues
-          pure ()
+          mapM_ summarizeSTO stos
+        summarizeSTO :: SpecialTransactionOutcome -> ReaderT SqlBackend (NoLoggingT IO) ()
+        summarizeSTO sto = do
+          -- Insert the summary for the special transaction outcome
+          k <- insert $ createSummary (Right sto)
+          -- Index the summary for every account mentioned in the STO
+          insertMany_ [Entry (ByteStringSerialized acc) k | acc <- stoAccounts sto]
+        stoAccounts :: SpecialTransactionOutcome -> [AccountAddress]
+        stoAccounts BakingRewards{..} = Map.keys . accountAmounts $ stoBakerRewards
+        stoAccounts Mint{..} = [stoFoundationAccount]
+        stoAccounts FinalizationRewards{..} = Map.keys . accountAmounts $ stoFinalizationRewards
+        stoAccounts BlockReward{..} = [stoBaker, stoFoundationAccount]
+        createSummary :: PersistentTransactionOutcome -> Summary
+        createSummary v = Summary {
+          summaryBlock = ByteStringSerialized bcHash,
+          summarySummary = AE.toJSON v,
+          summaryTimestamp = bcTime,
+          summaryHeight = bcHeight}

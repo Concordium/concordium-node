@@ -142,7 +142,7 @@ data RewardParameters = RewardParameters {
     -- |Per slot mint rate.
     _rpMintPerSlot :: !MintRate,
     -- |Distribution of newly-minted GTUs.
-    _rpMintDistrubution :: !MintDistribution,
+    _rpMintDistribution :: !MintDistribution,
     -- |Distribution of transaction fees.
     _rpTransactionFeeDistribution :: !TransactionFeeDistribution,
     -- |Rewards paid from the GAS account.
@@ -150,17 +150,26 @@ data RewardParameters = RewardParameters {
 } deriving (Eq, Show)
 makeClassy ''RewardParameters
 
+instance HasMintDistribution RewardParameters where
+  mintDistribution = rpMintDistribution
+
+instance HasTransactionFeeDistribution RewardParameters where
+  transactionFeeDistribution = rpTransactionFeeDistribution
+
+instance HasGASRewards RewardParameters where
+  gASRewards = rpGASRewards
+
 $(deriveJSON AE.defaultOptions{AE.fieldLabelModifier = firstLower . drop 3} ''RewardParameters)
 
 instance Serialize RewardParameters where
   put RewardParameters{..} = do
     put _rpMintPerSlot
-    put _rpMintDistrubution
+    put _rpMintDistribution
     put _rpTransactionFeeDistribution
     put _rpGASRewards
   get = do
     _rpMintPerSlot <- get
-    _rpMintDistrubution <- get
+    _rpMintDistribution <- get
     _rpTransactionFeeDistribution <- get
     _rpGASRewards <- get
     return RewardParameters{..}
@@ -185,7 +194,7 @@ data ChainParameters = ChainParameters {
     _cpBakerExtraCooldownEpochs :: !Epoch,
     -- |LimitAccountCreation: the maximum number of accounts
     -- that may be created in one block.
-    _cpAccountCreationLimit :: !Word16,
+    _cpAccountCreationLimit :: !CredentialsPerBlockLimit,
     -- |Reward parameters.
     _cpRewardParameters :: !RewardParameters,
     -- |Foundation account index.
@@ -201,7 +210,7 @@ makeChainParameters ::
     -- ^uGTU:Euro rate
     -> Epoch
     -- ^Baker cooldown
-    -> Word16
+    -> CredentialsPerBlockLimit
     -- ^Account creation limit
     -> RewardParameters
     -- ^Reward parameters
@@ -243,6 +252,10 @@ cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_c
 {-# INLINE cpFoundationAccount #-}
 cpFoundationAccount :: Lens' ChainParameters AccountIndex
 cpFoundationAccount = lens _cpFoundationAccount (\cp fa -> cp {_cpFoundationAccount = fa})
+
+{-# INLINE cpAccountCreationLimit #-}
+cpAccountCreationLimit :: Lens' ChainParameters CredentialsPerBlockLimit
+cpAccountCreationLimit = lens _cpAccountCreationLimit (\cp acl -> cp {_cpAccountCreationLimit = acl})
 
 instance HasRewardParameters ChainParameters where
   rewardParameters = lens _cpRewardParameters (\cp rp -> cp {_cpRewardParameters = rp})

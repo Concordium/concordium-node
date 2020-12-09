@@ -435,6 +435,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoRewardFoundationAccount bs1 reward
         bs2' <- coerceBSMR $ bsoRewardFoundationAccount bs2 reward
         return (bs1', bs2')
+    bsoGetFoundationAccount (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetFoundationAccount bs1
+        a2 <- coerceBSMR $ bsoGetFoundationAccount bs2
+        return (a1, a2)
     bsoMint (bs1, bs2) amt = do
         bs1' <- coerceBSML $ bsoMint bs1 amt
         bs2' <- coerceBSMR $ bsoMint bs2 amt

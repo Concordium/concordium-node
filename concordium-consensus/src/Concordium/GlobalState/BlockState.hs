@@ -272,6 +272,17 @@ data MintAmounts = MintAmounts {
     mintDevelopmentCharge :: !Amount
   } deriving (Eq,Show)
 
+instance Semigroup MintAmounts where
+  a1 <> a2 = MintAmounts {
+      mintBakingReward = mintBakingReward a1 + mintBakingReward a2,
+      mintFinalizationReward = mintFinalizationReward a1 + mintFinalizationReward a2,
+      mintDevelopmentCharge = mintDevelopmentCharge a1 + mintDevelopmentCharge a2
+    }
+
+instance Monoid MintAmounts where
+  mempty = MintAmounts 0 0 0
+  mconcat = foldl' (<>) mempty
+
 mintTotal :: MintAmounts -> Amount
 mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDevelopmentCharge
 
@@ -453,6 +464,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Add an amount to the foundation account.
   bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
+  -- |Get the foundation account.
+  bsoGetFoundationAccount :: UpdatableBlockState m -> m (Account m)
 
   -- FIXME: Remove
   -- |Set the amount of minted GTU per slot.
@@ -661,6 +675,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoRewardBaker s bid amt = lift $ bsoRewardBaker s bid amt
   bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
+  bsoGetFoundationAccount = lift . bsoGetFoundationAccount
   bsoMint s = lift . bsoMint s
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
@@ -699,6 +714,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoUpdateBakerRestakeEarnings #-}
   {-# INLINE bsoRemoveBaker #-}
   {-# INLINE bsoRewardBaker #-}
+  {-# INLINE bsoGetFoundationAccount #-}
   {-# INLINE bsoRewardFoundationAccount #-}
   {-# INLINE bsoMint #-}
   {-# INLINE bsoGetIdentityProvider #-}
