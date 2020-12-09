@@ -56,7 +56,7 @@ instance ResourceMeasure Energy where
   {-# INLINE fromEnergy #-}
   fromEnergy = id
 
--- |Meaures the cost of running the interpreter.
+-- |Measures the cost of running the interpreter.
 instance ResourceMeasure Wasm.InterpreterEnergy where
   {-# INLINE toEnergy #-}
   toEnergy = Cost.fromInterpreterEnergy
@@ -88,6 +88,9 @@ class Monad m => StaticInformation m where
 
   -- |Get maximum allowed block energy.
   getMaxBlockEnergy :: m Energy
+
+  -- |Get maximum number of account creation transactions per block.
+  getAccountCreationLimit :: m CredentialsPerBlockLimit
 
 -- |Information needed to execute transactions in the form that is easy to use.
 class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m)), AccountOperations m, MonadLogger m) => SchedulerMonad m where
@@ -160,14 +163,9 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- |Get the next transaction index in the block, and increase the internal counter
   bumpTransactionIndex :: m TransactionIndex
 
-  -- |Notify the global state that the amount was charged for execution. This
-  -- can be then reimbursed to the baker, or some other logic can be implemented
-  -- on top of it.
+  -- |Record that the amount was charged for execution. Amount is distributed
+  -- at the end of block execution in accordance with the tokenomics principles.
   notifyExecutionCost :: Amount -> m ()
-
-  -- |Notify that an identity provider had a valid credential on the sender's
-  -- account and should be rewarded because of it.
-  notifyIdentityProviderCredential :: ID.IdentityProviderIdentity -> m ()
 
   -- |Notify the state that an amount has been transferred from public to
   -- encrypted or vice-versa.
@@ -740,6 +738,9 @@ instance StaticInformation m => StaticInformation (LocalT r m) where
   {-# INLINE getModuleInterfaces #-}
   getModuleInterfaces = liftLocal . getModuleInterfaces
 
+  {-# INLINE getAccountCreationLimit #-}
+  getAccountCreationLimit = liftLocal getAccountCreationLimit
+
 deriving via (MGSTrans (LocalT r) m) instance AccountOperations m => AccountOperations (LocalT r m)
 
 instance SchedulerMonad m => TransactionMonad (LocalT r m) where
@@ -796,8 +797,7 @@ instance SchedulerMonad m => TransactionMonad (LocalT r m) where
   addEncryptedAmount acc newAmount = do
     addr <- getAccountAddress acc
     changeSet . accountUpdates . at' addr . non (emptyAccountUpdate addr) . auEncrypted ?= Add{..}
-    nextIndex <- getAccountEncryptedAmountNextIndex acc
-    return nextIndex
+    getAccountEncryptedAmountNextIndex acc
 
   addSelfEncryptedAmount acc transferredAmount newAmount = do
     addr <- getAccountAddress acc

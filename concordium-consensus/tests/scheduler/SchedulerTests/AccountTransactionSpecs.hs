@@ -48,36 +48,37 @@ testAccountCreation ::
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
      [Maybe Account],
      Account,
-     Types.BankStatus)
+     Amount)
 testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             Types.dummyChainMeta
             maxBound
+            maxBound
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
-    case invariantBlockState state of
+    case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
     return (getResults ftAdded, ftFailedCredentials,
             map (\addr -> accounts ^? ix addr) accAddrs, accounts ^. singular (ix alesAccount),
-            state ^. blockBank . unhashed)
+            finState ^. Types.schedulerExecutionCosts)
 
 checkAccountCreationResult ::
   ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
      [Maybe Account],
      Account,
-     Types.BankStatus)
+     Amount)
   -> Assertion
-checkAccountCreationResult (suc, fails, stateAccs, stateAles, bankState) = do
+checkAccountCreationResult (suc, fails, stateAccs, stateAles, executionCost) = do
   assertEqual "All but the 4th transaction should fail." 1 (length fails)
   assertEqual "Account should keep the initial amount." initialAmount (stateAles ^. accountAmount)
-  assertEqual "Execution cost should be 0." 0 (bankState ^. Types.executionCost)
-  assertEqual "Total amount of tokens is maintained." initialAmount (stateAles ^. accountAmount + bankState ^. Types.executionCost)
+  assertEqual "Execution cost should be 0." 0 executionCost
+  assertEqual "Total amount of tokens is maintained." initialAmount (stateAles ^. accountAmount + executionCost)
 
   -- FIXME: Make these more fine-grained so that failures are understandable.
   assertBool "Successful transaction results." txsuc

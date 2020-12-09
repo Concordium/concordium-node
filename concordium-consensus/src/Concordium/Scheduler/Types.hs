@@ -29,6 +29,9 @@ dummyChainMeta = ChainMetadata { slotNumber = 0
                                , slotTime = 0
                                }
 
+dummyMaxCredentials :: CredentialsPerBlockLimit
+dummyMaxCredentials = 10
+
 -- |Result of constructing a block from 'GroupedTransactions'.
 data FilteredTransactions = FilteredTransactions {
   -- |Transactions which have been added to the block, in the order added, with results.

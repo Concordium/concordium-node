@@ -193,8 +193,7 @@ main = do
                      [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                      (Energy maxBound)
                      dummyAuthorizations
-                     (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4)
-    print gen
+                     (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n))
     forM_ bis $ \(bid@BakerIdentity{..}, binfo) -> putStrLn ("Baker " ++ show bakerId ++ ":\n  sign:" ++ show (bakerSignPublicKey bid) ++ "\n  info:" ++ show binfo)
     trans <- (difficultyUpdateTransactions now ++) . transactions <$> newStdGen
     createDirectoryIfMissing True "data"
