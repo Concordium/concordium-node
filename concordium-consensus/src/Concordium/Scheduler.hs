@@ -1073,7 +1073,7 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
           chargeExecutionCost txHash senderAccount energyCost
 
-          let challenge = addBakerChallenge senderAddress bkuElectionKey bkuSignKey bkuAggregationKey
+          let challenge = updateBakerKeyChallenge senderAddress bkuElectionKey bkuSignKey bkuAggregationKey
               electionP = checkElectionKeyProof challenge bkuElectionKey bkuProofElection
               signP = checkSignatureVerifyKeyProof challenge bkuSignKey bkuProofSig
               aggregationP = Bls.checkProofOfKnowledgeSK challenge bkuProofAggregation bkuAggregationKey
