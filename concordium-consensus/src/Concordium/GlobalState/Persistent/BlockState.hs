@@ -898,6 +898,11 @@ doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccount addr (bspAccounts bsp)
 
+doGetAccountIndex :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> m (Maybe AccountIndex)
+doGetAccountIndex pbs addr = do
+        bsp <- loadPBS pbs
+        Accounts.getAccountIndex addr (bspAccounts bsp)
+
 doAccountList :: MonadBlobStore m => PersistentBlockState -> m [AccountAddress]
 doAccountList pbs = do
         bsp <- loadPBS pbs
@@ -1081,11 +1086,11 @@ doGetCurrentElectionDifficulty pbs = do
 doGetUpdates :: MonadBlobStore m => PersistentBlockState -> m Basic.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
-doProcessUpdateQueues :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m PersistentBlockState
+doProcessUpdateQueues :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState)
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
-        u' <- processUpdateQueues ts (bspUpdates bsp)
-        storePBS pbs bsp{bspUpdates = u'}
+        (changes, u') <- processUpdateQueues ts (bspUpdates bsp)
+        (changes,) <$> storePBS pbs bsp{bspUpdates = u'}
 
 doProcessReleaseSchedule :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m PersistentBlockState
 doProcessReleaseSchedule pbs ts = do
@@ -1117,7 +1122,7 @@ doGetCurrentAuthorizations pbs = do
         u <- refLoad (bspUpdates bsp)
         unStoreSerialized <$> refLoad (currentAuthorizations u)
 
-doEnqueueUpdate :: MonadBlobStore m => PersistentBlockState -> TransactionTime -> UpdatePayload -> m PersistentBlockState
+doEnqueueUpdate :: MonadBlobStore m => PersistentBlockState -> TransactionTime -> UpdateValue -> m PersistentBlockState
 doEnqueueUpdate pbs effectiveTime payload = do
         bsp <- loadPBS pbs
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
@@ -1254,6 +1259,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
     bsoGetAccount = doGetAccount
+    bsoGetAccountIndex = doGetAccountIndex
     bsoGetInstance = doGetInstance
     bsoRegIdExists = doRegIdExists
     bsoCreateAccount = doCreateAccount

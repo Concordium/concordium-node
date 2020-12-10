@@ -7,6 +7,7 @@ import Data.Aeson as AE
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.Map as Map
 import Data.Semigroup
 import Data.Serialize
 import Lens.Micro.Platform
@@ -78,7 +79,15 @@ data PendingUpdates = PendingUpdates {
     -- |Updates to the euro:energy exchange rate.
     _pEuroPerEnergyQueue :: !(UpdateQueue ExchangeRate),
     -- |Updates to the GTU:euro exchange rate.
-    _pMicroGTUPerEuroQueue :: !(UpdateQueue ExchangeRate)
+    _pMicroGTUPerEuroQueue :: !(UpdateQueue ExchangeRate),
+    -- |Updates to the foundation account.
+    _pFoundationAccountQueue :: !(UpdateQueue AccountIndex),
+    -- |Updates to the mint distribution.
+    _pMintDistributionQueue :: !(UpdateQueue MintDistribution),
+    -- |Updates to the transaction fee distribution.
+    _pTransactionFeeDistributionQueue :: !(UpdateQueue TransactionFeeDistribution),
+    -- |Updates to the GAS rewards.
+    _pGASRewardsQueue :: !(UpdateQueue GASRewards)
 } deriving (Show, Eq)
 makeLenses ''PendingUpdates
 
@@ -89,6 +98,10 @@ instance HashableTo H.Hash PendingUpdates where
             <> hsh _pElectionDifficultyQueue
             <> hsh _pEuroPerEnergyQueue
             <> hsh _pMicroGTUPerEuroQueue
+            <> hsh _pFoundationAccountQueue
+            <> hsh _pMintDistributionQueue
+            <> hsh _pTransactionFeeDistributionQueue
+            <> hsh _pGASRewardsQueue
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
@@ -99,7 +112,11 @@ instance ToJSON PendingUpdates where
             "protocol" AE..= _pProtocolQueue,
             "electionDifficulty" AE..= _pElectionDifficultyQueue,
             "euroPerEnergy" AE..= _pEuroPerEnergyQueue,
-            "microGTUPerEuro" AE..= _pMicroGTUPerEuroQueue
+            "microGTUPerEuro" AE..= _pMicroGTUPerEuroQueue,
+            "foundationAccount" AE..= _pFoundationAccountQueue,
+            "mintDistribution" AE..= _pMintDistributionQueue,
+            "transactionFeeDistribution" AE..= _pTransactionFeeDistributionQueue,
+            "gasRewards" AE..= _pGASRewardsQueue
         ]
 
 instance FromJSON PendingUpdates where
@@ -109,11 +126,24 @@ instance FromJSON PendingUpdates where
         _pElectionDifficultyQueue <- o AE..: "electionDifficulty"
         _pEuroPerEnergyQueue <- o AE..: "euroPerEnergy"
         _pMicroGTUPerEuroQueue <- o AE..: "microGTUPerEuro"
+        _pFoundationAccountQueue <- o AE..: "foundationAccount"
+        _pMintDistributionQueue <- o AE..: "mintDistribution"
+        _pTransactionFeeDistributionQueue <- o AE..: "transactionFeeDistribution"
+        _pGASRewardsQueue <- o AE..: "gasRewards"
         return PendingUpdates{..}
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: PendingUpdates
-emptyPendingUpdates = PendingUpdates emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue emptyUpdateQueue
+emptyPendingUpdates = PendingUpdates
+        emptyUpdateQueue 
+        emptyUpdateQueue 
+        emptyUpdateQueue
+        emptyUpdateQueue
+        emptyUpdateQueue
+        emptyUpdateQueue
+        emptyUpdateQueue
+        emptyUpdateQueue
+        emptyUpdateQueue
 
 -- |Current state of updatable parameters and update queues.
 data Updates = Updates {
@@ -176,8 +206,8 @@ processValueUpdates ::
     -- ^Current value
     -> UpdateQueue v
     -- ^Current queue
-    -> (v, UpdateQueue v)
-processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), uq {_uqQueue = qr})
+    -> (v, UpdateQueue v, Map.Map TransactionTime v)
+processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), uq {_uqQueue = qr}, Map.fromAscList ql)
     where
         (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
 
@@ -185,8 +215,8 @@ processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), 
 -- overridden by later ones.
 -- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
 -- elapsed.
-processProtocolUpdates :: Timestamp -> Maybe ProtocolUpdate -> UpdateQueue ProtocolUpdate -> (Maybe ProtocolUpdate, UpdateQueue ProtocolUpdate)
-processProtocolUpdates t pu0 uq = (pu', uq {_uqQueue = qr})
+processProtocolUpdates :: Timestamp -> Maybe ProtocolUpdate -> UpdateQueue ProtocolUpdate -> (Maybe ProtocolUpdate, UpdateQueue ProtocolUpdate, Map.Map TransactionTime ProtocolUpdate)
+processProtocolUpdates t pu0 uq = (pu', uq {_uqQueue = qr}, Map.fromAscList ql)
     where
         (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
         pu' = getFirst <$> mconcat ((First <$> pu0) : (Just . First . snd <$> ql))
@@ -198,31 +228,60 @@ processUpdateQueues
     :: Timestamp
     -- ^Current timestamp
     -> Updates
-    -> Updates
-processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{..}, ..} = Updates {
+    -> (Map.Map TransactionTime UpdateValue, Updates)
+processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters=RewardParameters{..}, ..}, ..} = (res, Updates {
             _currentAuthorizations = newAuthorizations,
             _currentProtocolUpdate = newProtocolUpdate,
-            _currentParameters = makeChainParameters newElectionDifficulty newEuroPerEnergy newMicroGTUPerEuro _cpBakerExtraCooldownEpochs _cpAccountCreationLimit _cpRewardParameters _cpFoundationAccount,
+            _currentParameters = makeChainParameters
+                        newElectionDifficulty
+                        newEuroPerEnergy
+                        newMicroGTUPerEuro
+                        _cpBakerExtraCooldownEpochs
+                        _cpAccountCreationLimit
+                        RewardParameters {
+                            _rpMintDistribution = newMintDistribution,
+                            _rpTransactionFeeDistribution = newTransactionFeeDistribution,
+                            _rpGASRewards = newGASRewards
+                        }
+                        newFoundationAccount,
             _pendingUpdates = PendingUpdates {
                     _pAuthorizationQueue = newAuthorizationQueue,
                     _pProtocolQueue = newProtocolQueue,
                     _pElectionDifficultyQueue = newElectionDifficultyQueue,
                     _pEuroPerEnergyQueue = newEuroPerEnergyQueue,
-                    _pMicroGTUPerEuroQueue = newMicroGTUPerEuroQueue
+                    _pMicroGTUPerEuroQueue = newMicroGTUPerEuroQueue,
+                    _pFoundationAccountQueue = newFoundationAccountQueue,
+                    _pMintDistributionQueue = newMintDistributionQueue,
+                    _pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
+                    _pGASRewardsQueue = newGASRewardsQueue
                 }
-        }
+        })
     where
-        (newAuthorizations, newAuthorizationQueue) = processValueUpdates t _currentAuthorizations _pAuthorizationQueue
-        (newProtocolUpdate, newProtocolQueue) = processProtocolUpdates t _currentProtocolUpdate _pProtocolQueue
-        (newElectionDifficulty, newElectionDifficultyQueue) = processValueUpdates t _cpElectionDifficulty _pElectionDifficultyQueue
-        (newEuroPerEnergy, newEuroPerEnergyQueue) = processValueUpdates t _cpEuroPerEnergy _pEuroPerEnergyQueue
-        (newMicroGTUPerEuro, newMicroGTUPerEuroQueue) = processValueUpdates t _cpMicroGTUPerEuro _pMicroGTUPerEuroQueue
+        (newAuthorizations, newAuthorizationQueue, resAuthorization) = processValueUpdates t _currentAuthorizations _pAuthorizationQueue
+        (newProtocolUpdate, newProtocolQueue, resProtocol) = processProtocolUpdates t _currentProtocolUpdate _pProtocolQueue
+        (newElectionDifficulty, newElectionDifficultyQueue, resElectionDifficulty) = processValueUpdates t _cpElectionDifficulty _pElectionDifficultyQueue
+        (newEuroPerEnergy, newEuroPerEnergyQueue, resEuroPerEnergy) = processValueUpdates t _cpEuroPerEnergy _pEuroPerEnergyQueue
+        (newMicroGTUPerEuro, newMicroGTUPerEuroQueue, resMicroGTUPerEuro) = processValueUpdates t _cpMicroGTUPerEuro _pMicroGTUPerEuroQueue
+        (newFoundationAccount, newFoundationAccountQueue, resFoundationAccount) = processValueUpdates t _cpFoundationAccount _pFoundationAccountQueue
+        (newMintDistribution, newMintDistributionQueue, resMintDistribution) = processValueUpdates t _rpMintDistribution _pMintDistributionQueue
+        (newTransactionFeeDistribution, newTransactionFeeDistributionQueue, resTransactionFeeDistribution) = processValueUpdates t _rpTransactionFeeDistribution _pTransactionFeeDistributionQueue
+        (newGASRewards, newGASRewardsQueue, resGASRewards) = processValueUpdates t _rpGASRewards _pGASRewardsQueue
+        res = 
+            (UVAuthorization . _unhashed <$> resAuthorization) <>
+            (UVProtocol <$> resProtocol) <>
+            (UVElectionDifficulty <$> resElectionDifficulty) <>
+            (UVEuroPerEnergy <$> resEuroPerEnergy) <>
+            (UVMicroGTUPerEuro <$> resMicroGTUPerEuro) <>
+            (UVFoundationAccount <$> resFoundationAccount) <>
+            (UVMintDistribution <$> resMintDistribution) <>
+            (UVTransactionFeeDistribution <$> resTransactionFeeDistribution) <>
+            (UVGASRewards <$> resGASRewards)
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
 futureElectionDifficulty :: Updates -> Timestamp -> ElectionDifficulty
 futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} ts
-        = fst (processValueUpdates ts (_cpElectionDifficulty _currentParameters) _pElectionDifficultyQueue)
+        = processValueUpdates ts (_cpElectionDifficulty _currentParameters) _pElectionDifficultyQueue ^. _1
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
@@ -231,11 +290,19 @@ lookupNextUpdateSequenceNumber u UpdateProtocol = u ^. pendingUpdates . pProtoco
 lookupNextUpdateSequenceNumber u UpdateElectionDifficulty = u ^. pendingUpdates . pElectionDifficultyQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateEuroPerEnergy = u ^. pendingUpdates . pEuroPerEnergyQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateMicroGTUPerEuro = u ^. pendingUpdates . pMicroGTUPerEuroQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateFoundationAccount = u ^. pendingUpdates . pFoundationAccountQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateMintDistribution = u ^. pendingUpdates . pMintDistributionQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateTransactionFeeDistribution = u ^. pendingUpdates . pTransactionFeeDistributionQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateGASRewards = u ^. pendingUpdates . pGASRewardsQueue . uqNextSequenceNumber
 
 -- |Enqueue an update in the appropriate queue.
-enqueueUpdate :: TransactionTime -> UpdatePayload -> Updates -> Updates
-enqueueUpdate effectiveTime (AuthorizationUpdatePayload auths) = pendingUpdates . pAuthorizationQueue %~ enqueue effectiveTime (makeHashed auths)
-enqueueUpdate effectiveTime (ProtocolUpdatePayload protUp) = pendingUpdates . pProtocolQueue %~ enqueue effectiveTime protUp
-enqueueUpdate effectiveTime (ElectionDifficultyUpdatePayload edUp) = pendingUpdates . pElectionDifficultyQueue %~ enqueue effectiveTime edUp
-enqueueUpdate effectiveTime (EuroPerEnergyUpdatePayload epeUp) = pendingUpdates . pEuroPerEnergyQueue %~ enqueue effectiveTime epeUp
-enqueueUpdate effectiveTime (MicroGTUPerEuroUpdatePayload mgtupeUp) = pendingUpdates . pMicroGTUPerEuroQueue %~ enqueue effectiveTime mgtupeUp
+enqueueUpdate :: TransactionTime -> UpdateValue -> Updates -> Updates
+enqueueUpdate effectiveTime (UVAuthorization auths) = pendingUpdates . pAuthorizationQueue %~ enqueue effectiveTime (makeHashed auths)
+enqueueUpdate effectiveTime (UVProtocol protUp) = pendingUpdates . pProtocolQueue %~ enqueue effectiveTime protUp
+enqueueUpdate effectiveTime (UVElectionDifficulty edUp) = pendingUpdates . pElectionDifficultyQueue %~ enqueue effectiveTime edUp
+enqueueUpdate effectiveTime (UVEuroPerEnergy epeUp) = pendingUpdates . pEuroPerEnergyQueue %~ enqueue effectiveTime epeUp
+enqueueUpdate effectiveTime (UVMicroGTUPerEuro mgtupeUp) = pendingUpdates . pMicroGTUPerEuroQueue %~ enqueue effectiveTime mgtupeUp
+enqueueUpdate effectiveTime (UVFoundationAccount upd) = pendingUpdates . pFoundationAccountQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVMintDistribution upd) = pendingUpdates . pMintDistributionQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVTransactionFeeDistribution upd) = pendingUpdates . pTransactionFeeDistributionQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVGASRewards upd) = pendingUpdates . pGASRewardsQueue %~ enqueue effectiveTime upd

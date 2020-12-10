@@ -83,6 +83,9 @@ getAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> accountTable ^? ix i
 
+getAccountIndex :: AccountAddress -> Accounts -> Maybe AccountIndex
+getAccountIndex addr Accounts{..} = Map.lookup addr accountMap
+
 -- |Retrieve an account and its index with the given address.
 -- Returns @Nothing@ if no such account exists.
 getAccountWithIndex :: AccountAddress -> Accounts -> Maybe (AccountIndex, Account)
