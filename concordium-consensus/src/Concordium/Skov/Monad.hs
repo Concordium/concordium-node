@@ -260,8 +260,6 @@ instance (Monad m,
     lastFinalizedBlockWithRecord = lift TS.getLastFinalized
     {- - INLINE nextFinalizationIndex - -}
     nextFinalizationIndex = lift TS.getNextFinalizationIndex
-    {- - INLINE getBirkParameters - -}
-    -- getBirkParameters slot = lift . doGetBirkParameters slot
     {- - INLINE getGenesisData - -}
     getGenesisData = lift TS.getGenesisData
     {- - INLINE genesisBlock - -}
