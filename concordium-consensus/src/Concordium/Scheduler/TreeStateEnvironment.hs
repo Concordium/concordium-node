@@ -163,27 +163,27 @@ calculateMintAmounts ::
   -- ^First slot to mint for
   -> Slot
   -- ^Last slot to mint for
-  -> RewardParameters
-  -- ^Initial reward parameters
-  -> [(Slot, RewardParameters)]
-  -- ^Ordered updates to the reward parameters
+  -> MintDistribution
+  -- ^Initial mint distribution
+  -> [(Slot, MintDistribution)]
+  -- ^Ordered updates to the minting parameters
   -> Amount
   -- ^Total GTU
   -> MintAmounts
-calculateMintAmounts start end rp0 upds tGTU = case upds of
-    ((s,rp1):upds')
-      | s <= start -> calculateMintAmounts start end rp1 upds' tGTU
-      | s <= end -> let (tGTU', a1) = mintRange start (s-1) rp0 tGTU
-                    in a1 <> calculateMintAmounts s end rp1 upds' tGTU'
-    _ -> snd $ mintRange start end rp0 tGTU
+calculateMintAmounts start end md0 upds tGTU = case upds of
+    ((s,md1):upds')
+      | s <= start -> calculateMintAmounts start end md1 upds' tGTU
+      | s <= end -> let (tGTU', a1) = mintRange start (s-1) md0 tGTU
+                    in a1 <> calculateMintAmounts s end md1 upds' tGTU'
+    _ -> snd $ mintRange start end md0 tGTU
   where
-    mintRange s e rp t =
+    mintRange s e md t =
       let mintSupply s' !m !t'
-            | s' <= e = let !a = mintAmount (rp ^. rpMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
+            | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
             | otherwise = (m, t')
           (newMint, newTotal) = mintSupply s 0 t
-          mintBakingReward = takeFraction (rp ^. mdBakingReward) newMint
-          mintFinalizationReward = takeFraction (rp ^. mdFinalizationReward) newMint
+          mintBakingReward = takeFraction (md ^. mdBakingReward) newMint
+          mintFinalizationReward = takeFraction (md ^. mdFinalizationReward) newMint
           mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
       in (newTotal, MintAmounts{..})
 
@@ -194,17 +194,19 @@ doMinting :: (GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
   -- ^New slot
   -> AccountAddress
   -- ^Current foundation account
+  -> [(Slot, MintDistribution)]
+  -- ^Ordered updates to the minting parameters
   -> UpdatableBlockState m
   -- ^Block state
   -> m (UpdatableBlockState m)
-doMinting blockParent slotNumber foundationAddr bs0 = do
+doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
   parentUpdates <- getUpdates =<< blockState blockParent
   totGTU <- (^. totalGTU) <$> bsoGetBankStatus bs0
   let mint = calculateMintAmounts
               (blockSlot blockParent + 1)
               slotNumber 
-              (parentUpdates ^. currentParameters . rewardParameters)
-              [] -- FIXME: When updates to reward parameters are possible, put them here
+              (parentUpdates ^. currentParameters . rpMintDistribution)
+              mintUpds
               totGTU
   bs1 <- bsoMint bs0 mint
   bsoAddSpecialTransactionOutcome bs1 Mint{
@@ -311,8 +313,10 @@ mintAndReward :: (BlockStateOperations m, BlockPointerMonad m)
     -- ^Transaction fees
     -> FreeTransactionCounts
     -- ^Number of "free" transactions of each type
+    -> [(Slot, UpdateValue)]
+    -- ^Ordered chain updates since the last block
     -> m (UpdatableBlockState m)
-mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts = do
+mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates = do
   -- First, reward bakers from previous epoch, if we are starting a new one.
   bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
     -- Add the block to the list of blocks baked in this epoch
@@ -321,7 +325,8 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
   foundationAccount <- getAccountAddress =<< bsoGetFoundationAccount bshandleEpoch
 
   -- Then mint GTU.
-  bshandleMint <- doMinting blockParent slotNumber foundationAccount bshandleEpoch
+  let mintUpdates = [(slot, md) | (slot, UVMintDistribution md) <- updates]
+  bshandleMint <- doMinting blockParent slotNumber foundationAccount mintUpdates bshandleEpoch
 
   -- Next, reward the finalizers, if the block includes a finalization record.
   bshandleFinRew <- case mfinInfo of
@@ -407,7 +412,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker mfinI
           return $ Left (Just ExceedsMaxCredentialDeployments)
       else do
         -- process the update queues
-        bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
+        (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
         -- unlock the amounts that have expired
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
         -- update the bakers and seed state
@@ -431,7 +436,10 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker mfinI
                 zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
                 -- the main execution is now done. At this point we must mint new currency
                 -- and reward the baker and other parties.
-                bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts
+                genData <- getGenesisData
+                let updates' = (_1 %~ transactionTimeToSlot (genesisTime genData) (genesisSlotDuration genData))
+                                <$> Map.toAscList updates
+                bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
                 finalbsHandle <- freezeBlockState bshandle4
                 return (Right (ExecutionResult{_energyUsed = usedEnergy,
@@ -461,7 +469,7 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker mfinInfo new
     bshandle0 <- thawBlockState =<< blockState blockParent
     chainParams <- bsoGetChainParameters bshandle0
     -- process the update queues
-    bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
+    (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
     -- unlock the amounts that have expired
     bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
     -- update the bakers and seed state
@@ -515,7 +523,10 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker mfinInfo new
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     let counts = countFreeTransactions (map fst ftAdded) (isJust mfinInfo)
-    bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts
+    genData <- getGenesisData
+    let updates' = (_1 %~ transactionTimeToSlot (genesisTime genData) (genesisSlotDuration genData))
+                    <$> Map.toAscList updates
+    bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
     bshandleFinal <- freezeBlockState bshandle4
     return (ft, ExecutionResult{_energyUsed = usedEnergy,

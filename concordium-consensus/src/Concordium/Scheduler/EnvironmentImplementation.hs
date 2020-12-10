@@ -154,6 +154,9 @@ instance (MonadReader ContextState m,
   {-# INLINE getAccount #-}
   getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
 
+  {-# INLINE getAccountIndex #-}
+  getAccountIndex addr = lift  . flip bsoGetAccountIndex addr =<< use schedulerBlockState
+
   {-# INLINE putNewInstance #-}
   putNewInstance !mkInstance = do
     (caddr, s') <- lift . flip bsoPutNewInstance mkInstance =<< use schedulerBlockState

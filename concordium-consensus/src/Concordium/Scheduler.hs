@@ -1291,24 +1291,37 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       if updateSeqNumber uiHeader /= expectedSequenceNumber then
         return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
       else do
-        -- Check that the signatures use the appropriate keys and are valid.
-        auths <- getUpdateAuthorizations
-        if checkAuthorizedUpdate auths ui then do
-          enqueueUpdate (updateEffectiveTime uiHeader) uiPayload
-          tsIndex <- bumpTransactionIndex
-          return $ TxValid TransactionSummary {
-              tsSender = Nothing,
-              tsHash = wmdHash,
-              tsCost = 0,
-              tsEnergyCost = 0,
-              tsType = Nothing,
-              tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
-              ..
-            }
-
-        else
-          return (TxInvalid IncorrectSignature)
-
+        -- Convert the payload to an update
+        case uiPayload of
+          AuthorizationUpdatePayload u -> checkSigAndUpdate $ UVAuthorization u
+          ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
+          ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
+          EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
+          MicroGTUPerEuroUpdatePayload u -> checkSigAndUpdate $ UVMicroGTUPerEuro u
+          FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
+            Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
+            Nothing -> return (TxInvalid (UnknownAccount u))
+          MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
+          TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
+          GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
+  where
+    checkSigAndUpdate change = do
+      -- Check that the signatures use the appropriate keys and are valid.
+      auths <- getUpdateAuthorizations
+      if checkAuthorizedUpdate auths ui then do
+        enqueueUpdate (updateEffectiveTime uiHeader) change
+        tsIndex <- bumpTransactionIndex
+        return $ TxValid TransactionSummary {
+            tsSender = Nothing,
+            tsHash = wmdHash,
+            tsCost = 0,
+            tsEnergyCost = 0,
+            tsType = Nothing,
+            tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
+            ..
+          }
+      else
+        return (TxInvalid IncorrectSignature)
 
 
 

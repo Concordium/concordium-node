@@ -107,6 +107,9 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- To get the amount of funds for a contract instance use getInstance and lookup amount there.
   getAccount :: AccountAddress -> m (Maybe (Account m))
 
+  -- |Get the 'AccountIndex' for an account, if it exists.
+  getAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
+
   -- |Check whether a given registration id exists in the global state.
   accountRegIdExists :: ID.CredentialRegistrationID -> m Bool
 
@@ -307,7 +310,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- The next sequence number will be correspondingly incremented,
   -- and any queued updates of the given type with a later effective
   -- time are cancelled.
-  enqueueUpdate :: TransactionTime -> UpdatePayload -> m ()
+  enqueueUpdate :: TransactionTime -> UpdateValue -> m ()
 
 
 

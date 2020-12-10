@@ -214,8 +214,8 @@ main = cmdArgsRun mode >>=
               putStrLn $ "  - baker extra cooldown epochs: " ++ show _cpBakerExtraCooldownEpochs
               putStrLn $ "  - maximum credential deployments per block: " ++ show _cpAccountCreationLimit
               putStrLn "  - reward parameters:"
-              putStrLn $ "    + mint rate per slot: " ++ show (_cpRewardParameters ^. rpMintPerSlot)
               putStrLn "    + mint distribution:"
+              putStrLn $ "      * mint rate per slot: " ++ show (_cpRewardParameters ^. mdMintPerSlot)
               putStrLn $ "      * baking reward: " ++ show (_cpRewardParameters ^. mdBakingReward)
               putStrLn $ "      * finalization reward: " ++ show (_cpRewardParameters ^. mdFinalizationReward)
               putStrLn "    + transaction fee distribution:"
