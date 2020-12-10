@@ -311,9 +311,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
     \case Nothing -> return Nothing
           Just bp -> do
             st <- queryBlockState bp
-            BS.getModule st mhash >>= \case
-              Nothing -> return Nothing
-              Just modul -> return . Just . Wasm.miSourceModule . BS.moduleInterface $ modul
+            BS.getModule st mhash
 
 getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
