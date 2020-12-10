@@ -67,7 +67,7 @@ instance S.Serialize Account where
     return Account{..}
 
 instance HashableTo Hash.Hash Account where
-  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount _accountReleaseSchedule _accountPersisting bkrHash
+  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (AccountReleaseScheduleHash $ getHash _accountReleaseSchedule) _accountPersisting bkrHash
     where
       bkrHash = maybe nullAccountBakerHash getHash _accountBaker
 

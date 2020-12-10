@@ -22,8 +22,9 @@ import Concordium.ID.Types
 import Concordium.ID.Parameters
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
 import Concordium.GlobalState.BakerInfo
 
@@ -233,9 +234,9 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
           pData <- loadBufferedRef _persistingData
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
-          sData <- loadBufferedRef _accountReleaseSchedule
+          sData <- getHashM =<< loadBufferedRef _accountReleaseSchedule
           bakerHash <- hashAccountBaker _accountBaker
-          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' sData pData bakerHash
+          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' (Transient.AccountReleaseScheduleHash sData) pData bakerHash
           return PersistentAccount {..}
 
 instance (MonadBlobStore m) => Cacheable m PersistentAccount where
@@ -282,7 +283,7 @@ makePersistentAccount tacc@Transient.Account{..} = do
   let _accountHash = getHash tacc
   _persistingData <- makeBufferedRef _accountPersisting
   _accountEncryptedAmount' <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
-  _accountReleaseSchedule' <- makeBufferedRef _accountReleaseSchedule
+  _accountReleaseSchedule' <- makeBufferedRef =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
   _accountBaker <- case _accountBaker of
     Nothing -> return Null
     Just Transient.AccountBaker{..} -> do
@@ -316,7 +317,7 @@ sameAccount :: MonadBlobStore m => Transient.Account -> PersistentAccount -> m B
 sameAccount bAcc pAcc@PersistentAccount{..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  _accountReleaseSchedule <- loadBufferedRef _accountReleaseSchedule
+  _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
   _accountBaker <- case _accountBaker of
     Null -> return Nothing
     Some ref -> do
@@ -349,12 +350,12 @@ setPAD :: MonadBlobStore m
 setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  rs <- loadBufferedRef _accountReleaseSchedule
+  rs <- getHashM _accountReleaseSchedule
   let newPData = f pData
   newPDataRef <- makeBufferedRef newPData
   bkrHash <- hashAccountBaker _accountBaker
   return $ acc & persistingData .~ newPDataRef
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac rs newPData bkrHash
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac (Transient.AccountReleaseScheduleHash rs) newPData bkrHash
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the

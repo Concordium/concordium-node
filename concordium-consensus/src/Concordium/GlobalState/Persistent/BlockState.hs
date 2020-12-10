@@ -61,6 +61,7 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
@@ -77,7 +78,7 @@ import Concordium.GlobalState.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TransientReleaseSchedule
+import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
@@ -999,14 +1000,14 @@ doProcessReleaseSchedule pbs ts = do
               f (ba, readded) addr = do
                 let upd acc = do
                       rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
-                      let (_, rData') = TransientReleaseSchedule.unlockAmountsUntil ts rData
+                      (_, nextTs, rData') <- unlockAmountsUntil ts rData
+                      rDataHash <- getHashM rData'
                       rDataRef <- makeBufferedRef rData'
                       acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
-                      return (Map.lookupMin . TransientReleaseSchedule._pendingReleases $ rData',
-                                acc')
+                      return (nextTs, acc')
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
                 return (ba', case join toRead of
-                               Just (t, _) -> (addr, t) : readded
+                               Just t -> (addr, t) : readded
                                Nothing -> readded)
           (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
           bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
@@ -1104,7 +1105,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 
   getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
-  getAccountReleaseSchedule acc = loadBufferedRef (acc ^. accountReleaseSchedule)
+  getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
 
   getAccountInstances acc = acc ^^. accountInstances
 

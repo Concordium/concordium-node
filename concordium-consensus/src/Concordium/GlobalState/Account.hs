@@ -14,10 +14,10 @@ import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.GlobalState.BakerInfo
 
@@ -184,7 +184,7 @@ nullAccountBakerHash = Hash.hash ""
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseSchedule -> PersistingAccountData -> AccountBakerHash -> Hash.Hash
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountData -> AccountBakerHash -> Hash.Hash
 makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put ars >> put pd >> put abh
 
