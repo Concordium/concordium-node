@@ -383,7 +383,7 @@ addBlock block = do
                                             return ResultSuccess
 
 -- |Add a valid, live block to the tree.
--- This is used by 'addBlock' and 'doStoreBakedBlock', and should not
+-- This is used by 'addBlock' and 'doBakeForSlot', and should not
 -- be called directly otherwise.
 blockArrive :: (HasCallStack, TreeStateMonad m, SkovMonad m)
         => PendingBlock           -- ^Block to add
@@ -447,21 +447,6 @@ doStoreBlock pb@GB.PendingBlock{..} = do
         checkClaimedSignature b a = if verifyBlockSignature b then a else do
             logEvent Skov LLWarning $ "Dropping block where signature did not match claimed key or blockhash: " 
             return ResultInvalid
-
--- |Store a block that is baked by this node in the tree.  The block
--- is presumed to be valid.
-doStoreBakedBlock :: (TreeStateMonad m, SkovMonad m, FinalizationMonad m, OnSkov m)
-        => PendingBlock          -- ^Block to add
-        -> BlockPointerType m    -- ^Parent pointer
-        -> BlockPointerType m     -- ^Last finalized pointer
-        -> ExecutionResult m  -- ^Result of block execution.
-        -> m (BlockPointerType m)
-{- - INLINE doStoreBakedBlock - -}
-doStoreBakedBlock = \pb parent lastFin result -> do
-        bp <- blockArrive pb parent lastFin result
-        finalizationBlockArrival bp
-        onBlock bp
-        return bp
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with,

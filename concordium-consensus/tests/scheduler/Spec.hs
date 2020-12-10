@@ -1,5 +1,6 @@
 module Main where
 
+import qualified SchedulerTests.InitPoliciesTest(tests)
 import qualified SchedulerTests.SimpleTransfersTest(tests)
 import qualified SchedulerTests.ChainMetatest(tests)
 import qualified SchedulerTests.InitContextTest(tests)
@@ -23,6 +24,7 @@ import Test.Hspec
 
 main :: IO ()
 main = hspec $ do
+         SchedulerTests.InitPoliciesTest.tests
          SchedulerTests.SimpleTransfersTest.tests
          SchedulerTests.ChainMetatest.tests
          SchedulerTests.InitContextTest.tests
