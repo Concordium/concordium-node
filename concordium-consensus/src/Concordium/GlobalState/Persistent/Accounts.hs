@@ -20,7 +20,6 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Account hiding (replaceUpTo, addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
@@ -277,7 +276,7 @@ updateAccount !upd !acc = do
                                                     & accountEncryptedAmount .~ newEncryptedAmountRef
   bkrHash <- hashAccountBaker (acc ^. accountBaker)
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount (Transient.AccountReleaseScheduleHash releaseScheduleHash) pdata bkrHash
+  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount releaseScheduleHash pdata bkrHash
   case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         (mNewCred, mKeyUpd, mNewThreshold) -> do

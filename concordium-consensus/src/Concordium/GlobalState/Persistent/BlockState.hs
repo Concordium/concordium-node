@@ -61,7 +61,6 @@ import qualified Concordium.GlobalState.IdentityProviders as IPS
 import qualified Concordium.GlobalState.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
@@ -1001,7 +1000,6 @@ doProcessReleaseSchedule pbs ts = do
                 let upd acc = do
                       rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
                       (_, nextTs, rData') <- unlockAmountsUntil ts rData
-                      rDataHash <- getHashM rData'
                       rDataRef <- makeBufferedRef rData'
                       acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
                       return (nextTs, acc')
