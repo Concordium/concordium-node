@@ -10,7 +10,7 @@ import qualified SchedulerTests.FibonacciSelfMessageTest(tests)
 import qualified SchedulerTests.AccountTransactionSpecs(tests)
 import qualified SchedulerTests.InitialAccountCreationSpec(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
-import qualified SchedulerTests.Delegation(tests)
+import qualified SchedulerTests.RandomBakerTransactions(tests)
 import qualified SchedulerTests.CredentialTest(tests)
 import qualified SchedulerTests.TransactionExpirySpec(tests)
 import qualified SchedulerTests.BlockEnergyLimitSpec(tests)
@@ -34,7 +34,7 @@ main = hspec $ do
          SchedulerTests.AccountTransactionSpecs.tests
          SchedulerTests.InitialAccountCreationSpec.tests
          SchedulerTests.BakerTransactions.tests
-         SchedulerTests.Delegation.tests
+         SchedulerTests.RandomBakerTransactions.tests
          SchedulerTests.CredentialTest.tests
          SchedulerTests.TransactionExpirySpec.tests
          SchedulerTests.BlockEnergyLimitSpec.tests

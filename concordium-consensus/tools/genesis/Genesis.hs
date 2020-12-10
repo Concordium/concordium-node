@@ -14,6 +14,7 @@ import Data.Time.Format
 import Lens.Micro.Platform
 import qualified Data.Vector as Vec
 import Data.Foldable
+import Data.Maybe
 
 import Data.Text(Text)
 import qualified Data.HashMap.Strict as Map
@@ -23,13 +24,10 @@ import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SS
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Updates
-
-import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as L
 
 data Genesis
     = GenerateGenesisData {gdSource :: FilePath,
@@ -173,18 +171,18 @@ main = cmdArgsRun mode >>=
                       putStrLn $ "There are the following " ++ show (Prelude.length (genesisAccounts genesisData)) ++ " initial accounts in genesis:"
                       forM_ (genesisAccounts genesisData) $ \account ->
                         putStrLn $ "\tAccount: " ++ show (account ^. accountAddress) ++ ", balance = " ++ showBalance totalGTU (_accountAmount account)
-                      LBS.writeFile gdOutput (S.runPutLazy $ putVersionedGenesisDataV1 genesisData)
+                      LBS.writeFile gdOutput (S.runPutLazy $ putVersionedGenesisDataV2 genesisData)
                       putStrLn $ "Wrote genesis data to file " ++ show gdOutput
                       exitSuccess
         PrintGenesisData{..} -> do
           source <- LBS.readFile gdSource
           case S.runGetLazy getExactVersionedGenesisData source of
             Left err -> putStrLn $ "Cannot parse genesis data:" ++ err
-            Right genData@GenesisDataV1{..} -> do
+            Right genData@GenesisDataV2{..} -> do
               putStrLn "Genesis data."
               putStrLn $ "Genesis time is set to: " ++ showTime genesisTime
               putStrLn $ "Slot duration: " ++ show (durationToNominalDiffTime genesisSlotDuration)
-              putStrLn $ "Genesis nonce: " ++ show (SS.currentSeed genesisSeedState)
+              putStrLn $ "Genesis nonce: " ++ show (SS.currentLeadershipElectionNonce genesisSeedState)
               putStrLn $ "Epoch length in slots: " ++ show (SS.epochLength genesisSeedState)
 
               let totalGTU = genesisTotalGTU genData
@@ -214,6 +212,7 @@ main = cmdArgsRun mode >>=
               putStrLn $ "  - election difficulty: " ++ show _cpElectionDifficulty
               putStrLn $ "  - Euro per Energy rate: " ++ show _cpEuroPerEnergy
               putStrLn $ "  - microGTU per Euro rate: " ++ show _cpMicroGTUPerEuro
+              putStrLn $ "  - baker extra cooldown epochs: " ++ show _cpBakerExtraCooldownEpochs
 
               putStrLn ""
               putStrLn $ "Cryptographic parameters: " ++ show genesisCryptographicParameters
@@ -224,21 +223,12 @@ main = cmdArgsRun mode >>=
               putStrLn ""
               putStrLn $ "There are " ++ show (OrdMap.size (arRevokers genesisAnonymityRevokers)) ++ " anonymity revokers in genesis."
 
-              putStrLn $ "Genesis bakers:"
-              putStrLn $ "  - bakers total stake: " ++ show (genesisBakers ^. bakerTotalStake)
-              forM_ (L.toAscPairList (genesisBakers ^. bakerMap)) $ \(bid, v) ->
-               case v of
-                Nothing -> return ()
-                Just FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} -> do
-                 putStrLn $ "  - baker: " ++ show bid
-                 putStrLn $ "    * stake: " ++ showBalance (genesisBakers ^. bakerTotalStake) _bakerStake
-                 putStrLn $ "    * account: " ++ show _bakerAccount
-                 putStrLn $ "    * election key: " ++ show _bakerElectionVerifyKey
-                 putStrLn $ "    * signature key: " ++ show _bakerSignatureVerifyKey
-                 putStrLn $ "    * aggregation key: " ++ show _bakerAggregationVerifyKey
+              let bkrs = catMaybes (_accountBaker <$> genesisAccounts)
+              let bkrTotalStake = foldl' (+) 0 (_stakedAmount <$> bkrs)
+              putStrLn $ "\nThere are " ++ show (length bkrs) ++ " bakers with total stake: " ++ showBalance totalGTU bkrTotalStake
 
               putStrLn ""
-              putStrLn "Genesis normal accounts:"
+              putStrLn "Genesis accounts:"
               forM_ genesisAccounts (showAccount totalGTU)
 
               let Authorizations{..} = genesisAuthorizations
@@ -256,11 +246,19 @@ main = cmdArgsRun mode >>=
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
             printf "%s (= %.4f%%)" (amountToString balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
-        showAccount totalGTU Account{_accountPersisting=PersistingAccountData{..}, ..} = do
+        showAccount totalGTU (Account{_accountPersisting=PersistingAccountData{..}, ..}) = do
           putStrLn $ "  - " ++ show _accountAddress
           putStrLn $ "     * balance: " ++ showBalance totalGTU _accountAmount
           putStrLn $ "     * threshold: " ++ show (akThreshold _accountVerificationKeys)
           putStrLn $ "     * keys: "
-          forM (OrdMap.toList (akKeys _accountVerificationKeys)) $ \(idx, k) ->
+          forM_ (OrdMap.toList (akKeys _accountVerificationKeys)) $ \(idx, k) ->
             putStrLn $ "       - " ++ show idx ++ ": " ++ show k
+          forM_ _accountBaker $ \AccountBaker{_accountBakerInfo = BakerInfo{..}, ..} -> do
+            putStrLn $ "     * baker:"
+            putStrLn $ "       + id: " ++ show _bakerIdentity
+            putStrLn $ "       + stake: " ++ showBalance totalGTU _stakedAmount
+            putStrLn $ "       + election key: " ++ show _bakerElectionVerifyKey
+            putStrLn $ "       + signature key: " ++ show _bakerSignatureVerifyKey
+            putStrLn $ "       + aggregation key: " ++ show _bakerAggregationVerifyKey
+            putStrLn $ "       + earnings are " ++ (if _stakeEarnings then "" else "not ") ++ "restaked"
         printAccessStructure n AccessStructure{..} = putStrLn $ "  - " ++ n ++ " update: " ++ show accessThreshold ++ " of " ++ show (toList accessPublicKeys)

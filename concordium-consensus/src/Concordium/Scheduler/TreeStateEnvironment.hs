@@ -14,13 +14,13 @@ import Control.Monad
 
 import Concordium.Types
 import Concordium.Logger
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Scheduler.Types
@@ -129,20 +129,44 @@ mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
   (_, bshandle1) <- bsoDecrementCentralBankGTU bshandleMinted bakingReward
 
   executionReward <- bsoGetExecutionCost bshandle1
-  macc <- bsoGetEpochBakerAccount bshandle1 bid
-  case macc of
+  -- Pay the reward to the baker.
+  (maddr, bshandle2) <- bsoRewardBaker bshandle1 bid (executionReward + bakingReward)
+  case maddr of
     Nothing -> error "Precondition violated. Baker account does not exist."
-    Just acc -> do
-      addr <- getAccountAddress acc
-      bshandle2 <- bsoModifyAccount bshandle1
-         (emptyAccountUpdate addr & auAmount ?~ (amountToDelta (executionReward + bakingReward)))
+    Just addr ->
       -- record the block reward transaction in the transaction outcomes for this block
       bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid addr (executionReward + bakingReward))
 
+-- |Update the bakers and seed state of the block state.
+-- The epoch for the new seed state must be at least the epoch of
+-- the old seed state (currently on the block state).
+--
+-- If the new epoch is not the same as or direct successor of the current
+-- one, then 'bsoTransitionEpochBakers' is called twice. This should be
+-- sufficient because the bakers will not change in the intervening epochs.
+updateBirkParameters :: BlockStateOperations m
+  => SeedState
+  -- ^New seed state
+  -> UpdatableBlockState m
+  -- ^Block state
+  -> m (UpdatableBlockState m)
+updateBirkParameters newSeedState bs0 = do
+    oldSeedState <- bsoGetSeedState bs0
+    bs1 <- if epoch oldSeedState == epoch newSeedState
+      then return bs0
+      else do
+        upToLast <- if epoch oldSeedState /= epoch newSeedState - 1
+          then bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
+          else return bs0
+        bsoTransitionEpochBakers upToLast (epoch newSeedState)
+    bsoSetSeedState bs1 newSeedState
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
 -- during this block execution.
+--
+-- The slot number must exceed the slot of the parent block, and the seed state
+-- must indicate the correct epoch of the block.
 executeFrom :: forall m .
   (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
   => BlockHash -- ^Hash of the block we are executing. Used only for committing transactions.
@@ -151,10 +175,10 @@ executeFrom :: forall m .
   -> BlockPointerType m  -- ^Parent pointer from which to start executing
   -> BlockPointerType m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
-  -> BirkParameters m
+  -> SeedState -- ^New seed state
   -> [BlockItem] -- ^Transactions on this block.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
-executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps txs =
+executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker newSeedState txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -164,10 +188,8 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
     -- unlock the amounts that have expired
     bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
-    -- update the block states parameters according to the slot of this block
-    -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
-    -- in most cases the block nonce is added to the seed state
-    bshandle1 <- bsoUpdateBirkParameters bshandle0b bps
+    -- update the bakers and seed state
+    bshandle1 <- updateBirkParameters newSeedState bshandle0b
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _chainMetadata = cm,
@@ -177,7 +199,7 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker bps t
     let usedEnergy = finState ^. schedulerEnergyUsed
     let bshandle2 = finState ^. schedulerBlockState
     case res of
-        Left fk -> Left fk <$ (dropUpdatableBlockState bshandle2)
+        Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
         Right outcomes -> do
 
             -- Record the transaction outcomes
@@ -205,9 +227,9 @@ constructBlock :: forall m .
   -> BlockPointerType m -- ^Parent pointer from which to start executing
   -> BlockPointerType m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
-  -> BirkParameters m
+  -> SeedState -- ^New seed state
   -> m (Sch.FilteredTransactions, ExecutionResult m)
-constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
+constructBlock slotNumber slotTime blockParent lfPointer blockBaker newSeedState =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
@@ -217,10 +239,8 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker bps =
     bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
     -- unlock the amounts that have expired
     bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
-    -- update the block states parameters according to the slot of this block
-    -- if the block is in a new epoch, the bakers are shifted and a new leadership election nonce is computed
-    -- in most cases the block nonce is added to the seed state
-    bshandle1 <- bsoUpdateBirkParameters bshandle0b bps
+    -- update the bakers and seed state
+    bshandle1 <- updateBirkParameters newSeedState bshandle0b
     pt <- getPendingTransactions
 
     -- Prioritise the block items for inclusion in a block.
