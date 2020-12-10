@@ -77,7 +77,7 @@ import Concordium.GlobalState.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TransientReleaseSchedule
+import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 
 
 type EpochBlocks = Nullable (BufferedRef EpochBlock)
@@ -959,15 +959,11 @@ doPutNewInstance pbs fnew = do
         let ca = instanceAddress (instanceParameters inst)
         -- Update the owner account's set of instances
         let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
-        (mdelegate, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
-        -- Update the stake delegate
-        case mdelegate of
-            Nothing -> error "Invalid contract owner"
-            Just _ -> do
-                (ca,) <$> storePBS pbs bsp{
-                                    bspInstances = insts,
-                                    bspAccounts = accts
-                                }
+        (_, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
+        (ca,) <$> storePBS pbs bsp{
+                            bspInstances = insts,
+                            bspAccounts = accts
+                        }
     where
         fnew' ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
             params <- makeBufferedRef $ PersistentInstanceParameters {
@@ -1103,14 +1099,13 @@ doProcessReleaseSchedule pbs ts = do
               f (ba, readded) addr = do
                 let upd acc = do
                       rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
-                      let (_, rData') = TransientReleaseSchedule.unlockAmountsUntil ts rData
+                      (_, nextTs, rData') <- unlockAmountsUntil ts rData
                       rDataRef <- makeBufferedRef rData'
                       acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
-                      return (Map.lookupMin . TransientReleaseSchedule._pendingReleases $ rData',
-                                acc')
+                      return (nextTs, acc')
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
                 return (ba', case join toRead of
-                               Just (t, _) -> (addr, t) : readded
+                               Just t -> (addr, t) : readded
                                Nothing -> readded)
           (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
           bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
@@ -1245,7 +1240,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 
   getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
-  getAccountReleaseSchedule acc = loadBufferedRef (acc ^. accountReleaseSchedule)
+  getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
 
   getAccountInstances acc = acc ^^. accountInstances
 

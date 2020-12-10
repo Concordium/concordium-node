@@ -63,7 +63,7 @@ invariantBlockState bs extraBalance = do
             when (Map.member addr amp) $ Left $ "Duplicate account address: " ++ show (acct ^. accountAddress)
             let lockedBalance = acct ^. accountReleaseSchedule . totalLockedUpBalance
             -- check that the locked balance is the same as the sum of the pending releases
-            unless (lockedBalance == sum (Map.map fst (acct ^. accountReleaseSchedule . pendingReleases))) $ Left "Total locked balance doesn't sum up to the pending releases stake"
+            unless (lockedBalance == sum [ am | Just (r, _) <- Vec.toList (acct ^. accountReleaseSchedule . values), Release _ am <- r ]) $ Left "Total locked balance doesn't sum up to the pending releases stake"
             -- check that the instances exist and add their amounts to my balance
             !myBal <- foldM (checkInst addr) (acct ^. accountAmount) (acct ^. accountInstances)
             (bakerIds', bakerKeys') <- case acct ^. accountBaker of

@@ -15,6 +15,7 @@ import Concordium.GlobalState.Basic.BlockState.Account as BA
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as BAT
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as B
 import qualified Concordium.GlobalState.Persistent.Account as PA
+import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.DummyData
@@ -187,7 +188,7 @@ makePureAccount :: (MonadBlobStore m) => PA.PersistentAccount -> m Account
 makePureAccount PA.PersistentAccount {..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  _accountReleaseSchedule <- loadBufferedRef _accountReleaseSchedule
+  _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
   ab <- case _accountBaker of
     Null -> return Nothing
     Some pabRef -> do

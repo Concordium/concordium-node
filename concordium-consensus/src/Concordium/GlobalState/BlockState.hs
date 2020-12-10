@@ -118,7 +118,7 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
       bshUpdates
       (ebHash bshEpochBlocks))
 
-class (BlockStateTypes m,  Monad m) => AccountOperations m where
+class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the address of the account
   getAccountAddress :: Account m -> m AccountAddress
@@ -198,7 +198,7 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class (AccountOperations m) => BlockStateQuery m where
+class AccountOperations m => BlockStateQuery m where
     -- |Get the module from the module table of the state instance.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
     -- |Get the account state from the account table of the state instance.

@@ -240,7 +240,7 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         a1 <- coerceBSML (getStateHash ls)
         a2 <- coerceBSMR (getStateHash rs)
         unless (a1 == a2) $ error $ "State hash mismatch:\n  " ++ show a1 ++ "\n  " ++ show a2
-        assert (a1 == a2) $ return a1
+        return a1
     getOutcomes (ls, rs) = do
         a1 <- coerceBSML (getOutcomes ls)
         a2 <- coerceBSMR (getOutcomes rs)
