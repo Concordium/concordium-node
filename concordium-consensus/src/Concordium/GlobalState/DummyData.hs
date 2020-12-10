@@ -101,7 +101,11 @@ dummyAuthorizations = Authorizations {
       asProtocol = theOnly,
       asParamElectionDifficulty = theOnly,
       asParamEuroPerEnergy = theOnly,
-      asParamMicroGTUPerEuro = theOnly
+      asParamMicroGTUPerEuro = theOnly,
+      asParamFoundationAccount = theOnly,
+      asParamMintDistribution = theOnly,
+      asParamTransactionFeeDistribution = theOnly,
+      asParamGASRewards = theOnly
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -190,8 +194,8 @@ emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (account
 
 dummyRewardParameters :: RewardParameters
 dummyRewardParameters = RewardParameters {
-    _rpMintPerSlot = MintRate 1 12,
     _rpMintDistribution = MintDistribution {
+      _mdMintPerSlot = MintRate 1 12,
       _mdBakingReward = RewardFraction 60000, -- 60%
       _mdFinalizationReward = RewardFraction 30000 -- 30%
     },

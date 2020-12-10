@@ -42,6 +42,7 @@ import Data.Functor
 import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
+import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
@@ -294,6 +295,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
   -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (Account m))
+  -- |Get the index of an account.
+  bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -502,7 +505,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
-  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
+  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (Map.Map TransactionTime UpdateValue, UpdatableBlockState m)
 
   -- |Unlock the amounts up to the given timestamp
   bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
@@ -514,7 +517,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
   -- |Enqueue an update to take effect at the specified time.
-  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
+  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdateValue -> m (UpdatableBlockState m)
 
   -- |Add the given accounts and timestamps to the per-block account release schedule.
   -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
@@ -657,6 +660,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
+  bsoGetAccountIndex s = lift . bsoGetAccountIndex s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoRegIdExists s = lift . bsoRegIdExists s
   bsoCreateAccount s gc accKeys accAddr cdv = lift $ bsoCreateAccount s gc accKeys accAddr cdv
@@ -697,6 +701,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
+  {-# INLINE bsoGetAccountIndex #-}
   {-# INLINE bsoGetInstance #-}
   {-# INLINE bsoRegIdExists #-}
   {-# INLINE bsoCreateAccount #-}

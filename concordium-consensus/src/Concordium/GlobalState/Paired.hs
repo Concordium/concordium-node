@@ -356,6 +356,10 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
             error $ "Cannot get account with address " ++ show aref ++ " in left implementation"
           (_, Nothing) ->
             error $ "Cannot get account with address " ++ show aref ++ " in right implementation"
+    bsoGetAccountIndex (bs1, bs2) aref = do
+        r1 <- coerceBSML $ bsoGetAccountIndex bs1 aref
+        r2 <- coerceBSMR $ bsoGetAccountIndex bs2 aref
+        assert (r1 == r2) $ return r1
     bsoGetInstance (bs1, bs2) iref = do
         r1 <- coerceBSML $ bsoGetInstance bs1 iref
         r2 <- coerceBSMR $ bsoGetInstance bs2 iref
@@ -464,9 +468,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs2' <- coerceBSMR $ bsoAddSpecialTransactionOutcome bs2 sto
         return (bs1', bs2')
     bsoProcessUpdateQueues (bs1, bs2) ts = do
-        bs1' <- coerceBSML $ bsoProcessUpdateQueues bs1 ts
-        bs2' <- coerceBSMR $ bsoProcessUpdateQueues bs2 ts
-        return (bs1', bs2')
+        (cs1, bs1') <- coerceBSML $ bsoProcessUpdateQueues bs1 ts
+        (cs2, bs2') <- coerceBSMR $ bsoProcessUpdateQueues bs2 ts
+        assert (cs1 == cs2) $ return (cs1, (bs1', bs2'))
     bsoProcessReleaseSchedule (bs1, bs2) ts = do
         bs1' <- coerceBSML $ bsoProcessReleaseSchedule bs1 ts
         bs2' <- coerceBSMR $ bsoProcessReleaseSchedule bs2 ts

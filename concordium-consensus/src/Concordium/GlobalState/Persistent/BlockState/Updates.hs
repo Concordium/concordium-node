@@ -4,6 +4,7 @@
 module Concordium.GlobalState.Persistent.BlockState.Updates where
 
 import Data.Foldable (toList)
+import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Serialize
 import Control.Monad
@@ -131,7 +132,15 @@ data PendingUpdates = PendingUpdates {
         -- |Updates to the euro:energy exchange rate.
         pEuroPerEnergyQueue :: !(HashedBufferedRef (UpdateQueue ExchangeRate)),
         -- |Updates to the GTU:euro exchange rate.
-        pMicroGTUPerEuroQueue :: !(HashedBufferedRef (UpdateQueue ExchangeRate))
+        pMicroGTUPerEuroQueue :: !(HashedBufferedRef (UpdateQueue ExchangeRate)),
+        -- |Updates to the foundation account.
+        pFoundationAccountQueue :: !(HashedBufferedRef (UpdateQueue AccountIndex)),
+        -- |Updates to the mint distribution.
+        pMintDistributionQueue :: !(HashedBufferedRef (UpdateQueue MintDistribution)),
+        -- |Updates to the transaction fee distribution.
+        pTransactionFeeDistributionQueue :: !(HashedBufferedRef (UpdateQueue TransactionFeeDistribution)),
+        -- |Updates to the GAS rewards.
+        pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue GASRewards))
     }
 
 instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
@@ -141,12 +150,20 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
         hElectionDifficultyQueue <- H.hashToByteString <$> getHashM pElectionDifficultyQueue
         hEuroPerEnergyQueue <- H.hashToByteString <$> getHashM pEuroPerEnergyQueue
         hMicroGTUPerEuroQueue <- H.hashToByteString <$> getHashM pMicroGTUPerEuroQueue
+        hFoundationAccountQueue <- H.hashToByteString <$> getHashM pFoundationAccountQueue
+        hMintDistributionQueue <- H.hashToByteString <$> getHashM pMintDistributionQueue
+        hTransactionFeeDistributionQueue <- H.hashToByteString <$> getHashM pTransactionFeeDistributionQueue
+        hGASRewardsQueue <- H.hashToByteString <$> getHashM pGASRewardsQueue
         return $! H.hash $
             hAuthorizationQueue
             <> hProtocolQueue
             <> hElectionDifficultyQueue
             <> hEuroPerEnergyQueue
             <> hMicroGTUPerEuroQueue
+            <> hFoundationAccountQueue
+            <> hMintDistributionQueue
+            <> hTransactionFeeDistributionQueue
+            <> hGASRewardsQueue
 
 instance (MonadBlobStore m)
         => BlobStorable m PendingUpdates where
@@ -156,14 +173,27 @@ instance (MonadBlobStore m)
             (pEDQ, edQ) <- storeUpdate pElectionDifficultyQueue
             (pEPEQ, epeQ) <- storeUpdate pEuroPerEnergyQueue
             (pMGTUPEQ, mgtupeQ) <- storeUpdate pMicroGTUPerEuroQueue
+            (putFoundationAccountQueue, newFoundationAccountQueue) <- storeUpdate pFoundationAccountQueue
+            (putMintDistributionQueue, newMintDistributionQueue) <- storeUpdate pMintDistributionQueue
+            (putTransactionFeeDistributionQueue, newTransactionFeeDistributionQueue) <- storeUpdate pTransactionFeeDistributionQueue
+            (putGASRewardsQueue, newGASRewardsQueue) <- storeUpdate pGASRewardsQueue
             let newPU = PendingUpdates {
                     pAuthorizationQueue = aQ,
                     pProtocolQueue = prQ,
                     pElectionDifficultyQueue = edQ,
                     pEuroPerEnergyQueue = epeQ,
-                    pMicroGTUPerEuroQueue = mgtupeQ
+                    pMicroGTUPerEuroQueue = mgtupeQ,
+                    pFoundationAccountQueue = newFoundationAccountQueue,
+                    pMintDistributionQueue = newMintDistributionQueue,
+                    pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
+                    pGASRewardsQueue = newGASRewardsQueue
                 }
-            return (pAQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ, newPU)
+            let putPU = pAQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ
+                    >> putFoundationAccountQueue
+                    >> putMintDistributionQueue
+                    >> putTransactionFeeDistributionQueue
+                    >> putGASRewardsQueue
+            return (putPU, newPU)
     store pu = fst <$> storeUpdate pu
     load = do
         mAQ <- label "Authorization update queue" load
@@ -171,12 +201,20 @@ instance (MonadBlobStore m)
         mEDQ <- label "Election difficulty update queue" load
         mEPEQ <- label "Euro per energy update queue" load
         mMGTUPEQ <- label "Micro GTU per Euro update queue" load
+        mFoundationAccountQueue <- label "Foundation account update queue" load
+        mMintDistributionQueue <- label "Mint distribution update queue" load
+        mTransactionFeeDistributionQueue <- label "Transaction fee distribution update queue" load
+        mGASRewardsQueue <- label "GAS rewards update queue" load
         return $! do
             pAuthorizationQueue <- mAQ
             pProtocolQueue <- mPrQ
             pElectionDifficultyQueue <- mEDQ
             pEuroPerEnergyQueue <- mEPEQ
             pMicroGTUPerEuroQueue <- mMGTUPEQ
+            pFoundationAccountQueue <- mFoundationAccountQueue
+            pMintDistributionQueue <- mMintDistributionQueue
+            pTransactionFeeDistributionQueue <- mTransactionFeeDistributionQueue
+            pGASRewardsQueue <- mGASRewardsQueue
             return PendingUpdates{..}
 
 instance (MonadBlobStore m) => Cacheable m PendingUpdates where
@@ -187,10 +225,14 @@ instance (MonadBlobStore m) => Cacheable m PendingUpdates where
             <*> cache pElectionDifficultyQueue
             <*> cache pEuroPerEnergyQueue
             <*> cache pMicroGTUPerEuroQueue
+            <*> cache pFoundationAccountQueue
+            <*> cache pMintDistributionQueue
+            <*> cache pTransactionFeeDistributionQueue
+            <*> cache pGASRewardsQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: forall m. (MonadBlobStore m) => m PendingUpdates
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
     where
         e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
@@ -203,6 +245,10 @@ makePersistentPendingUpdates Basic.PendingUpdates{..} = do
         pElectionDifficultyQueue <- refMake =<< makePersistentUpdateQueue _pElectionDifficultyQueue
         pEuroPerEnergyQueue <- refMake =<< makePersistentUpdateQueue _pEuroPerEnergyQueue
         pMicroGTUPerEuroQueue <- refMake =<< makePersistentUpdateQueue _pMicroGTUPerEuroQueue
+        pFoundationAccountQueue <- refMake =<< makePersistentUpdateQueue _pFoundationAccountQueue
+        pMintDistributionQueue <- refMake =<< makePersistentUpdateQueue _pMintDistributionQueue
+        pTransactionFeeDistributionQueue <- refMake =<< makePersistentUpdateQueue _pTransactionFeeDistributionQueue
+        pGASRewardsQueue <- refMake =<< makePersistentUpdateQueue _pGASRewardsQueue
         return PendingUpdates{..}
 
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'Basic.PendingUpdates'.
@@ -213,6 +259,10 @@ makeBasicPendingUpdates PendingUpdates{..} = do
         _pElectionDifficultyQueue <- makeBasicUpdateQueue =<< refLoad pElectionDifficultyQueue
         _pEuroPerEnergyQueue <- makeBasicUpdateQueue =<< refLoad pEuroPerEnergyQueue
         _pMicroGTUPerEuroQueue <- makeBasicUpdateQueue =<< refLoad pMicroGTUPerEuroQueue
+        _pFoundationAccountQueue <- makeBasicUpdateQueue =<< refLoad pFoundationAccountQueue
+        _pMintDistributionQueue <- makeBasicUpdateQueue =<< refLoad pMintDistributionQueue
+        _pTransactionFeeDistributionQueue <- makeBasicUpdateQueue =<< refLoad pTransactionFeeDistributionQueue
+        _pGASRewardsQueue <- makeBasicUpdateQueue =<< refLoad pGASRewardsQueue
         return Basic.PendingUpdates{..}
 
 -- |Current state of updatable parameters and update queues.
@@ -313,26 +363,31 @@ makeBasicUpdates Updates{..} = do
 -- This splits the queue at the given timestamp. The last value up to and including the timestamp
 -- is the new value, if any -- otherwise the current value is retained. The queue is updated to
 -- be the updates with later timestamps.
-processValueUpdates ::
-    Timestamp
+processValueUpdates :: (MonadBlobStore m, Serialize v, MHashableTo m H.Hash v)
+    => Timestamp
     -> UpdateQueue v
-    -> res
+    -> m res
     -- ^No update continuation
-    -> (HashedBufferedRef (StoreSerialized v) -> UpdateQueue v -> res)
+    -> (HashedBufferedRef (StoreSerialized v) -> UpdateQueue v -> Map.Map TransactionTime v -> m res)
     -- ^Update continuation
-    -> res
+    -> m res
 processValueUpdates t uq noUpdate doUpdate = case ql of
                 Seq.Empty -> noUpdate
-                _ Seq.:|> (_, b) -> doUpdate b uq{uqQueue = qr}
+                _ Seq.:|> (_, b) -> do
+                    changes <- foldM accumChanges Map.empty ql
+                    doUpdate b uq{uqQueue = qr} changes
     where
         (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue uq)
+        accumChanges m (tt, r) = do
+            v <- unStoreSerialized <$> refLoad r
+            return $! Map.insert tt v m
 
 -- |Process authorization updates.
-processAuthorizationUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processAuthorizationUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
 processAuthorizationUpdates t bu = do
         u@Updates{..} <- refLoad bu
         authQueue <- refLoad (pAuthorizationQueue pendingUpdates)
-        processValueUpdates t authQueue (return bu) $ \newAuths newQ -> do
+        processValueUpdates t authQueue (return (Map.empty, bu)) $ \newAuths newQ m -> (UVAuthorization <$> m,) <$> do
             newpAuthQueue <- refMake newQ
             refMake u{
                     currentAuthorizations = newAuths,
@@ -340,11 +395,11 @@ processAuthorizationUpdates t bu = do
                 }
 
 -- |Process election difficulty updates.
-processElectionDifficultyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processElectionDifficultyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
 processElectionDifficultyUpdates t bu = do
         u@Updates{..} <- refLoad bu
         oldQ <- refLoad (pElectionDifficultyQueue pendingUpdates)
-        processValueUpdates t oldQ (return bu) $ \newEDp newQ -> do
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newEDp newQ m -> (UVElectionDifficulty <$> m,) <$> do
             newpQ <- refMake newQ
             StoreSerialized oldCP <- refLoad currentParameters
             StoreSerialized newED <- refLoad newEDp
@@ -355,11 +410,11 @@ processElectionDifficultyUpdates t bu = do
                 }
 
 -- |Process Euro:energy rate updates.
-processEuroPerEnergyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processEuroPerEnergyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
 processEuroPerEnergyUpdates t bu = do
         u@Updates{..} <- refLoad bu
         oldQ <- refLoad (pEuroPerEnergyQueue pendingUpdates)
-        processValueUpdates t oldQ (return bu) $ \newEPEp newQ -> do
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newEPEp newQ m -> (UVEuroPerEnergy <$> m,) <$> do
             newpQ <- refMake newQ
             StoreSerialized oldCP <- refLoad currentParameters
             StoreSerialized newEPE <- refLoad newEPEp
@@ -370,11 +425,11 @@ processEuroPerEnergyUpdates t bu = do
                 }
 
 -- |Process microGTU:Euro rate updates.
-processMicroGTUPerEuroUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processMicroGTUPerEuroUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
 processMicroGTUPerEuroUpdates t bu = do
         u@Updates{..} <- refLoad bu
         oldQ <- refLoad (pMicroGTUPerEuroQueue pendingUpdates)
-        processValueUpdates t oldQ (return bu) $ \newMGTUPEp newQ -> do
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newMGTUPEp newQ m -> (UVMicroGTUPerEuro <$> m,) <$> do
             newpQ <- refMake newQ
             StoreSerialized oldCP <- refLoad currentParameters
             StoreSerialized newMGTUPE <- refLoad newMGTUPEp
@@ -384,36 +439,106 @@ processMicroGTUPerEuroUpdates t bu = do
                     pendingUpdates = pendingUpdates{pMicroGTUPerEuroQueue = newpQ}
                 }
 
+processFoundationAccountUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processFoundationAccountUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        oldQ <- refLoad (pFoundationAccountQueue pendingUpdates)
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVFoundationAccount <$> m,) <$> do
+            newpQ <- refMake newQ
+            StoreSerialized oldCP <- refLoad currentParameters
+            StoreSerialized newParam <- refLoad newParamPtr
+            newParameters <- refMake $ StoreSerialized $ oldCP & cpFoundationAccount .~ newParam
+            refMake u{
+                    currentParameters = newParameters,
+                    pendingUpdates = pendingUpdates{pFoundationAccountQueue = newpQ}
+                }
+
+processMintDistributionUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processMintDistributionUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        oldQ <- refLoad (pMintDistributionQueue pendingUpdates)
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVMintDistribution <$> m,) <$> do
+            newpQ <- refMake newQ
+            StoreSerialized oldCP <- refLoad currentParameters
+            StoreSerialized newParam <- refLoad newParamPtr
+            newParameters <- refMake $ StoreSerialized $ oldCP & rpMintDistribution .~ newParam
+            refMake u{
+                    currentParameters = newParameters,
+                    pendingUpdates = pendingUpdates{pMintDistributionQueue = newpQ}
+                }
+
+processTransactionFeeDistributionUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processTransactionFeeDistributionUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        oldQ <- refLoad (pTransactionFeeDistributionQueue pendingUpdates)
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVTransactionFeeDistribution <$> m,) <$> do
+            newpQ <- refMake newQ
+            StoreSerialized oldCP <- refLoad currentParameters
+            StoreSerialized newParam <- refLoad newParamPtr
+            newParameters <- refMake $ StoreSerialized $ oldCP & rpTransactionFeeDistribution .~ newParam
+            refMake u{
+                    currentParameters = newParameters,
+                    pendingUpdates = pendingUpdates{pTransactionFeeDistributionQueue = newpQ}
+                }
+
+processGASRewardsUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processGASRewardsUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        oldQ <- refLoad (pGASRewardsQueue pendingUpdates)
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVGASRewards <$> m,) <$> do
+            newpQ <- refMake newQ
+            StoreSerialized oldCP <- refLoad currentParameters
+            StoreSerialized newParam <- refLoad newParamPtr
+            newParameters <- refMake $ StoreSerialized $ oldCP & rpGASRewards .~ newParam
+            refMake u{
+                    currentParameters = newParameters,
+                    pendingUpdates = pendingUpdates{pGASRewardsQueue = newpQ}
+                }
+
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
 -- overridden by later ones.
 -- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
 -- elapsed.
-processProtocolUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processProtocolUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
 processProtocolUpdates t bu = do
         u@Updates{..} <- refLoad bu
         protQueue <- refLoad (pProtocolQueue pendingUpdates)
         let (ql, qr) = Seq.spanl ((<= t) . transactionTimeToTimestamp . fst) (uqQueue protQueue)
         case ql of
-            Seq.Empty -> return bu
+            Seq.Empty -> return (Map.empty, bu)
             (_, pu) Seq.:<| _ -> do
+                changes <- foldM accumChanges Map.empty ql
                 let newProtocolUpdate = case currentProtocolUpdate of
                         Null -> Some pu
                         s -> s
                 newpProtQueue <- refMake protQueue {
                         uqQueue = qr
                     }
-                refMake u {
+                (changes,) <$> refMake u {
                         currentProtocolUpdate = newProtocolUpdate,
                         pendingUpdates = pendingUpdates {pProtocolQueue = newpProtQueue}
                     }
+    where
+        accumChanges m (tt, r) = do
+            v <- UVProtocol . unStoreSerialized <$> refLoad r
+            return $! Map.insert tt v m
 
 -- |Process all update queues.
-processUpdateQueues :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (BufferedRef Updates)
+processUpdateQueues :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
 processUpdateQueues t = processAuthorizationUpdates t
-        >=> processProtocolUpdates t
-        >=> processElectionDifficultyUpdates t
-        >=> processEuroPerEnergyUpdates t
-        >=> processMicroGTUPerEuroUpdates t
+        `pThen` processProtocolUpdates t
+        `pThen` processElectionDifficultyUpdates t
+        `pThen` processEuroPerEnergyUpdates t
+        `pThen` processMicroGTUPerEuroUpdates t
+        `pThen` processFoundationAccountUpdates t
+        `pThen` processMintDistributionUpdates t
+        `pThen` processTransactionFeeDistributionUpdates t
+        `pThen` processGASRewardsUpdates t
+    where
+        pThen a b = \i -> do
+            (m1, r1) <- a i
+            (m2, r2) <- b r1
+            return (m1 <> m2, r2)
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
@@ -424,7 +549,7 @@ futureElectionDifficulty uref ts = do
         let getCurED = do
                 StoreSerialized cp <- refLoad currentParameters
                 return $ cp ^. cpElectionDifficulty
-        processValueUpdates ts oldQ getCurED (\newEDp _ -> unStoreSerialized <$> refLoad newEDp)
+        processValueUpdates ts oldQ getCurED (\newEDp _ _ -> unStoreSerialized <$> refLoad newEDp)
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: (MonadBlobStore m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
@@ -436,17 +561,25 @@ lookupNextUpdateSequenceNumber uref uty = do
             UpdateElectionDifficulty -> uqNextSequenceNumber <$> refLoad (pElectionDifficultyQueue pendingUpdates)
             UpdateEuroPerEnergy -> uqNextSequenceNumber <$> refLoad (pEuroPerEnergyQueue pendingUpdates)
             UpdateMicroGTUPerEuro -> uqNextSequenceNumber <$> refLoad (pMicroGTUPerEuroQueue pendingUpdates)
+            UpdateFoundationAccount -> uqNextSequenceNumber <$> refLoad (pFoundationAccountQueue pendingUpdates)
+            UpdateMintDistribution -> uqNextSequenceNumber <$> refLoad (pMintDistributionQueue pendingUpdates)
+            UpdateTransactionFeeDistribution -> uqNextSequenceNumber <$> refLoad (pTransactionFeeDistributionQueue pendingUpdates)
+            UpdateGASRewards -> uqNextSequenceNumber <$> refLoad (pGASRewardsQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
-enqueueUpdate :: (MonadBlobStore m) => TransactionTime -> UpdatePayload -> BufferedRef Updates -> m (BufferedRef Updates)
+enqueueUpdate :: (MonadBlobStore m) => TransactionTime -> UpdateValue -> BufferedRef Updates -> m (BufferedRef Updates)
 enqueueUpdate effectiveTime payload uref = do
         u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
         newPendingUpdates <- case payload of
-            AuthorizationUpdatePayload auths -> enqueue effectiveTime auths pAuthorizationQueue <&> \newQ -> p{pAuthorizationQueue=newQ}
-            ProtocolUpdatePayload auths -> enqueue effectiveTime auths pProtocolQueue <&> \newQ -> p{pProtocolQueue=newQ}
-            ElectionDifficultyUpdatePayload auths -> enqueue effectiveTime auths pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue=newQ}
-            EuroPerEnergyUpdatePayload auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue=newQ}
-            MicroGTUPerEuroUpdatePayload auths -> enqueue effectiveTime auths pMicroGTUPerEuroQueue <&> \newQ -> p{pMicroGTUPerEuroQueue=newQ}
+            UVAuthorization auths -> enqueue effectiveTime auths pAuthorizationQueue <&> \newQ -> p{pAuthorizationQueue=newQ}
+            UVProtocol auths -> enqueue effectiveTime auths pProtocolQueue <&> \newQ -> p{pProtocolQueue=newQ}
+            UVElectionDifficulty auths -> enqueue effectiveTime auths pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue=newQ}
+            UVEuroPerEnergy auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue=newQ}
+            UVMicroGTUPerEuro auths -> enqueue effectiveTime auths pMicroGTUPerEuroQueue <&> \newQ -> p{pMicroGTUPerEuroQueue=newQ}
+            UVFoundationAccount v -> enqueue effectiveTime v pFoundationAccountQueue <&> \newQ -> p {pFoundationAccountQueue=newQ}
+            UVMintDistribution v -> enqueue effectiveTime v pMintDistributionQueue <&> \newQ -> p {pMintDistributionQueue=newQ}
+            UVTransactionFeeDistribution v -> enqueue effectiveTime v pTransactionFeeDistributionQueue <&> \newQ -> p {pTransactionFeeDistributionQueue=newQ}
+            UVGASRewards v -> enqueue effectiveTime v pGASRewardsQueue <&> \newQ -> p {pGASRewardsQueue=newQ}
         refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Get the current EnergyRate.

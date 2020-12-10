@@ -343,6 +343,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetAccount bs aaddr =
       return $ bs ^? blockAccounts . ix aaddr
 
+    {-# INLINE bsoGetAccountIndex #-}
+    bsoGetAccountIndex bs aaddr = return $! Accounts.getAccountIndex aaddr (bs ^. blockAccounts)
+
     {-# INLINE bsoRegIdExists #-}
     bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
 
@@ -570,7 +573,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
 
     {-# INLINE bsoProcessUpdateQueues #-}
-    bsoProcessUpdateQueues bs ts = return $! bs & blockUpdates %~ processUpdateQueues ts
+    bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates)
+      where
+        (!changes, !newBlockUpdates) = processUpdateQueues ts (bs ^. blockUpdates)
 
     {-# INLINE bsoProcessReleaseSchedule #-}
     bsoProcessReleaseSchedule bs ts = do
@@ -580,7 +585,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         else
         let f (ba, brs) addr =
               let ba' = ba & ix addr . accountReleaseSchedule %~ snd . unlockAmountsUntil ts
-                  brs' = case Map.lookupMin =<< fmap (_pendingReleases . _accountReleaseSchedule) (ba' ^? ix addr) of
+                  brs' = case Map.lookupMin . _pendingReleases . _accountReleaseSchedule =<< (ba' ^? ix addr) of
                                Just (k, _) -> Map.insert addr k brs
                                Nothing -> brs
               in (ba', brs')
