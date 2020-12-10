@@ -19,7 +19,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
--- import Concordium.GlobalState.Basic.BlockState.Bakers (bakersFromList)
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
@@ -60,6 +59,7 @@ generateBakerKeys bakerId = BakerIdentity{..}
         (bakerAggregationKey, _) = randomBlsSecretKey gen2
         bakerAggregationPublicKey = Bls.derivePublicKey bakerAggregationKey
 
+-- |Creates a baker account and keys, with 99% of the account's balance staked.
 -- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
 makeBakerAccountKeys :: BakerId -> Amount -> (Account, SigScheme.KeyPair, BakerIdentity)
 makeBakerAccountKeys bid amount =

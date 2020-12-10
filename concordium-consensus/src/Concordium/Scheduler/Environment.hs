@@ -373,22 +373,22 @@ class StaticInformation m => TransactionMonad m where
   -- |Transfer an amount from the first given instance or account to the instance in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToContractAmount #-}
-  withToContractAmount :: Either Instance (Account m) -> Instance -> Amount -> m a -> m a
-  withToContractAmount (Left i) = withContractToContractAmount i
+  withToContractAmount :: Either (Account m, Instance) (Account m) -> Instance -> Amount -> m a -> m a
+  withToContractAmount (Left (_, i)) = withContractToContractAmount i
   withToContractAmount (Right a) = withAccountToContractAmount a
 
   -- |Transfer an amount from the first given instance or account to the account in the second
   -- parameter and run the computation in the modified environment.
   {-# INLINE withToAccountAmount #-}
-  withToAccountAmount :: Either Instance (Account m) -> Account m -> Amount -> m a -> m a
-  withToAccountAmount (Left i) = withContractToAccountAmount i
+  withToAccountAmount :: Either (Account m, Instance) (Account m) -> Account m -> Amount -> m a -> m a
+  withToAccountAmount (Left (_, i)) = withContractToAccountAmount i
   withToAccountAmount (Right a) = withAccountToAccountAmount a
 
   getCurrentContractInstance :: ContractAddress -> m (Maybe Instance)
 
   {-# INLINE getCurrentAvailableAmount #-}
-  getCurrentAvailableAmount :: Either Instance (Account m) -> m Amount
-  getCurrentAvailableAmount (Left i) = getCurrentContractAmount i
+  getCurrentAvailableAmount :: Either (Account m, Instance) (Account m) -> m Amount
+  getCurrentAvailableAmount (Left (_, i)) = getCurrentContractAmount i
   getCurrentAvailableAmount (Right a) = getCurrentAccountAvailableAmount a
 
   -- |Get an account with its state at the start of the transaction.
@@ -947,7 +947,7 @@ logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ cred) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
@@ -958,7 +958,7 @@ logInvalidTransaction WithMetadata{..} fk =
 
 logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId . ID.values $ wmdData) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId $ wmdData) ++ " was invalid with reason " ++ show fk
 
 logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
 logInvalidChainUpdate WithMetadata{..} fk =
