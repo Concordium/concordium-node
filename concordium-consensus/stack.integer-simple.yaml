@@ -7,7 +7,6 @@ packages:
 - globalstate-types
 - globalstate-mockup/globalstate
 - globalstate-mockup/deps/haskell-lmdb
-- wasm
 
 extra-deps: []
 
