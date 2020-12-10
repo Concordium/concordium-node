@@ -268,62 +268,62 @@ tests = do
     specify "Fail to add baker with duplicate aggregation key" $
       case results !! 2 of
         ([(_, Types.TxReject (Types.DuplicateAggregationKey _))], [], bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) == [0,1]
-        _ -> False
+          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1]
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Add baker with duplicate sign and election keys" $
       case results !! 3 of
         ([(_,Types.TxSuccess [Types.BakerAdded {ebaBakerId = 2}])],[],bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) == [0,1,2]
-        _ -> False
+          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Update baker 0 with original keys" $
       case results !! 4 of
         ([(_,Types.TxSuccess [Types.BakerKeysUpdated 0 _ _ _ _])],[],bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) == [0,1,2]
-        _ -> False
+          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to update baker 0 with baker 1's aggregation key" $
       case results !! 5 of
-        ([(_,Types.TxReject (Types.DuplicateAggregationKey _))],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject (Types.DuplicateAggregationKey _))],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to add baker with bad election key proof" $
       case results !! 6 of
-        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to add baker with bad sign key proof" $
       case results !! 7 of
-        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to add baker with bad aggregation key proof" $
       case results !! 8 of
-        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to remove non-existent baker" $ 
       case results !! 9 of
-        ([(_,Types.TxReject (Types.NotABaker acct))],[],bps) ->
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) == [0,1,2]
-          && acct == account 3
-        _ -> False
+        ([(_,Types.TxReject (Types.NotABaker acct))],[],bps) -> do
+          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          acct `shouldBe` account 3
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Remove baker 0" $
       case results !! 10 of
-        ([(_,Types.TxSuccess [Types.BakerRemoved 0 acct])],[],bps) ->
+        ([(_,Types.TxSuccess [Types.BakerRemoved 0 acct])],[],bps) -> do
           -- The baker should still be in the active bakers due to cooldown
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) == [0,1,2]
-          && acct == account 0
-        _ -> False
+          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+          acct `shouldBe` account 0
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to add baker with baker 0's keys" $ 
       case results !! 11 of
         ([(_,Types.TxReject (Types.DuplicateAggregationKey _))],[],bps) ->
           -- The baker should still be in the active bakers due to cooldown
-          Set.toAscList (bps ^. birkActiveBakers . activeBakers) == [0,1,2]
-        _ -> False
+          Set.toAscList (bps ^. birkActiveBakers . activeBakers) `shouldBe` [0,1,2]
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to update baker with bad election key proof" $
       case results !! 12 of
-        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to update baker with bad sign key proof" $
       case results !! 13 of
-        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
     specify "Fail to update baker with bad aggregation key proof" $
       case results !! 14 of
-        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> True
-        _ -> False
+        ([(_,Types.TxReject Types.InvalidProof)],[],_) -> return ()
+        r -> expectationFailure $ "Unexpected outcome: " ++ show r
