@@ -189,10 +189,10 @@ processModule modl = do
             ..
             }
           miSourceModule = modl
-      in Just ModuleInterface{..}
+      in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
 
   where ffiResult = unsafeDupablePerformIO $ do
-          BSU.unsafeUseAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
+          unsafeUseModuleSourceAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
             alloca $ \artifactLenPtr ->
               alloca $ \outputLenPtr -> do
                 outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) artifactLenPtr outputLenPtr
