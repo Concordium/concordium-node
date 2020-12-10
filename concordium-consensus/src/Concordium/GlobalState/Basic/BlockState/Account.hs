@@ -35,6 +35,7 @@ data Account = Account {
                             -- @accountAmount - totalLockedUpBalance accountReleaseSchedule@.
   ,_accountEncryptedAmount :: !AccountEncryptedAmount
   ,_accountReleaseSchedule :: !AccountReleaseSchedule
+  ,_accountBaker :: !(Maybe AccountBaker)
   } deriving(Show, Eq)
 
 makeLenses ''Account
@@ -42,22 +43,33 @@ makeLenses ''Account
 instance HasPersistingAccountData Account where
   persistingAccountData = accountPersisting
 
+-- TODO: Account serialization should be improved.
+-- (This particular serialization is only used for genesis.)
 instance S.Serialize Account where
   put Account{..} = S.put _accountPersisting <>
                     S.put _accountNonce <>
                     S.put _accountAmount <>
                     S.put _accountEncryptedAmount <>
-                    S.put _accountReleaseSchedule
+                    S.put _accountReleaseSchedule <>
+                    S.put _accountBaker
   get = do
     _accountPersisting <- S.get
     _accountNonce <- S.get
     _accountAmount <- S.get
     _accountEncryptedAmount <- S.get
     _accountReleaseSchedule <- S.get
+    _accountBaker <- S.get
+    -- Check that the account balance is sufficient to meet any staked amount.
+    case _accountBaker of
+      Just AccountBaker{..}
+        | _stakedAmount > _accountAmount -> fail "Staked amount exceeds balance"
+      _ -> return ()
     return Account{..}
 
 instance HashableTo Hash.Hash Account where
-  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (AccountReleaseScheduleHash $ getHash _accountReleaseSchedule) _accountPersisting
+  getHash Account{..} = makeAccountHash _accountNonce _accountAmount _accountEncryptedAmount (getHash _accountReleaseSchedule) _accountPersisting bkrHash
+    where
+      bkrHash = maybe nullAccountBakerHash getHash _accountBaker
 
 -- |Create an empty account with the given public key, encryption key, address and credential.
 newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account
@@ -66,12 +78,12 @@ newAccount cryptoParams _accountVerificationKeys _accountAddress credential = Ac
         _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
         _accountCredentials = [credential],
         _accountMaxCredentialValidTo = validTo credential,
-        _accountStakeDelegate = Nothing,
         _accountInstances = Set.empty,
         ..
         },
         _accountNonce = minNonce,
         _accountAmount = 0,
         _accountEncryptedAmount = initialAccountEncryptedAmount,
-        _accountReleaseSchedule = emptyAccountReleaseSchedule
+        _accountReleaseSchedule = emptyAccountReleaseSchedule,
+        _accountBaker = Nothing
     }

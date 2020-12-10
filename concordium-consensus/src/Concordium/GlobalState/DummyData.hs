@@ -14,9 +14,9 @@ import Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
+import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import Concordium.GlobalState.Parameters
@@ -39,15 +39,14 @@ import Concordium.Types.DummyData
 {-# WARNING basicGenesisState "Do not use in production" #-}
 basicGenesisState :: GenesisData -> Basic.BlockState
 basicGenesisState genData =
-  let bakers = genesisBakers genData
-      birkParams = makeBirkParameters bakers bakers bakers (genesisSeedState genData)
-   in Basic.initialState
-        birkParams
+  Basic.initialState
+        (genesisSeedState genData)
         (genesisCryptographicParameters genData)
         (genesisAccounts genData)
         (genesisIdentityProviders genData)
         (genesisAnonymityRevokers genData)
-        (genesisMintPerSlot genData)        (genesisAuthorizations genData)
+        (genesisMintPerSlot genData)
+        (genesisAuthorizations genData)
         (genesisChainParameters genData)
 
 -- kp :: Int -> Sig.KeyPair
@@ -109,32 +108,33 @@ dummyAuthorizations = Authorizations {
     theOnly = AccessStructure (Set.singleton 0) 1
 
 {-# WARNING makeFakeBakers "Do not use in production" #-}
-makeFakeBakers :: Word -> [(FullBakerInfo, Account)]
+-- |Make a given number of baker accounts for use in genesis.
+-- These bakers should be the first accounts in a genesis block (because
+-- the baker ids must match the account indexes).
+makeFakeBakers :: Word -> [Account]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
-        mbs gen bid = (FullBakerInfo (BakerInfo epk spk blspk accAddress) stake, account):mbs gen''' (bid + 1)
+        mbs gen bid = account : mbs gen''' (bid + 1)
             where
-                ((VRF.KeyPair _ epk), gen') = VRF.randomKeyPair gen
+                (VRF.KeyPair _ epk, gen') = VRF.randomKeyPair gen
                 (sk, gen'') = randomBlockKeyPair gen'
                 spk = Sig.verifyKey sk
                 (blssk, gen''') = randomBlsSecretKey gen''
                 blspk = Bls.derivePublicKey blssk
-                accAddress = account ^. accountAddress
-                stake = account ^. accountAmount
-                account = makeFakeBakerAccount bid
+                account = makeFakeBakerAccount bid epk spk blspk
 
 -- |Make a baker deterministically from a given seed and with the given reward account.
 -- Uses 'bakerElectionKey' and 'bakerSignKey' with the given seed to generate the keys.
 -- The baker has 0 lottery power.
 -- mkBaker :: Int -> AccountAddress -> (BakerInfo
 {-# WARNING mkFullBaker "Do not use in production." #-}
-mkFullBaker :: Int -> AccountAddress -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
-mkFullBaker seed acc = (FullBakerInfo {
+mkFullBaker :: Int -> BakerId -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
+mkFullBaker seed _bakerIdentity = (FullBakerInfo {
     _bakerInfo = BakerInfo {
       _bakerElectionVerifyKey = VRF.publicKey electionKey,
       _bakerSignatureVerifyKey = Sig.verifyKey sk,
       _bakerAggregationVerifyKey = Bls.derivePublicKey blssk,
-      _bakerAccount = acc
+      ..
     },
     _bakerStake = 0
   }, VRF.privateKey electionKey, Sig.signKey sk, blssk)
@@ -168,10 +168,9 @@ makeTestingGenesisData
   genesisMaxBlockEnergy
   genesisAuthorizations
   genesisChainParameters
-    = GenesisDataV1 {..}
+    = GenesisDataV2 {..}
     where
         genesisMintPerSlot = 10 -- default value, OK for testing.
-        genesisBakers = fst (bakersFromList bakers)
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters =
           FinalizationParameters {
@@ -185,19 +184,19 @@ makeTestingGenesisData
            finalizationAllowZeroDelay = False,
            ..
          }
-        (bakers, genesisAccounts) = unzip (makeFakeBakers nBakers)
+        genesisAccounts = makeFakeBakers nBakers
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: BasicBirkParameters
-emptyBirkParameters = makeBirkParameters emptyBakers emptyBakers emptyBakers (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
+emptyBirkParameters :: Accounts -> BasicBirkParameters
+emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 166
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState
 createBlockState accounts =
-    emptyBlockState emptyBirkParameters dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
+    emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockIdentityProviders . unhashed .~ dummyIdentityProviders) .
@@ -236,11 +235,13 @@ mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographic
     cred = dummyCredential addr (head keys) dummyMaxValidTo dummyCreatedAt
 
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
-makeFakeBakerAccount :: BakerId -> Account
-makeFakeBakerAccount bid =
-    acct & accountAmount .~ 1000000000000
-      & accountStakeDelegate ?~ bid
+makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> Account
+makeFakeBakerAccount bid _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey =
+    acct & accountAmount .~ balance
+      & accountBaker .~ Just bkr
   where
+    balance = 1000000000000
+    staked = 999000000000
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential address vfKey dummyMaxValidTo dummyCreatedAt
     acct = newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
@@ -248,6 +249,15 @@ makeFakeBakerAccount bid =
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
+    bkr = AccountBaker {
+      _stakedAmount = staked,
+      _stakeEarnings = True,
+      _accountBakerInfo = BakerInfo {
+        _bakerIdentity = bid,
+        ..
+      },
+      _bakerPendingChange = NoChange
+    }
 
 createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
 createCustomAccount amount kp address =

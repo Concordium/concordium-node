@@ -25,7 +25,6 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.SeedState as SeedState
@@ -49,7 +48,13 @@ data ChainParameters = ChainParameters {
     -- |uGTU:Energy rate.
     -- This is derived, but will be computed when the other
     -- rates are updated since it is more useful.
-    _cpEnergyRate :: !EnergyRate
+    _cpEnergyRate :: !EnergyRate,
+    -- |Number of additional epochs that bakers must cool down when
+    -- removing stake. The cool-down will effectively be 2 epochs
+    -- longer than this value, since at any given time, the bakers
+    -- (and stakes) for the current and next epochs have already
+    -- been determined.
+    _cpBakerExtraCooldownEpochs :: !Epoch
 } deriving (Eq, Show)
 
 makeChainParameters ::
@@ -59,8 +64,10 @@ makeChainParameters ::
     -- ^Euro:Energy rate
     -> ExchangeRate
     -- ^uGTU:Euro rate
+    -> Epoch
+    -- ^Baker cooldown
     -> ChainParameters
-makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro = ChainParameters{..}
+makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro _cpBakerExtraCooldownEpochs = ChainParameters{..}
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
 
@@ -80,12 +87,17 @@ cpMicroGTUPerEuro = lens _cpMicroGTUPerEuro (\cp mgtupe -> cp {_cpMicroGTUPerEur
 cpEnergyRate :: SimpleGetter ChainParameters EnergyRate
 cpEnergyRate = to _cpEnergyRate
 
+{-# INLINE cpBakerExtraCooldownEpochs #-}
+cpBakerExtraCooldownEpochs :: Lens' ChainParameters Epoch
+cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_cpBakerExtraCooldownEpochs = bce})
+
 instance Serialize ChainParameters where
   put ChainParameters{..} = do
     put _cpElectionDifficulty
     put _cpEuroPerEnergy
     put _cpMicroGTUPerEuro
-  get = makeChainParameters <$> get <*> get <*> get
+    put _cpBakerExtraCooldownEpochs
+  get = makeChainParameters <$> get <*> get <*> get <*> get
 
 instance HashableTo Hash.Hash ChainParameters where
   getHash = Hash.hash . encode
@@ -98,12 +110,14 @@ instance FromJSON ChainParameters where
       <$> v .: "electionDifficulty"
       <*> v .: "euroPerEnergy"
       <*> v .: "microGTUPerEuro"
+      <*> v .: "bakerCooldownEpochs"
 
 instance ToJSON ChainParameters where
   toJSON ChainParameters{..} = object [
       "electionDifficulty" AE..= _cpElectionDifficulty,
       "euroPerEnergy" AE..= _cpEuroPerEnergy,
-      "microGTUPerEuro" AE..= _cpMicroGTUPerEuro
+      "microGTUPerEuro" AE..= _cpMicroGTUPerEuro,
+      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs
     ]
 
 data VoterInfo = VoterInfo {
@@ -150,10 +164,9 @@ instance FromJSON FinalizationParameters where
         finalizationAllowZeroDelay <- v .:? "allowZeroDelay" .!= False
         return FinalizationParameters{..}
 
-data GenesisDataV1 = GenesisDataV1 {
+data GenesisDataV2 = GenesisDataV2 {
     genesisTime :: !Timestamp,
     genesisSlotDuration :: !Duration,
-    genesisBakers :: !Bakers,
     genesisSeedState :: !SeedState.SeedState,
     genesisAccounts :: ![Account],
     genesisFinalizationParameters :: !FinalizationParameters,
@@ -166,13 +179,17 @@ data GenesisDataV1 = GenesisDataV1 {
     genesisChainParameters :: !ChainParameters
 } deriving (Generic, Show, Eq)
 
-getGenesisDataV1 :: Get GenesisDataV1
-getGenesisDataV1 = do
+getGenesisDataV2 :: Get GenesisDataV2
+getGenesisDataV2 = do
     genesisTime <- get
     genesisSlotDuration <- get
-    genesisBakers <- get
     genesisSeedState <- get
     genesisAccounts <- get
+    -- Verify that each baker account records the correct baker id
+    forM_ (zip [0..] genesisAccounts) $ \(i, acct) -> case _accountBaker acct of
+        Just ab | _bakerIdentity (_accountBakerInfo ab) /= i ->
+          fail "BakerId does not match account index"
+        _ -> return ()
     genesisFinalizationParameters <- get
     genesisCryptographicParameters <- get
     genesisIdentityProviders <- get
@@ -181,13 +198,12 @@ getGenesisDataV1 = do
     genesisMaxBlockEnergy <- get
     genesisAuthorizations <- get
     genesisChainParameters <- get
-    return GenesisDataV1{..}
+    return GenesisDataV2{..}
 
-putGenesisDataV1 :: Putter GenesisDataV1
-putGenesisDataV1 GenesisDataV1{..} = do
+putGenesisDataV2 :: Putter GenesisDataV2
+putGenesisDataV2 GenesisDataV2{..} = do
     put genesisTime
     put genesisSlotDuration
-    put genesisBakers
     put genesisSeedState
     put genesisAccounts
     put genesisFinalizationParameters
@@ -200,13 +216,13 @@ putGenesisDataV1 GenesisDataV1{..} = do
     put genesisChainParameters
 
 
-instance Serialize GenesisDataV1 where
-  get = getGenesisDataV1
-  put = putGenesisDataV1
+instance Serialize GenesisDataV2 where
+  get = getGenesisDataV2
+  put = putGenesisDataV2
 
-type GenesisData = GenesisDataV1
+type GenesisData = GenesisDataV2
 genesisDataVersion :: Version
-genesisDataVersion = 1
+genesisDataVersion = 2
 
 -- |Deserialize genesis data.
 -- Read the version and decide how to parse the remaining data based on the
@@ -216,17 +232,17 @@ genesisDataVersion = 1
 getExactVersionedGenesisData :: Get GenesisData
 getExactVersionedGenesisData =
   getVersion >>= \case
-    1 -> getGenesisDataV1
+    2 -> getGenesisDataV2
     n -> fail $ "Unsupported Genesis version: " ++ show n
 
 -- |Serialize the genesis data with a version according to the V1 format.
 -- In contrast to 'putGenesisDataV1' this function also prepends the version.
-putVersionedGenesisDataV1 :: GenesisData -> Put
-putVersionedGenesisDataV1 fpm = putVersion 1 <> putGenesisDataV1 fpm
+putVersionedGenesisDataV2 :: GenesisData -> Put
+putVersionedGenesisDataV2 fpm = putVersion 2 <> putGenesisDataV2 fpm
 
 -- |Get the total amount of GTU in genesis data.
 genesisTotalGTU :: GenesisData -> Amount
-genesisTotalGTU GenesisDataV1{..} =
+genesisTotalGTU GenesisDataV2{..} =
   sum (_accountAmount <$> genesisAccounts)
 
 readIdentityProviders :: BSL.ByteString -> Maybe IdentityProviders
@@ -278,11 +294,10 @@ data GenesisBaker = GenesisBaker {
     gbSignatureVerifyKey :: BakerSignVerifyKey,
     -- |The baker's public key for aggregate signatures
     gbAggregationVerifyKey :: BakerAggregationVerifyKey,
-    -- |Baker's account (public data only).
-    gbAccount :: GenesisAccount,
-    -- |Whether the baker should be included in the initial
-    -- finalization committee.
-    gbFinalizer :: Bool
+    -- |The baker's initial stake
+    gbStake :: Amount,
+    -- |Whether to restake the baker's earnings from rewards
+    gbRestakeEarnings :: Bool
 }
 
 instance FromJSON GenesisBaker where
@@ -290,8 +305,8 @@ instance FromJSON GenesisBaker where
             gbElectionVerifyKey <- v .: "electionVerifyKey"
             gbSignatureVerifyKey <- v .: "signatureVerifyKey"
             gbAggregationVerifyKey <- v .: "aggregationVerifyKey"
-            gbAccount <- v .: "account"
-            gbFinalizer <- v .: "finalizer"
+            gbStake <- v .: "stake"
+            gbRestakeEarnings <- v .: "restakeEarnings"
             return GenesisBaker{..}
 
 -- |'GenesisAccount' are special account existing in the genesis block, in
@@ -306,7 +321,8 @@ data GenesisAccount = GenesisAccount {
   -- in the credential, which, in JSON, is represented just as a hex-string.
   -- This should be reworked at some point, so that it is more principled than
   -- the current, slighly hacky, solution.
-  gaCredential :: !ID.AccountCredential
+  gaCredential :: !ID.AccountCredential,
+  gaBaker :: !(Maybe GenesisBaker)
 }
 
 instance FromJSON GenesisAccount where
@@ -317,27 +333,28 @@ instance FromJSON GenesisAccount where
     Versioned{..} <- obj .: "credential"
     unless (vVersion == 0) $ fail "Only V0 credentials supported in genesis."
     gaCredentialFull <- parseJSON vValue
-    case ID.values gaCredentialFull of
+    gaCredential <- case ID.values gaCredentialFull of
       Nothing -> fail "Account credential is malformed."
-      Just gaCredential -> return GenesisAccount{..}
+      Just gaCredential -> return gaCredential
+    gaBaker <- obj .:? "baker"
+    -- Check that bakers do not stake more than their balance.
+    case gaBaker of
+      Just gb | gbStake gb > gaBalance -> fail "Stake exceeds balance"
+      _ -> return ()
+    return GenesisAccount{..}
 
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
--- FIXME: We should refactor this so that we have a single list of accounts
--- which can delegate to whoever they wish, and then we calculate initial balances
--- for bakers.
-data GenesisParametersV1 = GenesisParametersV1 {
+data GenesisParametersV2 = GenesisParametersV2 {
     gpGenesisTime :: Timestamp,
     gpSlotDuration :: Duration,
     gpLeadershipElectionNonce :: LeadershipElectionNonce,
     gpEpochLength :: EpochLength,
     gpFinalizationParameters :: FinalizationParameters,
-    gpBakers :: [GenesisBaker],
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: IdentityProviders,
     gpAnonymityRevokers :: AnonymityRevokers,
-    -- |Additional accounts (not baker accounts).
-    -- They cannot delegate to any bakers in genesis.
+    -- |Initial accounts
     gpInitialAccounts :: [GenesisAccount],
     gpMintPerSlot :: Amount,
     -- |Maximum total energy that can be consumed by the transactions in a block
@@ -348,7 +365,7 @@ data GenesisParametersV1 = GenesisParametersV1 {
     gpChainParameters :: ChainParameters
 }
 
-instance FromJSON GenesisParametersV1 where
+instance FromJSON GenesisParametersV2 where
     parseJSON = withObject "GenesisParameters" $ \v -> do
         gpGenesisTime <- v .: "genesisTime"
         gpSlotDuration <- v .: "slotDuration"
@@ -356,22 +373,23 @@ instance FromJSON GenesisParametersV1 where
         gpEpochLength <- Slot <$> v .: "epochLength"
         when(gpEpochLength == 0) $ fail "Epoch length should be non-zero"
         gpFinalizationParameters <- v .: "finalizationParameters"
-        gpBakers <- v .: "bakers"
-        when (null gpBakers) $ fail "There should be at least one baker."
         gpCryptographicParameters <- v .: "cryptographicParameters"
         gpIdentityProviders <- v .:? "identityProviders" .!= emptyIdentityProviders
         gpAnonymityRevokers <- v .:? "anonymityRevokers" .!= emptyAnonymityRevokers
         gpInitialAccounts <- v .:? "initialAccounts" .!= []
+        let hasBaker GenesisAccount{gaBaker=Nothing} = False
+            hasBaker _ = True
+        unless (any hasBaker gpInitialAccounts) $ fail "Must have at least one baker at genesis"
         gpMintPerSlot <-  v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         gpAuthorizations <- v .: "updateAuthorizations"
         gpChainParameters <- v .: "chainParameters"
-        return GenesisParametersV1{..}
+        return GenesisParametersV2{..}
 
-type GenesisParameters = GenesisParametersV1
+type GenesisParameters = GenesisParametersV2
 
 genesisParametersVersion :: Version
-genesisParametersVersion = 1
+genesisParametersVersion = 2
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -428,30 +446,30 @@ instance FromJSON RuntimeParameters where
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
 parametersToGenesisData :: GenesisParameters -> GenesisData
-parametersToGenesisData GenesisParametersV1{..} = GenesisDataV1{..}
+parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
     where
         genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
-        genesisBakers = fst (bakersFromList (mkBaker <$> gpBakers))
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
-        mkBaker GenesisBaker{..} = FullBakerInfo
-            (BakerInfo
-                gbElectionVerifyKey
-                gbSignatureVerifyKey
-                gbAggregationVerifyKey
-                (gaAddress gbAccount))
-            (gaBalance gbAccount)
 
-        mkAccount GenesisAccount{..} =
+        mkAccount (GenesisAccount{..}, bid) =
           newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
                 & accountAmount .~ gaBalance
-        -- Baker accounts will have no special privileges.
-        -- We ignore any specified delegation target.
-        genesisAccounts = [mkAccount gbAccount & accountPersisting . accountStakeDelegate ?~ bid
-                          | (GenesisBaker{..}, bid) <- zip gpBakers [0..]]
-                          -- and add any other initial accounts.
-                          ++ map mkAccount gpInitialAccounts
+                & case gaBaker of
+                    Nothing -> id
+                    Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
+                      _stakedAmount = gbStake,
+                      _stakeEarnings = gbRestakeEarnings,
+                      _accountBakerInfo = BakerInfo {
+                        _bakerIdentity = bid,
+                        _bakerSignatureVerifyKey = gbSignatureVerifyKey,
+                        _bakerElectionVerifyKey = gbElectionVerifyKey,
+                        _bakerAggregationVerifyKey = gbAggregationVerifyKey
+                      },
+                      _bakerPendingChange = NoChange
+                    }
+        genesisAccounts = map mkAccount (zip gpInitialAccounts [0..])
         genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders

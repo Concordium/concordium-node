@@ -53,10 +53,10 @@ genFinData finalizationIndex finalizationBlockPointer finalizationProof finaliza
 
 -- Values for default inputs to generate hash
 baker1 :: (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
-baker1 = mkFullBaker 1 alesAccount
+baker1 = mkFullBaker 1 1
 
 baker2 :: (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
-baker2 = mkFullBaker 2 thomasAccount
+baker2 = mkFullBaker 2 2
 
 slot :: Slot
 slot = 5

@@ -16,8 +16,6 @@ import Concordium.GlobalState.BlockPointer (BlockPointerData)
 class BlockStateTypes (m :: Type -> Type) where
     type BlockState m :: Type
     type UpdatableBlockState m :: Type
-    type BirkParameters m :: Type
-    type Bakers m :: Type
     type Account m :: Type
 
 type family BlockStatePointer (bs :: Type) :: Type
@@ -27,8 +25,6 @@ type BlockStateRef m = BlockStatePointer (BlockState m)
 instance BlockStateTypes (MGSTrans t m) where
     type BlockState (MGSTrans t m) = BlockState m
     type UpdatableBlockState (MGSTrans t m) = UpdatableBlockState m
-    type BirkParameters (MGSTrans t m) = BirkParameters m
-    type Bakers (MGSTrans t m) = Bakers m
     type Account (MGSTrans t m) = Account m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
