@@ -16,7 +16,10 @@ import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+
+import Concordium.GlobalState.BakerInfo
 
 -- FIXME: Figure out where to put this constant.
 maxNumIncoming :: Int
@@ -30,7 +33,6 @@ data PersistingAccountData = PersistingAccountData {
   ,_accountCredentials :: ![AccountCredential]
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
-  ,_accountStakeDelegate :: !(Maybe BakerId)
   ,_accountInstances :: !(Set.Set ContractAddress)
 } deriving (Show, Eq)
 
@@ -97,7 +99,6 @@ instance Serialize PersistingAccountData where
                                   put _accountEncryptionKey <>
                                   put _accountVerificationKeys <>
                                   put _accountCredentials <> -- The order is significant for hash computation
-                                  put _accountStakeDelegate <>
                                   put (Set.toAscList _accountInstances)
   get = do
     _accountAddress <- get
@@ -106,15 +107,86 @@ instance Serialize PersistingAccountData where
     _accountCredentials <- get
     when (null _accountCredentials) $ fail "Account has no credentials"
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
-    _accountStakeDelegate <- get
     _accountInstances <- Set.fromList <$> get
     return PersistingAccountData{..}
 
+
+-- |Pending changes to the baker associated with an account.
+-- Changes are effective on the actual bakers, two epochs after the specified epoch,
+-- however, the changes will be made to the 'AccountBaker' at the specified epoch.
+data BakerPendingChange
+  = NoChange
+  -- ^There is no change pending to the baker.
+  | ReduceStake !Amount !Epoch
+  -- ^The stake will be decreased to the given amount.
+  | RemoveBaker !Epoch
+  -- ^The baker will be removed.
+  deriving (Eq, Ord, Show)
+
+instance Serialize BakerPendingChange where
+  put NoChange = putWord8 0
+  put (ReduceStake amt epoch) = putWord8 1 >> put amt >> put epoch
+  put (RemoveBaker epoch) = putWord8 2 >> put epoch
+
+  get = getWord8 >>= \case
+    0 -> return NoChange
+    1 -> ReduceStake <$> get <*> get
+    2 -> RemoveBaker <$> get
+    _ -> fail "Invalid BakerPendingChange"
+
+-- |A baker associated with an account.
+data AccountBaker = AccountBaker {
+  _stakedAmount :: !Amount,
+  _stakeEarnings :: !Bool,
+  _accountBakerInfo :: !BakerInfo,
+  _bakerPendingChange :: !BakerPendingChange
+} deriving (Eq, Show)
+
+makeLenses ''AccountBaker
+
+instance Serialize AccountBaker where
+  put AccountBaker{..} = do
+    put _stakedAmount
+    put _stakeEarnings
+    put _accountBakerInfo
+    put _bakerPendingChange
+  get = do
+    _stakedAmount <- get
+    _stakeEarnings <- get
+    _accountBakerInfo <- get
+    _bakerPendingChange <- get
+    -- If there is a pending reduction, check that it is actually a reduction.
+    case _bakerPendingChange of
+      ReduceStake amt _
+        | amt > _stakedAmount -> fail "Pending stake reduction is not a reduction in stake"
+      _ -> return ()
+    return AccountBaker{..}
+
+instance HashableTo AccountBakerHash AccountBaker where
+  getHash AccountBaker{..}
+    = makeAccountBakerHash
+        _stakedAmount
+        _stakeEarnings
+        _accountBakerInfo
+        _bakerPendingChange
+
+type AccountBakerHash = Hash.Hash
+
+-- |Make an 'AccountBakerHash' for a baker.
+makeAccountBakerHash :: Amount -> Bool -> BakerInfo -> BakerPendingChange -> AccountBakerHash
+makeAccountBakerHash amt stkEarnings binfo bpc = Hash.hashLazy $ runPutLazy $
+  put amt >> put stkEarnings >> put binfo >> put bpc
+
+-- |An 'AccountBakerHash' that is used when an account has no baker.
+-- This is defined as the hash of the empty string.
+nullAccountBakerHash :: AccountBakerHash
+nullAccountBakerHash = Hash.hash ""
+
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountData -> Hash.Hash
-makeAccountHash n a eas ars pd = Hash.hashLazy $ runPutLazy $
-  put n >> put a >> put eas >> put ars >> put pd
+makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountData -> AccountBakerHash -> Hash.Hash
+makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
+  put n >> put a >> put eas >> put ars >> put pd >> put abh
 
 {-# INLINE addCredential #-}
 addCredential :: HasPersistingAccountData d => AccountCredential -> d -> d

@@ -189,7 +189,18 @@ makePureAccount PA.PersistentAccount {..} = do
   _accountPersisting <- loadBufferedRef _persistingData
   _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
-  return Account {..}
+  ab <- case _accountBaker of
+    Null -> return Nothing
+    Some pabRef -> do
+      pab <- refLoad pabRef
+      abi <- refLoad (PA._accountBakerInfo pab)
+      return $ Just AccountBaker {
+        _stakedAmount = PA._stakedAmount pab,
+        _stakeEarnings = PA._stakeEarnings pab,
+        _accountBakerInfo = abi,
+        _bakerPendingChange = PA._bakerPendingChange pab
+      }
+  return Account {_accountBaker = ab, ..}
 
 runAccountAction :: (MonadBlobStore m, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
 runAccountAction (PutAccount acct) (ba, pa) = do

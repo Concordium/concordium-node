@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes #-}
 module Concordium.GlobalState.Basic.BlockState.Accounts where
 
 import qualified Data.Map.Strict as Map
@@ -81,6 +82,17 @@ getAccount :: AccountAddress -> Accounts -> Maybe Account
 getAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> accountTable ^? ix i
+
+-- |Retrieve an account and its index with the given address.
+-- Returns @Nothing@ if no such account exists.
+getAccountWithIndex :: AccountAddress -> Accounts -> Maybe (AT.AccountIndex, Account)
+getAccountWithIndex addr Accounts{..} = case Map.lookup addr accountMap of
+                                 Nothing -> Nothing
+                                 Just i -> (i, ) <$> accountTable ^? ix i
+
+-- |Traversal for accessing the account at a given index.
+indexedAccount :: AT.AccountIndex -> Traversal' Accounts Account
+indexedAccount ai = lens accountTable (\a v-> a{accountTable = v}) . ix ai
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.

@@ -28,19 +28,17 @@ Some invariants that must be maintained in the BlockState are:
 B1. Once an account has been created, it cannot be replaced by another account with the same address.
 B2. The total GTU should equal the sum of all amounts on accounts plus the central bank amount plus the reward amount.
 B3. The number of notifications to identity issuers must be the same as the number of transactions that don't deploy credentials.
-B4. Two bakers cannot share the same signature verify key.
+B4. Two bakers cannot share the same aggregate signature verify key.
 B5. The amount delegated to any given baker must be the sum of the amounts o all the accounts that delegate to that baker. The total delegated amount must always equal the sum of the amounts delegated to all bakers.
 
 These invariants are actually inviolable considering the structure of the API.
 -}
 module Concordium.GlobalState.BlockState where
 
-import Lens.Micro.Platform
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
-import qualified Data.Map as Map
-import Data.Ratio
+import Data.Functor
 import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
@@ -58,7 +56,6 @@ import Concordium.GlobalState.Account
 
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Bakers as Basic
 import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
@@ -99,7 +96,7 @@ data BlockStateHashInputs = BlockStateHashInputs {
     bshAccounts :: H.Hash,
     bshInstances :: H.Hash,
     bshUpdates :: H.Hash
-}
+} deriving (Show)
 
 -- |Construct a 'StateHash' from the component hashes.
 makeBlockStateHash :: BlockStateHashInputs -> StateHash
@@ -117,39 +114,25 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
     )
     bshUpdates
 
-class (BlockStateTypes m,  Monad m) => BakerQuery m where
-
-  -- |If baker with given ID exists, get the stake delegated to that baker
-  getBakerStake :: Bakers m -> BakerId -> m (Maybe Amount)
-
-  -- |If baker with given signature verification key exists, get the baker's baker ID
-  getBakerFromKey :: Bakers m -> BakerSignVerifyKey -> m (Maybe BakerId)
-
-  -- |Get the sum total stake of all bakers
-  getTotalBakerStake :: Bakers m -> m Amount
-
-  -- |If baker with given ID exists, get the baker's account address and verification keys
-  getBakerInfo :: Bakers m -> BakerId -> m (Maybe BakerInfo)
-
-  -- |Get baker IDs and full baker information (verification keys, account addresses, and stake) for all bakers
-  getFullBakerInfos :: Bakers m -> m (Map.Map BakerId FullBakerInfo)
-
-bakerData :: BakerQuery m => BakerId -> Bakers m -> m (Maybe (BakerInfo, LotteryPower))
-bakerData bid bkrs = do
-  totalStake <- getTotalBakerStake bkrs
-  runMaybeT $ do
-    bInfo <- MaybeT (getBakerInfo bkrs bid)
-    stake <- MaybeT (getBakerStake bkrs bid)
-    return (bInfo, stake % totalStake)
-
-
-class (BlockStateTypes m,  Monad m) => AccountOperations m where
+class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the address of the account
   getAccountAddress :: Account m -> m AccountAddress
 
   -- | Get the current public account balance
   getAccountAmount :: Account m -> m Amount
+
+  -- | Get the current public account available balance.
+  -- This accounts for lock-up and staked amounts.
+  -- @available = total - max locked staked@
+  getAccountAvailableAmount :: Account m -> m Amount
+  getAccountAvailableAmount acc = do
+    total <- getAccountAmount acc
+    lockedUp <- _totalLockedUpBalance <$> getAccountReleaseSchedule acc
+    staked <- getAccountBaker acc <&> \case
+      Nothing -> 0
+      Just bkr -> _stakedAmount bkr
+    return $ total - max lockedUp staked
 
   -- |Get the next available nonce for this account
   getAccountNonce :: Account m -> m Nonce
@@ -196,9 +179,6 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
       in return $ Just $! foldl' aggregateAmounts _selfAmount toTake
     else return Nothing
 
-  -- |Get the baker to which this account's stake is delegated (if any)
-  getAccountStakeDelegate :: Account m -> m (Maybe BakerId)
-
   -- |Get the release schedule for an account.
   getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
 
@@ -208,51 +188,13 @@ class (BlockStateTypes m,  Monad m) => AccountOperations m where
   -- changes.
   getAccountInstances :: Account m -> m (Set ContractAddress)
 
-  -- |Create an empty account with the given public key, address and credential.
-  createNewAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (Account m)
-
-  -- |Update the public account balance
-  updateAccountAmount :: Account m -> Amount -> m (Account m)
-
-class (BlockStateTypes m, BakerQuery m) => BirkParametersOperations m where
-    -- |Get the 'SeedState', which is used to determine the leadership election nonce.
-    getSeedState :: BirkParameters m -> m SeedState
-    -- |Update the Birk parameters for a new epoch:
-    --   * Update the 'SeedState' to the given value.
-    --   * New lottery bakers is old previous-epoch bakers.
-    --   * New previous-epoch bakers is old current bakers.
-    updateBirkParametersForNewEpoch :: SeedState -> BirkParameters m -> m (BirkParameters m)
-    -- |Get the 'Bakers' object representing the current bakers and stake distribution.
-    getCurrentBakers :: BirkParameters m -> m (Bakers m)
-    -- |Get the 'Bakers' object representing the bakers and stake distribution at the
-    -- end of the epoch before last, as used for determining the baking committee.
-    getLotteryBakers :: BirkParameters m -> m (Bakers m)
-    -- |Update the 'SeedState' by applying the specified function.
-    updateSeedState :: (SeedState -> SeedState) -> BirkParameters m -> m (BirkParameters m)
-
-birkBaker :: (BakerQuery m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
-birkBaker bid bps = bakerData bid =<< getCurrentBakers bps
-
-birkEpochBaker :: (BakerQuery m, BirkParametersOperations m) => BakerId -> BirkParameters m -> m (Maybe (BakerInfo, LotteryPower))
-birkEpochBaker bid bps = bakerData bid =<< getLotteryBakers bps
-
-birkLeadershipElectionNonce :: BirkParametersOperations m => BirkParameters m -> m LeadershipElectionNonce
-birkLeadershipElectionNonce bps = currentSeed <$> getSeedState bps
-
-birkEpochBakerByKeys :: (BakerQuery m, BirkParametersOperations m) => BakerSignVerifyKey -> BirkParameters m -> m (Maybe (BakerId, BakerInfo, LotteryPower))
-birkEpochBakerByKeys sigKey bps = do
-    lotteryBakers <- getLotteryBakers bps
-    mbid <- getBakerFromKey lotteryBakers sigKey
-    case mbid of
-        Just bid -> do
-            baker <- birkEpochBaker bid bps
-            return $ baker <&> \(binfo, lotPow) -> (bid, binfo, lotPow)
-        _ -> return Nothing
+  -- |Get the baker info (if any) attached to an account.
+  getAccountBaker :: Account m -> m (Maybe AccountBaker)
 
 -- |The block query methods can query block state. They are needed by
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
-class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m where
+class AccountOperations m => BlockStateQuery m where
     -- |Get the module from the module table of the state instance.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
     -- |Get the account state from the account table of the state instance.
@@ -267,10 +209,20 @@ class (BirkParametersOperations m, AccountOperations m) => BlockStateQuery m whe
     -- |Get the list of contract instances existing in the given block state.
     getContractInstanceList :: BlockState m -> m [Instance]
 
-    -- |Get Birk parameters from the point of view of this block state. Although
-    -- these will not change as often as the rest of the block state, they are
-    -- still block dependent.
-    getBlockBirkParameters :: BlockState m -> m (BirkParameters m)
+    -- |Get the seed state, from which the leadership election nonce
+    -- is derived.
+    getSeedState :: BlockState m -> m SeedState
+
+    -- |Get the bakers for the epoch in which the block was baked.
+    getCurrentEpochBakers :: BlockState m -> m FullBakers
+
+    -- |Get the bakers for a particular (future) slot.
+    getSlotBakers :: BlockState m -> Slot -> m FullBakers
+
+    -- |Get the account of a baker. This may return an account even
+    -- if the account is not (currently) a baker, since a 'BakerId'
+    -- uniquely determines an account over time.
+    getBakerAccount :: BlockState m -> BakerId -> m (Maybe (Account m))
 
     -- |Get reward summary for this block.
     getRewardStatus :: BlockState m -> m BankStatus
@@ -323,13 +275,13 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Return @True@ iff so.
   bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m Bool
 
-  -- |Try to add a new account to the state. If an account with the address already exists
-  -- return @False@, and if the account was successfully added return @True@.
-  -- Any credentials on the account are added to the known credentials. (It is not checked
-  -- if the credentials are duplicates.)  If the account delegates, the bakers are updated.
-  -- (It is not checked that the delegation is valid.)
-  -- A new account must not have any associated instances.
-  bsoPutNewAccount :: UpdatableBlockState m -> Account m -> m (Bool, UpdatableBlockState m)
+  -- |Create and add an empty account with the given public key, address and credential.
+  -- If an account with the given address already exists, @Nothing@ is returned.
+  -- Otherwise, the new account is returned, and the credential is added to the known credentials.
+  --
+  -- It is not checked if the account's credential is a duplicate.
+  bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
+
   -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
@@ -340,6 +292,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- This method is only called when an account exists and can thus assume this.
   -- NB: In case we are adding a credential to an account this method __must__ also
   -- update the global set of known credentials.
+  --
+  -- It is the responsibility of the caller to ensure that the change does not lead to a
+  -- negative account balance or a situation where the staked or locked balance
+  -- exceeds the total balance on the account.
   bsoModifyAccount :: UpdatableBlockState m -> AccountUpdate -> m (UpdatableBlockState m)
   -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
   -- This method is only called when it is known the instance exists, and can thus assume it.
@@ -363,45 +319,119 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the execution reward for the current block.
   bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
-  -- |Get Birk parameters from the point of view of this block state. Although
-  -- these will not change as often as the rest of the block state, they are
-  -- still block dependent. They are needed in 'UpdatableBlockState' because in
-  -- particular the reward accounts for the bakers and others will need to be
-  -- determined at the end of the block, and they might have changed as a result
-  -- of block execution.
-  bsoGetBlockBirkParameters :: UpdatableBlockState m -> m (BirkParameters m)
+  -- |Get the seed state associated with the block state.
+  bsoGetSeedState :: UpdatableBlockState m -> m SeedState
 
-  -- |Get the account address for a given baker.
-  bsoGetBakerAccountAddress :: UpdatableBlockState m -> BakerId -> m (Maybe AccountAddress)
-  bsoGetBakerAccountAddress s bid = do
-    bps <- bsoGetBlockBirkParameters s
-    fmap (_bakerAccount . fst) <$> birkBaker bid bps
+  -- |Set the seed state associated with the block state.
+  --
+  -- Note: on no account should the epoch length be changed using this
+  -- function (or otherwise).  The epoch length is assumed to be constant,
+  -- so that epochs can always be calculated by dividing slot number by the
+  -- epoch length.  Any change would throw off this calculation.
+  bsoSetSeedState :: UpdatableBlockState m -> SeedState -> m (UpdatableBlockState m)
 
-  -- |Get the reward account of the given baker.
-  bsoGetEpochBakerAccount :: UpdatableBlockState m -> BakerId -> m (Maybe (Account m))
-  bsoGetEpochBakerAccount s bid = do
-    bps <- bsoGetBlockBirkParameters s
-    account <- fmap (_bakerAccount . fst) <$> birkEpochBaker bid bps
-    join <$> mapM (bsoGetAccount s) account
+  -- |Update the bakers for the next epoch.
+  --
+  -- 1. The current epoch bakers are replaced with the next epoch bakers.
+  --
+  -- 2. The active bakers are processed to apply any removals or stake reductions.
+  --
+  -- 3. The next epoch bakers are derived from the active bakers.
+  --
+  -- Note that instead of iteratively calling this for a succession of epochs,
+  -- it should always be sufficient to just call it for the last two of them.
+  bsoTransitionEpochBakers
+    :: UpdatableBlockState m
+    -> Epoch
+    -- ^The new epoch
+    -> m (UpdatableBlockState m)
 
+  -- |Register this account as a baker.
+  -- The following results are possible:
+  --
+  -- * @BASuccess id@: the baker was created with the specified 'BakerId'.
+  --   @id@ is always chosen to be the account index.
+  --
+  -- * @BAInvalidAccount@: the address does not resolve to a valid account.
+  --
+  -- * @BAAlreadyBaker id@: the account is already registered as a baker.
+  --
+  -- * @BADuplicateAggregationKey@: the aggregation key is already in use.
+  --
+  -- Note that if two results could apply, the first in this list takes precedence.
+  --
+  -- The caller MUST ensure that the staked amount does not exceed the total
+  -- balance on the account.
+  bsoAddBaker :: UpdatableBlockState m -> AccountAddress -> BakerAdd -> m (BakerAddResult, UpdatableBlockState m)
 
-  -- |Add a new baker to the baker pool. Assign a fresh baker identity to the
-  -- new baker and return the assigned identity.
-  -- This method should also update the next available baker id in the system.
-  -- If a baker with the given signing key already exists do nothing and
-  -- return 'Nothing'
-  bsoAddBaker :: UpdatableBlockState m -> BakerInfo -> m (Either BakerError BakerId, UpdatableBlockState m)
+  -- |Update the keys associated with an account.
+  -- It is assumed that the keys have already been checked for validity/ownership as
+  -- far as is necessary.
+  -- The only check on the keys is that the aggregation key is not a duplicate.
+  --
+  -- The following results are possible:
+  --
+  -- * @BKUSuccess id@: the keys were updated
+  --
+  -- * @BKUInvalidBaker@: the account does not exist or is not currently a baker.
+  --
+  -- * @BKUDuplicateAggregationKey@: the aggregation key is a duplicate.
+  bsoUpdateBakerKeys :: UpdatableBlockState m -> AccountAddress -> BakerKeyUpdate -> m (BakerKeyUpdateResult, UpdatableBlockState m)
 
-  -- |Update an existing baker's information. The method may assume that the baker with
-  -- the given Id exists.
-  -- If a baker with a given signing key already exists return 'False', and if the baker
-  -- was successfully updated return 'True'.
-  -- If updating the account the precondition of this method is that the reward account exists.
-  bsoUpdateBaker :: UpdatableBlockState m -> Basic.BakerUpdate -> m (Bool, UpdatableBlockState m)
+  -- |Update the stake associated with an account.
+  -- A reduction in stake will be delayed by the current cool-off period.
+  -- A change will not be made if there is already a cooling-off change
+  -- pending for the baker.
+  --
+  -- A change can specify the new amount to stake and whether or not to restake reward earnings,
+  -- although both of these are optional.  Either all changes will be applied, or none of them.
+  --
+  -- The following results are possible:
+  --
+  -- * @BSUStakeIncreased id@: the baker's stake was increased.
+  --   This will take effect in the epoch after next.
+  --
+  -- * @BSUStakeReduced id e@: the baker's stake was reduced, effective from epoch @e@.
+  --
+  -- * @BSUStakeUnchanged od@: there is no change to the baker's stake, but this update was successful.
+  --
+  -- * @BSUInvalidBaker@: the account does not exist, or is not currently a baker.
+  --
+  -- * @BSUChangePending id@: the change could not be made since the account is already in a cooling-off period.
+  --
+  -- The caller MUST ensure that the staked amount does not exceed the total balance on the account.
+  bsoUpdateBakerStake :: UpdatableBlockState m -> AccountAddress -> Amount -> m (BakerStakeUpdateResult, UpdatableBlockState m)
 
-  -- |Remove a baker from the list of allowed bakers. Return 'True' if a baker
-  -- with given 'BakerId' existed, and 'False' otherwise.
-  bsoRemoveBaker :: UpdatableBlockState m -> BakerId -> m (Bool, UpdatableBlockState m)
+  -- |Update whether a baker's earnings are automatically restaked.
+  --
+  -- The following results are possible:
+  --
+  -- * @BREUUpdated id@: the flag was updated.
+  --
+  -- * @BREUInvalidBaker@: the account does not exists, or is not currently a baker.
+  bsoUpdateBakerRestakeEarnings :: UpdatableBlockState m -> AccountAddress -> Bool -> m (BakerRestakeEarningsUpdateResult, UpdatableBlockState m)
+
+  -- |Remove the baker associated with an account.
+  -- The removal takes effect after a cooling-off period.
+  -- Removal may fail if the baker is already cooling-off from another change (e.g. stake reduction).
+  --
+  -- The following results are possible:
+  --
+  -- * @BRRemoved id e@: the baker was removed, effective from epoch @e@.
+  --
+  -- * @BRInvalidBaker@: the account address is not valid, or the account is not a baker.
+  --
+  -- * @BRChangePending id@: the baker is currently in a cooling-off period and so cannot be removed.
+  bsoRemoveBaker :: UpdatableBlockState m -> AccountAddress -> m (BakerRemoveResult, UpdatableBlockState m)
+
+  -- |Add an amount to a baker's account as a reward. The baker's stake is increased
+  -- correspondingly if the baker is set to restake rewards.
+  -- If the baker id refers to an account, the reward is paid to the account, and the
+  -- address of the account is returned.  If the id does not refer to an account
+  -- then no change is made and @Nothing@ is returned.
+  --
+  -- TODO: Change the interface to support new tokenomics.
+  bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
   -- |Set the amount of minted GTU per slot.
   bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
@@ -413,11 +443,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- precondition of this method is that the amount on the account is
   -- sufficient.
   bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
-
-  -- |Change the given account's stake delegation. Return 'False' if the target
-  -- is an invalid baker (and delegation is unchanged), and 'True' otherwise.
-  -- The method requires that the account already exists.
-  bsoDelegateStake :: UpdatableBlockState m -> AccountAddress -> Maybe BakerId -> m (Bool, UpdatableBlockState m)
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
@@ -436,9 +461,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Add a special transaction outcome.
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
-
-  -- |Update the birk parameters of a block state
-  bsoUpdateBirkParameters :: UpdatableBlockState m -> BirkParameters m -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
   bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
@@ -504,26 +526,17 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- (where applicable).
     cacheBlockState :: BlockState m -> m (BlockState m)
 
-instance (Monad (t m), MonadTrans t, BirkParametersOperations m) => BirkParametersOperations (MGSTrans t m) where
-    getSeedState = lift . getSeedState
-    updateBirkParametersForNewEpoch s = lift . updateBirkParametersForNewEpoch s
-    getCurrentBakers = lift . getCurrentBakers
-    getLotteryBakers = lift . getLotteryBakers
-    updateSeedState f = lift . updateSeedState f
-    {-# INLINE getSeedState #-}
-    {-# INLINE updateBirkParametersForNewEpoch #-}
-    {-# INLINE getCurrentBakers #-}
-    {-# INLINE getLotteryBakers #-}
-    {-# INLINE updateSeedState #-}
-
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
+  getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
   getModuleList = lift . getModuleList
   getAccountList = lift . getAccountList
   getContractInstanceList = lift . getContractInstanceList
-  getBlockBirkParameters = lift . getBlockBirkParameters
+  getSeedState = lift . getSeedState
+  getCurrentEpochBakers = lift . getCurrentEpochBakers
+  getSlotBakers s = lift . getSlotBakers s
   getRewardStatus = lift . getRewardStatus
   getTransactionOutcome s = lift . getTransactionOutcome s
   getTransactionOutcomesHash = lift . getTransactionOutcomesHash
@@ -539,11 +552,14 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
+  {-# INLINE getBakerAccount #-}
   {-# INLINE getContractInstance #-}
   {-# INLINE getModuleList #-}
   {-# INLINE getAccountList #-}
   {-# INLINE getContractInstanceList #-}
-  {-# INLINE getBlockBirkParameters #-}
+  {-# INLINE getSeedState #-}
+  {-# INLINE getCurrentEpochBakers #-}
+  {-# INLINE getSlotBakers #-}
   {-# INLINE getRewardStatus #-}
   {-# INLINE getOutcomes #-}
   {-# INLINE getTransactionOutcome #-}
@@ -557,51 +573,37 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getUpdates #-}
   {-# INLINE getCryptographicParameters #-}
 
-instance (Monad (t m), MonadTrans t, BakerQuery m) => BakerQuery (MGSTrans t m) where
-  getBakerStake bs = lift . getBakerStake bs
-  getBakerFromKey bs = lift . getBakerFromKey bs
-  getTotalBakerStake = lift . getTotalBakerStake
-  getBakerInfo bs = lift . getBakerInfo bs
-  getFullBakerInfos = lift . getFullBakerInfos
-  {-# INLINE getBakerStake #-}
-  {-# INLINE getBakerFromKey #-}
-  {-# INLINE getTotalBakerStake #-}
-  {-# INLINE getBakerInfo #-}
-  {-# INLINE getFullBakerInfos #-}
-
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress
   getAccountAmount = lift. getAccountAmount
+  getAccountAvailableAmount = lift . getAccountAvailableAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials
   getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
-  getAccountStakeDelegate = lift . getAccountStakeDelegate
   getAccountReleaseSchedule = lift . getAccountReleaseSchedule
   getAccountInstances = lift . getAccountInstances
-  createNewAccount gc ks addr = lift . createNewAccount gc ks addr
-  updateAccountAmount acc = lift . updateAccountAmount acc
+  getAccountBaker = lift . getAccountBaker
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}
+  {-# INLINE getAccountAvailableAmount #-}
   {-# INLINE getAccountCredentials #-}
   {-# INLINE getAccountMaxCredentialValidTo #-}
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}
-  {-# INLINE getAccountStakeDelegate #-}
   {-# INLINE getAccountReleaseSchedule #-}
   {-# INLINE getAccountInstances #-}
-  {-# INLINE createNewAccount #-}
-  {-# INLINE updateAccountAmount #-}
+  {-# INLINE getAccountBaker #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoRegIdExists s = lift . bsoRegIdExists s
-  bsoPutNewAccount s = lift . bsoPutNewAccount s
+  bsoCreateAccount s gc accKeys accAddr cdv = lift $ bsoCreateAccount s gc accKeys accAddr cdv
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s
@@ -610,20 +612,23 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
   bsoGetExecutionCost = lift . bsoGetExecutionCost
-  bsoGetBlockBirkParameters = lift . bsoGetBlockBirkParameters
-  bsoAddBaker s = lift . bsoAddBaker s
-  bsoUpdateBaker s = lift . bsoUpdateBaker s
+  bsoGetSeedState = lift . bsoGetSeedState
+  bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
+  bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
+  bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
+  bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
+  bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a
+  bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
   bsoRemoveBaker s = lift . bsoRemoveBaker s
+  bsoRewardBaker s bid amt = lift $ bsoRewardBaker s bid amt
   bsoSetInflation s = lift . bsoSetInflation s
   bsoMint s = lift . bsoMint s
   bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
-  bsoDelegateStake s acct bid = lift $ bsoDelegateStake s acct bid
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
   bsoSetTransactionOutcomes s = lift . bsoSetTransactionOutcomes s
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
-  bsoUpdateBirkParameters bps = lift . bsoUpdateBirkParameters bps
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
   bsoProcessReleaseSchedule s = lift . bsoProcessReleaseSchedule s
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
@@ -635,7 +640,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetAccount #-}
   {-# INLINE bsoGetInstance #-}
   {-# INLINE bsoRegIdExists #-}
-  {-# INLINE bsoPutNewAccount #-}
+  {-# INLINE bsoCreateAccount #-}
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
   {-# INLINE bsoModifyAccount #-}
@@ -644,20 +649,23 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoNotifyIdentityIssuerCredential #-}
   {-# INLINE bsoGetExecutionCost #-}
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}
-  {-# INLINE bsoGetBlockBirkParameters #-}
+  {-# INLINE bsoGetSeedState #-}
+  {-# INLINE bsoSetSeedState #-}
+  {-# INLINE bsoTransitionEpochBakers #-}
   {-# INLINE bsoAddBaker #-}
-  {-# INLINE bsoUpdateBaker #-}
+  {-# INLINE bsoUpdateBakerKeys #-}
+  {-# INLINE bsoUpdateBakerStake #-}
+  {-# INLINE bsoUpdateBakerRestakeEarnings #-}
   {-# INLINE bsoRemoveBaker #-}
+  {-# INLINE bsoRewardBaker #-}
   {-# INLINE bsoSetInflation #-}
   {-# INLINE bsoMint #-}
   {-# INLINE bsoDecrementCentralBankGTU #-}
-  {-# INLINE bsoDelegateStake #-}
   {-# INLINE bsoGetIdentityProvider #-}
   {-# INLINE bsoGetAnonymityRevokers #-}
   {-# INLINE bsoGetCryptoParams #-}
   {-# INLINE bsoSetTransactionOutcomes #-}
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
-  {-# INLINE bsoUpdateBirkParameters #-}
   {-# INLINE bsoProcessUpdateQueues #-}
   {-# INLINE bsoProcessReleaseSchedule #-}
   {-# INLINE bsoGetCurrentAuthorizations #-}
@@ -684,16 +692,12 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE loadBlockState #-}
     {-# INLINE cacheBlockState #-}
 
-deriving via (MGSTrans MaybeT m) instance BirkParametersOperations m => BirkParametersOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)
-deriving via (MGSTrans MaybeT m) instance BakerQuery m => BakerQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateOperations m => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance BlockStateStorage m => BlockStateStorage (MaybeT m)
 
-deriving via (MGSTrans (ExceptT e) m) instance BirkParametersOperations m => BirkParametersOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateQuery m => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance AccountOperations m => AccountOperations (ExceptT e m)
-deriving via (MGSTrans (ExceptT e) m) instance BakerQuery m => BakerQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateOperations m => BlockStateOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance BlockStateStorage m => BlockStateStorage (ExceptT e m)

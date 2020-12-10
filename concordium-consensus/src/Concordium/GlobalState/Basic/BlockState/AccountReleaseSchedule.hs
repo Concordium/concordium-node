@@ -150,16 +150,16 @@ instance Serialize AccountReleaseSchedule where
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
 
 newtype AccountReleaseScheduleHash = AccountReleaseScheduleHash Hash
- deriving (Serialize)
+ deriving (Serialize, Eq, Ord, Show)
 
-emptyAccountReleaseScheduleHash :: Hash
-emptyAccountReleaseScheduleHash = hash "EmptyAccountReleaseSchedule"
+emptyAccountReleaseScheduleHash :: AccountReleaseScheduleHash
+emptyAccountReleaseScheduleHash = AccountReleaseScheduleHash (hash "EmptyAccountReleaseSchedule")
 
-instance HashableTo Hash AccountReleaseSchedule where
+instance HashableTo AccountReleaseScheduleHash AccountReleaseSchedule where
   getHash AccountReleaseSchedule{..} =
     if _totalLockedUpBalance == 0
     then emptyAccountReleaseScheduleHash
-    else hash $ Vector.foldl' (\prevB -> \case
+    else AccountReleaseScheduleHash $ hash $ Vector.foldl' (\prevB -> \case
                                     Nothing -> prevB
                                     Just (r, _) -> prevB <> hashToByteString (getHashOfReleases r)) BS.empty _values
 

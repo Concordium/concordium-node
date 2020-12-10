@@ -683,6 +683,7 @@ instance MonadBlobStore m => BlobStorable m Word64
 instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
 instance MonadBlobStore m => BlobStorable m TransactionHash
+instance MonadBlobStore m => BlobStorable m ()
 
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance MonadBlobStore m => BlobStorable m PersistingAccountData
@@ -806,6 +807,9 @@ instance (MHashableTo m H.Hash a, BlobStorable m a, Cacheable m a) => Cacheable 
 
 instance (Applicative m, Cacheable m a, Cacheable m b) => Cacheable m (a, b) where
     cache (x, y) = (,) <$> cache x <*> cache y
+
+instance Applicative m => Cacheable m () where
+    cache _ = pure ()
 
 -- Required for caching PersistentAccount
 instance (Applicative m) => Cacheable m EncryptedAmount

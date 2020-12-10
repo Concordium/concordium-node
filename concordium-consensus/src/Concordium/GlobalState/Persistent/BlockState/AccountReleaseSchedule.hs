@@ -163,15 +163,15 @@ instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule where
 
 -- | @hash(AccountReleaseSchedule(releases) = hash (foldl (\h i -> h <> hash i)
 -- mempty) releases@ so @hash (hash a_1 <> hash a_2 <> ... <> hash a_n)@
-instance MonadBlobStore m => MHashableTo m Hash AccountReleaseSchedule where
+instance MonadBlobStore m => MHashableTo m Transient.AccountReleaseScheduleHash AccountReleaseSchedule where
   getHashM AccountReleaseSchedule{..} =
     if _arsTotalLockedUpBalance == 0
     then return Transient.emptyAccountReleaseScheduleHash
-    else hash <$> Vector.foldM' (\prevB -> \case
+    else Transient.AccountReleaseScheduleHash . hash <$> Vector.foldM' (\prevB -> \case
                                     Null -> return prevB
                                     Some (r, _) -> do
                                       itemHash <- getHashM r
-                                      return $ prevB <> hashToByteString itemHash) (BS.empty) _arsValues
+                                      return $ prevB <> hashToByteString itemHash) BS.empty _arsValues
 
 instance MonadBlobStore m => Cacheable m AccountReleaseSchedule where
 
