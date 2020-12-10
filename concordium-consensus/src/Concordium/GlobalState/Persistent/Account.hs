@@ -22,7 +22,6 @@ import Concordium.ID.Types
 import Concordium.ID.Parameters
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
@@ -234,9 +233,9 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
           pData <- loadBufferedRef _persistingData
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
-          sData <- getHashM =<< loadBufferedRef _accountReleaseSchedule
+          sHash <- getHashM =<< loadBufferedRef _accountReleaseSchedule
           bakerHash <- hashAccountBaker _accountBaker
-          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' (Transient.AccountReleaseScheduleHash sData) pData bakerHash
+          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' sHash pData bakerHash
           return PersistentAccount {..}
 
 instance (MonadBlobStore m) => Cacheable m PersistentAccount where
@@ -271,9 +270,10 @@ newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   _accountEncryptedAmount <- makeBufferedRef accountEncryptedAmountData
   let relSched = emptyAccountReleaseSchedule
   _accountReleaseSchedule <- makeBufferedRef relSched
+  arsHash <- getHashM relSched
   return PersistentAccount {
         _accountBaker = Null,
-        _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData relSched newPData nullAccountBakerHash,
+        _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData arsHash newPData nullAccountBakerHash,
         ..
     }
 
@@ -296,9 +296,10 @@ rehashAccount :: MonadBlobStore m => PersistentAccount -> m PersistentAccount
 rehashAccount pac = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
   sdata <- refLoad (_accountReleaseSchedule pac)
+  arsHash <- getHashM sdata
   pdata <- refLoad (_persistingData pac)
   bkrHash <- hashAccountBaker (_accountBaker pac)
-  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac sdata pdata bkrHash
+  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac arsHash pdata bkrHash
   return pac{_accountHash = newHash}
 
 -- |Set the baker of an account.
@@ -306,10 +307,11 @@ setPersistentAccountBaker :: MonadBlobStore m => PersistentAccount -> Nullable P
 setPersistentAccountBaker pac pab = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
   sdata <- refLoad (_accountReleaseSchedule pac)
+  arsHash <- getHashM sdata
   pdata <- refLoad (_persistingData pac)
   pabRef <- mapM refMake pab
   bkrHash <- hashAccountBaker pabRef
-  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac sdata pdata bkrHash
+  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac arsHash pdata bkrHash
   return pac{_accountHash = newHash, _accountBaker = pabRef}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
@@ -350,12 +352,12 @@ setPAD :: MonadBlobStore m
 setPAD f acc@PersistentAccount{..} = do
   pData <- loadBufferedRef (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
-  rs <- getHashM _accountReleaseSchedule
+  rs <- getHashM =<< refLoad _accountReleaseSchedule
   let newPData = f pData
   newPDataRef <- makeBufferedRef newPData
   bkrHash <- hashAccountBaker _accountBaker
   return $ acc & persistingData .~ newPDataRef
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac (Transient.AccountReleaseScheduleHash rs) newPData bkrHash
+               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac rs newPData bkrHash
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
