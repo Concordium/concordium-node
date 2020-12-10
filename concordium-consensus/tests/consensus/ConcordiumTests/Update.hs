@@ -15,9 +15,7 @@ import Control.Monad.Trans.State
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
 import Lens.Micro.Platform
-import System.Random
 
-import Test.QuickCheck
 import Test.Hspec
 
 import Concordium.Afgjort.Finalize
@@ -25,15 +23,11 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 
 import qualified Concordium.Crypto.BlockSignature as Sig
-import qualified Concordium.Crypto.BlsSignature as Bls
-import Concordium.Crypto.DummyData
 import Concordium.Crypto.SHA256
-import qualified Concordium.Crypto.VRF as VRF
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
@@ -45,7 +39,7 @@ import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 
-import Concordium.Startup (makeBakerAccount, defaultFinalizationParameters)
+import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import Concordium.Types
 
@@ -53,7 +47,6 @@ import Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256 as Hash
 
 import qualified Concordium.GlobalState.DummyData as Dummy
-import qualified Concordium.Types.DummyData as DummyTypes
         
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -97,29 +90,29 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
 type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
 
-makeBaker :: Amount -> BakerId -> Gen BakerInformation
-makeBaker initAmount bid = resize 0x20000000 $ do
-        ek@(VRF.KeyPair _ epk) <- arbitrary
-        sk                     <- genBlockKeyPair
-        blssk                  <- fst . randomBlsSecretKey . mkStdGen <$> arbitrary
-        let spk     = Sig.verifyKey sk
-        let blspk   = Bls.derivePublicKey blssk
-        let account = makeBakerAccount bid initAmount
-        return (FullBakerInfo (BakerInfo epk spk blspk (account ^. accountAddress)) initAmount, BakerIdentity sk ek blssk, account)
-
 -- |Create initial states for two bakers
 createInitStates :: IO (BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
-    baker1 <- generate $ makeBaker bakerAmount 0
-    baker2 <- generate $ makeBaker bakerAmount 1
-    let bis = baker1 : [baker2] 
-        genesisBakers = fst . bakersFromList $ (^. _1) <$> bis
+        bis@[baker1, baker2] = makeBakersByStake [bakerAmount, bakerAmount]
         seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-        bakerAccounts = map (\(_, _, acc) -> acc) bis
+        bakerAccounts = (^. _3) <$> bis
         cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GenesisDataV1 0 1 genesisBakers seedState bakerAccounts finalizationParameters Dummy.dummyCryptographicParameters emptyIdentityProviders Dummy.dummyArs 10 (Energy maxBound) Dummy.dummyAuthorizations cps
-        createState = liftIO . (\(_, bid, _) -> do
+        gen = GenesisDataV2 {
+                genesisTime = 0,
+                genesisSlotDuration = 1,
+                genesisSeedState = seedState,
+                genesisAccounts = bakerAccounts,
+                genesisFinalizationParameters = finalizationParameters,
+                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                genesisIdentityProviders = emptyIdentityProviders,
+                genesisAnonymityRevokers = Dummy.dummyArs,
+                genesisMintPerSlot = 10,
+                genesisMaxBlockEnergy = (Energy maxBound),
+                genesisAuthorizations = Dummy.dummyAuthorizations,
+                genesisChainParameters = cps
+            }
+        createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
                                            (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
@@ -193,7 +186,7 @@ dirtyBakerKey :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyBakerKey BakedBlock{..} _ = BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifKey,..}, ..}
     where
         BlockFields{..} = bbFields
-        baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
+        baker3 = Dummy.mkFullBaker 2 0
         fakeVerifKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
 
 -- |Dirties the key, and resigns the block with the dirtied key. This tests that we verify the key is the same as baker key
@@ -201,7 +194,7 @@ dirtyBakerKeySignature :: BakedBlock -> BakerSignPrivateKey -> BakedBlock
 dirtyBakerKeySignature BakedBlock{..} _ = reSign fakeKeyPair BakedBlock{bbFields = BlockFields{bfBlockBakerKey = fakeVerifyKey,..}, ..}
     where
         BlockFields{..} = bbFields
-        baker3 = Dummy.mkFullBaker 2 DummyTypes.thomasAccount
+        baker3 = Dummy.mkFullBaker 2 0
         fakeVerifyKey = baker3 ^. _1 . bakerInfo . bakerSignatureVerifyKey
         fakeKeyPair = Sig.KeyPair{ signKey = baker3 ^._3, verifyKey = fakeVerifyKey }
 

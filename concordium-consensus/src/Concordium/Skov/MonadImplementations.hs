@@ -210,11 +210,6 @@ deriving via SkovTGSM h c' m
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
-              BirkParametersOperations (SkovTGSM h c' m))
-             => BirkParametersOperations (SkovT h c' m)
-
-deriving via SkovTGSM h c' m
-    instance (Monad m,
               BlockStateQuery (SkovTGSM h c' m))
              => BlockStateQuery (SkovT h c' m)
 
@@ -222,11 +217,6 @@ deriving via SkovTGSM h c' m
     instance (Monad m,
               AccountOperations (SkovTGSM h c' m))
              => AccountOperations (SkovT h c' m)
-
-deriving via SkovTGSM h c' m
-    instance (Monad m,
-              BakerQuery (SkovTGSM h c' m))
-             => BakerQuery (SkovT h c' m)
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
