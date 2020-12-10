@@ -471,6 +471,24 @@ instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (Nullable (Buffe
     (r, v') <- storeUpdate v
     return (r, Some v')
 
+instance (BlobStorable m a, BlobStorable m b, MHashableTo m H.Hash a) => BlobStorable m (Nullable (HashedBufferedRef a, b)) where
+  store Null = return $ put (refNull :: BlobRef a)
+  store (Some v) = store v
+  load = do
+    (r :: BlobRef a) <- get
+    if isNull r
+      then return (pure Null)
+      else do
+        bval <- load
+        return $ do
+          binner <- bval
+          pure $ Some (HashedBufferedRef (BRBlobbed r) Nothing, binner)
+  storeUpdate n@Null = return (put (refNull :: BlobRef a), n)
+  storeUpdate (Some v) = do
+    (r, v') <- storeUpdate v
+    return (r, Some v')
+
+
 -- | Blobbed is a fixed point of the functor `f` wrapped in references of type @ref@
 newtype Blobbed ref f = Blobbed {unblobbed :: ref (f (Blobbed ref f))}
 
@@ -664,9 +682,9 @@ instance MonadBlobStore m => BlobStorable m BakerInfo
 instance MonadBlobStore m => BlobStorable m Word64
 instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
+instance MonadBlobStore m => BlobStorable m TransactionHash
 instance MonadBlobStore m => BlobStorable m ()
 
--- TODO (MRA) this is ad-hoc but it will be removed when we implement a bufferedref list for EncryptedAmount
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance MonadBlobStore m => BlobStorable m PersistingAccountData
 instance MonadBlobStore m => BlobStorable m Authorizations

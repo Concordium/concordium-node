@@ -567,11 +567,16 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         then return bs
         else
         let f (ba, brs) addr =
-              let ba' = ba & ix addr . accountReleaseSchedule %~ snd . unlockAmountsUntil ts
-                  brs' = case Map.lookupMin =<< fmap (_pendingReleases . _accountReleaseSchedule) (ba' ^? ix addr) of
-                               Just (k, _) -> Map.insert addr k brs
-                               Nothing -> brs
-              in (ba', brs')
+              let mUnlocked = unlockAmountsUntil ts <$> (ba ^? ix addr . accountReleaseSchedule)
+              in
+                case mUnlocked of
+                  Nothing -> (ba, brs)
+                  Just (_, newTs, ars') ->
+                    let ba' = ba & ix addr . accountReleaseSchedule .~ ars'
+                        brs' = case newTs of
+                                 Just k -> Map.insert addr k brs
+                                 Nothing -> brs
+                    in (ba', brs')
             (blockAccounts', blockReleaseSchedule'') = foldl' f (bs ^. blockAccounts, blockReleaseSchedule') (Map.keys accountsToRemove)
         in
           return $! bs & blockAccounts .~ blockAccounts'

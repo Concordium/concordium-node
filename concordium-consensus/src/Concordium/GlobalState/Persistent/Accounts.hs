@@ -20,15 +20,16 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Account hiding (replaceUpTo, addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transient
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Word
-import Data.Foldable (foldrM, foldl')
+import Data.Foldable (foldrM, foldl', foldlM)
 
 type AccountIndex = Word64
 
@@ -257,9 +258,9 @@ updateAccount !upd !acc = do
   let pDataRef = acc ^. persistingData
   pData <- loadBufferedRef pDataRef
   rData <- loadBufferedRef (acc ^. accountReleaseSchedule)
-  let (stakeDelta, releaseSchedule) = case upd ^. auReleaseSchedule of
-        Just l -> (amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l), foldl' (flip addReleases) rData l)
-        Nothing -> (amountToDelta 0, rData)
+  (stakeDelta, releaseSchedule) <- case upd ^. auReleaseSchedule of
+        Just l -> (amountToDelta $ foldl' (+) 0 (concatMap (\(values, _) -> map snd values) l),) <$> foldlM (flip addReleases) rData l
+        Nothing -> return (amountToDelta 0, rData)
   encAmount <- loadBufferedRef (acc ^. accountEncryptedAmount)
   let updateSingle Add{..} = addIncomingEncryptedAmount newAmount
       updateSingle ReplaceUpTo{..} = replaceUpTo aggIndex newAmount
@@ -268,6 +269,7 @@ updateAccount !upd !acc = do
   newEncryptedAmountRef <- makeBufferedRef newEncryptedAmount
   baseEncryptedAmount <- loadPersistentAccountEncryptedAmount newEncryptedAmount
   releaseScheduleRef <- makeBufferedRef releaseSchedule
+  releaseScheduleHash <- getHashM releaseSchedule
   let newAccWithoutHash@PersistentAccount{..} = acc & accountNonce %~ setMaybe (upd ^. auNonce)
                                                     & accountAmount %~ applyAmountDelta (upd ^. auAmount . non 0)
                                                     & accountAmount %~ applyAmountDelta stakeDelta
@@ -275,7 +277,7 @@ updateAccount !upd !acc = do
                                                     & accountEncryptedAmount .~ newEncryptedAmountRef
   bkrHash <- hashAccountBaker (acc ^. accountBaker)
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount releaseSchedule pdata bkrHash
+  let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount (Transient.AccountReleaseScheduleHash releaseScheduleHash) pdata bkrHash
   case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         (mNewCred, mKeyUpd, mNewThreshold) -> do
