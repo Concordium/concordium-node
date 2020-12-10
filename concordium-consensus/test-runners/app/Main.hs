@@ -194,8 +194,6 @@ main = do
                      (Energy maxBound)
                      dummyAuthorizations
                      (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4)
-    print gen
-    forM_ bis $ \(bid@BakerIdentity{..}, binfo) -> putStrLn ("Baker " ++ show bakerId ++ ":\n  sign:" ++ show (bakerSignPublicKey bid) ++ "\n  info:" ++ show binfo)
     trans <- (difficultyUpdateTransactions now ++) . transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

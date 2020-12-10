@@ -41,8 +41,6 @@ import Concordium.TimeMonad
 import Concordium.Skov.CatchUp.Types
 import qualified Concordium.GlobalState.TreeState as TS
 
-import Concordium.Scheduler.TreeStateEnvironment(ExecutionResult)
-
 data UpdateResult
     = ResultSuccess
     -- ^Message received, validated and processed
@@ -127,15 +125,6 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: PendingBlock -> m UpdateResult
-    -- |Store a block in the block table that has just been baked.
-    -- This assumes the block is valid and that there can be nothing
-    -- pending for it (children or finalization).
-    storeBakedBlock ::
-        PendingBlock              -- ^The block to add
-        -> BlockPointerType m     -- ^Parent pointer
-        -> BlockPointerType m     -- ^Last finalized pointer
-        -> ExecutionResult m  -- ^Result of the execution of the block.
-        -> m (BlockPointerType m)
     -- |Add a transaction to the transaction table.
     receiveTransaction :: BlockItem -> m UpdateResult
     -- |Finalize a block where the finalization record is known to be for the
@@ -197,12 +186,10 @@ deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMona
 
 instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
-    storeBakedBlock pb parent lastFin result = lift $ storeBakedBlock pb parent lastFin result
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     {- - INLINE storeBlock - -}
-    {- - INLINE storeBakedBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}
     {- - INLINE handleCatchUpStatus - -}
