@@ -5,6 +5,7 @@ import Test.Hspec
 
 import Control.Monad
 import System.Random
+import Data.Foldable
 import Data.Maybe
 import qualified Data.Set as Set
 import qualified Concordium.Scheduler.Types as Types
@@ -230,7 +231,7 @@ type TestResult = ([([(Types.BlockItem, Types.ValidResult)],
 runWithIntermediateStates :: IO TestResult
 runWithIntermediateStates = do
   txs <- processUngroupedTransactions transactionsInput
-  let (res, state, feeTotal) = foldl (\(acc, st, fees) tx ->
+  let (res, state, feeTotal) = foldl' (\(acc, st, fees) tx ->
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
                                     (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
