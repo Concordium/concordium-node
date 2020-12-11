@@ -99,16 +99,25 @@ initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
       _bakerTotalStake = sum stakes
     }
 
+-- |List of bakers of blocks baked in the current epoch, used for 
+-- rewarding the bakers at the end of the epoch.  This maintains
+-- a running hash of the list as 'hebHash'.
+--
+-- > hebHash == foldr Rewards.epochBlockHash Rewards.emptyEpochBlocksHash hebBlocks
 data HashedEpochBlocks = HashedEpochBlocks {
+    -- |Bakers of blocks baked in the current epoch, most recent first.
     hebBlocks :: ![BakerId],
-    hebHash :: Rewards.EpochBlocksHash
+    -- |Hash of the list.
+    hebHash :: !Rewards.EpochBlocksHash
   } deriving (Eq, Show)
 instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
     getHash = hebHash
 
+-- |The 'HashedEpochBlocks' with no blocks.
 emptyHashedEpochBlocks :: HashedEpochBlocks
 emptyHashedEpochBlocks = HashedEpochBlocks [] Rewards.emptyEpochBlocksHash
 
+-- |Extend a 'HashedEpochBlocks' with an additional baker.
 consEpochBlock :: BakerId -> HashedEpochBlocks -> HashedEpochBlocks
 consEpochBlock bid heb = HashedEpochBlocks {
     hebBlocks = bid : hebBlocks heb,
@@ -525,7 +534,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     -- This uses that baker identities are account indexes.  The account with the corresponding
     -- index (if any) is given the reward.  If the account has a baker (which it presumably should) then
     -- the stake is increased correspondingly if 'stakeEarnings' is set.
-    bsoRewardBaker bs (BakerId ai) reward = return (getFirst <$> mfaddr, bs')
+    bsoRewardBaker bs (BakerId ai) !reward = return (getFirst <$> mfaddr, bs')
       where
         (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
         payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountBaker . traversed %~ updateBaker)
@@ -533,7 +542,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
           | _stakeEarnings bkr = bkr & stakedAmount +~ reward
           | otherwise = bkr
 
-    bsoRewardFoundationAccount bs reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
+    bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
       where
         foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
     
