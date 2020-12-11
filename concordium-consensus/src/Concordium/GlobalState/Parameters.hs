@@ -17,6 +17,7 @@ import GHC.Generics hiding (to)
 import Data.Serialize
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
+import qualified Data.List as List
 import Data.Ratio
 import Data.Word
 import Lens.Micro.Platform
@@ -387,6 +388,50 @@ instance FromJSON GenesisAccount where
       _ -> return ()
     return GenesisAccount{..}
 
+data GenesisChainParameters = GenesisChainParameters {
+    -- |Election difficulty parameter.
+    gcpElectionDifficulty :: !ElectionDifficulty,
+    -- |Euro:Energy rate.
+    gcpEuroPerEnergy :: !ExchangeRate,
+    -- |uGTU:Euro rate.
+    gcpMicroGTUPerEuro :: !ExchangeRate,
+    -- |Number of additional epochs that bakers must cool down when
+    -- removing stake. The cool-down will effectively be 2 epochs
+    -- longer than this value, since at any given time, the bakers
+    -- (and stakes) for the current and next epochs have already
+    -- been determined.
+    gcpBakerExtraCooldownEpochs :: !Epoch,
+    -- |LimitAccountCreation: the maximum number of accounts
+    -- that may be created in one block.
+    gcpAccountCreationLimit :: !CredentialsPerBlockLimit,
+    -- |Reward parameters.
+    gcpRewardParameters :: !RewardParameters,
+    -- |Foundation account address.
+    gcpFoundationAccount :: !AccountAddress
+}
+
+instance FromJSON GenesisChainParameters where
+  parseJSON = withObject "GenesisChainParameters" $ \v ->
+    GenesisChainParameters
+      <$> v .: "electionDifficulty"
+      <*> v .: "euroPerEnergy"
+      <*> v .: "microGTUPerEuro"
+      <*> v .: "bakerCooldownEpochs"
+      <*> v .: "accountCreationLimit"
+      <*> v .: "rewardParameters"
+      <*> v .: "foundationAccount"
+
+instance ToJSON GenesisChainParameters where
+  toJSON GenesisChainParameters{..} = object [
+      "electionDifficulty" AE..= gcpElectionDifficulty,
+      "euroPerEnergy" AE..= gcpEuroPerEnergy,
+      "microGTUPerEuro" AE..= gcpMicroGTUPerEuro,
+      "bakerCooldownEpochs" AE..= gcpBakerExtraCooldownEpochs,
+      "accountCreationLimit" AE..= gcpAccountCreationLimit,
+      "rewardParameters" AE..= gcpRewardParameters,
+      "foundationAccount" AE..= gcpFoundationAccount
+    ]
+
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
 data GenesisParametersV2 = GenesisParametersV2 {
@@ -405,7 +450,7 @@ data GenesisParametersV2 = GenesisParametersV2 {
     -- |The initial update authorizations
     gpAuthorizations :: Authorizations,
     -- |The initial (updatable) chain parameters
-    gpChainParameters :: ChainParameters
+    gpChainParameters :: GenesisChainParameters
 }
 
 instance FromJSON GenesisParametersV2 where
@@ -426,8 +471,9 @@ instance FromJSON GenesisParametersV2 where
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         gpAuthorizations <- v .: "updateAuthorizations"
         gpChainParameters <- v .: "chainParameters"
-        unless (toInteger (gpChainParameters ^. cpFoundationAccount) < toInteger (length gpInitialAccounts)) $
-          fail "Foundation account is not a valid account index."
+        let facct = gcpFoundationAccount gpChainParameters
+        unless (any ((facct ==) . gaAddress) gpInitialAccounts) $
+          fail $ "Foundation account (" ++ show facct ++ ") is not in initialAccounts"
         return GenesisParametersV2{..}
 
 type GenesisParameters = GenesisParametersV2
@@ -490,7 +536,7 @@ instance FromJSON RuntimeParameters where
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
 parametersToGenesisData :: GenesisParameters -> GenesisData
-parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
+parametersToGenesisData GenesisParametersV2{gpChainParameters=GenesisChainParameters{..},..} = GenesisDataV2{..}
     where
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
@@ -519,7 +565,17 @@ parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
         genesisAnonymityRevokers = gpAnonymityRevokers
         genesisMaxBlockEnergy = gpMaxBlockEnergy
         genesisAuthorizations = gpAuthorizations
-        genesisChainParameters = gpChainParameters
+        genesisChainParameters = makeChainParameters
+            gcpElectionDifficulty
+            gcpEuroPerEnergy
+            gcpMicroGTUPerEuro
+            gcpBakerExtraCooldownEpochs
+            gcpAccountCreationLimit
+            gcpRewardParameters
+            foundationAccountIndex
+        foundationAccountIndex = case List.findIndex ((gcpFoundationAccount ==) . gaAddress) gpInitialAccounts of
+          Nothing -> error "Foundation account is missing"
+          Just i -> fromIntegral i
 
 -- |Values of updates that are stored in update queues.
 -- These are slightly different to the 'UpdatePayload' type,
