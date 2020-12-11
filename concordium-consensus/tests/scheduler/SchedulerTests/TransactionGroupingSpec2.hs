@@ -262,7 +262,7 @@ testGroups groups = do
     ts <- processGroupedTransactions groups
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
-            Types.dummyChainMeta
+            dummyChainMeta
             maxBlockEnergy
             maxBound
             initialBlockState

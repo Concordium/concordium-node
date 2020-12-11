@@ -223,9 +223,9 @@ main = cmdArgsRun mode >>=
               putStrLn $ "      * GAS account: " ++ show (_cpRewardParameters ^. tfdGASAccount)
               putStrLn "    + GAS rewards:"
               putStrLn $ "      * baking a block: " ++ show (_cpRewardParameters ^. gasBaker)
-              putStrLn $ "      * adding a finalization proof: " ++ show (_cpRewardParameters ^. gasBaker)
-              putStrLn $ "      * adding a credential deployment: " ++ show (_cpRewardParameters ^. gasBaker)
-              putStrLn $ "      * adding a chain update: " ++ show (_cpRewardParameters ^. gasBaker)
+              putStrLn $ "      * adding a finalization proof: " ++ show (_cpRewardParameters ^. gasFinalizationProof)
+              putStrLn $ "      * adding a credential deployment: " ++ show (_cpRewardParameters ^. gasAccountCreation)
+              putStrLn $ "      * adding a chain update: " ++ show (_cpRewardParameters ^. gasChainUpdate)
 
               let foundAcc = case genesisAccounts ^? ix (fromIntegral _cpFoundationAccount) of
                     Nothing -> "INVALID (" ++ show _cpFoundationAccount ++ ")"

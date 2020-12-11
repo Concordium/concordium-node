@@ -187,6 +187,8 @@ calculateMintAmounts start end md0 upds tGTU = case upds of
           mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
       in (newTotal, MintAmounts{..})
 
+-- |Mint for all slots since the last block, recording a
+-- special transaction outcome for the minting.
 doMinting :: (GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
   => BlockPointerType m
   -- ^Parent block
@@ -216,8 +218,14 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
     stoFoundationAccount = foundationAddr
   }
 
+-- |List of the parties in the finalization committee,
+-- with their relative voting power.  Finalization rewards
+-- are distributed in proportion to their power.
 type FinalizerInfo = Vec.Vector (BakerId, VoterPower)
 
+-- |Distribute the finalization rewards to the finalizers
+-- in proportion to their voting weight. This also adds a
+-- special transaction outcome recording the reward.
 doFinalizationRewards :: (BlockStateOperations m)
   => FinalizerInfo
   -> UpdatableBlockState m
@@ -240,12 +248,24 @@ doFinalizationRewards finInfo bs0
   where
     totalPower = sum (snd <$> finInfo)
 
+-- |The counts of the various 'free' transactions for the
+-- purposes of determining the block reward.
 data FreeTransactionCounts = FreeTransactionCounts {
-  countAccountCreation :: Word16,
-  countUpdate :: Word16,
-  countFinRecs :: Word16
+  -- |Number of credential deployment transactions.
+  countAccountCreation :: !Word16,
+  -- |Number of chain update transactions.
+  countUpdate :: !Word16,
+  -- |Number of finalization records included.
+  -- (Currently can only be 0 or 1, but higher values
+  -- could be possible if the block format is revised.)
+  countFinRecs :: !Word16
 }
 
+-- |Distribute the transaction fees between the baker,
+-- foundation, and GAS account.  Additionally, a proportion
+-- of the GAS account is paid to the baker, consisting of a
+-- base fraction and additional fractions for the 'free'
+-- transactions in the block.
 doBlockReward :: (BlockStateOperations m)
   => Amount
   -- ^Transaction fees paid
@@ -292,10 +312,32 @@ doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
     }
 
 
--- |Reward the baker, identity providers, ...
--- TODO: Currently the finalized pointer is not used. But the finalization committee
--- of that block might need to be rewarded if they have not been already.
--- Thus the argument is here for future use
+-- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
+-- The process consists of the following four steps:
+--
+-- 1. If the block is the first in a new epoch, distribute the baking reward account
+--    to the bakers of the previous epoch in proportion to the number of blocks they
+--    baked. (The reward per block is BakingRewardAccount/#blocks, rounded down.
+--    Any remainder is kept in the account.)
+--
+-- 2. GTU is minted for each slot since the previous block.  The minted GTUs are
+--    distributed to the baker reward account, finalization reward account, and
+--    foundation account. (Rounding favours the foundation account.  GTU is minted
+--    for a series of slots before it is divided among the recipients, which should
+--    reduce the effect of rounding.  The series of slots is typically the entire
+--    number between blocks, but is broken for updates to the mint rate and distribution
+--    fractions.)
+--
+-- 3. If the block contains a finalization record, the finalizers are rewarded with
+--    the balance of the finalization reward account, distributed according to their
+--    voting power (i.e. their stake).  The reward to each finalizer is rounded down,
+--    with any remaining balance remaining in the reward account.  (Note: the rounding
+--    here is different to the baking reward distribution.)
+--
+-- 4. The transaction fees are distributed between the baker, GAS account, and foundation
+--    account.  Additionally, a fraction of the old GAS account is paid to the baker,
+--    including incentives for including the 'free' transaction types.  (Rounding of
+--    the fee distribution favours the foundation.  The GAS reward is rounded down.)
 mintAndReward :: (BlockStateOperations m, BlockPointerMonad m)
     => UpdatableBlockState m
     -- ^Block state
@@ -333,6 +375,7 @@ mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees 
     Nothing -> return bshandleMint
     Just finInfo -> doFinalizationRewards finInfo bshandleMint
   
+  -- Finally, reward the block baker.
   doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
