@@ -45,7 +45,6 @@ basicGenesisState genData =
         (genesisAccounts genData)
         (genesisIdentityProviders genData)
         (genesisAnonymityRevokers genData)
-        (genesisMintPerSlot genData)
         (genesisAuthorizations genData)
         (genesisChainParameters genData)
 
@@ -102,7 +101,11 @@ dummyAuthorizations = Authorizations {
       asProtocol = theOnly,
       asParamElectionDifficulty = theOnly,
       asParamEuroPerEnergy = theOnly,
-      asParamMicroGTUPerEuro = theOnly
+      asParamMicroGTUPerEuro = theOnly,
+      asParamFoundationAccount = theOnly,
+      asParamMintDistribution = theOnly,
+      asParamTransactionFeeDistribution = theOnly,
+      asParamGASRewards = theOnly
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -170,7 +173,6 @@ makeTestingGenesisData
   genesisChainParameters
     = GenesisDataV2 {..}
     where
-        genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters =
           FinalizationParameters {
@@ -190,8 +192,27 @@ makeTestingGenesisData
 emptyBirkParameters :: Accounts -> BasicBirkParameters
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
 
+dummyRewardParameters :: RewardParameters
+dummyRewardParameters = RewardParameters {
+    _rpMintDistribution = MintDistribution {
+      _mdMintPerSlot = MintRate 1 12,
+      _mdBakingReward = RewardFraction 60000, -- 60%
+      _mdFinalizationReward = RewardFraction 30000 -- 30%
+    },
+    _rpTransactionFeeDistribution = TransactionFeeDistribution {
+      _tfdBaker = RewardFraction 45000, -- 45%
+      _tfdGASAccount = RewardFraction 45000 -- 45%
+    },
+    _rpGASRewards = GASRewards {
+      _gasBaker = RewardFraction 25000, -- 25%
+      _gasFinalizationProof = RewardFraction 50, -- 0.05%
+      _gasAccountCreation = RewardFraction 200, -- 0.2%
+      _gasChainUpdate = RewardFraction 50 -- 0.05%
+    }
+}
+
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 166
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 168 10 dummyRewardParameters 0
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts -> BlockState
@@ -238,7 +259,7 @@ mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographic
 makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> Account
 makeFakeBakerAccount bid _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey =
     acct & accountAmount .~ balance
-      & accountBaker .~ Just bkr
+      & accountBaker ?~ bkr
   where
     balance = 1000000000000
     staked = 999000000000

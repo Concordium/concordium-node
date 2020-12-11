@@ -41,9 +41,11 @@ import Control.Monad.Trans.Except
 import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
+import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
+import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -81,7 +83,8 @@ data BlockStateHashInputs = BlockStateHashInputs {
     bshBankStatus :: H.Hash,
     bshAccounts :: H.Hash,
     bshInstances :: H.Hash,
-    bshUpdates :: H.Hash
+    bshUpdates :: H.Hash,
+    bshEpochBlocks :: EpochBlocksHash
 } deriving (Show)
 
 -- |Construct a 'StateHash' from the component hashes.
@@ -98,7 +101,9 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
         (H.hashOfHashes bshAccounts bshInstances)
       )
     )
-    bshUpdates
+    (H.hashOfHashes
+      bshUpdates
+      (ebHash bshEpochBlocks))
 
 class (BlockStateTypes m, Monad m) => AccountOperations m where
 
@@ -245,6 +250,29 @@ class AccountOperations m => BlockStateQuery m where
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
+-- |Distribution of newly-minted GTU.
+data MintAmounts = MintAmounts {
+    -- |Minted amount allocated to the BakingRewardAccount
+    mintBakingReward :: !Amount,
+    -- |Minted amount allocated to the FinalizationRewardAccount
+    mintFinalizationReward :: !Amount,
+    -- |Minted amount allocated ot the foundation account
+    mintDevelopmentCharge :: !Amount
+  } deriving (Eq,Show)
+
+instance Semigroup MintAmounts where
+  a1 <> a2 = MintAmounts {
+      mintBakingReward = mintBakingReward a1 + mintBakingReward a2,
+      mintFinalizationReward = mintFinalizationReward a1 + mintFinalizationReward a2,
+      mintDevelopmentCharge = mintDevelopmentCharge a1 + mintDevelopmentCharge a2
+    }
+
+instance Monoid MintAmounts where
+  mempty = MintAmounts 0 0 0
+  mconcat = foldl' (<>) mempty
+
+mintTotal :: MintAmounts -> Amount
+mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDevelopmentCharge
 
 -- |Block state update operations parametrized by a monad. The operations which
 -- mutate the state all also return an 'UpdatableBlockState' handle. This is to
@@ -254,6 +282,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
   -- |Get an account by its address.
   bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (Account m))
+  -- |Get the index of an account.
+  bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -291,19 +321,22 @@ class (BlockStateQuery m) => BlockStateOperations m where
                     -> Wasm.ContractState
                     -> m (UpdatableBlockState m)
 
+  -- FIXME: remove
   -- |Notify the block state that the given amount was spent on execution.
-  bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+  --bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
   bsoNotifyEncryptedBalanceChange :: UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
 
 
+  -- FIXME: remove
   -- |Notify the block state that the given identity issuer's credential was
   -- used by a sender of the transaction.
-  bsoNotifyIdentityIssuerCredential :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (UpdatableBlockState m)
+  --bsoNotifyIdentityIssuerCredential :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (UpdatableBlockState m)
 
+  -- FIXME: remove
   -- |Get the execution reward for the current block.
-  bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
+  -- bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
   -- |Get the seed state associated with the block state.
   bsoGetSeedState :: UpdatableBlockState m -> m SeedState
@@ -419,16 +452,26 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- TODO: Change the interface to support new tokenomics.
   bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
+  -- |Add an amount to the foundation account.
+  bsoRewardFoundationAccount :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+
+  -- |Get the foundation account.
+  bsoGetFoundationAccount :: UpdatableBlockState m -> m (Account m)
+
+  -- FIXME: Remove
   -- |Set the amount of minted GTU per slot.
-  bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
+  -- bsoSetInflation :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
 
-  -- |Mint currency in the central bank. Return the new amount
-  bsoMint :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
+  -- |Mint currency and distribute it to the BakerRewardAccount,
+  -- FinalizationRewardAccount and foundation account.
+  -- This increases the total GTU in circulation.
+  bsoMint :: UpdatableBlockState m -> MintAmounts -> m (UpdatableBlockState m)
 
+  -- FIXME: Remove
   -- |Subtract the amount from the central bank. Return the new amount. The
   -- precondition of this method is that the amount on the account is
   -- sufficient.
-  bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
+  -- bsoDecrementCentralBankGTU :: UpdatableBlockState m -> Amount -> m (Amount, UpdatableBlockState m)
 
   -- |Get the identity provider data for the given identity provider, or Nothing if
   -- the identity provider with given ID does not exist.
@@ -449,7 +492,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
 
   -- |Process queued updates.
-  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
+  bsoProcessUpdateQueues :: UpdatableBlockState m -> Timestamp -> m (Map.Map TransactionTime UpdateValue, UpdatableBlockState m)
 
   -- |Unlock the amounts up to the given timestamp
   bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
@@ -461,7 +504,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
 
   -- |Enqueue an update to take effect at the specified time.
-  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdatePayload -> m (UpdatableBlockState m)
+  bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdateValue -> m (UpdatableBlockState m)
 
   -- |Add the given accounts and timestamps to the per-block account release schedule.
   -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
@@ -469,6 +512,26 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
   -- |Get the current energy rate.
   bsoGetEnergyRate :: UpdatableBlockState m -> m EnergyRate
+
+  -- |Get the current chain parameters.
+  bsoGetChainParameters :: UpdatableBlockState m -> m ChainParameters
+
+  -- |Get the number of blocks baked in this epoch, both in total and
+  -- per baker.
+  bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
+
+  -- |Record that the given baker has baked a block in the current epoch.
+  bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+
+  -- |Clear the tracking of baked blocks in the current epoch.
+  -- Should be called whenever a new epoch is entered.
+  bsoClearEpochBlocksBaked :: UpdatableBlockState m -> m (UpdatableBlockState m)
+
+  -- |Get the current status of the various accounts.
+  bsoGetBankStatus :: UpdatableBlockState m -> m BankStatus
+
+  -- |Set the status of the special reward accounts.
+  bsoSetRewardAccounts :: UpdatableBlockState m -> RewardAccounts -> m (UpdatableBlockState m)
 
 -- | Block state storage operations
 class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage m where
@@ -478,9 +541,6 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- changes to it must not affect 'BlockState', but an efficient
     -- implementation should expect that only a small subset of the state will
     -- change, and thus a variant of copy-on-write should be used.
-    --
-    -- Thawing a block state resets the execution cost to 0 and the
-    -- identity issuers to be rewarded to the empty set.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
     -- |Freeze a mutable block state instance. The mutable state instance will
@@ -587,6 +647,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
   bsoGetModule s = lift . bsoGetModule s
   bsoGetAccount s = lift . bsoGetAccount s
+  bsoGetAccountIndex s = lift . bsoGetAccountIndex s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoRegIdExists s = lift . bsoRegIdExists s
   bsoCreateAccount s gc accKeys accAddr cdv = lift $ bsoCreateAccount s gc accKeys accAddr cdv
@@ -594,10 +655,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
-  bsoNotifyExecutionCost s = lift . bsoNotifyExecutionCost s
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
-  bsoNotifyIdentityIssuerCredential s = lift . bsoNotifyIdentityIssuerCredential s
-  bsoGetExecutionCost = lift . bsoGetExecutionCost
   bsoGetSeedState = lift . bsoGetSeedState
   bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
   bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
@@ -607,9 +665,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
   bsoRemoveBaker s = lift . bsoRemoveBaker s
   bsoRewardBaker s bid amt = lift $ bsoRewardBaker s bid amt
-  bsoSetInflation s = lift . bsoSetInflation s
+  bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
+  bsoGetFoundationAccount = lift . bsoGetFoundationAccount
   bsoMint s = lift . bsoMint s
-  bsoDecrementCentralBankGTU s = lift . bsoDecrementCentralBankGTU s
   bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
   bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
   bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
@@ -622,8 +680,15 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
+  bsoGetChainParameters = lift . bsoGetChainParameters
+  bsoGetEpochBlocksBaked = lift . bsoGetEpochBlocksBaked
+  bsoNotifyBlockBaked s = lift . bsoNotifyBlockBaked s
+  bsoClearEpochBlocksBaked = lift . bsoClearEpochBlocksBaked
+  bsoGetBankStatus = lift . bsoGetBankStatus
+  bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
   {-# INLINE bsoGetModule #-}
   {-# INLINE bsoGetAccount #-}
+  {-# INLINE bsoGetAccountIndex #-}
   {-# INLINE bsoGetInstance #-}
   {-# INLINE bsoRegIdExists #-}
   {-# INLINE bsoCreateAccount #-}
@@ -631,9 +696,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewModule #-}
   {-# INLINE bsoModifyAccount #-}
   {-# INLINE bsoModifyInstance #-}
-  {-# INLINE bsoNotifyExecutionCost #-}
-  {-# INLINE bsoNotifyIdentityIssuerCredential #-}
-  {-# INLINE bsoGetExecutionCost #-}
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetSeedState #-}
   {-# INLINE bsoSetSeedState #-}
@@ -644,9 +706,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoUpdateBakerRestakeEarnings #-}
   {-# INLINE bsoRemoveBaker #-}
   {-# INLINE bsoRewardBaker #-}
-  {-# INLINE bsoSetInflation #-}
+  {-# INLINE bsoGetFoundationAccount #-}
+  {-# INLINE bsoRewardFoundationAccount #-}
   {-# INLINE bsoMint #-}
-  {-# INLINE bsoDecrementCentralBankGTU #-}
   {-# INLINE bsoGetIdentityProvider #-}
   {-# INLINE bsoGetAnonymityRevokers #-}
   {-# INLINE bsoGetCryptoParams #-}
@@ -659,7 +721,12 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoEnqueueUpdate #-}
   {-# INLINE bsoAddReleaseSchedule #-}
   {-# INLINE bsoGetEnergyRate #-}
-
+  {-# INLINE bsoGetChainParameters #-}
+  {-# INLINE bsoGetEpochBlocksBaked #-}
+  {-# INLINE bsoNotifyBlockBaked #-}
+  {-# INLINE bsoClearEpochBlocksBaked #-}
+  {-# INLINE bsoGetBankStatus #-}
+  {-# INLINE bsoSetRewardAccounts #-}
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState
     freezeBlockState = lift . freezeBlockState

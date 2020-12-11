@@ -36,7 +36,7 @@ import Data.Foldable
 -- The data integrity of accounts is also not enforced by these operations.
 data Accounts = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
-    accountMap :: !(Map.Map AccountAddress AT.AccountIndex),
+    accountMap :: !(Map.Map AccountAddress AccountIndex),
     -- |Hashed Merkle-tree of the accounts.
     accountTable :: !AT.AccountTable,
     -- |Set of 'ID.CredentialRegistrationID's that have been used for accounts.
@@ -83,15 +83,18 @@ getAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> accountTable ^? ix i
 
+getAccountIndex :: AccountAddress -> Accounts -> Maybe AccountIndex
+getAccountIndex addr Accounts{..} = Map.lookup addr accountMap
+
 -- |Retrieve an account and its index with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: AccountAddress -> Accounts -> Maybe (AT.AccountIndex, Account)
+getAccountWithIndex :: AccountAddress -> Accounts -> Maybe (AccountIndex, Account)
 getAccountWithIndex addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> (i, ) <$> accountTable ^? ix i
 
 -- |Traversal for accessing the account at a given index.
-indexedAccount :: AT.AccountIndex -> Traversal' Accounts Account
+indexedAccount :: AccountIndex -> Traversal' Accounts Account
 indexedAccount ai = lens accountTable (\a v-> a{accountTable = v}) . ix ai
 
 -- |Apply account updates to an account. It is assumed that the address in

@@ -680,7 +680,7 @@ instance MonadBlobStore m => BlobStorable m Account
 instance MonadBlobStore m => BlobStorable m Amount
 instance MonadBlobStore m => BlobStorable m BakerId
 instance MonadBlobStore m => BlobStorable m BakerInfo
-instance MonadBlobStore m => BlobStorable m Word64
+instance MonadBlobStore m => BlobStorable m AccountIndex
 instance MonadBlobStore m => BlobStorable m BS.ByteString
 instance MonadBlobStore m => BlobStorable m EncryptedAmount
 instance MonadBlobStore m => BlobStorable m TransactionHash
@@ -693,6 +693,10 @@ instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty
 instance MonadBlobStore m => BlobStorable m AccountReleaseSchedule
+instance MonadBlobStore m => BlobStorable m MintRate
+instance MonadBlobStore m => BlobStorable m MintDistribution
+instance MonadBlobStore m => BlobStorable m TransactionFeeDistribution
+instance MonadBlobStore m => BlobStorable m GASRewards
 instance MonadBlobStore m => BlobStorable m (Map AccountAddress Timestamp)
 instance MonadBlobStore m => BlobStorable m WasmModule
 
@@ -820,7 +824,7 @@ instance (Applicative m) => Cacheable m (Map AccountAddress Timestamp)
 instance (Applicative m) => Cacheable m WasmModule
 instance (Applicative m) => Cacheable m PersistingAccountData
 -- Required for caching AccountIndexes
-instance (Applicative m) => Cacheable m Word64
+instance (Applicative m) => Cacheable m AccountIndex
 -- Required for caching BlockStatePointers
 instance (Applicative m) => Cacheable m IPS.IdentityProviders
 instance (Applicative m) => Cacheable m ARS.AnonymityRevokers
