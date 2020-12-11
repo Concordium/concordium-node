@@ -1,9 +1,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Concordium.GlobalState.Persistent.BlockState.Modules
-  ( Modules,
+  ( Module(..),
+    Modules,
     emptyModules,
     getInterface,
     getSource,
+    getModuleReference,
     putInterface,
     moduleRefList,
     makePersistentModules
@@ -119,12 +121,21 @@ getModule ref mods =
     Nothing -> return Nothing
     Just idx -> LFMB.lookup idx (mods ^. modulesTable)
 
+-- |Gets the buffered reference to a module as stored in the module table
+-- to be given to instances when associating them with the interface.
+getModuleReference :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe (BufferedRef Module))
+getModuleReference ref mods =
+  let modIdx = Map.lookup ref (mods ^. modulesMap) in
+  case modIdx of
+    Nothing -> return Nothing
+    Just idx -> fmap bufferedReference <$> LFMB.lookupRef idx (mods ^. modulesTable)
+
 -- |Get an interface by module reference.
 getInterface :: MonadBlobStore m
              => ModuleRef
              -> Modules
              -> m (Maybe ModuleInterface)
-getInterface ref mods = return . fmap interface =<< getModule ref mods
+getInterface ref mods = fmap interface <$> getModule ref mods
 
 -- |Get the source of a module by module reference.
 getSource :: MonadBlobStore m => ModuleRef -> Modules -> m (Maybe WasmModule)
