@@ -6,7 +6,10 @@
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
     module Concordium.GlobalState.Parameters,
-    BakerInfo
+    BakerInfo,
+    MintDistribution(..),
+    TransactionFeeDistribution(..),
+    GASRewards(..)
 ) where
 
 import Prelude hiding (fail)
@@ -14,26 +17,28 @@ import GHC.Generics hiding (to)
 import Data.Serialize
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
+import qualified Data.List as List
 import Data.Ratio
 import Data.Word
 import Lens.Micro.Platform
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Aeson as AE
+import Data.Aeson.Types (FromJSON(..), ToJSON(..), (.:), (.:?), (.!=), withObject, object)
+import Concordium.Types.Updates
 
 import Concordium.Common.Version
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.ID.Parameters(GlobalContext)
+import qualified Concordium.ID.Types as ID
+import qualified Concordium.Crypto.BlsSignature as Bls
+
+import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.IdentityProviders
 import Concordium.GlobalState.AnonymityRevokers
 import qualified Concordium.GlobalState.SeedState as SeedState
-import qualified Concordium.ID.Types as ID
-import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Data.ByteString.Lazy as BSL
-import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), ToJSON(..), (.:), (.:?), (.!=), withObject, object)
-import Concordium.Types.Updates
 
 type CryptographicParameters = GlobalContext
 
@@ -54,7 +59,14 @@ data ChainParameters = ChainParameters {
     -- longer than this value, since at any given time, the bakers
     -- (and stakes) for the current and next epochs have already
     -- been determined.
-    _cpBakerExtraCooldownEpochs :: !Epoch
+    _cpBakerExtraCooldownEpochs :: !Epoch,
+    -- |LimitAccountCreation: the maximum number of accounts
+    -- that may be created in one block.
+    _cpAccountCreationLimit :: !CredentialsPerBlockLimit,
+    -- |Reward parameters.
+    _cpRewardParameters :: !RewardParameters,
+    -- |Foundation account index.
+    _cpFoundationAccount :: !AccountIndex
 } deriving (Eq, Show)
 
 makeChainParameters ::
@@ -66,8 +78,22 @@ makeChainParameters ::
     -- ^uGTU:Euro rate
     -> Epoch
     -- ^Baker cooldown
+    -> CredentialsPerBlockLimit
+    -- ^Account creation limit
+    -> RewardParameters
+    -- ^Reward parameters
+    -> AccountIndex
+    -- ^Foundation account
     -> ChainParameters
-makeChainParameters _cpElectionDifficulty _cpEuroPerEnergy _cpMicroGTUPerEuro _cpBakerExtraCooldownEpochs = ChainParameters{..}
+makeChainParameters
+    _cpElectionDifficulty
+    _cpEuroPerEnergy
+    _cpMicroGTUPerEuro
+    _cpBakerExtraCooldownEpochs
+    _cpAccountCreationLimit
+    _cpRewardParameters
+    _cpFoundationAccount
+      = ChainParameters{..}
   where
     _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
 
@@ -91,13 +117,27 @@ cpEnergyRate = to _cpEnergyRate
 cpBakerExtraCooldownEpochs :: Lens' ChainParameters Epoch
 cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_cpBakerExtraCooldownEpochs = bce})
 
+{-# INLINE cpFoundationAccount #-}
+cpFoundationAccount :: Lens' ChainParameters AccountIndex
+cpFoundationAccount = lens _cpFoundationAccount (\cp fa -> cp {_cpFoundationAccount = fa})
+
+{-# INLINE cpAccountCreationLimit #-}
+cpAccountCreationLimit :: Lens' ChainParameters CredentialsPerBlockLimit
+cpAccountCreationLimit = lens _cpAccountCreationLimit (\cp acl -> cp {_cpAccountCreationLimit = acl})
+
+instance HasRewardParameters ChainParameters where
+  rewardParameters = lens _cpRewardParameters (\cp rp -> cp {_cpRewardParameters = rp})
+
 instance Serialize ChainParameters where
   put ChainParameters{..} = do
     put _cpElectionDifficulty
     put _cpEuroPerEnergy
     put _cpMicroGTUPerEuro
     put _cpBakerExtraCooldownEpochs
-  get = makeChainParameters <$> get <*> get <*> get <*> get
+    put _cpAccountCreationLimit
+    put _cpRewardParameters
+    put _cpFoundationAccount
+  get = makeChainParameters <$> get <*> get <*> get <*> get <*> get <*> get <*> get
 
 instance HashableTo Hash.Hash ChainParameters where
   getHash = Hash.hash . encode
@@ -111,13 +151,19 @@ instance FromJSON ChainParameters where
       <*> v .: "euroPerEnergy"
       <*> v .: "microGTUPerEuro"
       <*> v .: "bakerCooldownEpochs"
+      <*> v .: "accountCreationLimit"
+      <*> v .: "rewardParameters"
+      <*> v .: "foundationAccountIndex"
 
 instance ToJSON ChainParameters where
   toJSON ChainParameters{..} = object [
       "electionDifficulty" AE..= _cpElectionDifficulty,
       "euroPerEnergy" AE..= _cpEuroPerEnergy,
       "microGTUPerEuro" AE..= _cpMicroGTUPerEuro,
-      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs
+      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs,
+      "accountCreationLimit" AE..= _cpAccountCreationLimit,
+      "rewardParameters" AE..= _cpRewardParameters,
+      "foundationAccountIndex" AE..= _cpFoundationAccount
     ]
 
 data VoterInfo = VoterInfo {
@@ -173,7 +219,6 @@ data GenesisDataV2 = GenesisDataV2 {
     genesisCryptographicParameters :: !CryptographicParameters,
     genesisIdentityProviders :: !IdentityProviders,
     genesisAnonymityRevokers :: !AnonymityRevokers,
-    genesisMintPerSlot :: !Amount,
     genesisMaxBlockEnergy :: !Energy,
     genesisAuthorizations :: !Authorizations,
     genesisChainParameters :: !ChainParameters
@@ -194,10 +239,11 @@ getGenesisDataV2 = do
     genesisCryptographicParameters <- get
     genesisIdentityProviders <- get
     genesisAnonymityRevokers <- get
-    genesisMintPerSlot <- get
     genesisMaxBlockEnergy <- get
     genesisAuthorizations <- get
     genesisChainParameters <- get
+    unless (toInteger (genesisChainParameters ^. cpFoundationAccount) < toInteger (length genesisAccounts)) $
+      fail "Foundation account is not a valid account index."
     return GenesisDataV2{..}
 
 putGenesisDataV2 :: Putter GenesisDataV2
@@ -210,7 +256,6 @@ putGenesisDataV2 GenesisDataV2{..} = do
     put genesisCryptographicParameters
     put genesisIdentityProviders
     put genesisAnonymityRevokers
-    put genesisMintPerSlot
     put genesisMaxBlockEnergy
     put genesisAuthorizations
     put genesisChainParameters
@@ -343,6 +388,50 @@ instance FromJSON GenesisAccount where
       _ -> return ()
     return GenesisAccount{..}
 
+data GenesisChainParameters = GenesisChainParameters {
+    -- |Election difficulty parameter.
+    gcpElectionDifficulty :: !ElectionDifficulty,
+    -- |Euro:Energy rate.
+    gcpEuroPerEnergy :: !ExchangeRate,
+    -- |uGTU:Euro rate.
+    gcpMicroGTUPerEuro :: !ExchangeRate,
+    -- |Number of additional epochs that bakers must cool down when
+    -- removing stake. The cool-down will effectively be 2 epochs
+    -- longer than this value, since at any given time, the bakers
+    -- (and stakes) for the current and next epochs have already
+    -- been determined.
+    gcpBakerExtraCooldownEpochs :: !Epoch,
+    -- |LimitAccountCreation: the maximum number of accounts
+    -- that may be created in one block.
+    gcpAccountCreationLimit :: !CredentialsPerBlockLimit,
+    -- |Reward parameters.
+    gcpRewardParameters :: !RewardParameters,
+    -- |Foundation account address.
+    gcpFoundationAccount :: !AccountAddress
+}
+
+instance FromJSON GenesisChainParameters where
+  parseJSON = withObject "GenesisChainParameters" $ \v ->
+    GenesisChainParameters
+      <$> v .: "electionDifficulty"
+      <*> v .: "euroPerEnergy"
+      <*> v .: "microGTUPerEuro"
+      <*> v .: "bakerCooldownEpochs"
+      <*> v .: "accountCreationLimit"
+      <*> v .: "rewardParameters"
+      <*> v .: "foundationAccount"
+
+instance ToJSON GenesisChainParameters where
+  toJSON GenesisChainParameters{..} = object [
+      "electionDifficulty" AE..= gcpElectionDifficulty,
+      "euroPerEnergy" AE..= gcpEuroPerEnergy,
+      "microGTUPerEuro" AE..= gcpMicroGTUPerEuro,
+      "bakerCooldownEpochs" AE..= gcpBakerExtraCooldownEpochs,
+      "accountCreationLimit" AE..= gcpAccountCreationLimit,
+      "rewardParameters" AE..= gcpRewardParameters,
+      "foundationAccount" AE..= gcpFoundationAccount
+    ]
+
 -- 'GenesisParameters' provides a convenient abstraction for
 -- constructing 'GenesisData'.
 data GenesisParametersV2 = GenesisParametersV2 {
@@ -356,13 +445,12 @@ data GenesisParametersV2 = GenesisParametersV2 {
     gpAnonymityRevokers :: AnonymityRevokers,
     -- |Initial accounts
     gpInitialAccounts :: [GenesisAccount],
-    gpMintPerSlot :: Amount,
     -- |Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy,
     -- |The initial update authorizations
     gpAuthorizations :: Authorizations,
     -- |The initial (updatable) chain parameters
-    gpChainParameters :: ChainParameters
+    gpChainParameters :: GenesisChainParameters
 }
 
 instance FromJSON GenesisParametersV2 where
@@ -380,10 +468,12 @@ instance FromJSON GenesisParametersV2 where
         let hasBaker GenesisAccount{gaBaker=Nothing} = False
             hasBaker _ = True
         unless (any hasBaker gpInitialAccounts) $ fail "Must have at least one baker at genesis"
-        gpMintPerSlot <-  v .: "mintPerSlot"
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         gpAuthorizations <- v .: "updateAuthorizations"
         gpChainParameters <- v .: "chainParameters"
+        let facct = gcpFoundationAccount gpChainParameters
+        unless (any ((facct ==) . gaAddress) gpInitialAccounts) $
+          fail $ "Foundation account (" ++ show facct ++ ") is not in initialAccounts"
         return GenesisParametersV2{..}
 
 type GenesisParameters = GenesisParametersV2
@@ -406,7 +496,7 @@ data RuntimeParameters = RuntimeParameters {
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
   rpEarlyBlockThreshold :: !Timestamp,
-  -- |Number of insertions to be performed in the trasnaction table before running
+  -- |Number of insertions to be performed in the transaction table before running
   -- a purge to remove long living transactions that have not been executed for more
   -- than `rpTransactionsKeepAliveTime` seconds.
   rpInsertionsBeforeTransactionPurge :: !Int,
@@ -446,14 +536,13 @@ instance FromJSON RuntimeParameters where
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
 parametersToGenesisData :: GenesisParameters -> GenesisData
-parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
+parametersToGenesisData GenesisParametersV2{gpChainParameters=GenesisChainParameters{..},..} = GenesisDataV2{..}
     where
-        genesisMintPerSlot = gpMintPerSlot
         genesisTime = gpGenesisTime
         genesisSlotDuration = gpSlotDuration
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
 
-        mkAccount (GenesisAccount{..}, bid) =
+        mkAccount GenesisAccount{..} bid =
           newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
                 & accountAmount .~ gaBalance
                 & case gaBaker of
@@ -469,11 +558,46 @@ parametersToGenesisData GenesisParametersV2{..} = GenesisDataV2{..}
                       },
                       _bakerPendingChange = NoChange
                     }
-        genesisAccounts = map mkAccount (zip gpInitialAccounts [0..])
+        genesisAccounts = zipWith mkAccount gpInitialAccounts [0..]
         genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
         genesisIdentityProviders = gpIdentityProviders
         genesisAnonymityRevokers = gpAnonymityRevokers
         genesisMaxBlockEnergy = gpMaxBlockEnergy
         genesisAuthorizations = gpAuthorizations
-        genesisChainParameters = gpChainParameters
+        genesisChainParameters = makeChainParameters
+            gcpElectionDifficulty
+            gcpEuroPerEnergy
+            gcpMicroGTUPerEuro
+            gcpBakerExtraCooldownEpochs
+            gcpAccountCreationLimit
+            gcpRewardParameters
+            foundationAccountIndex
+        foundationAccountIndex = case List.findIndex ((gcpFoundationAccount ==) . gaAddress) gpInitialAccounts of
+          Nothing -> error "Foundation account is missing"
+          Just i -> fromIntegral i
+
+-- |Values of updates that are stored in update queues.
+-- These are slightly different to the 'UpdatePayload' type,
+-- specifically in that for the foundation account we store
+-- the account index rather than the account address.
+data UpdateValue
+    -- |Updates to authorized update keys.
+    = UVAuthorization !Authorizations
+    -- |Protocol updates.
+    | UVProtocol !ProtocolUpdate
+    -- |Updates to the election difficulty parameter.
+    | UVElectionDifficulty !ElectionDifficulty
+    -- |Updates to the euro:energy exchange rate.
+    | UVEuroPerEnergy !ExchangeRate
+    -- |Updates to the GTU:euro exchange rate.
+    | UVMicroGTUPerEuro !ExchangeRate
+    -- |Updates to the foundation account.
+    | UVFoundationAccount !AccountIndex
+    -- |Updates to the mint distribution.
+    | UVMintDistribution !MintDistribution
+    -- |Updates to the transaction fee distribution.
+    | UVTransactionFeeDistribution !TransactionFeeDistribution
+    -- |Updates to the GAS rewards.
+    | UVGASRewards !GASRewards
+    deriving (Eq, Show)

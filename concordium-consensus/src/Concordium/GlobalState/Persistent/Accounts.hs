@@ -27,10 +27,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as Transie
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
-import Data.Word
 import Data.Foldable (foldrM, foldl', foldlM)
-
-type AccountIndex = Word64
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -163,7 +160,7 @@ putAccount !acct accts0 = do
                 Just ((), newAT) -> newAT
         return $! accts0 {accountMap = newAccountMap, accountTable = newAccountTable}
     where
-        acctIndex = L.size (accountTable accts0)
+        acctIndex = fromIntegral $ L.size (accountTable accts0)
         addToAM Nothing = return (Nothing, Trie.Insert acctIndex)
         addToAM (Just v) = return (Just v, Trie.NoChange)
 
@@ -179,7 +176,7 @@ putNewAccount !acct accts0 = do
         else
             return (False, accts0)
     where
-        acctIndex = L.size (accountTable accts0)
+        acctIndex = fromIntegral $ L.size (accountTable accts0)
         addToAM Nothing = return (True, Trie.Insert acctIndex)
         addToAM (Just _) = return (False, Trie.NoChange)
 
@@ -193,6 +190,10 @@ getAccount :: MonadBlobStore m => AccountAddress -> Accounts -> m (Maybe Persist
 getAccount addr Accounts{..} = Trie.lookup addr accountMap >>= \case
         Nothing -> return Nothing
         Just ai -> L.lookup ai accountTable
+
+-- |Get the account at a given index (if any).
+getAccountIndex :: MonadBlobStore m => AccountAddress -> Accounts -> m (Maybe AccountIndex)
+getAccountIndex addr Accounts{..} = Trie.lookup addr accountMap
 
 -- |Retrieve an account and its index from a given address.
 -- Returns @Nothing@ if no such account exists.

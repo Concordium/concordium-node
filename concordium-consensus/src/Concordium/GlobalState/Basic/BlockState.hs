@@ -10,7 +10,6 @@ import Lens.Micro.Platform
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Map.Strict as Map
-import qualified Data.HashMap.Strict as HashMap
 import qualified Data.Set as Set
 import qualified Data.List as List
 import qualified Data.Vector as Vec
@@ -95,6 +94,31 @@ initialBirkParameters accounts = makeBirkParameters activeBkrs eBkrs eBkrs
       _bakerTotalStake = sum stakes
     }
 
+-- |List of bakers of blocks baked in the current epoch, used for 
+-- rewarding the bakers at the end of the epoch.  This maintains
+-- a running hash of the list as 'hebHash'.
+--
+-- > hebHash == foldr Rewards.epochBlockHash Rewards.emptyEpochBlocksHash hebBlocks
+data HashedEpochBlocks = HashedEpochBlocks {
+    -- |Bakers of blocks baked in the current epoch, most recent first.
+    hebBlocks :: ![BakerId],
+    -- |Hash of the list.
+    hebHash :: !Rewards.EpochBlocksHash
+  } deriving (Eq, Show)
+instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
+    getHash = hebHash
+
+-- |The 'HashedEpochBlocks' with no blocks.
+emptyHashedEpochBlocks :: HashedEpochBlocks
+emptyHashedEpochBlocks = HashedEpochBlocks [] Rewards.emptyEpochBlocksHash
+
+-- |Extend a 'HashedEpochBlocks' with an additional baker.
+consEpochBlock :: BakerId -> HashedEpochBlocks -> HashedEpochBlocks
+consEpochBlock bid heb = HashedEpochBlocks {
+    hebBlocks = bid : hebBlocks heb,
+    hebHash = Rewards.epochBlockHash bid (hebHash heb)
+  }
+
 data BlockState = BlockState {
     _blockAccounts :: !Accounts.Accounts,
     _blockInstances :: !Instances.Instances,
@@ -106,7 +130,8 @@ data BlockState = BlockState {
     _blockCryptographicParameters :: !(Hashed CryptographicParameters),
     _blockUpdates :: !Updates,
     _blockReleaseSchedule :: !(Map AccountAddress Timestamp), -- ^Contains an entry for each account that has pending releases and the first timestamp for said account
-    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes
+    _blockTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    _blockEpochBlocksBaked :: !HashedEpochBlocks
 } deriving (Show)
 
 data HashedBlockState = HashedBlockState {
@@ -141,6 +166,7 @@ emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams =
       _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
       _blockUpdates = initialUpdates auths chainParams
       _blockReleaseSchedule = Map.empty
+      _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
 -- |Convert a 'BlockState' to a 'HashedBlockState' by computing
 -- the state hash.
@@ -159,7 +185,8 @@ hashBlockState bs@BlockState{..} = HashedBlockState {
               bshBankStatus = getHash _blockBank,
               bshAccounts = getHash _blockAccounts,
               bshInstances = getHash _blockInstances,
-              bshUpdates = getHash _blockUpdates
+              bshUpdates = getHash _blockUpdates,
+              bshEpochBlocks = getHash _blockEpochBlocksBaked
             }
 
 instance HashableTo StateHash BlockState where
@@ -321,6 +348,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     bsoGetAccount bs aaddr =
       return $ bs ^? blockAccounts . ix aaddr
 
+    {-# INLINE bsoGetAccountIndex #-}
+    bsoGetAccountIndex bs aaddr = return $! Accounts.getAccountIndex aaddr (bs ^. blockAccounts)
+
     {-# INLINE bsoRegIdExists #-}
     bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
 
@@ -365,21 +395,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account
 
-    {-# INLINE bsoNotifyExecutionCost #-}
-    bsoNotifyExecutionCost bs amnt =
-      return $! bs & blockBank . unhashed . Rewards.executionCost %~ (+ amnt)
-
     {-# INLINE bsoNotifyEncryptedBalanceChange #-}
     bsoNotifyEncryptedBalanceChange bs amntDiff =
-      return $! bs & blockBank . unhashed . Rewards.totalEncryptedGTU %~ (applyAmountDelta amntDiff)
-
-    bsoNotifyIdentityIssuerCredential bs idk =
-      let updatedRewards = HashMap.alter (Just . maybe 1 (+ 1)) idk (bs ^. blockBank . unhashed . Rewards.identityIssuersRewards) in
-      return $! bs & blockBank . unhashed . Rewards.identityIssuersRewards .~ updatedRewards
-
-    {-# INLINE bsoGetExecutionCost #-}
-    bsoGetExecutionCost bs =
-      return $ bs ^. blockBank . unhashed . Rewards.executionCost
+      return $! bs & blockBank . unhashed . Rewards.totalEncryptedGTU %~ applyAmountDelta amntDiff
 
     {-# INLINE bsoGetSeedState #-}
     bsoGetSeedState bs = return $! bs ^. blockBirkParameters . birkSeedState
@@ -509,10 +527,10 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         -- The account is not valid or has no baker
         _ -> (BRInvalidBaker, bs)
 
-    -- This uses that baker identities are account indexes.  The account with the corresponing
-    -- index (if any) is given the reward.  If the account has a baker (which it preseumably should) then
+    -- This uses that baker identities are account indexes.  The account with the corresponding
+    -- index (if any) is given the reward.  If the account has a baker (which it presumably should) then
     -- the stake is increased correspondingly if 'stakeEarnings' is set.
-    bsoRewardBaker bs (BakerId ai) reward = return (getFirst <$> mfaddr, bs')
+    bsoRewardBaker bs (BakerId ai) !reward = return (getFirst <$> mfaddr, bs')
       where
         (mfaddr, !bs') = bs & (blockAccounts . Accounts.indexedAccount ai) payReward
         payReward acct = (Just . First $! acct ^. accountAddress, acct & accountAmount +~ reward & accountBaker . traversed %~ updateBaker)
@@ -520,19 +538,25 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
           | _stakeEarnings bkr = bkr & stakedAmount +~ reward
           | otherwise = bkr
 
-    bsoSetInflation bs amnt = return $
-        bs & blockBank . unhashed . Rewards.mintedGTUPerSlot .~ amnt
+    bsoRewardFoundationAccount bs !reward = return $ bs & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ reward
+      where
+        foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
+    
+    bsoGetFoundationAccount bs = return $ bs ^?! blockAccounts . Accounts.indexedAccount foundationAccount
+      where
+        foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
 
-    -- mint currency in the central bank, and also update the total gtu amount to maintain the invariant
-    -- that the total gtu amount is indeed the total gtu amount
-    bsoMint bs amount = return $
-        let updated = bs & ((blockBank . unhashed . Rewards.totalGTU) +~ amount) .
-                           ((blockBank . unhashed . Rewards.centralBankGTU) +~ amount)
-        in (updated ^. blockBank . unhashed . Rewards.centralBankGTU, updated)
-
-    bsoDecrementCentralBankGTU bs amount = return $!
-        let updated = bs & ((blockBank . unhashed . Rewards.centralBankGTU) -~ amount)
-        in (updated ^. blockBank . unhashed . Rewards.centralBankGTU, updated)
+    -- mint currency, distributing it to the reward accounts and foundation account,
+    -- updating the total GTU.
+    bsoMint bs mint = return $
+        bs
+        & blockBank . unhashed %~ updateBank
+        & blockAccounts . Accounts.indexedAccount foundationAccount . accountAmount +~ BS.mintDevelopmentCharge mint
+      where
+        updateBank = (Rewards.totalGTU +~ BS.mintTotal mint)
+                . (Rewards.bakingRewardAccount +~ BS.mintBakingReward mint)
+                . (Rewards.finalizationRewardAccount +~ BS.mintFinalizationReward mint)
+        foundationAccount = bs ^. blockUpdates . currentParameters . cpFoundationAccount
 
     {-# INLINE bsoGetIdentityProvider #-}
     bsoGetIdentityProvider bs ipId =
@@ -554,7 +578,9 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
 
     {-# INLINE bsoProcessUpdateQueues #-}
-    bsoProcessUpdateQueues bs ts = return $! bs & blockUpdates %~ processUpdateQueues ts
+    bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates)
+      where
+        (!changes, !newBlockUpdates) = processUpdateQueues ts (bs ^. blockUpdates)
 
     {-# INLINE bsoProcessReleaseSchedule #-}
     bsoProcessReleaseSchedule bs ts = do
@@ -599,10 +625,26 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoGetEnergyRate #-}
     bsoGetEnergyRate bs = return $! bs ^. blockUpdates . currentParameters . cpEnergyRate
 
+    bsoGetChainParameters bs = return $! bs ^. blockUpdates . currentParameters
+
+    bsoGetEpochBlocksBaked bs = return $! (_2 %~ Map.toList) (foldl' accumBakers (0, Map.empty) (bs ^. blockEpochBlocksBaked . to hebBlocks))
+      where
+        accumBakers (t, m) b =
+          let !t' = t + 1
+              !m' = m & at b . non 0 +~ 1
+          in (t', m' )
+
+    bsoNotifyBlockBaked bs bid = return $! bs & blockEpochBlocksBaked %~ consEpochBlock bid
+
+    bsoClearEpochBlocksBaked bs = return $! bs & blockEpochBlocksBaked .~ emptyHashedEpochBlocks
+
+    bsoGetBankStatus bs = return $! bs ^. blockBank . unhashed
+
+    bsoSetRewardAccounts bs rew = return $! bs & blockBank . unhashed . Rewards.rewardAccounts .~ rew
+
 instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
-    thawBlockState bs = return $ _unhashedBlockState bs & (blockBank . unhashed . Rewards.executionCost .~ 0) .
-                                      (blockBank . unhashed . Rewards.identityIssuersRewards .~ HashMap.empty)
+    thawBlockState bs = return $ _unhashedBlockState bs
 
     {-# INLINE freezeBlockState #-}
     freezeBlockState bs = return $! hashBlockState bs
@@ -631,11 +673,10 @@ initialState :: SeedState
              -> [Account]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> Amount
              -> Authorizations
              -> ChainParameters
              -> BlockState
-initialState seedState cryptoParams genesisAccounts ips anonymityRevokers mintPerSlot auths chainParams = BlockState {..}
+initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths chainParams = BlockState {..}
   where
     _blockBirkParameters = initialBirkParameters genesisAccounts seedState
     _blockCryptographicParameters = makeHashed cryptoParams
@@ -644,12 +685,13 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers mintPe
     _blockModules = Modules.emptyModules
     -- initial amount in the central bank is the amount on all genesis accounts combined
     initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 $ genesisAccounts
-    _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount mintPerSlot
+    _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     _blockUpdates = initialUpdates auths chainParams
     _blockReleaseSchedule = Map.empty
+    _blockEpochBlocksBaked = emptyHashedEpochBlocks
     _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
               bshBirkParameters = getHash _blockBirkParameters,
               bshCryptographicParameters = getHash _blockCryptographicParameters,
@@ -659,5 +701,6 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers mintPe
               bshBankStatus = getHash _blockBank,
               bshAccounts = getHash _blockAccounts,
               bshInstances = getHash _blockInstances,
-              bshUpdates = getHash _blockUpdates
+              bshUpdates = getHash _blockUpdates,
+              bshEpochBlocks = getHash _blockEpochBlocksBaked
             }

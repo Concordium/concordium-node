@@ -25,7 +25,7 @@ import qualified Data.ByteString as BS
 import Data.Either
 import qualified Data.Map.Strict as Map
 
-import Concordium.Types (AccountAddress, BakerId(..), ModuleRef(..))
+import Concordium.Types (AccountAddress, BakerId(..), AccountIndex(..), ModuleRef(..))
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlsSignature as Bls

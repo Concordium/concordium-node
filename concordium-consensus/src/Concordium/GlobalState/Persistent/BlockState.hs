@@ -21,15 +21,14 @@ module Concordium.GlobalState.Persistent.BlockState (
 ) where
 
 import Data.Serialize
-import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Control.Monad.Reader.Class
 import Control.Monad.Trans
 import Control.Monad
 import Data.Foldable
 import Data.Maybe
+import Data.Word
 import Lens.Micro.Platform
-import Concordium.Utils
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
@@ -69,6 +68,90 @@ import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 
+
+type EpochBlocks = Nullable (BufferedRef EpochBlock)
+
+-- |Structure for tracking which bakers have baked blocks
+-- in the current epoch.
+data EpochBlock = EpochBlock {
+    ebBakerId :: !BakerId,
+    ebPrevious :: !EpochBlocks
+}
+
+instance (MonadBlobStore m) => BlobStorable m EpochBlock where
+    storeUpdate eb@EpochBlock{..} = do
+        (ppref, ebPrevious') <- storeUpdate ebPrevious
+        let putEB = put ebBakerId >> ppref
+        let eb' = eb{ebPrevious = ebPrevious'}
+        return (putEB, eb')
+    store eb = fst <$> storeUpdate eb
+    load = do
+        ebBakerId <- get
+        mPrevious <- load
+        return $! do
+            ebPrevious <- mPrevious
+            return EpochBlock{..}
+
+instance MonadBlobStore m => Cacheable m EpochBlock where
+    cache eb = do
+        ebPrevious' <- cache (ebPrevious eb)
+        return eb{ebPrevious = ebPrevious'}
+
+instance MonadBlobStore m => MHashableTo m Rewards.EpochBlocksHash EpochBlock where
+    getHashM EpochBlock{..} = Rewards.epochBlockHash ebBakerId <$> getHashM ebPrevious
+
+instance MonadBlobStore m => MHashableTo m Rewards.EpochBlocksHash EpochBlocks where
+    getHashM Null = return Rewards.emptyEpochBlocksHash
+    getHashM (Some r) = getHashM =<< refLoad r
+
+data HashedEpochBlocks = HashedEpochBlocks {
+        hebBlocks :: !EpochBlocks,
+        hebHash :: !Rewards.EpochBlocksHash
+    }
+
+instance HashableTo Rewards.EpochBlocksHash HashedEpochBlocks where
+    getHash = hebHash
+
+instance MonadBlobStore m => BlobStorable m HashedEpochBlocks where
+    storeUpdate heb = do
+        (pblocks, blocks') <- storeUpdate (hebBlocks heb)
+        return (pblocks, heb{hebBlocks = blocks'})
+    store = store . hebBlocks
+    load = do
+        mhebBlocks <- load
+        return $! do
+            hebBlocks <- mhebBlocks
+            hebHash <- getHashM hebBlocks
+            return HashedEpochBlocks{..}
+
+instance MonadBlobStore m => Cacheable m HashedEpochBlocks where
+    cache ebs = do
+        blocks' <- cache (hebBlocks ebs)
+        return $! ebs{hebBlocks = blocks'}
+
+emptyHashedEpochBlocks :: HashedEpochBlocks
+emptyHashedEpochBlocks = HashedEpochBlocks {
+        hebBlocks = Null,
+        hebHash = Rewards.emptyEpochBlocksHash
+    }
+
+consEpochBlock :: (MonadBlobStore m) => BakerId -> HashedEpochBlocks -> m HashedEpochBlocks
+consEpochBlock b hebbs = do
+        mbr <- refMake EpochBlock{
+                ebBakerId = b,
+                ebPrevious = hebBlocks hebbs
+            }
+        return HashedEpochBlocks {
+                hebBlocks = Some mbr,
+                hebHash = Rewards.epochBlockHash b (hebHash hebbs)
+            }
+
+makeHashedEpochBlocks :: (MonadBlobStore m) => [BakerId] -> m HashedEpochBlocks
+makeHashedEpochBlocks [] = return emptyHashedEpochBlocks
+makeHashedEpochBlocks (b:bs) = do
+        hebbs <- makeHashedEpochBlocks bs
+        consEpochBlock b hebbs
+
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
 data BlockStatePointers = BlockStatePointers {
@@ -83,7 +166,8 @@ data BlockStatePointers = BlockStatePointers {
     bspUpdates :: !(BufferedRef Updates),
     bspReleaseSchedule :: !(BufferedRef (Map.Map AccountAddress Timestamp)),
     -- FIXME: Store transaction outcomes in a way that allows for individual indexing.
-    bspTransactionOutcomes :: !Transactions.TransactionOutcomes
+    bspTransactionOutcomes :: !Transactions.TransactionOutcomes,
+    bspEpochBlocks :: !HashedEpochBlocks
 }
 
 data HashedPersistentBlockState = HashedPersistentBlockState {
@@ -109,6 +193,7 @@ instance MonadBlobStore m => MHashableTo m StateHash BlockStatePointers where
         bshAccounts <- getHashM bspAccounts
         bshInstances <- getHashM bspInstances
         bshUpdates <- getHashM bspUpdates
+        let bshEpochBlocks = getHash bspEpochBlocks
         return $ makeBlockStateHash BlockStateHashInputs{..}
 
 instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHistory))) => BlobStorable m BlockStatePointers where
@@ -122,6 +207,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
         (pcryptps, bspCryptographicParameters') <- storeUpdate bspCryptographicParameters
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
+        (pEpochBlocks, bspEpochBlocks') <- storeUpdate bspEpochBlocks
         let putBSP = do
                 paccts
                 pinsts
@@ -134,6 +220,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
                 put bspTransactionOutcomes
                 pupdates
                 preleases
+                pEpochBlocks
         return (putBSP, bsp0 {
                     bspAccounts = bspAccounts',
                     bspInstances = bspInstances',
@@ -143,7 +230,8 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
                     bspBirkParameters = bspBirkParameters',
                     bspCryptographicParameters = bspCryptographicParameters',
                     bspUpdates = bspUpdates',
-                    bspReleaseSchedule = bspReleaseSchedule'
+                    bspReleaseSchedule = bspReleaseSchedule',
+                    bspEpochBlocks = bspEpochBlocks'
                 })
     store bsp = fst <$> storeUpdate bsp
     load = do
@@ -158,6 +246,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
         bspTransactionOutcomes <- label "Transaction outcomes" get
         mUpdates <- label "Updates" load
         mReleases <- label "Release schedule" load
+        mEpochBlocks <- label "Epoch blocks" load
         return $! do
             bspAccounts <- maccts
             bspInstances <- minsts
@@ -168,6 +257,7 @@ instance (MonadBlobStore m, BlobStorable m (Nullable (BlobRef Accounts.RegIdHist
             bspCryptographicParameters <- mcryptps
             bspUpdates <- mUpdates
             bspReleaseSchedule <- mReleases
+            bspEpochBlocks <- mEpochBlocks
             return $! BlockStatePointers{..}
 
 instance MonadBlobStore m => Cacheable m BlockStatePointers where
@@ -181,6 +271,7 @@ instance MonadBlobStore m => Cacheable m BlockStatePointers where
         cryptoParams <- cache bspCryptographicParameters
         upds <- cache bspUpdates
         rels <- cache bspReleaseSchedule
+        ebs <- cache bspEpochBlocks
         return BlockStatePointers{
             bspAccounts = accts,
             bspInstances = insts,
@@ -192,7 +283,8 @@ instance MonadBlobStore m => Cacheable m BlockStatePointers where
             bspCryptographicParameters = cryptoParams,
             bspUpdates = upds,
             bspReleaseSchedule = rels,
-            bspTransactionOutcomes = bspTransactionOutcomes
+            bspTransactionOutcomes = bspTransactionOutcomes,
+            bspEpochBlocks = ebs
         }
 
 data PersistentBirkParameters = PersistentBirkParameters {
@@ -233,9 +325,9 @@ instance MonadBlobStore m => BlobStorable m PersistentBirkParameters where
                 })
     store bps = fst <$> storeUpdate bps
     load = do
-        mabs <- label "Active bakers" $ load
-        mnebs <- label "Next epoch bakers" $ load
-        mcebs <- label "Current epoch bakers" $ load
+        mabs <- label "Active bakers" load
+        mnebs <- label "Next epoch bakers" load
+        mcebs <- label "Current epoch bakers" load
         _birkSeedState <- label "Seed state" get
         return $! do
             _birkActiveBakers <- mabs
@@ -275,6 +367,7 @@ makePersistent Basic.BlockState{..} = do
   blockAccounts <- Accounts.makePersistent _blockAccounts
   updates <- makeBufferedRef =<< makePersistentUpdates _blockUpdates
   rels <- makeBufferedRef _blockReleaseSchedule
+  ebs <- makeHashedEpochBlocks (Basic.hebBlocks _blockEpochBlocksBaked)
   bsp <-
     makeBufferedRef $
       BlockStatePointers
@@ -288,7 +381,8 @@ makePersistent Basic.BlockState{..} = do
           bspCryptographicParameters = cryptographicParameters,
           bspTransactionOutcomes = _blockTransactionOutcomes,
           bspUpdates = updates,
-          bspReleaseSchedule = rels
+          bspReleaseSchedule = rels,
+          bspEpochBlocks = ebs
         }
   bps <- liftIO $ newIORef $! bsp
   hashBlockState bps
@@ -298,11 +392,10 @@ initialPersistentState :: MonadBlobStore m => SeedState
              -> [TransientAccount.Account]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> Amount
              -> Authorizations
              -> ChainParameters
              -> m HashedPersistentBlockState
-initialPersistentState ss cps accts ips ars amt auths chainParams = makePersistent $ Basic.initialState ss cps accts ips ars amt auths chainParams
+initialPersistentState ss cps accts ips ars auths chainParams = makePersistent $ Basic.initialState ss cps accts ips ars auths chainParams
 
 -- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
 -- has hard-coded initial values for amount of gtu in existence.
@@ -313,7 +406,7 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
   bspUpdates <- refMake =<< initialUpdates auths chainParams
-  bspReleaseSchedule <- refMake $ Map.empty
+  bspReleaseSchedule <- refMake Map.empty
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
             bspInstances = Instances.emptyInstances,
@@ -323,6 +416,7 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
             bspAnonymityRevokers = anonymityRevokers,
             bspCryptographicParameters = cryptographicParameters,
             bspTransactionOutcomes = Transactions.emptyTransactionOutcomes,
+            bspEpochBlocks = emptyHashedEpochBlocks,
             ..
           }
   liftIO $ newIORef $! bsp
@@ -602,7 +696,7 @@ doUpdateBakerKeys pbs aaddr bku@BakerKeyUpdate{..} = do
                     }
                 else
                     return (BKUDuplicateAggregationKey, pbs)
-            -- Cannot reesolve the account, or it is not a baker
+            -- Cannot resolve the account, or it is not a baker
             _ -> return (BKUInvalidBaker, pbs)
 
 doUpdateBakerStake :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState)
@@ -693,27 +787,45 @@ doRewardBaker pbs (BakerId ai) reward = do
 doGetRewardStatus :: MonadBlobStore m => PersistentBlockState -> m Rewards.BankStatus
 doGetRewardStatus pbs = _unhashed . bspBank <$> loadPBS pbs
 
-doSetInflation :: MonadBlobStore m => PersistentBlockState -> Amount -> m PersistentBlockState
-doSetInflation pbs amount = do
+doRewardFoundationAccount :: MonadBlobStore m => PersistentBlockState -> Amount -> m PersistentBlockState
+doRewardFoundationAccount pbs reward = do
         bsp <- loadPBS pbs
-        storePBS pbs (bsp {bspBank = bspBank bsp & unhashed . Rewards.mintedGTUPerSlot .~ amount})
+        let updAcc acc = ((),) <$> rehashAccount (acc & accountAmount %~ (+ reward))
+        foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
+        (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
+        storePBS pbs (bsp {bspAccounts = newAccounts})
 
-doMint :: MonadBlobStore m => PersistentBlockState -> Amount -> m (Amount, PersistentBlockState)
-doMint pbs amount = do
+doGetFoundationAccount :: MonadBlobStore m => PersistentBlockState -> m PersistentAccount
+doGetFoundationAccount pbs = do
         bsp <- loadPBS pbs
-        let newBank = bspBank bsp & (unhashed . Rewards.totalGTU +~ amount) . (unhashed . Rewards.centralBankGTU +~ amount)
-        (newBank ^. unhashed . Rewards.centralBankGTU,) <$> storePBS pbs (bsp {bspBank = newBank})
+        foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
+        macc <- Accounts.indexedAccount foundationAccount (bspAccounts bsp)
+        case macc of
+            Nothing -> error "bsoGetFoundationAccount: invalid foundation account"
+            Just acc -> return acc
 
-doDecrementCentralBankGTU :: MonadBlobStore m => PersistentBlockState -> Amount -> m (Amount, PersistentBlockState)
-doDecrementCentralBankGTU pbs amount = do
+doMint :: MonadBlobStore m => PersistentBlockState -> MintAmounts -> m PersistentBlockState
+doMint pbs mint = do
         bsp <- loadPBS pbs
-        let newBank = bspBank bsp & unhashed . Rewards.centralBankGTU -~ amount
-        (newBank ^. unhashed . Rewards.centralBankGTU,) <$> storePBS pbs (bsp {bspBank = newBank})
+        let newBank = bspBank bsp &
+                unhashed %~
+                (Rewards.totalGTU +~ mintTotal mint) .
+                (Rewards.bakingRewardAccount +~ mintBakingReward mint) .
+                (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+        let updAcc acc = ((),) <$> rehashAccount (acc & accountAmount %~ (+ mintDevelopmentCharge mint))
+        foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
+        (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
+        storePBS pbs (bsp {bspBank = newBank, bspAccounts = newAccounts})
 
 doGetAccount :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> m (Maybe PersistentAccount)
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccount addr (bspAccounts bsp)
+
+doGetAccountIndex :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> m (Maybe AccountIndex)
+doGetAccountIndex pbs addr = do
+        bsp <- loadPBS pbs
+        Accounts.getAccountIndex addr (bspAccounts bsp)
 
 doAccountList :: MonadBlobStore m => PersistentBlockState -> m [AccountAddress]
 doAccountList pbs = do
@@ -859,23 +971,10 @@ doSetTransactionOutcomes pbs transList = do
         bsp <- loadPBS pbs
         storePBS pbs bsp {bspTransactionOutcomes = Transactions.transactionOutcomesFromList transList}
 
-doNotifyExecutionCost :: MonadBlobStore m => PersistentBlockState -> Amount -> m PersistentBlockState
-doNotifyExecutionCost pbs amnt = do
-        bsp <- loadPBS pbs
-        storePBS pbs bsp {bspBank = bspBank bsp & unhashed . Rewards.executionCost +~ amnt}
-
 doNotifyEncryptedBalanceChange :: MonadBlobStore m => PersistentBlockState -> AmountDelta -> m PersistentBlockState
 doNotifyEncryptedBalanceChange pbs amntDiff = do
         bsp <- loadPBS pbs
         storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.totalEncryptedGTU %~ applyAmountDelta amntDiff}
-
-doNotifyIdentityIssuerCredential :: MonadBlobStore m => PersistentBlockState -> ID.IdentityProviderIdentity -> m PersistentBlockState
-doNotifyIdentityIssuerCredential pbs idk = do
-        bsp <- loadPBS pbs
-        storePBS pbs bsp {bspBank = bspBank bsp & (unhashed . Rewards.identityIssuersRewards . at' idk . non 0) +~ 1}
-
-doGetExecutionCost :: MonadBlobStore m => PersistentBlockState -> m Amount
-doGetExecutionCost pbs = (^. unhashed . Rewards.executionCost) . bspBank <$> loadPBS pbs
 
 doGetSpecialOutcomes :: MonadBlobStore m => PersistentBlockState -> m [Transactions.SpecialTransactionOutcome]
 doGetSpecialOutcomes pbs = (^. to bspTransactionOutcomes . Transactions.outcomeSpecial) <$> loadPBS pbs
@@ -907,11 +1006,11 @@ doGetCurrentElectionDifficulty pbs = do
 doGetUpdates :: MonadBlobStore m => PersistentBlockState -> m Basic.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
-doProcessUpdateQueues :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m PersistentBlockState
+doProcessUpdateQueues :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState)
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
-        u' <- processUpdateQueues ts (bspUpdates bsp)
-        storePBS pbs bsp{bspUpdates = u'}
+        (changes, u') <- processUpdateQueues ts (bspUpdates bsp)
+        (changes,) <$> storePBS pbs bsp{bspUpdates = u'}
 
 doProcessReleaseSchedule :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m PersistentBlockState
 doProcessReleaseSchedule pbs ts = do
@@ -942,7 +1041,7 @@ doGetCurrentAuthorizations pbs = do
         u <- refLoad (bspUpdates bsp)
         unStoreSerialized <$> refLoad (currentAuthorizations u)
 
-doEnqueueUpdate :: MonadBlobStore m => PersistentBlockState -> TransactionTime -> UpdatePayload -> m PersistentBlockState
+doEnqueueUpdate :: MonadBlobStore m => PersistentBlockState -> TransactionTime -> UpdateValue -> m PersistentBlockState
 doEnqueueUpdate pbs effectiveTime payload = do
         bsp <- loadPBS pbs
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
@@ -962,6 +1061,43 @@ doGetEnergyRate :: MonadBlobStore m => PersistentBlockState -> m EnergyRate
 doGetEnergyRate pbs = do
     bsp <- loadPBS pbs
     lookupEnergyRate (bspUpdates bsp)
+
+doGetChainParameters :: MonadBlobStore m => PersistentBlockState -> m ChainParameters
+doGetChainParameters pbs = do
+        bsp <- loadPBS pbs
+        lookupCurrentParameters (bspUpdates bsp)
+
+doGetEpochBlocksBaked :: MonadBlobStore m => PersistentBlockState -> m (Word64, [(BakerId, Word64)])
+doGetEpochBlocksBaked pbs = do
+        bsp <- loadPBS pbs
+        accumBakers (hebBlocks (bspEpochBlocks bsp)) 0 Map.empty
+    where
+        accumBakers Null t m = return (t, Map.toList m)
+        accumBakers (Some ref) t m = do
+            EpochBlock{..} <- refLoad ref
+            let !t' = t + 1
+                !m' = m & at ebBakerId . non 0 +~ 1
+            accumBakers ebPrevious t' m'
+
+doNotifyBlockBaked :: MonadBlobStore m => PersistentBlockState -> BakerId -> m PersistentBlockState
+doNotifyBlockBaked pbs bid = do
+        bsp <- loadPBS pbs
+        newEpochBlocks <- consEpochBlock bid (bspEpochBlocks bsp)
+        storePBS pbs bsp{bspEpochBlocks = newEpochBlocks}
+
+doClearEpochBlocksBaked :: MonadBlobStore m => PersistentBlockState -> m PersistentBlockState
+doClearEpochBlocksBaked pbs = do
+        bsp <- loadPBS pbs
+        storePBS pbs bsp{bspEpochBlocks = emptyHashedEpochBlocks}
+
+doGetBankStatus :: MonadBlobStore m => PersistentBlockState -> m Rewards.BankStatus
+doGetBankStatus pbs = _unhashed . bspBank <$> loadPBS pbs
+
+doSetRewardAccounts :: MonadBlobStore m => PersistentBlockState -> Rewards.RewardAccounts -> m PersistentBlockState
+doSetRewardAccounts pbs rewards = do
+        bsp <- loadPBS pbs
+        storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
+
 
 newtype PersistentBlockStateContext = PersistentBlockStateContext {
     pbscBlobStore :: BlobStore
@@ -1042,6 +1178,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount = doGetAccount
+    bsoGetAccountIndex = doGetAccountIndex
     bsoGetInstance = doGetInstance
     bsoRegIdExists = doRegIdExists
     bsoCreateAccount = doCreateAccount
@@ -1049,10 +1186,7 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoPutNewModule = doPutNewModule
     bsoModifyAccount = doModifyAccount
     bsoModifyInstance = doModifyInstance
-    bsoNotifyExecutionCost = doNotifyExecutionCost
     bsoNotifyEncryptedBalanceChange = doNotifyEncryptedBalanceChange
-    bsoNotifyIdentityIssuerCredential = doNotifyIdentityIssuerCredential
-    bsoGetExecutionCost = doGetExecutionCost
     bsoGetSeedState = doGetSeedState
     bsoSetSeedState = doSetSeedState
     bsoTransitionEpochBakers = doTransitionEpochBakers
@@ -1062,9 +1196,9 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings
     bsoRemoveBaker = doRemoveBaker
     bsoRewardBaker = doRewardBaker
-    bsoSetInflation = doSetInflation
+    bsoRewardFoundationAccount = doRewardFoundationAccount
+    bsoGetFoundationAccount = doGetFoundationAccount
     bsoMint = doMint
-    bsoDecrementCentralBankGTU = doDecrementCentralBankGTU
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
@@ -1077,14 +1211,16 @@ instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad 
     bsoEnqueueUpdate = doEnqueueUpdate
     bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
+    bsoGetChainParameters = doGetChainParameters
+    bsoGetEpochBlocksBaked = doGetEpochBlocksBaked
+    bsoNotifyBlockBaked = doNotifyBlockBaked
+    bsoClearEpochBlocksBaked = doClearEpochBlocksBaked
+    bsoGetBankStatus = doGetBankStatus
+    bsoSetRewardAccounts = doSetRewardAccounts
 
 instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m) where
-    thawBlockState HashedPersistentBlockState{..} = do
-            bsp <- loadPBS hpbsPointers
-            pbsp <- makeBufferedRef bsp {
-                        bspBank = bspBank bsp & unhashed . Rewards.executionCost .~ 0 & unhashed . Rewards.identityIssuersRewards .~ HM.empty
-                    }
-            liftIO $ newIORef $! pbsp
+    thawBlockState HashedPersistentBlockState{..} =
+            liftIO $ newIORef =<< readIORef hpbsPointers
 
     freezeBlockState pbs = hashBlockState pbs
 
