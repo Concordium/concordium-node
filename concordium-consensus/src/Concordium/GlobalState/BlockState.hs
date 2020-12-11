@@ -45,6 +45,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
+import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
