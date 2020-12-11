@@ -39,9 +39,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Functor
-import Data.Word
-import qualified Data.Map as Map
-import Data.Ratio
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import Data.Set (Set)

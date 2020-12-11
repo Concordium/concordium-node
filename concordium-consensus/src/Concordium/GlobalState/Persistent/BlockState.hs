@@ -43,6 +43,7 @@ import qualified Concordium.ID.Parameters as ID
 import Concordium.Types.Updates
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
@@ -66,7 +67,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import Concordium.GlobalState.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
-import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
