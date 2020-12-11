@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -10,11 +9,6 @@ module Concordium.GlobalState.Persistent.BlockState (
     BlockStatePointers(..),
     HashedPersistentBlockState(..),
     hashBlockState,
-    PersistentModule(..),
-    persistentModuleToModule,
-    Modules(..),
-    emptyModules,
-    makePersistentModules,
     PersistentBirkParameters(..),
     makePersistentBirkParameters,
     makePersistent,
@@ -40,8 +34,6 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
 
-import GHC.Generics (Generic)
-
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.Execution ( TransactionSummary )
@@ -49,7 +41,6 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Parameters as ID
 import Concordium.Types.Updates
-
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -72,11 +63,10 @@ import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAccount
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
-import qualified Concordium.GlobalState.Modules as TransientMods
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import Concordium.GlobalState.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
-
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 
 
@@ -168,7 +158,7 @@ type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 data BlockStatePointers = BlockStatePointers {
     bspAccounts :: !Accounts.Accounts,
     bspInstances :: !Instances.Instances,
-    bspModules :: !(HashedBufferedRef Modules),
+    bspModules :: !(HashedBufferedRef Modules.Modules),
     bspBank :: !(Hashed Rewards.BankStatus),
     bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
     bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
@@ -298,70 +288,6 @@ instance MonadBlobStore m => Cacheable m BlockStatePointers where
             bspEpochBlocks = ebs
         }
 
-data PersistentModule = PersistentModule {
-    pmInterface :: !Wasm.ModuleInterface,
-    pmIndex :: !ModuleIndex
-}
-
-persistentModuleToModule :: PersistentModule -> Module
-persistentModuleToModule PersistentModule{..} = Module {
-    moduleInterface = pmInterface,
-    moduleIndex = pmIndex
-}
-
-instance Serialize PersistentModule where
-    put PersistentModule{..} = put pmInterface <> put pmIndex
-    get = PersistentModule <$> get <*> get
-
-instance MonadBlobStore m => BlobStorable m PersistentModule
-instance Applicative m => Cacheable m PersistentModule
-
-data Modules = Modules {
-    modules :: Trie.TrieN (BufferedBlobbed BlobRef) ModuleRef PersistentModule,
-    nextModuleIndex :: !ModuleIndex,
-    runningHash :: !H.Hash
-}
-
-emptyModules :: Modules
-emptyModules = Modules {
-        modules = Trie.empty,
-        nextModuleIndex = 0,
-        runningHash = H.hash ""
-    }
-
-instance (MonadBlobStore m) => BlobStorable m Modules where
-    storeUpdate ms@Modules{..} = do
-        (pm, modules') <- storeUpdate modules
-        return (pm >> put nextModuleIndex >> put runningHash, ms {modules = modules'})
-    store m = fst <$> storeUpdate m
-    load = do
-        mmodules <- load
-        nextModuleIndex <- get
-        runningHash <- get
-        return $ do
-            modules <- mmodules
-            return Modules{..}
-
-instance HashableTo H.Hash Modules where
-  getHash Modules {..} = runningHash
-
-instance Monad m => MHashableTo m H.Hash Modules
-
-instance (MonadBlobStore m) => Cacheable m Modules where
-    cache m = do
-        modules' <- cache (modules m)
-        return m{modules = modules'}
-
-makePersistentModules :: MonadIO m => TransientMods.Modules -> m Modules
-makePersistentModules TransientMods.Modules{..} = do
-    m' <- Trie.fromList $ upd <$> HM.toList _modules
-    return $ Modules m' _nextModuleIndex _runningHash
-    where
-        upd (mref, Module{..}) = (mref, PersistentModule{
-                pmInterface = moduleInterface,
-                pmIndex = moduleIndex
-            })
-
 data PersistentBirkParameters = PersistentBirkParameters {
     -- |The currently-registered bakers.
     _birkActiveBakers :: !(BufferedRef PersistentActiveBakers),
@@ -371,7 +297,7 @@ data PersistentBirkParameters = PersistentBirkParameters {
     _birkCurrentEpochBakers :: !(HashedBufferedRef PersistentEpochBakers),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
-} deriving (Generic, Show)
+} deriving (Show)
 
 makeLenses ''PersistentBirkParameters
 
@@ -434,7 +360,7 @@ makePersistent :: MonadBlobStore m  => Basic.BlockState -> m HashedPersistentBlo
 makePersistent Basic.BlockState{..} = do
   persistentBlockInstances <- Instances.makePersistent _blockInstances
   persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
-  persistentMods <- makePersistentModules _blockModules
+  persistentMods <- Modules.makePersistentModules _blockModules
   modules <- refMake persistentMods
   identityProviders <- bufferHashed _blockIdentityProviders
   anonymityRevokers <- bufferHashed _blockAnonymityRevokers
@@ -476,7 +402,7 @@ initialPersistentState ss cps accts ips ars auths chainParams = makePersistent $
 -- has hard-coded initial values for amount of gtu in existence.
 emptyBlockState :: MonadBlobStore m => PersistentBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> m PersistentBlockState
 emptyBlockState bspBirkParameters cryptParams auths chainParams = do
-  modules <- refMake emptyModules
+  modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
@@ -525,7 +451,7 @@ fromPersistentInstance pbs Instances.PersistentInstance{..} = do
                     instanceContractModule = pinstanceContractModule,
                     instanceInitName = pinstanceInitName,
                     instanceReceiveFuns = pinstanceReceiveFuns,
-                    instanceModuleInterface = moduleInterface m,
+                    instanceModuleInterface = m,
                     instanceParameterHash = pinstanceParameterHash
                 }
             return Instance{
@@ -546,37 +472,36 @@ storePBS pbs bsp = liftIO $ do
     return pbs
 {-# INLINE storePBS #-}
 
-doGetModule :: MonadBlobStore m => PersistentBlockState -> ModuleRef -> m (Maybe Module)
+doGetModule :: MonadBlobStore m => PersistentBlockState -> ModuleRef -> m (Maybe Wasm.ModuleInterface)
 doGetModule s modRef = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
-    fmap persistentModuleToModule <$> Trie.lookup modRef (modules mods)
+    Modules.getInterface modRef mods
 
 doGetModuleList :: MonadBlobStore m => PersistentBlockState -> m [ModuleRef]
 doGetModuleList s = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
-    Trie.keys (modules mods)
+    return $ Modules.moduleRefList mods
+
+doGetModuleSource :: MonadBlobStore m => PersistentBlockState -> ModuleRef -> m (Maybe Wasm.WasmModule)
+doGetModuleSource s modRef = do
+    bsp <- loadPBS s
+    mods <- refLoad (bspModules bsp)
+    Modules.getSource modRef mods
 
 doPutNewModule :: MonadBlobStore m =>PersistentBlockState
-    -> Wasm.ModuleInterface
+    -> (Wasm.ModuleInterface, Wasm.WasmModule)
     -> m (Bool, PersistentBlockState)
-doPutNewModule pbs pmInterface = do
-        let mref = Wasm.miModuleRef pmInterface
+doPutNewModule pbs (pmInterface, pmSource) = do
         bsp <- loadPBS pbs
         mods <- refLoad (bspModules bsp)
-        let
-            newMod = PersistentModule{pmIndex = nextModuleIndex mods, ..}
-            tryIns Nothing = return (True, Trie.Insert newMod)
-            tryIns (Just _) = return (False, Trie.NoChange)
-        (b, modules') <- Trie.adjust tryIns mref (modules mods)
-        if b then do
-            let
-                newMods = mods {modules = modules', nextModuleIndex = nextModuleIndex mods + 1}
-            modules <- refMake newMods
+        mMods' <- Modules.putInterface (pmInterface, pmSource) mods
+        case mMods' of
+          Nothing -> return (False, pbs)
+          Just mods' -> do
+            modules <- refMake mods'
             (True,) <$> storePBS pbs (bsp {bspModules = modules})
-        else
-            return (False, pbs)
 
 doGetSeedState :: MonadBlobStore m => PersistentBlockState -> m SeedState
 doGetSeedState pbs = _birkSeedState . bspBirkParameters <$> loadPBS pbs
@@ -1198,7 +1123,7 @@ instance BlockStateTypes (PersistentBlockStateMonad r m) where
     type Account (PersistentBlockStateMonad r m) = PersistentAccount
 
 instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) where
-    getModule = doGetModule . hpbsPointers
+    getModule = doGetModuleSource . hpbsPointers
     getAccount = doGetAccount . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
@@ -1252,7 +1177,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
             return $ Just AccountBaker{_accountBakerInfo = abi, ..}
 
 instance PersistentState r m => BlockStateOperations (PersistentBlockStateMonad r m) where
-    bsoGetModule pbs mref = fmap moduleInterface <$> doGetModule pbs mref
+    bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount = doGetAccount
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetInstance = doGetInstance
