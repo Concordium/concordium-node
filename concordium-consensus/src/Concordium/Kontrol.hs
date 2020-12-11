@@ -8,7 +8,6 @@ import Data.Time
 import Data.Fixed
 
 import Concordium.Types
-import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
@@ -47,6 +46,4 @@ getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
        blockState <- queryBlockState bp
        gtu <- _totalGTU <$> getRewardStatus blockState
-       bps <- getBirkParameters (blockSlot bp) bp
-       bakers <- getCurrentBakers bps
-       makeFinalizationCommittee finParams gtu <$> getFullBakerInfos bakers 
+       makeFinalizationCommittee finParams gtu <$> getCurrentEpochBakers blockState

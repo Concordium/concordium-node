@@ -1,9 +1,10 @@
 {-# LANGUAGE
-    DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds #-}
+    DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds, ScopedTypeVariables #-}
 module Concordium.Birk.Bake(
   BakerIdentity(..),
   bakerSignPublicKey,
   bakerElectionPublicKey,
+  validateBakerKeys,
   BakerMonad(..)) where
 
 import GHC.Generics
@@ -20,6 +21,7 @@ import Concordium.Types
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block hiding (PendingBlock, makePendingBlock)
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
@@ -30,11 +32,12 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.SeedState
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection
 import Concordium.Kontrol.BestBlock
-import qualified Concordium.Kontrol.UpdateLeaderElectionParameters as UEP
+import Concordium.Kontrol.UpdateLeaderElectionParameters
 import Concordium.Afgjort.Finalize
 import Concordium.Skov
 import Concordium.Skov.Update (blockArrive, onBlock, updateFocusBlockTo, OnSkov)
@@ -47,9 +50,11 @@ import Concordium.TimeMonad
 
 
 data BakerIdentity = BakerIdentity {
+    bakerId :: BakerId,
     bakerSignKey :: BakerSignPrivateKey,
     bakerElectionKey :: BakerElectionPrivateKey,
-    bakerAggregationKey :: BakerAggregationPrivateKey
+    bakerAggregationKey :: BakerAggregationPrivateKey,
+    bakerAggregationPublicKey :: BakerAggregationVerifyKey
 } deriving (Eq, Generic)
 
 bakerSignPublicKey :: BakerIdentity -> BakerSignVerifyKey
@@ -62,16 +67,18 @@ instance Serialize BakerIdentity where
 
 instance FromJSON BakerIdentity where
   parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
+    bakerId <- obj .: "bakerId"
     bakerSignKey <- parseJSON v
     bakerElectionKey <- parseJSON v
     bakerAggregationKey <- obj .: "aggregationSignKey"
+    bakerAggregationPublicKey <- obj .: "aggregationVerifyKey"
     return BakerIdentity{..}
 
 processTransactions
     :: (TreeStateMonad m,
         SkovMonad m)
     => Slot
-    -> BirkParameters m
+    -> SeedState
     -> BlockPointerType m
     -> BlockPointerType m
     -> BakerId
@@ -180,14 +187,30 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- commit the new pending transactions to the tree state
     putPendingTransactions ptWithAllUnprocessed
 
-doBakeForSlot :: (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+-- |Check that a baker's keys match the 'BakerInfo'.
+validateBakerKeys :: BakerInfo -> BakerIdentity -> Bool
+validateBakerKeys BakerInfo{..} ident =
+  _bakerElectionVerifyKey == bakerElectionPublicKey ident
+  && _bakerSignatureVerifyKey == bakerSignPublicKey ident
+  && _bakerAggregationVerifyKey == bakerAggregationPublicKey ident
+
+doBakeForSlot :: forall m. (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
-    birkParams <- getBirkParameters slot bb
-    (bakerId, _, lotteryPower) <- MaybeT $ birkEpochBakerByKeys (bakerSignPublicKey ident) birkParams
-    leNonce <- birkLeadershipElectionNonce birkParams
     bbState <- blockState bb
+    bakers <- getSlotBakers bbState slot
+    (binfo, lotteryPower) <- MaybeT . return $ lotteryBaker bakers bakerId
+    unless (validateBakerKeys binfo ident) $ do
+      logEvent Baker LLWarning "Baker keys are incorrect."
+      let logMismatch :: (Eq a, Show a) => String -> a -> a -> MaybeT m ()
+          logMismatch desc x y = unless (x == y) $ logEvent Baker LLTrace $ desc ++ " mismatch. Expected: " ++ show x ++ "; actual: " ++ show y
+      logMismatch "Election verify key" (_bakerElectionVerifyKey binfo) (bakerElectionPublicKey ident)
+      logMismatch "Signature verify key" (_bakerSignatureVerifyKey binfo) (bakerSignPublicKey ident)
+      logMismatch "Aggregate signature verify key" (_bakerAggregationVerifyKey binfo) bakerAggregationPublicKey
+      fail "Baker keys are incorrect."
+    oldSeedState <- getSeedState bbState
+    let leNonce = computeLeadershipElectionNonce oldSeedState slot
     slotTime <- getSlotTimestamp slot
     elDiff <- getElectionDifficulty bbState slotTime
     electionProof <- MaybeT . liftIO $
@@ -205,9 +228,9 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
                 Nothing -> (, NoFinalizationData) <$> bpLastFinalized bb
                 Just finBlock -> return (finBlock, BlockFinalizationData finRec)
     -- possibly add the block nonce in the seed state
-    bps <- updateSeedState (UEP.updateSeedState slot nonce) birkParams
+    let newSeedState = updateSeedState slot nonce oldSeedState
     -- Results = {_energyUsed, _finalState, _transactionLog}
-    (filteredTxs, result) <- lift (processTransactions slot bps bb lastFinal bakerId)
+    (filteredTxs, result) <- lift (processTransactions slot newSeedState bb lastFinal bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)

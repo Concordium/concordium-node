@@ -33,45 +33,51 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount 200000000000 Acc.emptyAccounts
 
 baker :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
-baker = mkFullBaker 1 alesAccount
+baker = mkFullBaker 1 0
 
 -- A list of transactions all of which are valid unless they are expired.
--- This list includes all payload types to ensure that expiry is handled for
+-- Ideally, this should include all payload types to ensure that expiry is handled for
 -- all types of transactions.
+-- TODO: Add other transaction types.
 transactions :: Types.TransactionExpiryTime -> [TransactionJSON]
 transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount = 10000 }
                         , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
                         , keys = [(0, alesKP)]
                         }
-                 ,TJSON { payload = AddBaker (baker ^. _1 . bakerInfo . bakerElectionVerifyKey)
-                                             (baker ^. _2)
-                                             (baker ^. _1 . bakerInfo . bakerSignatureVerifyKey)
-                                             (baker ^. _1 . bakerInfo . bakerAggregationVerifyKey)
-                                             (baker ^. _4)
-                                             (baker ^. _3)
-                                             alesAccount
-                                             alesKP
+                 ,TJSON { payload = AddBaker {
+                              bElectionVerifyKey = baker ^. _1 . bakerInfo . bakerElectionVerifyKey,
+                              bElectionSecretKey = baker ^. _2,
+                              bSignVerifyKey = baker ^. _1 . bakerInfo . bakerSignatureVerifyKey,
+                              bSignSecretKey = baker ^. _3,
+                              bAggregateVerifyKey = baker ^. _1 . bakerInfo . bakerAggregationVerifyKey,
+                              bAggregateSecretKey = baker ^. _4,
+                              bInitialStake = 1000000,
+                              bRestakeEarnings = True
+                            }
                         , metadata = makeHeaderWithExpiry alesAccount 2 100000 t
                         , keys = [(0, alesKP)]
                         }
-                 ,TJSON { payload = UpdateBakerAccount 0 alesAccount alesKP
+                 ,TJSON { payload = UpdateBakerStake 2000000
                         , metadata = makeHeaderWithExpiry alesAccount 3 100000 t
                         , keys = [(0, alesKP)]
                         }
-                 ,TJSON { payload = UpdateBakerSignKey 0 (BlockSig.verifyKey (bakerSignKey 3)) (BlockSig.signKey (bakerSignKey 3))
+                 ,TJSON { payload = UpdateBakerKeys {
+                              bElectionVerifyKey = baker ^. _1 . bakerInfo . bakerElectionVerifyKey,
+                              bElectionSecretKey = baker ^. _2,
+                              bSignVerifyKey = baker ^. _1 . bakerInfo . bakerSignatureVerifyKey,
+                              bSignSecretKey = baker ^. _3,
+                              bAggregateVerifyKey = baker ^. _1 . bakerInfo . bakerAggregationVerifyKey,
+                              bAggregateSecretKey = baker ^. _4
+                            }
                         , metadata = makeHeaderWithExpiry alesAccount 4 100000 t
                         , keys = [(0, alesKP)]
                          }
-                 ,TJSON { payload = DelegateStake 0
+                 ,TJSON { payload = UpdateBakerRestakeEarnings False
                         , metadata = makeHeaderWithExpiry alesAccount 5 1000000 t
                         , keys = [(0, alesKP)]
                         }
-                 ,TJSON { payload = UndelegateStake
-                        , metadata = makeHeaderWithExpiry alesAccount 6 1000000 t
-                        , keys = [(0, alesKP)]
-                        }
-                 ,TJSON { payload = RemoveBaker 0
-                      , metadata = makeHeaderWithExpiry alesAccount 7 100000 t
+                 ,TJSON { payload = RemoveBaker
+                      , metadata = makeHeaderWithExpiry alesAccount 6 100000 t
                       , keys = [(0, alesKP)]
                       }
                  ]

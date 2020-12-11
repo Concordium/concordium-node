@@ -21,10 +21,10 @@ import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.IdentityProviders
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
+import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
@@ -36,14 +36,12 @@ import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
-import Concordium.Types (Energy(..))
-import Concordium.Startup (defaultFinalizationParameters)
+import Concordium.Types (Energy(..), AccountAddress)
+import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import ConcordiumTests.Konsensus hiding (tests)
 
-import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
-import qualified Concordium.Crypto.DummyData as Dummy
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -92,21 +90,33 @@ runKonsensus steps g states es
 -- |Create initial states where the first baker is a dictator with respect to finalization.
 initialiseStatesDictator :: Int -> PropertyM IO States
 initialiseStatesDictator n = do
-        let bns = [0..fromIntegral n - 1]
-        bis <- mapM (\i -> (i,) <$> pick (makeBaker i 1)) bns
-        let genesisBakers = fst . bakersFromList $ (^. _2 . _1) <$> bis
-        let seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
-            fps = defaultFinalizationParameters
-            bakerAccounts = map (\(_, (_, _, acc, _)) -> acc) bis
-            gen = GenesisDataV1 0 1 genesisBakers seedState (bakerAccounts ++ [Dummy.createCustomAccount (2^(40::Int)) Dummy.mateuszKP Dummy.mateuszAccount]) fps Dummy.dummyCryptographicParameters emptyIdentityProviders dummyArs 10 (Energy maxBound) dummyAuthorizations dummyChainParameters
-        res <- liftIO $ mapM (\(_, (binfo, bid, _, kp)) -> do
+        let bakerAmt = 1000000
+            stakes = (2*bakerAmt) : take (n-1) (repeat bakerAmt)
+            bis = makeBakersByStake stakes
+            seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+            bakerAccounts = map (\(_, _, acc, _) -> acc) bis
+            gen = GenesisDataV2 {
+                    genesisTime = 0,
+                    genesisSlotDuration = 1,
+                    genesisSeedState = seedState,
+                    genesisAccounts = bakerAccounts,
+                    genesisFinalizationParameters = defaultFinalizationParameters{finalizationCommitteeMaxSize = fromIntegral n},
+                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                    genesisIdentityProviders = emptyIdentityProviders,
+                    genesisAnonymityRevokers = Dummy.dummyArs,
+                    genesisMintPerSlot = 10,
+                    genesisMaxBlockEnergy = (Energy maxBound),
+                    genesisAuthorizations = dummyAuthorizations,
+                    genesisChainParameters = dummyChainParameters
+                }
+        res <- liftIO $ mapM (\(bid, binfo, acct, kp) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
                                         (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
                                         (ActiveFinalization fininst)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
-                                return (bid, binfo, kp, initCtx, initState)
+                                return (bid, binfo, (kp, acct ^. accountAddress), initCtx, initState)
                              ) bis
         return $ Vec.fromList res
 
@@ -131,7 +141,7 @@ trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivial
         doLog src LLError msg = error $ show src ++ ": " ++ msg
         doLog _ _ _ = return ()
 
-catchUpCheck :: (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, FullBakerInfo, SigScheme.KeyPair, SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
+catchUpCheck :: (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> (BakerIdentity, FullBakerInfo, (SigScheme.KeyPair, AccountAddress), SkovContext (Config DummyTimer), SkovState (Config DummyTimer)) -> PropertyM IO Bool
 catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
         request <- myLoggedEvalSkovT (getCatchUpStatus True) c1 s1
         (response, result) <- trivialEvalSkovT (handleCatchUpStatus request 2000) c2 s2
