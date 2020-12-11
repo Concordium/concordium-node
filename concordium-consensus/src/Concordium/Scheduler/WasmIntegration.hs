@@ -188,7 +188,6 @@ processModule modl = do
             imWasmArtifact = ModuleArtifact (BS.take artifactLen bs),
             ..
             }
-          miSourceModule = modl
       in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
 
   where ffiResult = unsafeDupablePerformIO $ do
