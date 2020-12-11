@@ -21,7 +21,6 @@ module Concordium.GlobalState.Persistent.BlockState (
 ) where
 
 import Data.Serialize
-import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Control.Monad.Reader.Class
 import Control.Monad.Trans
