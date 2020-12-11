@@ -90,11 +90,11 @@ makeArbitraryInstance = do
         iface <- Wasm.ModuleInterface modRef (Set.singleton initName) receiveNames . Wasm.InstrumentedWasmModule 0 . Wasm.ModuleArtifact . BS.pack <$> vector n
         amount <- Amount <$> arbitrary
         owner <- AccountAddress . FBS.pack <$> (vector 21)
-        return $ makeInstance modRef initName (fromMaybe Set.empty (snd <$> Map.lookupMin receiveNames)) (iface (Wasm.WasmModule 0 (fromString (show n)))) contractState amount owner
+        return $ makeInstance modRef initName (fromMaybe Set.empty (snd <$> Map.lookupMin receiveNames)) (iface (Wasm.moduleSourceLength (Wasm.ModuleSource $ fromString (show n)))) contractState amount owner
 
 makeDummyInstance :: InstanceData -> ContractAddress -> Instance
 makeDummyInstance (InstanceData model amount) =
-        makeInstance modRef initName receiveNames (iface (Wasm.WasmModule 0 "<empty>")) model amount owner
+        makeInstance modRef initName receiveNames (iface (Wasm.moduleSourceLength . Wasm.ModuleSource $ fromString "<empty>")) model amount owner
     where
         modRef = ModuleRef (H.hash "module")
         initName = Wasm.InitName "init_"
