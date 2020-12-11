@@ -127,7 +127,7 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- |Commit a module interface and module value to global state. Returns @True@
   -- if this was successful, and @False@ if a module with the given Hash already
   -- existed. Also store the code of the module for archival purposes.
-  commitModule :: Wasm.ModuleInterface -> m Bool
+  commitModule :: (Wasm.ModuleInterface, Wasm.WasmModule) -> m Bool
 
   -- |Create new instance in the global state.
   -- The instance is parametrised by the address, and the return value is the
