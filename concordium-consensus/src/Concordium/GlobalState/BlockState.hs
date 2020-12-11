@@ -39,7 +39,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
 import Data.Functor
-import Data.Word
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Map as Map
@@ -71,19 +70,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
 import Concordium.ID.Types (AccountCredential, CredentialValidTo, AccountKeys)
 import Concordium.Crypto.EncryptedTransfers
-
--- |Index of the module in the module table. Reflects when the module was added
--- to the table.
-type ModuleIndex = Word64
-
--- |Module stored in block state.
-data Module = Module {
-    -- | A processed interface useful for execution.
-    -- The interface also retains a pointer to the original module source.
-    moduleInterface :: !Wasm.ModuleInterface,
-    -- |Index of this module in the module table.
-    moduleIndex :: !ModuleIndex
-}
 
 -- |The hashes of the block state components, which are combined
 -- to produce a 'StateHash'.
@@ -199,8 +185,8 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 -- consensus itself to compute stake, get a list of and information about
 -- bakers, finalization committee, etc.
 class AccountOperations m => BlockStateQuery m where
-    -- |Get the module from the module table of the state instance.
-    getModule :: BlockState m -> ModuleRef -> m (Maybe Module)
+    -- |Get the module source from the module table as deployed to the chain.
+    getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (Account m))
     -- |Get the contract state from the contract table of the state instance.
@@ -315,7 +301,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
   -- |Add the module to the global state. If a module with the given address
   -- already exists return @False@.
-  bsoPutNewModule :: UpdatableBlockState m -> Wasm.ModuleInterface -> m (Bool, UpdatableBlockState m)
+  bsoPutNewModule :: UpdatableBlockState m -> (Wasm.ModuleInterface, Wasm.WasmModule) -> m (Bool, UpdatableBlockState m)
 
   -- |Modify an existing account with given data (which includes the address of the account).
   -- This method is only called when an account exists and can thus assume this.

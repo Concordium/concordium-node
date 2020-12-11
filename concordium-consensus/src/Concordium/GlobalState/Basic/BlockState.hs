@@ -1,6 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE BangPatterns #-}
@@ -8,7 +7,6 @@ module Concordium.GlobalState.Basic.BlockState where
 
 import Data.Map (Map)
 import Lens.Micro.Platform
-import Data.Foldable
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Map.Strict as Map
@@ -16,8 +14,8 @@ import qualified Data.Set as Set
 import qualified Data.List as List
 import qualified Data.Vector as Vec
 import Control.Monad
-
-import GHC.Generics (Generic)
+import Data.Foldable
+import Data.Serialize
 
 import Concordium.Types
 import Concordium.Types.Updates
@@ -27,9 +25,9 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.Modules as Modules
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
+import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.IdentityProviders as IPS
@@ -39,11 +37,8 @@ import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.SeedState
 import Concordium.ID.Types (regId)
-
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
-import Data.Serialize
-
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The currently-registered bakers.
@@ -54,7 +49,7 @@ data BasicBirkParameters = BasicBirkParameters {
     _birkCurrentEpochBakers :: !(Hashed EpochBakers),
     -- |The seed state used to derive the leadership election nonce.
     _birkSeedState :: !SeedState
-} deriving (Eq, Generic, Show)
+} deriving (Eq, Show)
 
 -- |The hash of the birk parameters derives from the seed state
 -- and the bakers for the current and next epochs.  The active
@@ -193,6 +188,7 @@ hashBlockState bs@BlockState{..} = HashedBlockState {
               bshUpdates = getHash _blockUpdates,
               bshEpochBlocks = getHash _blockEpochBlocksBaked
             }
+
 instance HashableTo StateHash BlockState where
     getHash = _blockStateHash . hashBlockState
 
@@ -216,7 +212,7 @@ instance Monad m => PerAccountDBOperations (PureBlockStateMonad m)
 instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getModule #-}
     getModule bs mref =
-        return $ bs ^. blockModules . to (Modules.getModule mref)
+        return $ bs ^. blockModules . to (Modules.getSource mref)
 
     {-# INLINE getContractInstance #-}
     getContractInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
@@ -230,7 +226,7 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
       return $ bs ^? blockAccounts . Accounts.indexedAccount ai
 
     {-# INLINE getModuleList #-}
-    getModuleList bs = return $ bs ^. blockModules . to Modules.moduleList
+    getModuleList bs = return $ bs ^. blockModules . to Modules.moduleRefList
 
     {-# INLINE getContractInstanceList #-}
     getContractInstanceList bs = return (bs ^.. blockInstances . Instances.foldInstances)
@@ -343,7 +339,7 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     {-# INLINE bsoGetModule #-}
-    bsoGetModule bs mref = return $ bs ^. blockModules . to (fmap BS.moduleInterface . Modules.getModule mref)
+    bsoGetModule bs mref = return $ bs ^. blockModules . to (Modules.getInterface mref)
 
     {-# INLINE bsoGetInstance #-}
     bsoGetInstance bs caddr = return (Instances.getInstance caddr (bs ^. blockInstances))
@@ -381,7 +377,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                 & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
 
     bsoPutNewModule bs iface = return $!
-        case Modules.putInterfaces iface (bs ^. blockModules) of
+        case Modules.putInterface iface (bs ^. blockModules) of
           Nothing -> (False, bs)
           Just mods' -> (True, bs & blockModules .~ mods')
 
