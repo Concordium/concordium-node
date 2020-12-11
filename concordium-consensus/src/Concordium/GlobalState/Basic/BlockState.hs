@@ -7,7 +7,6 @@ module Concordium.GlobalState.Basic.BlockState where
 
 import Data.Map (Map)
 import Lens.Micro.Platform
-import Data.Foldable
 import Data.Maybe
 import Data.Semigroup
 import qualified Data.Map.Strict as Map
