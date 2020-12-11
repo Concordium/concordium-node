@@ -548,7 +548,7 @@ handleDeployModule wtc psize mod =
           let mhash = Wasm.miModuleRef iface
           exists <- isJust <$> getModuleInterfaces mhash
           when exists $ rejectTransaction (ModuleHashAlreadyExists mhash)
-          return (iface, mhash)
+          return ((iface, mod), mhash)
 
     k ls (iface, mhash) = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -611,7 +611,7 @@ handleInitContract wtc initAmount modref initName param =
             -- size available before.
             tickEnergy Cost.lookupBytesPre
             iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = Wasm.moduleSize . Wasm.miSourceModule $ iface
+            let iSize = Wasm.miModuleSize $ iface
             tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).
