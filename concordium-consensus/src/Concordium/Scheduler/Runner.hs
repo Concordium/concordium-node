@@ -45,11 +45,11 @@ transactionHelper t =
   case t of
     (TJSON meta (DeployModule version mnameText) keys) -> liftIO $ do
       BS.readFile mnameText >>= \wasmMod ->
-        let modl = WasmModule version wasmMod
+        let modl = WasmModule version $ Wasm.ModuleSource wasmMod
         in return $ signTx keys meta . Types.encodePayload . Types.DeployModule $ modl
     (TJSON meta (InitContract icAmount version mnameText cNameText paramExpr) keys) -> liftIO $ do
       BS.readFile mnameText >>= \wasmMod ->
-        let modl = WasmModule version wasmMod
+        let modl = WasmModule version $ Wasm.ModuleSource wasmMod
             payload = Types.InitContract{
               icModRef = Wasm.getModuleRef modl,
               icInitName = Wasm.InitName cNameText,
