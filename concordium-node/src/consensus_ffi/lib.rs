@@ -99,7 +99,7 @@ macro_rules! wrap_c_committee_call {
     ($self:ident, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);
         let result = unsafe { $c_call(consensus) };
-        ConsensusIsIBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
+        ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
             panic!(
                 "Unknown Consensus Baking Committee FFI return code: {}",
                 code

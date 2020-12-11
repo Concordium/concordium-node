@@ -163,31 +163,17 @@ addBaker = 3000
 removeBaker :: Energy
 removeBaker = 0
 
--- |Cost to update the baker's reward account.
-updateBakerAccount :: Energy
-updateBakerAccount = 90
+-- |Cost to update a baker's stake.
+updateBakerStake :: Energy
+updateBakerStake = 90
 
--- |Cost to update the baker's signature verification key.
-updateBakerSignKey :: Energy
-updateBakerSignKey = 90
+-- |Cost to update whether a baker restakes its earnings
+updateBakerRestakeEarnings :: Energy
+updateBakerRestakeEarnings = 0
 
--- |Cost to update an account's stake delegate.
--- This is parametrised by the number of smart contract instances
--- owned by the account.
--- TODO This cost is examplary, and a suitable relation for the parameters has to be determined.
-updateStakeDelegate :: Int -> Energy
-updateStakeDelegate nInstances = 100 + fromIntegral nInstances * 50
-
--- |Cost to update baker aggregation key
--- The main part here is checking a dlog proof, and that cost is essentially
--- the same as the cost in adding a baker - 3 * updateBakerSignKey.
-updateBakerAggregationVerifyKey :: Energy
-updateBakerAggregationVerifyKey = 2700
-
--- |Cost to update baker election key.
--- The underlying computation is the same as for updating the baker or account key.
-updateBakerElectionKey :: Energy
-updateBakerElectionKey = 90
+-- |Cost to update a baker's keys.
+updateBakerKeys :: Energy
+updateBakerKeys = 2980
 
 -- |Cost to update existing account keys. Parametrised by amount of keys to update
 -- The cost of this transaction is the cost of deserializing Ed25519 verification keys

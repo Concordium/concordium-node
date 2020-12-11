@@ -20,6 +20,7 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockMonads
+import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
@@ -32,9 +33,11 @@ import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.SeedState
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types
+import Concordium.Birk.Bake (BakerIdentity(..), validateBakerKeys)
 import Concordium.Kontrol (getFinalizationCommittee)
 
 import Control.Concurrent.MVar
@@ -42,12 +45,11 @@ import Data.IORef
 import Text.Read hiding (get, String)
 import qualified Data.Map as Map
 import Data.Aeson
+import Data.Aeson.Types (Pair)
 import qualified Data.Text as T
 import qualified Data.Set as S
 import Data.String(fromString)
 import Data.Word
-import Data.Int
-import Data.Vector (fromList)
 import qualified Data.Vector as Vector
 import Control.Monad
 import Data.Foldable (foldrM)
@@ -219,21 +221,35 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               Nonce nonce <- BS.getAccountNonce acc
               amount <- BS.getAccountAmount acc
               creds <- BS.getAccountCredentials acc
-              delegate <- BS.getAccountStakeDelegate acc
+              baker <- BS.getAccountBaker acc
               instances <- BS.getAccountInstances acc
               encrypted <- BS.getAccountEncryptedAmount acc
               encryptionKey <- BS.getAccountEncryptionKey acc
               releaseSchedule <- BS.getAccountReleaseSchedule acc
-              return $ object ["accountNonce" .= nonce
+              return $ object $ ["accountNonce" .= nonce
                               ,"accountAmount" .= amount
                               , "accountReleaseSchedule" .= releaseSchedule
                                 -- credentials, most recent first
                               ,"accountCredentials" .= map (Versioned 0) creds
-                              ,"accountDelegation" .= delegate
                               ,"accountInstances" .= S.toList instances
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
-                              ]
+                              ] <> renderBaker baker
+  where
+    renderBaker :: Maybe AccountBaker -> [Pair]
+    renderBaker Nothing = []
+    renderBaker (Just ab) = ["accountBaker" .= object ([
+          "stakedAmount" .= (ab ^. stakedAmount),
+          "restakeEarnings" .= (ab ^. stakeEarnings),
+          "bakerId" .= (ab ^. accountBakerInfo . bakerIdentity),
+          "bakerElectionVerifyKey" .= (ab ^. accountBakerInfo . bakerElectionVerifyKey),
+          "bakerSignatureVerifyKey" .= (ab ^. accountBakerInfo . bakerSignatureVerifyKey),
+          "bakerAggregationVerifyKey" .= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
+        ] <> case ab ^. bakerPendingChange of
+          NoChange -> [] :: [Pair]
+          ReduceStake amt ep -> ["pendingChange" .= object ["change" .= String "ReduceStake", "newStake" .= amt, "epoch" .= ep]]
+          RemoveBaker ep -> ["pendingChange" .= object ["change" .= String "RemoveBaker", "epoch" .= ep]])
+      ]
 
 getContractInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AT.ContractAddress -> IO Value
 getContractInfo hash sfsRef addr = runStateQuery sfsRef $
@@ -262,21 +278,23 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getBlockBirkParameters hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> do
-  bps <- BS.getBlockBirkParameters st
+  FullBakers{..} <- BS.getCurrentEpochBakers st
+  ss <- BS.getSeedState st
   elDiff <- BS.getCurrentElectionDifficulty st
-  nonce <- BS.birkLeadershipElectionNonce bps
-  lotteryBakers <- BS.getLotteryBakers bps
-  fullBakerInfos <- BS.getFullBakerInfos lotteryBakers
-  totalStake <- BS.getTotalBakerStake lotteryBakers
+  let nonce = currentLeadershipElectionNonce ss
+  let resolveBaker FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} = do
+        -- This should never return Nothing
+        bacct <- BS.getBakerAccount st _bakerIdentity
+        bacctAddr <- mapM BS.getAccountAddress bacct
+        return $ object $ [
+          "bakerId" .= toInteger _bakerIdentity,
+          "bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral bakerTotalStake)
+          ] <> maybe [] (\acc -> ["bakerAccount" .= show acc]) bacctAddr
+  bakers <- Array <$> mapM resolveBaker fullBakerInfos
   return $ object [
     "electionDifficulty" .= elDiff,
     "electionNonce" .= nonce,
-    "bakers" .= Array (fromList .
-                       map (\(bid, FullBakerInfo{_bakerInfo = BakerInfo{..}, ..}) -> object ["bakerId" .= toInteger bid
-                                                            ,"bakerAccount" .= show _bakerAccount
-                                                            ,"bakerLotteryPower" .= ((fromIntegral _bakerStake :: Double) / fromIntegral totalStake)
-                                                            ]) .
-                       Map.toList $ fullBakerInfos)
+    "bakers" .= bakers
     ]
 
 getModuleList :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
@@ -424,29 +442,40 @@ getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
                 Just (TS.BlockFinalized _ fr) -> return $ Just fr
                 _ -> return Nothing
 
--- |Check whether a keypair is part of the baking committee by a key pair in the current best block.
--- Returns -1 if keypair is not added as a baker.
--- Returns -2 if keypair is added as a baker, but not part of the baking committee yet.
--- Returns >= 0 if keypair is part of the baking committee. In this case the return value
--- is the baker id as appearing in blocks.
--- NB: this function will not work correctly when there are more than 2^63-1 bakers.
-bakerIdBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
-    => BakerSignVerifyKey
+data BakerStatus
+    = ActiveBaker
+    -- ^The baker is a member of the current committee
+    | InactiveBaker
+    -- ^The account has a baker, but it is not yet in the committee
+    | NoBaker
+    -- ^The baker id does not correspond with a current baker
+    | BadKeys
+    -- ^The baker may exist, but the keys do not match
+    deriving (Eq,Ord,Show)
+
+bakerStatusBestBlock :: (BlockPointerMonad m, SkovStateQueryable z m)
+    => BakerIdentity
     -> z
-    -> IO Int64
-bakerIdBestBlock key sfsRef = runStateQuery sfsRef $ do
-  bb <- bestBlock
-  bps <- BS.getBlockBirkParameters =<< queryBlockState bb
-  lotteryBakers <- BS.getLotteryBakers bps
-  currentBakers <- BS.getCurrentBakers bps
-  mlbid <- BS.getBakerFromKey lotteryBakers key
-  mcbid <- BS.getBakerFromKey currentBakers key
-  case mlbid of
-    Just bid -> return (fromIntegral bid)
-    Nothing ->
-      case mcbid of
-        Just _ -> return (-2)
-        Nothing -> return (-1)
+    -> IO BakerStatus
+bakerStatusBestBlock bid sfsRef = runStateQuery sfsRef $ do
+        bb <- bestBlock
+        bs <- queryBlockState bb
+        bakers <- BS.getCurrentEpochBakers bs
+        case fullBaker bakers (bakerId bid) of
+          Just fbinfo
+            | validateBakerKeys (fbinfo ^. bakerInfo) bid -> return ActiveBaker
+            | otherwise -> return BadKeys
+          Nothing -> do
+              macc <- BS.getBakerAccount bs (bakerId bid)
+              case macc of
+                Just acc -> do
+                  mab <- BS.getAccountBaker acc
+                  case mab of
+                    Nothing -> return NoBaker
+                    Just ab
+                      | validateBakerKeys (ab ^. accountBakerInfo) bid -> return InactiveBaker
+                      | otherwise -> return BadKeys
+                Nothing -> return NoBaker
 
 -- |Check whether the node is currently a member of the finalization committee.
 checkIsCurrentFinalizer :: (SkovStateQueryable z m, MonadState s m, FinalizationStateLenses s t) => z -> IO Bool
