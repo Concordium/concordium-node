@@ -27,6 +27,7 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.DummyData
+import Concordium.Scheduler.DummyData
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
 type ResultSpec = (TResultSpec, BlockState -> Spec)

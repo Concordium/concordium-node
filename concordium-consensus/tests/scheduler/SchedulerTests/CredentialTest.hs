@@ -62,7 +62,7 @@ testCredentialCheck = do
     transactions <- processUngroupedTransactions transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-            Types.dummyChainMeta
+            dummyChainMeta
             maxBound
             maxBound
             initialBlockState
