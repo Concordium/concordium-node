@@ -241,6 +241,8 @@ getGenesisDataV2 = do
     genesisMaxBlockEnergy <- get
     genesisAuthorizations <- get
     genesisChainParameters <- get
+    unless (toInteger (genesisChainParameters ^. cpFoundationAccount) < toInteger (length genesisAccounts)) $
+      fail "Foundation account is not a valid account index."
     return GenesisDataV2{..}
 
 putGenesisDataV2 :: Putter GenesisDataV2
@@ -424,6 +426,8 @@ instance FromJSON GenesisParametersV2 where
         gpMaxBlockEnergy <- v .: "maxBlockEnergy"
         gpAuthorizations <- v .: "updateAuthorizations"
         gpChainParameters <- v .: "chainParameters"
+        unless (toInteger (gpChainParameters ^. cpFoundationAccount) < toInteger (length gpInitialAccounts)) $
+          fail "Foundation account is not a valid account index."
         return GenesisParametersV2{..}
 
 type GenesisParameters = GenesisParametersV2
