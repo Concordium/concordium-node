@@ -107,8 +107,7 @@ createInitStates = do
                 genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
                 genesisIdentityProviders = emptyIdentityProviders,
                 genesisAnonymityRevokers = Dummy.dummyArs,
-                genesisMintPerSlot = 10,
-                genesisMaxBlockEnergy = (Energy maxBound),
+                genesisMaxBlockEnergy = Energy maxBound,
                 genesisAuthorizations = Dummy.dummyAuthorizations,
                 genesisChainParameters = cps
             }

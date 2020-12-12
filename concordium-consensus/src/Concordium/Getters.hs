@@ -271,8 +271,9 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
   return $ object [
     "totalAmount" .= (fromIntegral (reward ^. AT.totalGTU) :: Integer),
     "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
-    "centralBankAmount" .= (fromIntegral (reward ^. AT.centralBankGTU) :: Integer),
-    "mintedAmountPerSlot" .= (fromIntegral (reward ^. AT.mintedGTUPerSlot) :: Integer)
+    "bakingRewardAccount" .= (fromIntegral (reward ^. AT.bakingRewardAccount) :: Integer),
+    "finalizationRewardAccount" .= (fromIntegral (reward ^. AT.finalizationRewardAccount) :: Integer),
+    "gasAccount" .= (fromIntegral (reward ^. AT.bakingRewardAccount) :: Integer)
     ]
 
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
@@ -304,7 +305,7 @@ getModuleList hash sfsRef = runStateQuery sfsRef $
   return . toJSON . map show $ mlist -- show instance of ModuleRef displays it in Base16
 
 
--- |Get the moduel source as it was deployed to the chain.
+-- |Get the module source as it was deployed to the chain.
 getModuleSource :: (SkovStateQueryable z m) => BlockHash -> z -> ModuleRef -> IO (Maybe Wasm.WasmModule)
 getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
   resolveBlock hash >>=

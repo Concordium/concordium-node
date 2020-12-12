@@ -1054,7 +1054,7 @@ processFinalizationSummary FinalizationSummary{..} =
 
 -- |Given an existing block, returns a 'FinalizationRecord' that can be included in
 -- a child of that block, if available.
-nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType m -> m (Maybe FinalizationRecord)
+nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType m -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
 nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
@@ -1073,5 +1073,5 @@ instance (FinalizationBaseMonad r s m) => FinalizationMonad (ActiveFinalizationM
     finalizationBlockFinal fr b = notifyBlockFinalized fr b
     finalizationReceiveMessage = receiveFinalizationPseudoMessage
     finalizationReceiveRecord b fr = receiveFinalizationRecord b fr
-    finalizationUnsettledRecordAt i = fmap (^. _3) <$> getQueuedFinalization i
+    finalizationUnsettledRecordAt = getQueuedFinalization
     finalizationUnsettledRecords = getQueuedFinalizationsBeyond

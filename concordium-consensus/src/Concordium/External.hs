@@ -223,7 +223,6 @@ genesisState GenesisDataV2{..} = Basic.initialState
                        genesisAccounts
                        genesisIdentityProviders
                        genesisAnonymityRevokers
-                       genesisMintPerSlot
                        genesisAuthorizations
                        genesisChainParameters
 

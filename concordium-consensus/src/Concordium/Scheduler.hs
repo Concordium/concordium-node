@@ -183,14 +183,6 @@ dispatch msg = do
       -- Hence we can increase the account nonce of the sender account.
       increaseAccountNonce senderAccount
 
-      -- then we notify the block state that all the identity issuers on the sender account should be rewarded
-      -- TODO: Check for existence of valid identity provider.
-      -- TODO: Alternative design would be to only reward them if the transaction is successful/committed, or
-      -- to add additional parameters (such as deposited amount)
-      -- FIXME: Only consider non-expired credentials.
-      creds <- getAccountCredentials senderAccount
-      mapM_ (notifyIdentityProviderCredential . ID.ipId) creds
-
       let psize = payloadSize (transactionPayload msg)
       -- TODO: Check whether the cost for deserializing the transaction is sufficiently covered
       -- by the cost for checking the header (which is linear in the transaction size).
@@ -210,7 +202,7 @@ dispatch msg = do
             tsSender = Just addr,
             tsResult = TxReject SerializationFailure,
             tsHash = transactionHash msg,
-            tsType = AccountTransactionType Nothing,
+            tsType = TSTAccountTransaction Nothing,
             ..
             }
         Right payload -> do
@@ -1116,7 +1108,7 @@ handleDeployCredential cdi cdiHash = do
               tsHash = cdiHash,
               tsCost = 0,
               tsEnergyCost = cost,
-              tsType = CredentialDeploymentTransaction (ID.credentialType cdi),
+              tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
               ..
               }
 
@@ -1316,24 +1308,37 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       if updateSeqNumber uiHeader /= expectedSequenceNumber then
         return (TxInvalid (NonSequentialNonce expectedSequenceNumber))
       else do
-        -- Check that the signatures use the appropriate keys and are valid.
-        auths <- getUpdateAuthorizations
-        if checkAuthorizedUpdate auths ui then do
-          enqueueUpdate (updateEffectiveTime uiHeader) uiPayload
-          tsIndex <- bumpTransactionIndex
-          return $ TxValid TransactionSummary {
-              tsSender = Nothing,
-              tsHash = wmdHash,
-              tsCost = 0,
-              tsEnergyCost = 0,
-              tsType = UpdateTransaction $ updateType uiPayload,
-              tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
-              ..
-            }
-
-        else
-          return (TxInvalid IncorrectSignature)
-
+        -- Convert the payload to an update
+        case uiPayload of
+          AuthorizationUpdatePayload u -> checkSigAndUpdate $ UVAuthorization u
+          ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
+          ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
+          EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
+          MicroGTUPerEuroUpdatePayload u -> checkSigAndUpdate $ UVMicroGTUPerEuro u
+          FoundationAccountUpdatePayload u -> getAccountIndex u >>= \case
+            Just ai -> checkSigAndUpdate $ UVFoundationAccount ai
+            Nothing -> return (TxInvalid (UnknownAccount u))
+          MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
+          TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
+          GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
+  where
+    checkSigAndUpdate change = do
+      -- Check that the signatures use the appropriate keys and are valid.
+      auths <- getUpdateAuthorizations
+      if checkAuthorizedUpdate auths ui then do
+        enqueueUpdate (updateEffectiveTime uiHeader) change
+        tsIndex <- bumpTransactionIndex
+        return $ TxValid TransactionSummary {
+            tsSender = Nothing,
+            tsHash = wmdHash,
+            tsCost = 0,
+            tsEnergyCost = 0,
+            tsType = TSTUpdateTransaction $ updateType uiPayload,
+            tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
+            ..
+          }
+      else
+        return (TxInvalid IncorrectSignature)
 
 
 
@@ -1413,7 +1418,8 @@ filterTransactions :: forall m . (SchedulerMonad m)
                    -> m FilteredTransactions
 filterTransactions maxSize groups0 = do
   maxEnergy <- getMaxBlockEnergy
-  ftTrans <- runNext maxEnergy 0 emptyFilteredTransactions groups0
+  credLimit <- getAccountCreationLimit
+  ftTrans <- runNext maxEnergy 0 credLimit emptyFilteredTransactions groups0
   forM_ (ftFailed ftTrans) $ uncurry logInvalidTransaction
   forM_ (ftFailedCredentials ftTrans) $ uncurry logInvalidCredential
   forM_ (ftFailedUpdates ftTrans) $ uncurry logInvalidChainUpdate
@@ -1422,19 +1428,20 @@ filterTransactions maxSize groups0 = do
         -- Run next credential deployment or transaction group, depending on arrival time.
         runNext :: Energy -- ^Maximum block energy
                 -> Integer -- ^Current size of transactions in the block.
+                -> CredentialsPerBlockLimit -- ^Number of credentials until limit.
                 -> FilteredTransactions -- ^Currently accumulated result
                 -> [TransactionGroup] -- ^Grouped transactions to process
                 -> m FilteredTransactions
         -- All block items are processed. We accumulate the added items
         -- in reverse order, so reverse the list before returning.
-        runNext _ _ fts [] = return fts{ftAdded = reverse (ftAdded fts)}
-        runNext maxEnergy size fts (g : groups) = case g of
+        runNext _ _ _ fts [] = return fts{ftAdded = reverse (ftAdded fts)}
+        runNext maxEnergy size credLimit fts (g : groups) = case g of
           TGAccountTransactions group -> runTransactionGroup size fts group
           TGCredentialDeployment c -> runCredential c
           TGUpdateInstructions group -> runUpdateInstructions size fts group
           where
             -- Run a group of update instructions of one type
-            runUpdateInstructions currentSize currentFts [] = runNext maxEnergy currentSize currentFts groups
+            runUpdateInstructions currentSize currentFts [] = runNext maxEnergy currentSize credLimit currentFts groups
             runUpdateInstructions currentSize currentFts (ui : uis) = do
               -- Update instructions use no energy, so we only consider size
               let csize = currentSize + fromIntegral (wmdSize ui)
@@ -1451,7 +1458,7 @@ filterTransactions maxSize groups0 = do
                               ftFailedUpdates = (ui, reason) : ((, SuccessorOfInvalidTransaction) <$> uis)
                                                 ++ ftFailedUpdates currentFts
                             }
-                      runNext maxEnergy currentSize newFts groups
+                      runNext maxEnergy currentSize credLimit newFts groups
                   TxValid summary -> do
                     let (invalid, rest) = span (((==) `on` (updateSeqNumber . uiHeader . wmdData)) ui) uis
                         curSN = updateSeqNumber $ uiHeader $ wmdData ui
@@ -1469,7 +1476,7 @@ filterTransactions maxSize groups0 = do
                   _ ->
                     -- Otherwise, there's no chance of processing remaining updates
                     let newFts = currentFts{ftUnprocessedUpdates = ui : uis ++ ftUnprocessedUpdates currentFts}
-                    in runNext maxEnergy currentSize newFts groups
+                    in runNext maxEnergy currentSize credLimit newFts groups
 
             -- Run a single credential and continue with 'runNext'.
             runCredential c@WithMetadata{..} = do
@@ -1477,25 +1484,25 @@ filterTransactions maxSize groups0 = do
               let csize = size + fromIntegral wmdSize
                   energyCost = Cost.deployCredential (ID.credentialType wmdData)
                   cenergy = totalEnergyUsed + fromIntegral energyCost
-              if csize <= maxSize && cenergy <= maxEnergy then
+              if 0 <= credLimit && csize <= maxSize && cenergy <= maxEnergy then
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
                       let newFts = fts { ftFailedCredentials = (c, reason) : ftFailedCredentials fts}
-                      runNext maxEnergy size newFts groups -- NB: We keep the old size
+                      runNext maxEnergy size (credLimit - 1) newFts groups -- NB: We keep the old size
                     (Just (TxValid summary), fp) -> do
                       markEnergyUsed (tsEnergyCost summary)
                       tlNotifyAccountEffect fp summary
                       let newFts = fts { ftAdded = (credentialDeployment c, summary) : ftAdded fts}
-                      runNext maxEnergy csize newFts groups
+                      runNext maxEnergy csize (credLimit - 1) newFts groups
                     (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
               else if Cost.deployCredential (ID.credentialType wmdData) > maxEnergy then
                 -- this case should not happen (it would mean we set the parameters of the chain wrong),
                 -- but we keep it just in case.
                  let newFts = fts { ftFailedCredentials = (c, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
-                 in runNext maxEnergy size newFts groups
+                 in runNext maxEnergy size credLimit newFts groups
               else
                  let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
-                 in runNext maxEnergy size newFts groups
+                 in runNext maxEnergy size credLimit newFts groups
 
             -- Run all transactions in a group and continue with 'runNext'.
             runTransactionGroup :: Integer -- ^Current size of transactions in the block.
@@ -1535,11 +1542,11 @@ filterTransactions maxSize groups0 = do
                     in runTransactionGroup currentSize newFts ts
                   _ ->
                     let newFts = currentFts { ftUnprocessed = t : ts ++ ftUnprocessed currentFts }
-                    in runNext maxEnergy currentSize newFts groups
+                    in runNext maxEnergy currentSize credLimit newFts groups
 
             -- Group processed, continue with the next group or credential
             runTransactionGroup currentSize currentFts [] =
-              runNext maxEnergy currentSize currentFts groups
+              runNext maxEnergy currentSize credLimit currentFts groups
 
             -- Add a valid transaction to the list of added transactions, mark used energy and
             -- notify about the account effects. Then add all following transactions with the

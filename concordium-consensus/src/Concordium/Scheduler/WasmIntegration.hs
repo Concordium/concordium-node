@@ -217,5 +217,6 @@ processModule modl = do
                           ) (Set.empty, Map.empty) namesByteStrings
             case names of
               Nothing -> fail "Incorrect response from FFI call."
-              Just x -> return x
+              Just x@(exposedInits, exposedReceives) ->
+                if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."
  
