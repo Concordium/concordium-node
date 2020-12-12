@@ -76,7 +76,7 @@ transactionHelper t =
       in do
         Just abProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bElectionSecretKey bElectionVerifyKey)
         Just abProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bSignSecretKey bSignVerifyKey)
-        let abProofAggregation = Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
+        abProofAggregation <- liftIO $ Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
         return $ signTx keys meta (Types.encodePayload Types.AddBaker{..})
     (TJSON meta RemoveBaker keys) ->
       return $ signTx keys meta (Types.encodePayload Types.RemoveBaker)
@@ -93,7 +93,7 @@ transactionHelper t =
       in do
         Just ubkProofElection <- liftIO $ Proofs.proveDlog25519VRF challenge (VRF.KeyPair bElectionSecretKey bElectionVerifyKey)
         Just ubkProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bSignSecretKey bSignVerifyKey)
-        let ubkProofAggregation = Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
+        ubkProofAggregation <- liftIO $ Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerKeys{..}))
     (TJSON meta (UpdateAccountKeys keyUpdates) keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.UpdateAccountKeys keyUpdates))
