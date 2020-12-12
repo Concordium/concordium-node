@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
-module Concordium.Scheduler.DummyData where
+module Concordium.Scheduler.DummyData {-# WARNING "This module should not be used in production code." #-} where
 
 import Data.FileEmbed
 import qualified Data.ByteString.Lazy as BSL
@@ -67,3 +67,13 @@ icdi4 = readInitialCredential . BSL.fromStrict $ $(makeRelativeToProject "testda
 {-# WARNING dummyBlockSize "Do not use in production." #-}
 dummyBlockSize :: Integer
 dummyBlockSize = 10000000000
+
+dummyChainMeta :: ChainMetadata
+dummyChainMeta = ChainMetadata { slotNumber = 0
+                               , blockHeight = 0
+                               , finalizedHeight = 0
+                               , slotTime = 0
+                               }
+
+dummyMaxCredentials :: CredentialsPerBlockLimit
+dummyMaxCredentials = 10

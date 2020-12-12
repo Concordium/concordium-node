@@ -97,11 +97,12 @@ testExpiryTime expiry = do
     ts <- processUngroupedTransactions $ transactions expiry
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
-            Types.dummyChainMeta { Types.slotTime = slotTime }
+            dummyChainMeta { Types.slotTime = slotTime }
+            maxBound
             maxBound
             initialBlockState
     let gstate = finState ^. Types.ssBlockState
-    case invariantBlockState gstate of
+    case invariantBlockState gstate (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure f
         Right _ -> return (getResults ftAdded, ftFailed, ftUnprocessed)
 

@@ -194,6 +194,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     (Sch.filterTransactions dummyBlockSize transactions)
                     dummyChainMeta
                     maxBound
+                    maxBound
                     initialBlockState
             let gs = finState ^. EI.ssBlockState
             let rejs = [(z, decodePayload (thPayloadSize . atrHeader $ z) (atrPayload z), rr) | (WithMetadata{wmdData=NormalTransaction z}, TxReject rr) <- getResults ftAdded]
@@ -205,7 +206,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
                     , Concordium.Scheduler.Types.thNonce (atrHeader r1) == pn = checkRejects rs prs
                     | otherwise = Left $ "Unexpected rejected transaction:" ++ show r
             let checkResults = do
-                    invariantBlockState gs
+                    invariantBlockState gs (finState ^. EI.schedulerExecutionCosts)
                     unless (null ftFailed) $ Left $ "some transactions failed: " ++ show ftFailed
                     checkRejects rejs predRejects
             case checkResults of
