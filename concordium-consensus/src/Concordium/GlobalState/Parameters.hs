@@ -330,8 +330,7 @@ getExactVersionedCryptographicParameters bs = do
    return (vValue v)
 
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
--- It includes the minimal information for generating a
--- baker and its account.
+-- It includes the minimal information for generating a baker.
 data GenesisBaker = GenesisBaker {
     -- |The baker's public VRF key
     gbElectionVerifyKey :: BakerElectionVerifyKey,
@@ -342,7 +341,10 @@ data GenesisBaker = GenesisBaker {
     -- |The baker's initial stake
     gbStake :: Amount,
     -- |Whether to restake the baker's earnings from rewards
-    gbRestakeEarnings :: Bool
+    gbRestakeEarnings :: Bool,
+    -- |The baker ID is defined by the account, however we use it here
+    -- so we can report an error if inconsistent data is used.
+    gbBakerId :: BakerId
 }
 
 instance FromJSON GenesisBaker where
@@ -352,6 +354,7 @@ instance FromJSON GenesisBaker where
             gbAggregationVerifyKey <- v .: "aggregationVerifyKey"
             gbStake <- v .: "stake"
             gbRestakeEarnings <- v .: "restakeEarnings"
+            gbBakerId <- v .: "bakerId"
             return GenesisBaker{..}
 
 -- |'GenesisAccount' are special account existing in the genesis block, in
@@ -443,7 +446,8 @@ data GenesisParametersV2 = GenesisParametersV2 {
     gpCryptographicParameters :: CryptographicParameters,
     gpIdentityProviders :: IdentityProviders,
     gpAnonymityRevokers :: AnonymityRevokers,
-    -- |Initial accounts
+    -- |Initial accounts. Since an account can be a baker, it is important that the
+    -- order of the accounts matches the assigned baker ids.
     gpInitialAccounts :: [GenesisAccount],
     -- |Maximum total energy that can be consumed by the transactions in a block
     gpMaxBlockEnergy :: Energy,
@@ -535,6 +539,8 @@ instance FromJSON RuntimeParameters where
     return RuntimeParameters{..}
 
 -- |NB: This function will silently ignore bakers with duplicate signing keys.
+-- If some of the parameters are not valid, or inconsistent, this function will
+-- raise an exception.
 parametersToGenesisData :: GenesisParameters -> GenesisData
 parametersToGenesisData GenesisParametersV2{gpChainParameters=GenesisChainParameters{..},..} = GenesisDataV2{..}
     where
@@ -543,21 +549,23 @@ parametersToGenesisData GenesisParametersV2{gpChainParameters=GenesisChainParame
         genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
 
         mkAccount GenesisAccount{..} bid =
-          newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
-                & accountAmount .~ gaBalance
-                & case gaBaker of
-                    Nothing -> id
-                    Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
-                      _stakedAmount = gbStake,
-                      _stakeEarnings = gbRestakeEarnings,
-                      _accountBakerInfo = BakerInfo {
-                        _bakerIdentity = bid,
-                        _bakerSignatureVerifyKey = gbSignatureVerifyKey,
-                        _bakerElectionVerifyKey = gbElectionVerifyKey,
-                        _bakerAggregationVerifyKey = gbAggregationVerifyKey
-                      },
-                      _bakerPendingChange = NoChange
-                    }
+          case gaBaker of
+            Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
+            _ -> newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
+                      & accountAmount .~ gaBalance
+                      & case gaBaker of
+                          Nothing -> id
+                          Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
+                            _stakedAmount = gbStake,
+                            _stakeEarnings = gbRestakeEarnings,
+                            _accountBakerInfo = BakerInfo {
+                                _bakerIdentity = bid,
+                                _bakerSignatureVerifyKey = gbSignatureVerifyKey,
+                                _bakerElectionVerifyKey = gbElectionVerifyKey,
+                                _bakerAggregationVerifyKey = gbAggregationVerifyKey
+                                },
+                            _bakerPendingChange = NoChange
+                            }
         genesisAccounts = zipWith mkAccount gpInitialAccounts [0..]
         genesisFinalizationParameters = gpFinalizationParameters
         genesisCryptographicParameters = gpCryptographicParameters
