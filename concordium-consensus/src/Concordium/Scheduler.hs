@@ -202,7 +202,7 @@ dispatch msg = do
             tsSender = Just addr,
             tsResult = TxReject SerializationFailure,
             tsHash = transactionHash msg,
-            tsType = Nothing,
+            tsType = TSTAccountTransaction Nothing,
             ..
             }
         Right payload -> do
@@ -1108,7 +1108,7 @@ handleDeployCredential cdi cdiHash = do
               tsHash = cdiHash,
               tsCost = 0,
               tsEnergyCost = cost,
-              tsType = Nothing,
+              tsType = TSTCredentialDeploymentTransaction (ID.credentialType cdi),
               ..
               }
 
@@ -1333,7 +1333,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
             tsHash = wmdHash,
             tsCost = 0,
             tsEnergyCost = 0,
-            tsType = Nothing,
+            tsType = TSTUpdateTransaction $ updateType uiPayload,
             tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
             ..
           }
