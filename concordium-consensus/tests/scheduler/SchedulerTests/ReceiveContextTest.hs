@@ -67,9 +67,10 @@ testReceive = do
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
             chainMeta
             maxBound
+            maxBound
             initialBlockState
     let gs = finState ^. Types.ssBlockState
-    case invariantBlockState gs of
+    case invariantBlockState gs (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ " " ++ show gs
         _ -> return ()
     return (getResults ftAdded, ftFailed, gs ^.. blockInstances . foldInstances . to (\i -> (iaddress i, i)))

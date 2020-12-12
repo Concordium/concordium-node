@@ -22,13 +22,6 @@ import Concordium.GlobalState.AnonymityRevokers
 
 import Concordium.ID.Types(IdentityProviderIdentity)
 
-dummyChainMeta :: ChainMetadata
-dummyChainMeta = ChainMetadata { slotNumber = 0
-                               , blockHeight = 0
-                               , finalizedHeight = 0
-                               , slotTime = 0
-                               }
-
 -- |Result of constructing a block from 'GroupedTransactions'.
 data FilteredTransactions = FilteredTransactions {
   -- |Transactions which have been added to the block, in the order added, with results.

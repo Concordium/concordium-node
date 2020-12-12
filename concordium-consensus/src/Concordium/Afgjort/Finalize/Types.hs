@@ -62,6 +62,7 @@ instance Show PartyInfo where
     show = show . partyIndex
 
 data FinalizationCommittee = FinalizationCommittee {
+    -- |All eligible parties, in ascending order of baker ID
     parties :: !(Vector PartyInfo),
     totalWeight :: !VoterPower,
     corruptWeight :: !VoterPower

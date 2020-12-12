@@ -104,8 +104,7 @@ initialiseStatesDictator n = do
                     genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
                     genesisIdentityProviders = emptyIdentityProviders,
                     genesisAnonymityRevokers = Dummy.dummyArs,
-                    genesisMintPerSlot = 10,
-                    genesisMaxBlockEnergy = (Energy maxBound),
+                    genesisMaxBlockEnergy = Energy maxBound,
                     genesisAuthorizations = dummyAuthorizations,
                     genesisChainParameters = dummyChainParameters
                 }

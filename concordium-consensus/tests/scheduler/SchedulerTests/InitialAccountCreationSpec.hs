@@ -44,33 +44,34 @@ testAccountCreation ::
     ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
      [Maybe Account],
-     Types.BankStatus)
+     Amount)
 testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-            Types.dummyChainMeta
+            dummyChainMeta
+            maxBound
             maxBound
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
     let accAddrs = map accountAddressFromInitialCred [icdi1,icdi2,icdi4] -- cdi3 has the same address as cdi2
-    case invariantBlockState state of
+    case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
     return (getResults ftAdded, ftFailedCredentials,
             map (\addr -> accounts ^? ix addr) accAddrs,
-            state ^. blockBank . unhashed)
+            finState ^. Types.schedulerExecutionCosts)
 
 checkAccountCreationResult ::
   ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
      [Maybe Account],
-     Types.BankStatus)
+     Amount)
   -> Assertion
-checkAccountCreationResult (suc, fails, stateAccs, bankState) = do
+checkAccountCreationResult (suc, fails, stateAccs, executionCost) = do
   assertEqual "The first but the 4th transactions should fail." 2 (length fails)
-  assertEqual "Execution cost should be 0." 0 (bankState ^. Types.executionCost)
+  assertEqual "Execution cost should be 0." 0 executionCost
 
   -- FIXME: Make these more fine-grained so that failures are understandable.
   assertBool "Successful transaction results." txsuc

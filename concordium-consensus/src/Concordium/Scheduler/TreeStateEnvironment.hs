@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications #-}
 {-# LANGUAGE DerivingVia, StandaloneDeriving, UndecidableInstances #-}
+{-# LANGUAGE BangPatterns #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
 
@@ -10,6 +11,10 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Kind as DK
 import qualified Data.PQueue.Prio.Min as MinPQ
+import qualified Data.Vector as Vec
+import Data.Foldable
+import Data.Maybe
+import Data.Word
 import Control.Monad
 
 import Concordium.Types
@@ -23,6 +28,8 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.SeedState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
+import Concordium.GlobalState.Basic.BlockState.Updates
+    (HasUpdates(currentParameters))
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
 import Concordium.Scheduler.EnvironmentImplementation
@@ -51,6 +58,7 @@ instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) 
 data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
   _lssSchedulerEnergyUsed :: !Energy,
+  _lssSchedulerExecutionCosts :: !Amount,
   _lssNextIndex :: !TransactionIndex,
   _lssSchedulerTransactionLog :: !(ATIStorage m)
   }
@@ -75,6 +83,7 @@ instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
   type TransactionLog (LogSchedulerState m) = ATIStorage m
   schedulerBlockState = lssBlockState
   schedulerEnergyUsed = lssSchedulerEnergyUsed
+  schedulerExecutionCosts = lssSchedulerExecutionCosts
   nextIndex = lssNextIndex
   schedulerTransactionLog = lssSchedulerTransactionLog
 
@@ -82,6 +91,7 @@ instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
 mkInitialSS :: CanExtend (ATIStorage m) => UpdatableBlockState m -> LogSchedulerState m
 mkInitialSS _lssBlockState =
   LogSchedulerState{_lssSchedulerEnergyUsed = 0,
+                    _lssSchedulerExecutionCosts = 0,
                     _lssSchedulerTransactionLog = defaultValue,
                     _lssNextIndex = 0,
                     ..}
@@ -106,60 +116,313 @@ runBSM m cm s = do
   (r, s', _) <- runRWST (_runBSM m) cm s
   return (r, s')
 
--- |Reward the baker, identity providers, ...
--- TODO: Currently the finalized pointer is not used. But the finalization committee
--- of that block might need to be rewarded if they have not been already.
--- Thus the argument is here for future use
-mintAndReward :: (GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
-                => UpdatableBlockState m -> BlockPointerType m -> BlockPointerType m -> Slot -> BakerId -> m (UpdatableBlockState m)
-mintAndReward bshandle blockParent _lfPointer slotNumber bid = do
+-- |Distribute the baking rewards for the last epoch to the bakers of
+-- blocks in that epoch. This should be called in the first block of
+-- a new epoch. This resets the list of blocks baked in the epoch.
+rewardLastEpochBakers :: (BlockStateOperations m)
+  => UpdatableBlockState m
+  -> m (UpdatableBlockState m)
+rewardLastEpochBakers bs0 = do
+  rewards <- _bankRewardAccounts <$> bsoGetBankStatus bs0
+  (totalBlocks, bakerShares) <- bsoGetEpochBlocksBaked bs0
+  if totalBlocks == 0 then
+    -- No blocks, so no reward.
+    -- In practice, this should not happen.
+    return bs0
+  else do
+    bs1 <- bsoClearEpochBlocksBaked bs0
+    -- There are some blocks, so it will be safe to divide.
+    let (perBlock, braRem) = (rewards ^. bakingRewardAccount) `divMod` fromIntegral totalBlocks
+    bs2 <- bsoSetRewardAccounts bs1 (rewards & bakingRewardAccount .~ braRem)
+    let rewardBaker (m,bs) (bid, blockCount) = do
+          let brew = fromIntegral (blockCount :: Word64) * perBlock
+          (macct,bs')  <- bsoRewardBaker bs bid brew
+          case macct of
+            Nothing -> error $ "rewardLastEpochBakers: invariant violation: baker account (" ++ show bid ++ ") does not exist"
+            Just acct -> return (Map.insert acct brew m, bs')
+    (m, bs3) <- foldM rewardBaker (Map.empty, bs2) bakerShares
+    bsoAddSpecialTransactionOutcome bs3 BakingRewards{stoBakerRewards = AccountAmounts m, stoRemainder = braRem}
 
-  -- First we mint new currency. This can be used in rewarding bakers. First get
-  -- the inflation rate of the parent block (this might have changed in the
-  -- current block), and compute how much to mint based on elapsed time.
-  rewardStatus <- getRewardStatus =<< blockState blockParent
-  let inflationRate = rewardStatus ^. mintedGTUPerSlot
-  let mintedAmount = fromIntegral (slotNumber - blockSlot blockParent) * inflationRate
-  (cbamount, bshandleMinted) <- bsoMint bshandle mintedAmount
+-- |Determine the amount and distribution of minting.
+--
+-- * First slot to mint for should be @1 + parent block slot@.
+-- * Last slot to mint for should be @new block slot@.
+-- * Initial reward parameters should be the parameters as of the parent block.
+-- * Updates to the reward parameters should be the queued updates to reward
+--   parameters, as of the parent block, with the slot they take effect, in
+--   order.
+-- * Total GTU should be as of the parent block.
+--
+-- The calculation mints in periods for each change of reward parameters
+-- with the amounts being distributed among the recipients separately
+-- for each period.  This is significant, since rounding off occurs with
+-- each minting and each distribution, so a comptabile implementation MUST
+-- round in the same fashion.
+calculateMintAmounts ::
+  Slot
+  -- ^First slot to mint for
+  -> Slot
+  -- ^Last slot to mint for
+  -> MintDistribution
+  -- ^Initial mint distribution
+  -> [(Slot, MintDistribution)]
+  -- ^Ordered updates to the minting parameters
+  -> Amount
+  -- ^Total GTU
+  -> MintAmounts
+calculateMintAmounts start end md0 upds tGTU = case upds of
+    ((s,md1):upds')
+      | s <= start -> calculateMintAmounts start end md1 upds' tGTU
+      | s <= end -> let (tGTU', a1) = mintRange start (s-1) md0 tGTU
+                    in a1 <> calculateMintAmounts s end md1 upds' tGTU'
+    _ -> snd $ mintRange start end md0 tGTU
+  where
+    mintRange s e md t =
+      let mintSupply s' !m !t'
+            | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
+            | otherwise = (m, t')
+          (newMint, newTotal) = mintSupply s 0 t
+          mintBakingReward = takeFraction (md ^. mdBakingReward) newMint
+          mintFinalizationReward = takeFraction (md ^. mdFinalizationReward) newMint
+          mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
+      in (newTotal, MintAmounts{..})
 
-  -- and now we can reward everybody
-  -- first take half of the amount on the central bank and use it to reward the baker
-  -- TODO: This is temporary POC. We need this fraction to be flexible.
-  let bakingReward = cbamount `div` 2
-  (_, bshandle1) <- bsoDecrementCentralBankGTU bshandleMinted bakingReward
+-- |Mint for all slots since the last block, recording a
+-- special transaction outcome for the minting.
+doMinting :: (GlobalStateTypes m, BlockStateOperations m, BlockPointerMonad m)
+  => BlockPointerType m
+  -- ^Parent block
+  -> Slot
+  -- ^New slot
+  -> AccountAddress
+  -- ^Current foundation account
+  -> [(Slot, MintDistribution)]
+  -- ^Ordered updates to the minting parameters
+  -> UpdatableBlockState m
+  -- ^Block state
+  -> m (UpdatableBlockState m)
+doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
+  parentUpdates <- getUpdates =<< blockState blockParent
+  totGTU <- (^. totalGTU) <$> bsoGetBankStatus bs0
+  let mint = calculateMintAmounts
+              (blockSlot blockParent + 1)
+              slotNumber 
+              (parentUpdates ^. currentParameters . rpMintDistribution)
+              mintUpds
+              totGTU
+  bs1 <- bsoMint bs0 mint
+  bsoAddSpecialTransactionOutcome bs1 Mint{
+    stoMintBakingReward = mintBakingReward mint,
+    stoMintFinalizationReward = mintFinalizationReward mint,
+    stoMintPlatformDevelopmentCharge = mintDevelopmentCharge mint,
+    stoFoundationAccount = foundationAddr
+  }
 
-  executionReward <- bsoGetExecutionCost bshandle1
-  -- Pay the reward to the baker.
-  (maddr, bshandle2) <- bsoRewardBaker bshandle1 bid (executionReward + bakingReward)
-  case maddr of
-    Nothing -> error "Precondition violated. Baker account does not exist."
-    Just addr ->
-      -- record the block reward transaction in the transaction outcomes for this block
-      bsoAddSpecialTransactionOutcome bshandle2 (BakingReward bid addr (executionReward + bakingReward))
+-- |List of the parties in the finalization committee,
+-- with their relative voting power.  Finalization rewards
+-- are distributed in proportion to their power.
+type FinalizerInfo = Vec.Vector (BakerId, VoterPower)
+
+-- |Distribute the finalization rewards to the finalizers
+-- in proportion to their voting weight. This also adds a
+-- special transaction outcome recording the reward.
+doFinalizationRewards :: (BlockStateOperations m)
+  => FinalizerInfo
+  -> UpdatableBlockState m
+  -> m (UpdatableBlockState m)
+doFinalizationRewards finInfo bs0
+    | totalPower == 0 = error "doFinalizationRewards: Total finalizer weight is 0"
+    | otherwise = do
+        finRew <- (^. finalizationRewardAccount) <$> bsoGetBankStatus bs0
+        let awardFinalizer (t, m, bs) (bkr, power) = do
+              let amt = fromInteger $ toInteger finRew * toInteger power `div` toInteger totalPower
+              (mbaddr, bs') <- bsoRewardBaker bs bkr amt
+              case mbaddr of
+                Nothing -> error $ "doFinalizationRewards: Finalizer BakerId (" ++ show bkr ++ ") is not valid."
+                Just baddr -> return (t + amt, Map.insert baddr amt m, bs') 
+        (totalAward, awardMap, bs1) <- foldM awardFinalizer (0, Map.empty, bs0) finInfo
+        bsoAddSpecialTransactionOutcome bs1 FinalizationRewards{
+          stoFinalizationRewards = AccountAmounts awardMap,
+          stoRemainder = finRew - totalAward
+        }
+  where
+    totalPower = sum (snd <$> finInfo)
+
+-- |The counts of the various 'free' transactions for the
+-- purposes of determining the block reward.
+data FreeTransactionCounts = FreeTransactionCounts {
+  -- |Number of credential deployment transactions.
+  countAccountCreation :: !Word16,
+  -- |Number of chain update transactions.
+  countUpdate :: !Word16,
+  -- |Number of finalization records included.
+  -- (Currently can only be 0 or 1, but higher values
+  -- could be possible if the block format is revised.)
+  countFinRecs :: !Word16
+}
+
+-- |Distribute the transaction fees between the baker,
+-- foundation, and GAS account.  Additionally, a proportion
+-- of the GAS account is paid to the baker, consisting of a
+-- base fraction and additional fractions for the 'free'
+-- transactions in the block.
+doBlockReward :: (BlockStateOperations m)
+  => Amount
+  -- ^Transaction fees paid
+  -> FreeTransactionCounts
+  -- ^Counts of unpaid transactions
+  -> BakerId
+  -- ^Block baker
+  -> AccountAddress
+  -- ^Foundation account
+  -> UpdatableBlockState m
+  -- ^Block state
+  -> m (UpdatableBlockState m)
+doBlockReward transFees FreeTransactionCounts{..} bid foundationAddr bs0 = do
+    rewardParams <- (^. rewardParameters) <$> bsoGetChainParameters bs0
+    oldRewardAccts <- (^. rewardAccounts) <$> bsoGetBankStatus bs0
+    let gasIn = oldRewardAccts ^. gasAccount
+        bakerFees = takeFraction (rewardParams ^. tfdBaker) transFees
+        gasFees = takeFraction (rewardParams ^. tfdGASAccount) transFees
+        platformFees = transFees - (bakerFees + gasFees)
+        -- Compute the GAS carried over. This is done at full precision and then
+        -- rounded up (so that the payment to the baker is rounded up).
+        gasGAS = ceiling $ toRational gasIn
+                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasBaker)
+                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasAccountCreation)^countAccountCreation
+                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasChainUpdate)^countUpdate
+                    * (fractionToRational . complementRewardFraction $ rewardParams ^. gasFinalizationProof)^countFinRecs
+        bakerGAS = gasIn - gasGAS
+        gasOut = gasFees + gasGAS
+        bakerOut = bakerFees + bakerGAS
+    bs1 <- bsoSetRewardAccounts bs0 (oldRewardAccts & gasAccount .~ gasOut)
+    (mbkr, bs2) <- bsoRewardBaker bs1 bid bakerOut
+    bkr <- case mbkr of
+      Nothing -> error "Invalid baker account"
+      Just bkr -> return bkr
+    bs3 <- bsoRewardFoundationAccount bs2 platformFees
+    bsoAddSpecialTransactionOutcome bs3 BlockReward{
+      stoTransactionFees = transFees,
+      stoOldGASAccount = gasIn,
+      stoNewGASAccount = gasOut,
+      stoBakerReward = bakerOut,
+      stoFoundationCharge = platformFees,
+      stoBaker = bkr,
+      stoFoundationAccount = foundationAddr
+    }
+
+
+-- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
+-- The process consists of the following four steps:
+--
+-- 1. If the block is the first in a new epoch, distribute the baking reward account
+--    to the bakers of the previous epoch in proportion to the number of blocks they
+--    baked. (The reward per block is BakingRewardAccount/#blocks, rounded down.
+--    Any remainder is kept in the account.)
+--
+-- 2. GTU is minted for each slot since the previous block.  The minted GTUs are
+--    distributed to the baker reward account, finalization reward account, and
+--    foundation account. (Rounding favours the foundation account.  GTU is minted
+--    for a series of slots before it is divided among the recipients, which should
+--    reduce the effect of rounding.  The series of slots is typically the entire
+--    number between blocks, but is broken for updates to the mint rate and distribution
+--    fractions.)
+--
+-- 3. If the block contains a finalization record, the finalizers are rewarded with
+--    the balance of the finalization reward account, distributed according to their
+--    voting power (i.e. their stake).  The reward to each finalizer is rounded down,
+--    with any remaining balance remaining in the reward account.  (Note: the rounding
+--    here is different to the baking reward distribution.)
+--
+-- 4. The transaction fees are distributed between the baker, GAS account, and foundation
+--    account.  Additionally, a fraction of the old GAS account is paid to the baker,
+--    including incentives for including the 'free' transaction types.  (Rounding of
+--    the fee distribution favours the foundation.  The GAS reward is rounded down.)
+mintAndReward :: (BlockStateOperations m, BlockPointerMonad m)
+    => UpdatableBlockState m
+    -- ^Block state
+    -> BlockPointerType m
+    -- ^Parent block
+    -> Slot
+    -- ^Block slot
+    -> BakerId
+    -- ^Baker ID
+    -> Bool
+    -- ^Is a new epoch
+    -> Maybe FinalizerInfo
+    -- ^Info on finalization committee for included record, if any
+    -> Amount
+    -- ^Transaction fees
+    -> FreeTransactionCounts
+    -- ^Number of "free" transactions of each type
+    -> [(Slot, UpdateValue)]
+    -- ^Ordered chain updates since the last block
+    -> m (UpdatableBlockState m)
+mintAndReward bshandle blockParent slotNumber bid isNewEpoch mfinInfo transFees freeCounts updates = do
+  -- First, reward bakers from previous epoch, if we are starting a new one.
+  bshandleEpoch <- (if isNewEpoch then rewardLastEpochBakers else return) bshandle
+    -- Add the block to the list of blocks baked in this epoch
+    >>= flip bsoNotifyBlockBaked bid
+  
+  foundationAccount <- getAccountAddress =<< bsoGetFoundationAccount bshandleEpoch
+
+  -- Then mint GTU.
+  let mintUpdates = [(slot, md) | (slot, UVMintDistribution md) <- updates]
+  bshandleMint <- doMinting blockParent slotNumber foundationAccount mintUpdates bshandleEpoch
+
+  -- Next, reward the finalizers, if the block includes a finalization record.
+  bshandleFinRew <- case mfinInfo of
+    Nothing -> return bshandleMint
+    Just finInfo -> doFinalizationRewards finInfo bshandleMint
+  
+  -- Finally, reward the block baker.
+  doBlockReward transFees freeCounts bid foundationAccount bshandleFinRew
 
 -- |Update the bakers and seed state of the block state.
 -- The epoch for the new seed state must be at least the epoch of
 -- the old seed state (currently on the block state).
+-- If the epoch is new, the old bakers are rewarded with the balance
+-- of the baking reward account, in proportion to the number of blocks
+-- they baked in that epoch.
 --
 -- If the new epoch is not the same as or direct successor of the current
 -- one, then 'bsoTransitionEpochBakers' is called twice. This should be
 -- sufficient because the bakers will not change in the intervening epochs.
+--
+-- The return value is @True@ if the block is the first in a new epoch.
 updateBirkParameters :: BlockStateOperations m
   => SeedState
   -- ^New seed state
   -> UpdatableBlockState m
   -- ^Block state
-  -> m (UpdatableBlockState m)
+  -> m (Bool, UpdatableBlockState m)
 updateBirkParameters newSeedState bs0 = do
     oldSeedState <- bsoGetSeedState bs0
-    bs1 <- if epoch oldSeedState == epoch newSeedState
-      then return bs0
-      else do
+    let isNewEpoch = epoch oldSeedState /= epoch newSeedState
+    bs1 <- if isNewEpoch
+      then do
         upToLast <- if epoch oldSeedState /= epoch newSeedState - 1
           then bsoTransitionEpochBakers bs0 (epoch newSeedState - 1)
           else return bs0
         bsoTransitionEpochBakers upToLast (epoch newSeedState)
-    bsoSetSeedState bs1 newSeedState
+      else
+        return bs0
+    (isNewEpoch,) <$> bsoSetSeedState bs1 newSeedState
+
+-- |Count the free transactions of each kind in a list.
+-- The second argument indicates if the block contains a finalization record.
+countFreeTransactions :: [BlockItem] -> Bool -> FreeTransactionCounts
+countFreeTransactions bis hasFinRec = foldl' cft f0 bis
+  where
+    f0 = FreeTransactionCounts {
+      countAccountCreation = 0,
+      countUpdate = 0,
+      countFinRecs = if hasFinRec then 1 else 0
+    }
+    cft f bi = case wmdData bi of
+      CredentialDeployment{} -> let !c = countAccountCreation f + 1 in f {countAccountCreation = c}
+      ChainUpdate{} -> let !c = countUpdate f + 1 in f {countUpdate = c}
+      _ -> f
 
 -- |Execute a block from a given starting state.
 -- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
@@ -175,45 +438,56 @@ executeFrom :: forall m .
   -> BlockPointerType m  -- ^Parent pointer from which to start executing
   -> BlockPointerType m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
+  -> Maybe FinalizerInfo -- ^Parties to the finalization record in this block, if any
   -> SeedState -- ^New seed state
   -> [BlockItem] -- ^Transactions on this block.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
-executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker newSeedState txs =
+executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker mfinInfo newSeedState txs =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState =<< blockState blockParent
-    -- process the update queues
-    bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
-    -- unlock the amounts that have expired
-    bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
-    -- update the bakers and seed state
-    bshandle1 <- updateBirkParameters newSeedState bshandle0b
-    maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
-    let context = ContextState{
-          _chainMetadata = cm,
-          _maxBlockEnergy = maxBlockEnergy
-          }
-    (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
-    let usedEnergy = finState ^. schedulerEnergyUsed
-    let bshandle2 = finState ^. schedulerBlockState
-    case res of
-        Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
-        Right outcomes -> do
+    chainParams <- bsoGetChainParameters bshandle0
+    let counts = countFreeTransactions txs (isJust mfinInfo)
+    if (countAccountCreation counts > chainParams ^. cpAccountCreationLimit)
+      then
+          return $ Left (Just ExceedsMaxCredentialDeployments)
+      else do
+        -- process the update queues
+        (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
+        -- unlock the amounts that have expired
+        bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
+        -- update the bakers and seed state
+        (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
+        maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
+        let context = ContextState{
+              _chainMetadata = cm,
+              _maxBlockEnergy = maxBlockEnergy,
+              _accountCreationLimit = chainParams ^. cpAccountCreationLimit
+              }
+        (res, finState) <- runBSM (Sch.runTransactions txs) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        let usedEnergy = finState ^. schedulerEnergyUsed
+        let bshandle2 = finState ^. schedulerBlockState
+        case res of
+            Left fk -> Left fk <$ dropUpdatableBlockState bshandle2
+            Right outcomes -> do
 
-            -- Record the transaction outcomes
-            bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
-            -- Record transaction outcomes in the transaction table as well.
-            zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
-            -- the main execution is now done. At this point we must mint new currency
-            -- and reward the baker and other parties.
-            bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
+                -- Record the transaction outcomes
+                bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd outcomes)
+                -- Record transaction outcomes in the transaction table as well.
+                zipWithM_ (commitTransaction slotNumber blockHash) txs [0..]
+                -- the main execution is now done. At this point we must mint new currency
+                -- and reward the baker and other parties.
+                genData <- getGenesisData
+                let updates' = (_1 %~ transactionTimeToSlot (genesisTime genData) (genesisSlotDuration genData))
+                                <$> Map.toAscList updates
+                bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
-            finalbsHandle <- freezeBlockState bshandle4
-            return (Right (ExecutionResult{_energyUsed = usedEnergy,
-                                           _finalState = finalbsHandle,
-                                           _transactionLog = finState ^. schedulerTransactionLog}))
+                finalbsHandle <- freezeBlockState bshandle4
+                return (Right (ExecutionResult{_energyUsed = usedEnergy,
+                                              _finalState = finalbsHandle,
+                                              _transactionLog = finState ^. schedulerTransactionLog}))
 
 -- |PRECONDITION: Focus block is the parent block of the block we wish to make,
 -- hence the pending transaction table is correct for the new block.
@@ -227,20 +501,22 @@ constructBlock :: forall m .
   -> BlockPointerType m -- ^Parent pointer from which to start executing
   -> BlockPointerType m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
+  -> Maybe FinalizerInfo -- ^Parties to the finalization record in this block, if any
   -> SeedState -- ^New seed state
   -> m (Sch.FilteredTransactions, ExecutionResult m)
-constructBlock slotNumber slotTime blockParent lfPointer blockBaker newSeedState =
+constructBlock slotNumber slotTime blockParent lfPointer blockBaker mfinInfo newSeedState =
   let cm = let blockHeight = bpHeight blockParent + 1
                finalizedHeight = bpHeight lfPointer
            in ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState =<< blockState blockParent
+    chainParams <- bsoGetChainParameters bshandle0
     -- process the update queues
-    bshandle0a <- bsoProcessUpdateQueues bshandle0 slotTime
+    (updates, bshandle0a) <- bsoProcessUpdateQueues bshandle0 slotTime
     -- unlock the amounts that have expired
     bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
     -- update the bakers and seed state
-    bshandle1 <- updateBirkParameters newSeedState bshandle0b
+    (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
     pt <- getPendingTransactions
 
     -- Prioritise the block items for inclusion in a block.
@@ -278,7 +554,8 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker newSeedState
     maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _chainMetadata = cm,
-          _maxBlockEnergy = maxBlockEnergy
+          _maxBlockEnergy = maxBlockEnergy,
+          _accountCreationLimit = chainParams ^. cpAccountCreationLimit
           }
     (ft@Sch.FilteredTransactions{..}, finState) <-
         runBSM (Sch.filterTransactions (fromIntegral maxSize) transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)
@@ -288,7 +565,11 @@ constructBlock slotNumber slotTime blockParent lfPointer blockBaker newSeedState
     let bshandle2 = finState ^. schedulerBlockState
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
-    bshandle4 <- mintAndReward bshandle3 blockParent lfPointer slotNumber blockBaker
+    let counts = countFreeTransactions (map fst ftAdded) (isJust mfinInfo)
+    genData <- getGenesisData
+    let updates' = (_1 %~ transactionTimeToSlot (genesisTime genData) (genesisSlotDuration genData))
+                    <$> Map.toAscList updates
+    bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
     bshandleFinal <- freezeBlockState bshandle4
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
