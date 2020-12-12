@@ -681,7 +681,7 @@ withDeposit wtc comp k = do
         tsCost = payment,
         tsEnergyCost = usedEnergy,
         tsResult = TxReject reason,
-        tsType = Just (wtc ^. wtcTransactionType),
+        tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
         tsIndex = wtc ^. wtcTransactionIndex,
         ..
         }
@@ -691,7 +691,7 @@ withDeposit wtc comp k = do
       (tsResult, tsCost, tsEnergyCost) <- k ls a
       return $! Just $! TransactionSummary{
         tsSender = Just (thSender txHeader),
-        tsType = Just (wtc ^. wtcTransactionType),
+        tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
         tsIndex = wtc ^. wtcTransactionIndex,
         ..
         }
