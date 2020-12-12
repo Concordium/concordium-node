@@ -67,7 +67,7 @@ class (Monad m) => FinalizationMonad m where
          -> m UpdateResult
     -- |Get the (best available) finalization record for a given finalization index
     -- that is not settled.
-    finalizationUnsettledRecordAt :: FinalizationIndex -> m (Maybe FinalizationRecord)
+    finalizationUnsettledRecordAt :: FinalizationIndex -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
     -- |Return the finalization records for the unsettled finalized blocks with
     -- finalization index greater than the specified value.
     finalizationUnsettledRecords :: FinalizationIndex -> m (Seq.Seq FinalizationRecord)

@@ -538,8 +538,7 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
                 genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
                 genesisIdentityProviders = emptyIdentityProviders,
                 genesisAnonymityRevokers = Dummy.dummyArs,
-                genesisMintPerSlot = 10,
-                genesisMaxBlockEnergy = (Energy maxBound),
+                genesisMaxBlockEnergy = Energy maxBound,
                 genesisAuthorizations = dummyAuthorizations,
                 genesisChainParameters = dummyChainParameters
             }

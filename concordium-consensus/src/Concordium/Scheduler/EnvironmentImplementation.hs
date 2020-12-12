@@ -34,7 +34,8 @@ import qualified Concordium.GlobalState.Types as GS
 -- |Chain metadata together with the maximum allowed block energy.
 data ContextState = ContextState{
   _chainMetadata :: !ChainMetadata,
-  _maxBlockEnergy :: !Energy
+  _maxBlockEnergy :: !Energy,
+  _accountCreationLimit :: !CredentialsPerBlockLimit
   }
 
 makeLenses ''ContextState
@@ -47,17 +48,25 @@ class CanExtend (TransactionLog a) => HasSchedulerState a where
 
   schedulerBlockState :: Lens' a (SS a)
   schedulerEnergyUsed :: Lens' a Energy
+  -- |The running total of execution costs for this block.
+  schedulerExecutionCosts :: Lens' a Amount
   schedulerTransactionLog :: Lens' a (TransactionLog a)
   nextIndex :: Lens' a TransactionIndex
 
 data NoLogSchedulerState (m :: DK.Type -> DK.Type)= NoLogSchedulerState {
   _ssBlockState :: !(UpdatableBlockState m),
   _ssSchedulerEnergyUsed :: !Energy,
+  _ssSchedulerExecutionCosts :: !Amount,
   _ssNextIndex :: !TransactionIndex
   }
 
 mkInitialSS :: UpdatableBlockState m -> NoLogSchedulerState m
-mkInitialSS _ssBlockState = NoLogSchedulerState{_ssSchedulerEnergyUsed = 0, _ssNextIndex = 0,..}
+mkInitialSS _ssBlockState = NoLogSchedulerState{
+    _ssSchedulerEnergyUsed = 0,
+    _ssSchedulerExecutionCosts = 0,
+    _ssNextIndex = 0,
+    ..
+  }
 
 makeLenses ''NoLogSchedulerState
 
@@ -66,6 +75,7 @@ instance HasSchedulerState (NoLogSchedulerState m) where
   type TransactionLog (NoLogSchedulerState m) = ()
   schedulerBlockState = ssBlockState
   schedulerEnergyUsed = ssSchedulerEnergyUsed
+  schedulerExecutionCosts = ssSchedulerExecutionCosts
   nextIndex = ssNextIndex
   schedulerTransactionLog f s = s <$ f ()
 
@@ -106,6 +116,9 @@ instance (MonadReader ContextState m,
     s <- use schedulerBlockState
     lift (bsoGetModule s mref)
 
+  {-# INLINE getAccountCreationLimit #-}
+  getAccountCreationLimit = view accountCreationLimit
+
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
           HasSchedulerState state,
@@ -140,6 +153,9 @@ instance (MonadReader ContextState m,
 
   {-# INLINE getAccount #-}
   getAccount !addr = lift . flip bsoGetAccount addr =<< use schedulerBlockState
+
+  {-# INLINE getAccountIndex #-}
+  getAccountIndex addr = lift  . flip bsoGetAccountIndex addr =<< use schedulerBlockState
 
   {-# INLINE putNewInstance #-}
   putNewInstance !mkInstance = do
@@ -215,16 +231,7 @@ instance (MonadReader ContextState m,
     return (computeCost rate v)
 
   {-# INLINE notifyExecutionCost #-}
-  notifyExecutionCost !amnt = do
-    s <- use schedulerBlockState
-    s' <- lift (bsoNotifyExecutionCost s amnt)
-    schedulerBlockState .= s'
-
-  {-# INLINE notifyIdentityProviderCredential #-}
-  notifyIdentityProviderCredential !idk = do
-    s <- use schedulerBlockState
-    s' <- lift (bsoNotifyIdentityIssuerCredential s idk)
-    schedulerBlockState .= s'
+  notifyExecutionCost !amnt = schedulerExecutionCosts += amnt
 
   {-# INLINE notifyEncryptedBalanceChange #-}
   notifyEncryptedBalanceChange !amntDiff = do
@@ -346,30 +353,30 @@ deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans RWSTBS (PureBlockS
 instance ATITypes SchedulerImplementation where
   type ATIStorage SchedulerImplementation = ()
 
-runSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS)
-runSI sc cd energy gs =
+runSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> (a, PBSSS)
+runSI sc cd energy maxCreds gs =
   let (a, s, !_) =
         runIdentity $
         runPureBlockStateMonad $
-        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
+        runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
   in (a, s)
 
 -- |Same as the previous method, but retain the logs of the run.
-runSIWithLogs :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> (a, PBSSS, [(LogSource, LogLevel, String)])
-runSIWithLogs sc cd energy gs =
+runSIWithLogs :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> (a, PBSSS, [(LogSource, LogLevel, String)])
+runSIWithLogs sc cd energy maxCreds gs =
   runIdentity $
   runPureBlockStateMonad $
-  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0)
+  runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
 
 
-execSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> PBSSS
-execSI sc cd energy gs =
+execSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> PBSSS
+execSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
+       execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))
 
-evalSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> BlockState -> a
-evalSI sc cd energy gs =
+evalSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> a
+evalSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
-       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy) (NoLogSchedulerState gs 0 0))
+       evalRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))

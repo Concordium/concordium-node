@@ -131,7 +131,6 @@ makeGenesisData
         genesisChainParameters
     = (GenesisDataV2{..}, bakers)
     where
-        genesisMintPerSlot = 10 -- default value, OK for testing.
         genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         mbkrs = makeBakers nBakers
         bakers = (\(bid,binfo,_,_) -> (bid,binfo)) <$> mbkrs
