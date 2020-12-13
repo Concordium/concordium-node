@@ -305,9 +305,9 @@ fn send_msg_to_consensus(
     };
 
     if consensus_response.is_acceptable() {
-        info!("Processed a {} from {}", message.variant, source_id);
+        debug!("Processed a {} from {}", message.variant, source_id);
     } else {
-        debug!("Couldn't process a {} due to error code {:?}", message, consensus_response,);
+        warn!("Couldn't process a {} due to error code {:?}", message, consensus_response,);
     }
 
     Ok(consensus_response)
@@ -336,7 +336,7 @@ fn send_consensus_msg_to_net(
         } else {
             "broadcast".to_string()
         };
-        info!("Sent a {} containing a {}", target_desc, msg_desc);
+        debug!("Sent a {} containing a {}", target_desc, msg_desc);
     }
 }
 
