@@ -170,22 +170,23 @@ calculateMintAmounts ::
   -> Amount
   -- ^Total GTU
   -> MintAmounts
-calculateMintAmounts start end md0 upds tGTU = case upds of
-    ((s,md1):upds')
-      | s <= start -> calculateMintAmounts start end md1 upds' tGTU
-      | s <= end -> let (tGTU', a1) = mintRange start (s-1) md0 tGTU
-                    in a1 <> calculateMintAmounts s end md1 upds' tGTU'
-    _ -> snd $ mintRange start end md0 tGTU
-  where
-    mintRange s e md t =
-      let mintSupply s' !m !t'
-            | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
-            | otherwise = (m, t')
-          (newMint, newTotal) = mintSupply s 0 t
-          mintBakingReward = takeFraction (md ^. mdBakingReward) newMint
-          mintFinalizationReward = takeFraction (md ^. mdFinalizationReward) newMint
-          mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
-      in (newTotal, MintAmounts{..})
+calculateMintAmounts  = go mempty
+  where go !acc start end md0 upds tGTU = case upds of
+          ((s,md1):upds')
+            | s <= start -> go acc start end md1 upds' tGTU
+            | s <= end -> let (tGTU', a1) = mintRange start (s-1) md0 tGTU
+                        in go (a1 <> acc) s end md1 upds' tGTU'
+          _ -> acc <> (snd $ mintRange start end md0 tGTU)
+
+        mintRange s e md t =
+          let mintSupply s' !m !t'
+                  | s' <= e = let !a = mintAmount (md ^. mdMintPerSlot) t' in mintSupply (s'+1) (m+a) (t'+a)
+                  | otherwise = (m, t')
+              (newMint, newTotal) = mintSupply s 0 t
+              mintBakingReward = takeFraction (md ^. mdBakingReward) newMint
+              mintFinalizationReward = takeFraction (md ^. mdFinalizationReward) newMint
+              mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
+          in (newTotal, MintAmounts{..})
 
 -- |Mint for all slots since the last block, recording a
 -- special transaction outcome for the minting.
