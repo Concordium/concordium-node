@@ -35,9 +35,9 @@ data Genesis
                            gdIdentity :: Maybe FilePath,
                            gdArs :: Maybe FilePath,
                            gdCryptoParams :: Maybe FilePath,
-                           gdAdditionalAccounts :: Maybe FilePath,
-                           gdUpdateAuthorizations :: Maybe FilePath,
-                           gdBakers :: Maybe FilePath}
+                           gdAccounts :: Maybe FilePath,
+                           gdUpdateAuthorizations :: Maybe FilePath
+                           }
       | PrintGenesisData { gdSource :: FilePath }
     deriving (Typeable, Data)
 
@@ -64,24 +64,18 @@ generateGenesisData = GenerateGenesisData {
                      opt (Nothing :: Maybe FilePath) &=
                      typFile &=
                      help "JSON file with cryptographic parameters for the chain.",
-    gdAdditionalAccounts = def &=
+    gdAccounts = def &=
                            explicit &=
-                           name "additional-accounts" &=
+                           name "accounts" &=
                            opt (Nothing :: Maybe FilePath) &=
                            typFile &=
-                           help "JSON file with additional accounts (not baker)",
+                           help "JSON file with initial accounts, whether they are bakers or not.",
     gdUpdateAuthorizations = def &=
                         explicit &=
                         name "update-authorizations" &=
                         opt (Nothing :: Maybe FilePath) &=
                         typFile &=
-                        help "JSON file with update authorizations.",
-    gdBakers = def &=
-               explicit &=
-               name "bakers" &=
-               opt (Nothing :: Maybe FilePath) &=
-               typFile &=
-               help "JSON file with baker information."
+                        help "JSON file with update authorizations."
  } &= help "Parse JSON genesis parameters from INFILE and write serialized genesis data to OUTFILE"
   &= explicit &= name "make-genesis"
 
@@ -157,9 +151,8 @@ main = cmdArgsRun mode >>=
                   vId <- maybeModifyValueVersioned expectedIpInfosVersion gdIdentity "identityProviders" g
                   vAr <- maybeModifyValueVersioned expectedArInfosVersion gdArs "anonymityRevokers" vId
                   vCP <- maybeModifyValueVersioned expectedCryptoParamsVersion gdCryptoParams "cryptographicParameters" vAr
-                  vAdditionalAccs <- maybeModifyValue gdAdditionalAccounts "initialAccounts" vCP
-                  vAccAuth <- maybeModifyValue gdUpdateAuthorizations "updateAuthorizations" vAdditionalAccs
-                  value <- maybeModifyValue gdBakers "bakers" vAccAuth
+                  vAdditionalAccs <- maybeModifyValue gdAccounts "initialAccounts" vCP
+                  value <- maybeModifyValue gdUpdateAuthorizations "updateAuthorizations" vAdditionalAccs
                   case fromJSON value of
                     Error err -> do
                       die $ "Could not decode genesis parameters: " ++ show err
@@ -260,11 +253,15 @@ main = cmdArgsRun mode >>=
               printAccessStructure "election difficulty" asParamElectionDifficulty
               printAccessStructure "euro per energy" asParamEuroPerEnergy
               printAccessStructure "microGTU per euro" asParamMicroGTUPerEuro
+              printAccessStructure "foundation account" asParamFoundationAccount
+              printAccessStructure "mint distribution" asParamMintDistribution
+              printAccessStructure "transaction fee distribution" asParamTransactionFeeDistribution
+              printAccessStructure "gas reward parameters" asParamGASRewards
 
   where showTime t = formatTime defaultTimeLocale rfc822DateFormat (timestampToUTCTime t)
         showBalance totalGTU balance =
             printf "%s (= %.4f%%)" (amountToString balance) (100 * (fromIntegral balance / fromIntegral totalGTU) :: Double)
-        showAccount totalGTU (Account{_accountPersisting=PersistingAccountData{..}, ..}) = do
+        showAccount totalGTU Account{_accountPersisting=PersistingAccountData{..}, ..} = do
           putStrLn $ "  - " ++ show _accountAddress
           putStrLn $ "     * balance: " ++ showBalance totalGTU _accountAmount
           putStrLn $ "     * threshold: " ++ show (akThreshold _accountVerificationKeys)
