@@ -11,7 +11,7 @@ use crate::{
 };
 
 use byteorder::WriteBytesExt;
-use concordium_common::{ConsensusFfiResponse, ConsensusIsIBakingCommitteeResponse, PacketType};
+use concordium_common::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType};
 use consensus_rust::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
     messaging::{ConsensusMessage, MessageType},
@@ -372,13 +372,13 @@ impl P2p for RpcServerImpl {
                     consensus_running: true,
                     consensus_type: consensus.consensus_type.to_string(),
                     consensus_baker_committee: match consensus_baking_committee_status {
-                        ConsensusIsIBakingCommitteeResponse::ActiveInCommittee(_) => true,
+                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => true,
                         _ => false,
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
                     staging_net_username,
                     consensus_baker_id: match consensus_baking_committee_status {
-                        ConsensusIsIBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
+                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(baker_id) => {
                             Some(baker_id)
                         }
                         _ => None,
