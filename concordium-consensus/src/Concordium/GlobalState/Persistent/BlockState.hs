@@ -609,11 +609,11 @@ doTransitionEpochBakers pbs newEpoch = do
         _bakerStakes <- secondIfEqual newBakerStakes (_bakerStakes neb)
         let _bakerTotalStake = sum stakesVec
         newNextBakers <- refMake PersistentEpochBakers{..}
-        let newBirkParams = oldBPs {
+        storePBS pbs bsp'{bspBirkParameters = (bspBirkParameters bsp') {
             _birkCurrentEpochBakers = _birkNextEpochBakers oldBPs,
             _birkNextEpochBakers = newNextBakers
+          }
         }
-        storePBS pbs bsp'{bspBirkParameters = newBirkParams}
     where
         secondIfEqual a b = do
             h1 <- getHashM a
