@@ -234,7 +234,8 @@ doFinalizationRewards :: (BlockStateOperations m)
 doFinalizationRewards finInfo bs0
     | totalPower == 0 = error "doFinalizationRewards: Total finalizer weight is 0"
     | otherwise = do
-        finRew <- (^. finalizationRewardAccount) <$> bsoGetBankStatus bs0
+        rewards <- _bankRewardAccounts <$> bsoGetBankStatus bs0
+        let finRew = rewards ^. finalizationRewardAccount
         let awardFinalizer (t, m, bs) (bkr, power) = do
               let amt = fromInteger $ toInteger finRew * toInteger power `div` toInteger totalPower
               (mbaddr, bs') <- bsoRewardBaker bs bkr amt
@@ -242,9 +243,11 @@ doFinalizationRewards finInfo bs0
                 Nothing -> error $ "doFinalizationRewards: Finalizer BakerId (" ++ show bkr ++ ") is not valid."
                 Just baddr -> return (t + amt, Map.insert baddr amt m, bs') 
         (totalAward, awardMap, bs1) <- foldM awardFinalizer (0, Map.empty, bs0) finInfo
-        bsoAddSpecialTransactionOutcome bs1 FinalizationRewards{
+        let remainder = finRew - totalAward
+        bs2 <- bsoSetRewardAccounts bs1 (rewards & finalizationRewardAccount .~ remainder)
+        bsoAddSpecialTransactionOutcome bs2 FinalizationRewards{
           stoFinalizationRewards = AccountAmounts awardMap,
-          stoRemainder = finRew - totalAward
+          stoRemainder = remainder
         }
   where
     totalPower = sum (snd <$> finInfo)
