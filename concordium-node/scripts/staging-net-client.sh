@@ -23,6 +23,11 @@ useradd -g $GROUP_ID -l -m -s /bin/false -u $USER_ID docker
 mkdir -p /var/lib/concordium
 chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
+if [ -f /var/lib/concordium/data/baker-credentials.json ];
+then
+    export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
+fi
+
 if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
 then
   export IMPORT_BLOCKS_FROM="/var/lib/concordium/data/blocks_to_import.dat"
