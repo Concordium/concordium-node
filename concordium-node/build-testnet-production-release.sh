@@ -27,9 +27,6 @@ if [ -z "$JENKINS_HOME" ]; then
   git pull
 fi
 
-PATH="$PATH:/usr/local/bin" git lfs install
-PATH="$PATH:/usr/local/bin" git lfs pull
-
 VERSION=`cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//'`
 
 ./scripts/build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_TYPE $CONSENSUS_PROFILING
