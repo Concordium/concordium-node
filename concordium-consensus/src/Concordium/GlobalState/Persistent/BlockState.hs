@@ -14,7 +14,6 @@ module Concordium.GlobalState.Persistent.BlockState (
     makePersistent,
     initialPersistentState,
     emptyBlockState,
-    fromPersistentInstance,
     PersistentBlockStateContext(..),
     PersistentState,
     PersistentBlockStateMonad(..)
@@ -55,7 +54,7 @@ import Concordium.GlobalState.Persistent.Bakers
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.Execution as Transactions
-import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..), CacheableInstanceParameters(..))
+import Concordium.GlobalState.Persistent.Instances(PersistentInstance(..), PersistentInstanceParameters(..))
 import Concordium.GlobalState.Instance (Instance(..),InstanceParameters(..),makeInstanceHash')
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlockState.Updates
@@ -357,9 +356,9 @@ makePersistentBirkParameters bbps = do
 
 makePersistent :: MonadBlobStore m  => Basic.BlockState -> m HashedPersistentBlockState
 makePersistent Basic.BlockState{..} = do
-  persistentBlockInstances <- Instances.makePersistent _blockInstances
   persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
   persistentMods <- Modules.makePersistentModules _blockModules
+  persistentBlockInstances <- Instances.makePersistent persistentMods _blockInstances
   modules <- refMake persistentMods
   identityProviders <- bufferHashed _blockIdentityProviders
   anonymityRevokers <- bufferHashed _blockAnonymityRevokers
@@ -420,45 +419,6 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
             ..
           }
   liftIO $ newIORef $! bsp
-
-fromPersistentInstance ::  MonadBlobStore m =>
-    PersistentBlockState -> Instances.PersistentInstance -> m Instance
-fromPersistentInstance _ Instances.PersistentInstance{pinstanceCachedParameters = (Some CacheableInstanceParameters{..}), ..} = do
-    PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
-    let instanceParameters = InstanceParameters {
-            instanceAddress = pinstanceAddress,
-            instanceOwner = pinstanceOwner,
-            instanceContractModule = pinstanceContractModule,
-            instanceInitName = pinstanceInitName,
-            instanceReceiveFuns = pinstanceReceiveFuns,
-            instanceModuleInterface = pinstanceModuleInterface,
-            instanceParameterHash = pinstanceParameterHash
-        }
-    return Instance{ instanceModel = pinstanceModel,
-            instanceAmount = pinstanceAmount,
-            instanceHash = pinstanceHash,
-            ..
-         }
-fromPersistentInstance pbs Instances.PersistentInstance{..} = do
-    PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
-    doGetModule pbs pinstanceContractModule >>= \case
-        Nothing -> error "fromPersistentInstance: unresolvable module" -- TODO: Possibly don't error here
-        Just m -> do
-            let instanceParameters = InstanceParameters {
-                    instanceAddress = pinstanceAddress,
-                    instanceOwner = pinstanceOwner,
-                    instanceContractModule = pinstanceContractModule,
-                    instanceInitName = pinstanceInitName,
-                    instanceReceiveFuns = pinstanceReceiveFuns,
-                    instanceModuleInterface = m,
-                    instanceParameterHash = pinstanceParameterHash
-                }
-            return Instance{
-                    instanceModel = pinstanceModel,
-                    instanceAmount = pinstanceAmount,
-                    instanceHash = pinstanceHash,
-                    ..
-                }
 
 loadPBS :: MonadBlobStore m => PersistentBlockState -> m BlockStatePointers
 loadPBS = loadBufferedRef <=< liftIO . readIORef
@@ -867,19 +827,20 @@ doGetInstance :: MonadBlobStore m => PersistentBlockState -> ContractAddress -> 
 doGetInstance pbs caddr = do
         bsp <- loadPBS pbs
         minst <- Instances.lookupContractInstance caddr (bspInstances bsp)
-        forM minst $ fromPersistentInstance pbs
+        forM minst Instances.fromPersistentInstance
 
 doContractInstanceList :: MonadBlobStore m => PersistentBlockState -> m [Instance]
 doContractInstanceList pbs = do
         bsp <- loadPBS pbs
         insts <- Instances.allInstances (bspInstances bsp)
-        mapM (fromPersistentInstance pbs) insts
+        mapM Instances.fromPersistentInstance insts
 
 doPutNewInstance :: MonadBlobStore m => PersistentBlockState -> (ContractAddress -> Instance) -> m (ContractAddress, PersistentBlockState)
 doPutNewInstance pbs fnew = do
         bsp <- loadPBS pbs
+        mods <- refLoad (bspModules bsp)
         -- Create the instance
-        (inst, insts) <- Instances.newContractInstance fnew' (bspInstances bsp)
+        (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
         let ca = instanceAddress (instanceParameters inst)
         -- Update the owner account's set of instances
         let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
@@ -889,7 +850,7 @@ doPutNewInstance pbs fnew = do
                             bspAccounts = accts
                         }
     where
-        fnew' ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
+        fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
             params <- makeBufferedRef $ PersistentInstanceParameters {
                                             pinstanceAddress = instanceAddress,
                                             pinstanceOwner = instanceOwner,
@@ -898,11 +859,12 @@ doPutNewInstance pbs fnew = do
                                             pinstanceInitName = instanceInitName,
                                             pinstanceParameterHash = instanceParameterHash
                                         }
+            -- This in an irrefutable pattern because otherwise it would have failed in previous stages
+            -- as it would be trying to create an instance of a module that doesn't exist.
+            ~(Just modRef) <- Modules.getModuleReference (Wasm.miModuleRef instanceModuleInterface) mods
             return (inst, PersistentInstance{
                 pinstanceParameters = params,
-                pinstanceCachedParameters = Some (CacheableInstanceParameters{
-                        pinstanceModuleInterface = instanceModuleInterface
-                    }),
+                pinstanceModuleInterface = modRef,
                 pinstanceModel = instanceModel,
                 pinstanceAmount = instanceAmount,
                 pinstanceHash = instanceHash

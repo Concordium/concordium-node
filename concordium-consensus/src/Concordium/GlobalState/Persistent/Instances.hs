@@ -23,14 +23,10 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Instance as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.InstanceTable as Transient
+import Concordium.GlobalState.Persistent.BlockState.Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 
--- |The module interface will likely need to change so that
--- it either stores the serialized or deserialized module.
--- Hopefully (de)serialization should be very cheap.
-data CacheableInstanceParameters = CacheableInstanceParameters {
-    -- |The interface of 'instanceContractModule'
-    pinstanceModuleInterface :: !Wasm.ModuleInterface
-}
+----------------------------------------------------------------------------------------------------
 
 -- |The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters {
@@ -73,12 +69,16 @@ instance Serialize PersistentInstanceParameters where
 instance MonadBlobStore m => BlobStorable m PersistentInstanceParameters
 instance Applicative m => Cacheable m PersistentInstanceParameters
 
+----------------------------------------------------------------------------------------------------
+
 -- |An instance of a smart contract.
 data PersistentInstance = PersistentInstance {
     -- |The fixed parameters of the instance
     pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
-    -- |The fixed parameters that might be cached
-    pinstanceCachedParameters :: !(Nullable CacheableInstanceParameters),
+    -- |The interface of 'pinstanceContractModule'. Note this is a BufferedRef to a Module as this
+    -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
+    -- but that reference should never be consulted in the scope of Instance operations.
+    pinstanceModuleInterface :: !(BufferedRef Module),
     -- |The current local state of the instance
     pinstanceModel :: !Wasm.ContractState,
     -- |The current amount of GTU owned by the instance
@@ -104,12 +104,13 @@ instance MonadBlobStore m => BlobStorable m PersistentInstance where
     store pinst = fst <$> storeUpdate pinst
     load = do
         rparams <- load
+        rInterface <- load
         pinstanceModel <- get
         pinstanceAmount <- get
         return $ do
             pinstanceParameters <- rparams
+            pinstanceModuleInterface <- rInterface
             pip <- loadBufferedRef pinstanceParameters
-            let pinstanceCachedParameters = Null
             let pinstanceHash = makeInstanceHash pip pinstanceModel pinstanceAmount
             return PersistentInstance{..}
 
@@ -120,6 +121,26 @@ instance MonadBlobStore m => Cacheable m PersistentInstance where
         ips <- cache pinstanceParameters
         return p{pinstanceParameters = ips}
 
+fromPersistentInstance ::  MonadBlobStore m => PersistentInstance -> m Transient.Instance
+fromPersistentInstance PersistentInstance{..} = do
+    PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
+    instanceModuleInterface <- interface <$> loadBufferedRef pinstanceModuleInterface
+    let instanceParameters = Transient.InstanceParameters {
+            instanceAddress = pinstanceAddress,
+            instanceOwner = pinstanceOwner,
+            instanceContractModule = pinstanceContractModule,
+            instanceInitName = pinstanceInitName,
+            instanceReceiveFuns = pinstanceReceiveFuns,
+            instanceModuleInterface = instanceModuleInterface,
+            instanceParameterHash = pinstanceParameterHash
+        }
+    return Transient.Instance{ instanceModel = pinstanceModel,
+            instanceAmount = pinstanceAmount,
+            instanceHash = pinstanceHash,
+            ..
+         }
+
+----------------------------------------------------------------------------------------------------
 
 makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
@@ -407,9 +428,9 @@ allInstances (InstancesTree _ it) = mapReduceIT mfun it
         mfun (Left _) = return mempty
         mfun (Right inst) = return [inst]
 
-makePersistent :: forall m. MonadIO m => Transient.Instances -> m Instances
-makePersistent (Transient.Instances Transient.Empty) = return InstancesEmpty
-makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
+makePersistent :: forall m. MonadBlobStore m => Modules.Modules -> Transient.Instances -> m Instances
+makePersistent _ (Transient.Instances Transient.Empty) = return InstancesEmpty
+makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> conv t
     where
         conv :: Transient.IT -> m (BufferedBlobbed BlobRef IT)
         conv (Transient.Branch lvl fll vac hsh l r) = do
@@ -427,11 +448,12 @@ makePersistent (Transient.Instances (Transient.Tree s t)) = InstancesTree s <$> 
                 pinstanceParameterHash = instanceParameterHash,
                 pinstanceReceiveFuns = instanceReceiveFuns
             }
+            -- This pattern is irrefutable because if the instance exists in the Basic version,
+            -- then the module must be present in the persistent implementation.
+            ~(Just pIModuleInterface) <- Modules.getModuleReference (Wasm.miModuleRef instanceModuleInterface) mods
             return $ PersistentInstance {
                 pinstanceParameters = pIParams,
-                pinstanceCachedParameters = Some CacheableInstanceParameters{
-                        pinstanceModuleInterface = instanceModuleInterface
-                    },
+                pinstanceModuleInterface = pIModuleInterface,
                 pinstanceModel = instanceModel,
                 pinstanceAmount = instanceAmount,
                 pinstanceHash = instanceHash
