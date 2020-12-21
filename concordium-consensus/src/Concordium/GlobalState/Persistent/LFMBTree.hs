@@ -23,9 +23,11 @@ module Concordium.GlobalState.Persistent.LFMBTree
 
     -- * Query
     lookup,
+    lookupRef,
 
     -- * Insertion
     append,
+    appendWithRef,
 
     -- * Update
     update,
@@ -238,15 +240,24 @@ empty = Empty
 -- | Returns the value at the given key if it is present in the tree
 -- or Nothing otherwise.
 lookup :: (CanStoreLFMBTree m ref v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k ref v -> m (Maybe v)
-lookup _ Empty = return Nothing
-lookup k (NonEmpty s t) =
+lookup a b = do
+  r <- lookupRef a b
+  case r of
+    Nothing -> return Nothing
+    Just v -> Just <$> refLoad v
+
+-- | Return the reference to the value at the given key if it is present in the tree
+-- or Nothing otherwise.
+lookupRef :: (CanStoreLFMBTree m ref v, Ord k, Bits k, Coercible k Word64) => k -> LFMBTree k ref v -> m (Maybe (ref v))
+lookupRef _ Empty = return Nothing
+lookupRef k (NonEmpty s t) =
   if k >= (coerce s)
     then return Nothing -- If we try to find a key that is past the size of the tree, it will not be present
     else lookupT k t
   where
     -- lookupT :: Key -> T m ref v -> m (Maybe v)
     lookupT key = \case
-      Leaf ref -> Just <$> refLoad ref
+      Leaf ref -> return $ Just ref
       Node height left right ->
         if key `testBit` fromIntegral height -- If the bit at position @height@ is set on the requested key, move to the right, otherwise move to the left.
           then lookupT key =<< refLoad right
@@ -260,12 +271,18 @@ lookupNullable k t = lookup k t >>= \case
 
 -- | Adds a value to the tree returning the assigned key and the new tree.
 append :: (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree k ref v -> m (k, LFMBTree k ref v)
-append v Empty = do
+append a b = do
+  (x, y, _) <- appendWithRef a b
+  return (x, y)
+
+-- | Adds a value to the tree returning the assigned key, the new tree and the created reference to the value so that it can be shared.
+appendWithRef :: (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree k ref v -> m (k, LFMBTree k ref v, ref v)
+appendWithRef v Empty = do
   ref <- refMake v
-  return (0, NonEmpty 1 (Leaf ref))
-append v (NonEmpty s t) = do
-  t' <- appendT s v t Nothing
-  return (coerce s, NonEmpty (s + 1) t')
+  return (0, NonEmpty 1 (Leaf ref), ref)
+appendWithRef v (NonEmpty s t) = do
+  (t', r) <- appendT s v t Nothing
+  return (coerce s, NonEmpty (s + 1) t', r)
   where
     -- createLeaf :: T m ref v -> Maybe (ref (T m ref v)) -> v -> (ref (T m ref v) -> ref (T m ref v)) -> m (T m ref v)
     createLeaf originalNode refNode value f = do
@@ -278,7 +295,7 @@ append v (NonEmpty s t) = do
       ref' <- refMake $ Leaf refVal
       -- Combine the original ref and the new one into a node with the given
       -- partially applied function.
-      return $ f ref ref'
+      return (f ref ref', refVal)
     -- appendT :: Key -> v -> T m ref v -> Maybe (ref (T m ref v)) -> m (T m ref v)
     -- NOTE: @refNode@ is the stored reference to @node@ for it to be reused if needed
     appendT key value node refNode =
@@ -303,9 +320,9 @@ append v (NonEmpty s t) = do
                   createLeaf originalNode refNode value (Node (height + 1))
                 else do
                   nextNode <- refLoad rightNode
-                  newNode <- appendT (modLevel key) value nextNode (Just rightNode)
+                  (newNode, r') <- appendT (modLevel key) value nextNode (Just rightNode)
                   newRef <- refMake newNode
-                  return $ Node height leftNode newRef
+                  return (Node height leftNode newRef, r')
 
 -- | Update a value at a given key.
 --
