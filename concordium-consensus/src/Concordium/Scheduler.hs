@@ -1004,8 +1004,8 @@ handleUpdateBakerStake wtc newStake =
             return (TxSuccess [BakerStakeDecreased bid senderAddress newStake], energyCost, usedEnergy)
           BI.BSUStakeUnchanged _ ->
             return (TxSuccess [], energyCost, usedEnergy)
-          BI.BSUInvalidBaker -> -- This case should not be possible because the account was already resolved
-            return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
+          BI.BSUInvalidBaker -> -- Since we resolved the account already, this happens only if the account is not a baker.
+            return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 handleUpdateBakerRestakeEarnings ::
   SchedulerMonad m
@@ -1028,8 +1028,8 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
       case res of
         BI.BREUUpdated bid ->
           return (TxSuccess [BakerSetRestakeEarnings bid senderAddress newRestakeEarnings], energyCost, usedEnergy)
-        BI.BREUInvalidBaker -> -- This case should not be possible because the account was already resolved
-          return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
+        BI.BREUInvalidBaker -> -- Since we resolved the account already, this happens only if the account is not a baker.
+          return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 -- |Update a baker's keys. The logic is as follows:
 -- 
@@ -1084,8 +1084,8 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
                   ebkuAggregationKey = bkuAggregationKey
                 }
                 return (TxSuccess [bupdEvt], energyCost, usedEnergy)
-              BI.BKUInvalidBaker -> -- This case should not be possible because the account was already resolved
-                return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
+              BI.BKUInvalidBaker -> -- Since we resolved the account already, this happens only if the account is not a baker.
+                return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
               BI.BKUDuplicateAggregationKey -> return (TxReject (DuplicateAggregationKey bkuAggregationKey), energyCost, usedEnergy)
           else return (TxReject InvalidProof, energyCost, usedEnergy)
 
