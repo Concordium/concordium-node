@@ -16,6 +16,7 @@ import qualified Data.Vector as Vec
 import Control.Monad
 import Data.Foldable
 import Data.Serialize
+import qualified Data.Sequence as Seq
 
 import Concordium.Types
 import Concordium.Types.Updates
@@ -575,7 +576,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
       return $! bs & blockTransactionOutcomes .~ Transactions.transactionOutcomesFromList l
 
     bsoAddSpecialTransactionOutcome bs o =
-      return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (o:)
+      return $! bs & blockTransactionOutcomes . Transactions.outcomeSpecial %~ (Seq.|> o)
 
     {-# INLINE bsoProcessUpdateQueues #-}
     bsoProcessUpdateQueues bs ts = return (changes, bs & blockUpdates .~ newBlockUpdates)

@@ -12,6 +12,7 @@ import qualified Data.HashSet as HS
 import Lens.Micro.Platform
 import Control.Monad.Identity
 import Data.Kind
+import qualified Data.Sequence as Seq
 
 import Data.Pool
 import Database.Persist.Sql
@@ -116,9 +117,9 @@ data BlockContext = BlockContext {
   }
 
 class (Monad m, ATITypes m) => PerAccountDBOperations m where
-  flushBlockSummaries :: BlockContext -> ATIStorage m -> [SpecialTransactionOutcome] -> m ()
+  flushBlockSummaries :: BlockContext -> ATIStorage m -> Seq.Seq SpecialTransactionOutcome -> m ()
 
-  default flushBlockSummaries :: (ATIStorage m ~ ()) => BlockContext -> ATIStorage m -> [SpecialTransactionOutcome] -> m ()
+  default flushBlockSummaries :: (ATIStorage m ~ ()) => BlockContext -> ATIStorage m -> Seq.Seq SpecialTransactionOutcome -> m ()
   flushBlockSummaries = \_ () _ -> return ()
   {-# INLINE flushBlockSummaries #-}
 

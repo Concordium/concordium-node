@@ -22,6 +22,7 @@ import Database.Persist.TH
 import Data.Pool
 import qualified Data.Aeson as AE
 import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
 
 import Control.Monad.Logger
 import Control.Monad.Reader
@@ -60,7 +61,7 @@ type PersistentTransactionOutcome = Either TransactionSummary SpecialTransaction
 -- |Write the outcomes of the transactions and the special transaction outcomes of a block
 -- into the postgresql backend. Note that this will make only one database commit as it uses
 -- `runSqlConn` internally.
-writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> [SpecialTransactionOutcome] -> IO ()
+writeEntries :: Pool SqlBackend -> BlockContext -> AccountTransactionIndex -> Seq.Seq SpecialTransactionOutcome -> IO ()
 writeEntries pool BlockContext{..} ati stos = do
   runPostgres pool c
   where c :: ReaderT SqlBackend (NoLoggingT IO) ()
