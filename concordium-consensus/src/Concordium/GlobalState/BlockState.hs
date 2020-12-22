@@ -231,7 +231,8 @@ class AccountOperations m => BlockStateQuery m where
     getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
 
     -- |Get special transactions outcomes (for administrative transactions, e.g., baker reward)
-    getSpecialOutcomes :: BlockState m -> m [SpecialTransactionOutcome]
+    -- They should be returned in the order that they were emitted.
+    getSpecialOutcomes :: BlockState m -> m (Seq.Seq SpecialTransactionOutcome)
 
     getAllIdentityProviders :: BlockState m -> m [IpInfo]
 
