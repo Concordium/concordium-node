@@ -96,11 +96,13 @@ instance HashableTo H.Hash PersistentInstance where
 instance MonadBlobStore m => BlobStorable m PersistentInstance where
     storeUpdate PersistentInstance{..} = do
         (pparams, newParameters) <- storeUpdate pinstanceParameters
+        (pinterface, newpInterface) <- storeUpdate pinstanceModuleInterface
         let putInst = do
                 pparams
+                pinterface
                 put pinstanceModel
                 put pinstanceAmount
-        return (putInst, PersistentInstance{pinstanceParameters = newParameters, ..})
+        return (putInst, PersistentInstance{pinstanceParameters = newParameters, pinstanceModuleInterface = newpInterface, ..})
     store pinst = fst <$> storeUpdate pinst
     load = do
         rparams <- load
@@ -313,14 +315,11 @@ instance MonadBlobStore m => MHashableTo m H.Hash Instances where
   getHashM (InstancesTree _ t) = getHash <$> mproject t
 
 instance (MonadBlobStore m) => BlobStorable m Instances where
-    store InstancesEmpty = return (putWord8 0)
-    store (InstancesTree s t) = do
-        pt <- store t
-        return (putWord8 1 >> put s >> pt)
     storeUpdate i@InstancesEmpty = return (putWord8 0, i)
     storeUpdate (InstancesTree s t) = do
         (pt, t') <- storeUpdate t
         return (putWord8 1 >> put s >> pt, InstancesTree s t')
+    store i = fst <$> storeUpdate i
     load = do
         tag <- getWord8
         if tag == 0 then
