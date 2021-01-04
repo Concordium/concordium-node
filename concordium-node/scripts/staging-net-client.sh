@@ -23,25 +23,14 @@ useradd -g $GROUP_ID -l -m -s /bin/false -u $USER_ID docker
 mkdir -p /var/lib/concordium
 chown -R $USER_ID:$GROUP_ID /var/lib/concordium
 
-su -s /bin/bash -c "/usr/local/bin/concordium-client --config /var/lib/concordium/config config init" -g docker docker
-
-export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
-if ! [ -f "/var/lib/concordium/data/$BAKER_CREDENTIALS_FILENAME" ];
+if [ -f /var/lib/concordium/data/baker-credentials.json ];
 then
-    su -s /bin/bash -c "/usr/local/bin/concordium-client baker generate-keys /var/lib/concordium/data/baker-credentials.json" -g docker docker
+    export BAKER_CREDENTIALS_FILENAME="baker-credentials.json"
 fi
 
 if [ -f /var/lib/concordium/data/blocks_to_import.dat ];
 then
   export IMPORT_BLOCKS_FROM="/var/lib/concordium/data/blocks_to_import.dat"
 fi
-
-if [ -f /var/lib/concordium/data/node-dashboard-config.json ];
-then
-  cp /var/lib/concordium/data/node-dashboard-config.json /var/www/html/assets/config.json
-fi
-
-# Re-export the proper environment variable for the middleware, as it uses its own naming it seems
-export CFG_DIR=$CONFIG_DIR
 
 /usr/bin/supervisord -c /etc/supervisor/supervisord.conf

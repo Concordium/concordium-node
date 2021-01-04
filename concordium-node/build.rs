@@ -1,5 +1,5 @@
 use std::{env, path::Path};
-#[cfg(all(unix, not(feature = "static")))]
+#[cfg(any(all(unix, not(feature = "static")), windows))]
 use std::{process::Command, str};
 
 #[cfg(all(unix, not(feature = "static")))]
