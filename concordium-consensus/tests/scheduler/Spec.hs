@@ -19,6 +19,7 @@ import qualified SchedulerTests.SimpleTransferSpec(tests)
 import qualified SchedulerTests.UpdateAccountKeys(tests)
 import qualified SchedulerTests.EncryptedTransfersTest(tests)
 import qualified SchedulerTests.MaxIncomingAmountsTest(tests)
+import qualified SchedulerTests.StakedAmountLocked(tests)
 
 import Test.Hspec
 
@@ -43,3 +44,4 @@ main = hspec $ do
          SchedulerTests.UpdateAccountKeys.tests
          SchedulerTests.EncryptedTransfersTest.tests
          SchedulerTests.MaxIncomingAmountsTest.tests
+         SchedulerTests.StakedAmountLocked.tests
