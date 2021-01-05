@@ -114,9 +114,7 @@ checkHeader meta = do
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
     Just acc -> do
-      -- the available amount is @total - locked@
-      totalAmnt <- getAccountAmount acc
-      amnt <- (totalAmnt -) . ARS._totalLockedUpBalance <$> (getAccountReleaseSchedule acc)
+      amnt <- getAccountAvailableAmount acc
       nextNonce <- getAccountNonce acc
       let txnonce = transactionNonce meta
       let expiry = thExpiry $ transactionHeader meta
