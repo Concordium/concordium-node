@@ -64,8 +64,9 @@ testCases =
                                    , euInstigator = Types.AddressAccount alesAccount
                                    , euAmount = 11
                                    , euMessage = Parameter toAddr
+                                   , euReceiveName = ReceiveName "try.receive"
                                    , euEvents = []
-                                   }, 
+                                   },
                     Types.Transferred {
                         etFrom = Types.AddressContract (Types.ContractAddress 0 0),
                         etAmount = 11,
@@ -81,9 +82,10 @@ testCases =
                                    , euInstigator = Types.AddressAccount alesAccount
                                    , euAmount = 11
                                    , euMessage = Parameter (BSS.pack (replicate 32 0))
+                                   , euReceiveName = ReceiveName "try.receive"
                                    , euEvents = []
                                    }], emptySpec)
-        ) 
+        )
       ]
      }
   ]

@@ -647,8 +647,9 @@ handleInitContract wtc initAmount modref initName param =
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=addr,
                                                    ecAmount=initAmount,
-                                                   ecEvents=Wasm.logs result,
-                                                   ecInitName=initName}], energyCost, usedEnergy
+                                                   ecInitName=initName,
+                                                   ecEvents=Wasm.logs result
+                                                   }], energyCost, usedEnergy
                                                    )
 
 handleSimpleTransfer ::
@@ -758,8 +759,9 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                               euInstigator=senderAddr,
                               euAmount=transferAmount,
                               euMessage=parameter,
-                              euEvents = Wasm.logs result,
-                              euReceiveName=receiveName }
+                              euReceiveName=receiveName,
+                              euEvents = Wasm.logs result
+                               }
       foldEvents origin (ownerAccount, istance) initEvent txOut
 
 foldEvents :: (TransactionMonad m, AccountOperations m)

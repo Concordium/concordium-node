@@ -55,8 +55,9 @@ testCases =
                                    , euInstigator = Types.AddressAccount alesAccount
                                    , euAmount = 11
                                    , euMessage = Parameter ""
+                                   , euReceiveName = ReceiveName "send.receive"
                                    , euEvents = []
-                                   }, 
+                                   },
                     Types.Transferred {
                         etFrom = Types.AddressContract (Types.ContractAddress 0 0),
                         etAmount = 11,
