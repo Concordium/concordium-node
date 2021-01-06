@@ -77,12 +77,12 @@ initialBlockState = blockStateWithAlesAccount
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
 
 alesEncryptionSecretKey :: ElgamalSecretKey
-alesEncryptionSecretKey = dummyEncryptionSecretKey alesAccount
+alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
 alesEncryptionPublicKey = (fromJust $ Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
 
 thomasEncryptionSecretKey :: ElgamalSecretKey
-thomasEncryptionSecretKey = dummyEncryptionSecretKey thomasAccount
+thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
 thomasEncryptionPublicKey = (fromJust $ Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
 
