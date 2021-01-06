@@ -96,7 +96,7 @@ data AccountAction
 randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
 randomizeAccount _accountAddress _accountVerificationKeys = do
   let vfKey = snd . head $ (OrdMap.toAscList (ID.akKeys _accountVerificationKeys))
-  let cred = dummyCredential _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
+  let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
   let a0 = newAccount dummyCryptographicParameters _accountVerificationKeys _accountAddress cred
   nonce <- Nonce <$> arbitrary
   amt <- Amount <$> arbitrary
