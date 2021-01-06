@@ -114,9 +114,7 @@ checkHeader meta = do
   case macc of
     Nothing -> throwError . Just $ (UnknownAccount (transactionSender meta))
     Just acc -> do
-      -- the available amount is @total - locked@
-      totalAmnt <- getAccountAmount acc
-      amnt <- (totalAmnt -) . ARS._totalLockedUpBalance <$> (getAccountReleaseSchedule acc)
+      amnt <- getAccountAvailableAmount acc
       nextNonce <- getAccountNonce acc
       let txnonce = transactionNonce meta
       let expiry = thExpiry $ transactionHeader meta
@@ -647,7 +645,10 @@ handleInitContract wtc initAmount modref initName param =
             return (TxSuccess [ContractInitialized{ecRef=modref,
                                                    ecAddress=addr,
                                                    ecAmount=initAmount,
-                                                   ecEvents = Wasm.logs result}], energyCost, usedEnergy)
+                                                   ecInitName=initName,
+                                                   ecEvents=Wasm.logs result
+                                                   }], energyCost, usedEnergy
+                                                   )
 
 handleSimpleTransfer ::
   SchedulerMonad m
@@ -756,7 +757,9 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                               euInstigator=senderAddr,
                               euAmount=transferAmount,
                               euMessage=parameter,
-                              euEvents = Wasm.logs result }
+                              euReceiveName=receiveName,
+                              euEvents = Wasm.logs result
+                               }
       foldEvents origin (ownerAccount, istance) initEvent txOut
 
 foldEvents :: (TransactionMonad m, AccountOperations m)
