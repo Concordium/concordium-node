@@ -30,11 +30,7 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount 1000000000 emptyAccounts
 
 chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{..}
-  where slotNumber = 111
-        blockHeight = 222
-        finalizedHeight = 333
-        slotTime = 444
+chainMeta = Types.ChainMetadata{ slotTime = 444 }
 
 transactionInputs :: [TransactionJSON]
 transactionInputs = [
