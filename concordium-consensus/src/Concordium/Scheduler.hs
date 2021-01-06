@@ -53,7 +53,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 import Concordium.GlobalState.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers

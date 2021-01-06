@@ -69,11 +69,7 @@ dummyBlockSize :: Integer
 dummyBlockSize = 10000000000
 
 dummyChainMeta :: ChainMetadata
-dummyChainMeta = ChainMetadata { slotNumber = 0
-                               , blockHeight = 0
-                               , finalizedHeight = 0
-                               , slotTime = 0
-                               }
+dummyChainMeta = ChainMetadata { slotTime = 0 }
 
 dummyMaxCredentials :: CredentialsPerBlockLimit
 dummyMaxCredentials = 10
