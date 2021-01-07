@@ -53,7 +53,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.GlobalState.BlockState (AccountOperations(..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
-import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as ARS
 import Concordium.GlobalState.Types
 import qualified Concordium.Scheduler.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
@@ -304,8 +303,8 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
           -- check that we are not going to send an empty schedule
           case twsSchedule of
             [] -> rejectTransaction ZeroScheduledAmount
-            (firstRelease@(firstTimestamp, _) : restOfReleases) -> do
-
+            (firstRelease@(firstTimestamp, firstReleaseAmount) : restOfReleases) -> do
+              when (firstReleaseAmount == 0) $ rejectTransaction ZeroScheduledAmount
               -- check that the first timestamp has not yet passed
               cm <- getChainMetadata
               when (firstTimestamp < slotTime cm) $! rejectTransaction FirstScheduledReleaseExpired

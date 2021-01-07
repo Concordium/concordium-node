@@ -352,7 +352,7 @@ addBlock block = do
                             -- Update the seed state with the block nonce
                             let newSeedState = updateSeedState (blockSlot block) (blockNonce block) parentSeedState
                             let ts = blockTransactions block
-                            executeFrom (getHash block) (blockSlot block) slotTime parentP lfBlockP (blockBaker block) mfinInfo newSeedState ts >>= \case
+                            executeFrom (getHash block) (blockSlot block) slotTime parentP (blockBaker block) mfinInfo newSeedState ts >>= \case
                                 Left err -> do
                                     logEvent Skov LLWarning ("Block execution failure: " ++ show err)
                                     invalidBlock "execution failure"
