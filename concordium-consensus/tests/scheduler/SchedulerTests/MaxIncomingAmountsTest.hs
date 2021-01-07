@@ -54,13 +54,13 @@ initialBlockState = blockStateWithAlesAccount
 
 -- Ales' keys
 alesEncryptionSecretKey :: ElgamalSecretKey
-alesEncryptionSecretKey = dummyEncryptionSecretKey alesAccount
+alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
 alesEncryptionPublicKey = fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
 
 -- Thomas' keys
 thomasEncryptionSecretKey :: ElgamalSecretKey
-thomasEncryptionSecretKey = dummyEncryptionSecretKey thomasAccount
+thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
 thomasEncryptionPublicKey = fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
 
