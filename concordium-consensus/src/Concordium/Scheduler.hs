@@ -303,8 +303,8 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
           -- check that we are not going to send an empty schedule
           case twsSchedule of
             [] -> rejectTransaction ZeroScheduledAmount
-            (firstRelease@(firstTimestamp, _) : restOfReleases) -> do
-
+            (firstRelease@(firstTimestamp, firstReleaseAmount) : restOfReleases) -> do
+              when (firstReleaseAmount == 0) $ rejectTransaction ZeroScheduledAmount
               -- check that the first timestamp has not yet passed
               cm <- getChainMetadata
               when (firstTimestamp < slotTime cm) $! rejectTransaction FirstScheduledReleaseExpired
