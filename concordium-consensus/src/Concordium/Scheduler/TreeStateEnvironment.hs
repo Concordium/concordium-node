@@ -22,7 +22,6 @@ import Concordium.Logger
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
-import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.SeedState
@@ -435,21 +434,18 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
 -- The slot number must exceed the slot of the parent block, and the seed state
 -- must indicate the correct epoch of the block.
 executeFrom :: forall m .
-  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
+  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
   => BlockHash -- ^Hash of the block we are executing. Used only for committing transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m  -- ^Parent pointer from which to start executing
-  -> BlockPointerType m  -- ^Last finalized block pointer.
   -> BakerId -- ^Identity of the baker who should be rewarded.
   -> Maybe FinalizerInfo -- ^Parties to the finalization record in this block, if any
   -> SeedState -- ^New seed state
   -> [BlockItem] -- ^Transactions on this block.
   -> m (Either (Maybe FailureKind) (ExecutionResult m))
-executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker mfinInfo newSeedState txs =
-  let cm = let blockHeight = bpHeight blockParent + 1
-               finalizedHeight = bpHeight lfPointer
-           in ChainMetadata{..}
+executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSeedState txs =
+  let cm = ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState =<< blockState blockParent
     chainParams <- bsoGetChainParameters bshandle0
@@ -499,19 +495,16 @@ executeFrom blockHash slotNumber slotTime blockParent lfPointer blockBaker mfinI
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock :: forall m .
-  (GlobalStateTypes m, BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
+  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing
-  -> BlockPointerType m -- ^Last finalized block pointer.
   -> BakerId -- ^The baker of the block.
   -> Maybe FinalizerInfo -- ^Parties to the finalization record in this block, if any
   -> SeedState -- ^New seed state
   -> m (Sch.FilteredTransactions, ExecutionResult m)
-constructBlock slotNumber slotTime blockParent lfPointer blockBaker mfinInfo newSeedState =
-  let cm = let blockHeight = bpHeight blockParent + 1
-               finalizedHeight = bpHeight lfPointer
-           in ChainMetadata{..}
+constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =
+  let cm = ChainMetadata{..}
   in do
     bshandle0 <- thawBlockState =<< blockState blockParent
     chainParams <- bsoGetChainParameters bshandle0

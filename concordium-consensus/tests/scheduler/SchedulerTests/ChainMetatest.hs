@@ -29,11 +29,7 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
 
 chainMeta :: Types.ChainMetadata
-chainMeta = Types.ChainMetadata{..}
-  where slotNumber = 111
-        blockHeight = 222
-        finalizedHeight = 333
-        slotTime = 444
+chainMeta = Types.ChainMetadata{ slotTime = 444 }
 
 transactionInputs :: [TransactionJSON]
 transactionInputs = [
@@ -44,21 +40,6 @@ transactionInputs = [
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot" "",
-      keys = [(0, alesKP)]
-      },
-  TJSON{
-      metadata = makeDummyHeader alesAccount 3 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_check_height" "",
-      keys = [(0, alesKP)]
-      },
-  TJSON{
-      metadata = makeDummyHeader alesAccount 4 100000,
-      payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_check_finalized_height" "",
-      keys = [(0, alesKP)]
-      },
-  TJSON{
-      metadata = makeDummyHeader alesAccount 5 100000,
       payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_check_slot_time" "",
       keys = [(0, alesKP)]
       }
@@ -87,7 +68,7 @@ checkChainMetaResult :: TestResult -> Assertion
 checkChainMetaResult (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
-  assertEqual "There should be 4 instances." 4 (length instances)
+  assertEqual "There should be 1 instance." 1 (length instances)
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True

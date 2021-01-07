@@ -80,17 +80,16 @@ processTransactions
     => Slot
     -> SeedState
     -> BlockPointerType m
-    -> BlockPointerType m
     -> Maybe FinalizerInfo
     -> BakerId
     -> m (FilteredTransactions, ExecutionResult m)
-processTransactions slot ss bh finalizedP mfinInfo bid = do
+processTransactions slot ss bh mfinInfo bid = do
   -- update the focus block to the parent block (establish invariant needed by constructBlock)
   updateFocusBlockTo bh
   -- at this point we can construct the block. The function 'constructBlock' also
   -- updates the pending table and purges any transactions deemed invalid
   slotTime <- getSlotTimestamp slot
-  constructBlock slot slotTime bh finalizedP bid mfinInfo ss
+  constructBlock slot slotTime bh bid mfinInfo ss
   -- NB: what remains is to update the focus block to the newly constructed one.
   -- This is done in the method below once a block pointer is constructed.
 
@@ -231,7 +230,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     -- possibly add the block nonce in the seed state
     let newSeedState = updateSeedState slot nonce oldSeedState
     -- Results = {_energyUsed, _finalState, _transactionLog}
-    (filteredTxs, result) <- lift (processTransactions slot newSeedState bb lastFinal mfinInfo bakerId)
+    (filteredTxs, result) <- lift (processTransactions slot newSeedState bb mfinInfo bakerId)
     logEvent Baker LLInfo $ "Baked block"
     receiveTime <- currentTime
     transactionOutcomesHash <- getTransactionOutcomesHash (_finalState result)
