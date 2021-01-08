@@ -5,10 +5,12 @@
 This repository relies on git submodules for internal component dependencies, so do remember to clone recursively or use `git submodule update --init --recursive` after having cloned it.
 
 ## Dependencies to build the project
-* Rust (stable 1.37+, and stable 1.42.0 (b8cedc004 2020-03-09) for using static libraries)
+* Rust (stable 1.45.2 for using static libraries)
 * binutils >= 2.22
 * cmake >= 3.8.0
-* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html) >= 1.11.0 (build using CMake and copy to `~/.local/bin`)
+* [flatc](http://google.github.io/flatbuffers/flatbuffers_guide_building.html)
+  commit fec58aa129818ed0c0613a7ec36b55135bf81278, but others around it are
+  likely to work as well (build using CMake and copy to `~/.local/bin`)
 * protobuf >= 3.7.1
 * LLVM and Clang >= 3.9
 * [Unbound](https://www.nlnetlabs.nl/documentation/unbound/howto-setup/) >= 1.9.2 (the dependency `openssl-devel` is named `libssl-dev` on Ubuntu 19.10)
@@ -32,6 +34,12 @@ This repository relies on git submodules for internal component dependencies, so
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
 * genesis_tester - a tool used by a CI to validate the genesis data
 * dedup_benchmarks - enable support in the benchmarks for deduplication queues
+
+## Building the node
+
+See instructions in
+[consensus](./deps/internal/consensus/consensus-rust/README.md) for how to link
+the node.
 
 ## Setting up basic local build environment
 Install the needed dependencies from the list above, and run the script (requires that the user executing is has sudo privileges) `scripts/local-setup-unix-deps.sh` and pay special attention to setting the right version of GHC (see [build scripts](/scripts/local-setup-unix-deps.sh#L28) for details).
