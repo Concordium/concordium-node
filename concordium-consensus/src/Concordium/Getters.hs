@@ -273,7 +273,7 @@ getRewardStatus hash sfsRef = runStateQuery sfsRef $
     "totalEncryptedAmount" .= (fromIntegral (reward ^. AT.totalEncryptedGTU) :: Integer),
     "bakingRewardAccount" .= (fromIntegral (reward ^. AT.bakingRewardAccount) :: Integer),
     "finalizationRewardAccount" .= (fromIntegral (reward ^. AT.finalizationRewardAccount) :: Integer),
-    "gasAccount" .= (fromIntegral (reward ^. AT.bakingRewardAccount) :: Integer)
+    "gasAccount" .= (fromIntegral (reward ^. AT.gasAccount) :: Integer)
     ]
 
 getBlockBirkParameters :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
