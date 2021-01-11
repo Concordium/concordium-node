@@ -25,6 +25,7 @@ collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", 
 staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
+malicious_testing = []
 
 [profile.release]
 codegen-units = 1
