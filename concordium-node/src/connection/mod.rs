@@ -640,6 +640,10 @@ impl Connection {
                         partition,
                     ))
                 };
+
+                #[cfg(not(feature = "malicious_testing"))]
+                let random_nodes = get_random_nodes(false)?;
+                #[cfg(feature = "malicious_testing")]
                 let random_nodes = match self.handler.config.partition_network_for_time {
                     Some(time) if (self.handler.get_uptime() as usize) < time => {
                         get_random_nodes(true)?
