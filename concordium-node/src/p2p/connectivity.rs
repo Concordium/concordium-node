@@ -2,10 +2,10 @@
 
 use failure::Fallible;
 use mio::{event::Event, net::TcpStream, Events, Token};
-use rand::{
-    seq::{index::sample, IteratorRandom},
-    Rng,
-};
+
+use rand::seq::IteratorRandom;
+#[cfg(feature = "malicious_testing")]
+use rand::{seq::index::sample, Rng};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use semver::Version;
 
@@ -22,8 +22,10 @@ use crate::{
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
 };
 
+#[cfg(feature = "malicious_testing")]
+use std::cmp;
 use std::{
-    cmp, io,
+    io,
     net::SocketAddr,
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
@@ -176,14 +178,21 @@ impl P2PNode {
         };
         let network_id = inner_pkt.network_id;
 
-        let copies = if let Some((btype, btgt, blvl)) = &self.config.breakage {
-            if btype == "spam" && (inner_pkt.message[0] == *btgt || *btgt == 99) {
-                1 + *blvl
+        #[cfg(not(feature = "malicious_testing"))]
+        let copies = 1;
+        // TODO: Remove surrounding block expr once cargo fmt has been updated in
+        // pipeline.
+        #[cfg(feature = "malicious_testing")]
+        let copies = {
+            if let Some((btype, btgt, blvl)) = &self.config.breakage {
+                if btype == "spam" && (inner_pkt.message[0] == *btgt || *btgt == 99) {
+                    1 + *blvl
+                } else {
+                    1
+                }
             } else {
                 1
             }
-        } else {
-            1
         };
 
         let message = netmsg!(NetworkPacket, inner_pkt);
@@ -576,13 +585,21 @@ fn send_message_over_network(
         PacketDestination::Broadcast(dont_relay_to)
     };
 
+    #[cfg(not(feature = "malicious_testing"))]
+    let message = message.to_vec();
+    #[cfg(feature = "malicious_testing")]
     let mut message = message.to_vec();
 
-    if let Some((btype, btgt, blvl)) = &node.config.breakage {
-        if btype == "fuzz" && (message[0] == *btgt || *btgt == 99) {
-            fuzz_packet(&mut message[1..], *blvl);
+    // TODO: Remove surrounding block expr once cargo fmt has been updated in
+    // pipeline.
+    #[cfg(feature = "malicious_testing")]
+    let _: () = {
+        if let Some((btype, btgt, blvl)) = &node.config.breakage {
+            if btype == "fuzz" && (message[0] == *btgt || *btgt == 99) {
+                fuzz_packet(&mut message[1..], *blvl);
+            }
         }
-    }
+    };
 
     // Create packet.
     let packet = NetworkPacket {
@@ -602,6 +619,7 @@ fn send_message_over_network(
     }
 }
 
+#[cfg(feature = "malicious_testing")]
 fn fuzz_packet(payload: &mut [u8], level: usize) {
     let rng = &mut rand::thread_rng();
 

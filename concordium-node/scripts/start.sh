@@ -53,7 +53,7 @@ then
             cd genesis_data/
             cp * $DATA_DIR/
             cd $DATA_DIR
-            cp "genesis-catchup-${TPS_NUM}.dat" genesis.dat
+            cp "genesis-catchup-${CATCHUP_NUM}.dat" genesis.dat
         else
             cd /genesis-data
             tar -xvf $NUM_BAKERS-bakers.tar.gz
