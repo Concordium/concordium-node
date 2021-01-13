@@ -284,12 +284,16 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
   let getTransactionTable :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) TransactionTable
       getTransactionTable = do
         accs <- getAccountList lastState
-        foldM (\table addr ->
+        tt0 <- foldM (\table addr ->
                  getAccount lastState addr >>= \case
                   Nothing -> logExceptionAndThrowTS (DatabaseInvariantViolation $ "Account " ++ show addr ++ " which is in the account list cannot be loaded.")
                   Just acc -> return (table & ttNonFinalizedTransactions . at addr ?~ emptyANFTWithNonce (acc ^. accountNonce)))
             emptyTransactionTable
             accs
+        foldM (\table uty -> do
+            sn <- getNextUpdateSequenceNumber lastState uty
+            return $ table & ttNonFinalizedChainUpdates . at uty ?~ emptyNFCUWithSequenceNumber sn
+          ) tt0 [minBound..]
   tt <- runReaderT (PBS.runPersistentBlockStateMonad getTransactionTable) pbsc
 
   return SkovPersistentData {
@@ -647,11 +651,11 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                     uty = updateType (uiPayload cu)
                 nfcu <- use (transactionTable . ttNonFinalizedChainUpdates . at' uty . non emptyNFCU)
                 unless (nfcu ^. nfcuNextSequenceNumber == sn) $ logErrorAndThrowTS $
-                        "The recorded next sequence number for update type " ++ show uty ++ " (" ++ show (nfcu ^. nfcuNextSequenceNumber) ++ ") doesn't match the one that is going to be finalzied (" ++ show sn ++ ")"
+                        "The recorded next sequence number for update type " ++ show uty ++ " (" ++ show (nfcu ^. nfcuNextSequenceNumber) ++ ") doesn't match the one that is going to be finalized (" ++ show sn ++ ")"
                 let nfsn = nfcu ^. nfcuMap . at' sn . non Set.empty
                     wmdcu = WithMetadata{wmdData=cu,..}
                 unless (Set.member wmdcu nfsn) $ logErrorAndThrowTS $
-                        "Tried to finalized a chain update that is not known to be in the set of non-finalized chain updates of type " ++ show uty
+                        "Tried to finalize a chain update that is not known to be in the set of non-finalized chain updates of type " ++ show uty
                 -- Remove any other updates with the same sequence number, since they weren't finalized
                 forM_ (Set.delete wmdcu nfsn) $
                   \deadUpdate -> transactionTable . ttHashMap . at' (getHash deadUpdate) .= Nothing
