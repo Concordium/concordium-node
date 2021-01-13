@@ -1,6 +1,6 @@
 [package]
 name = "p2p_client"
-version = "0.4.7" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "0.4.8" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -25,6 +25,7 @@ collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", 
 staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
+malicious_testing = []
 
 [profile.release]
 codegen-units = 1
