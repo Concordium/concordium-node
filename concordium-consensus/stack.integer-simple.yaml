@@ -1,0 +1,26 @@
+resolver: lts-16.20
+
+packages:
+- Concordium
+- crypto
+- scheduler
+- globalstate-types
+- globalstate-mockup/globalstate
+- globalstate-mockup/deps/haskell-lmdb
+
+extra-deps: []
+
+extra-lib-dirs:
+- ./crypto/lib
+- ./smart-contracts/lib
+
+flags:
+  hashable:
+    integer-gmp: false
+  integer-logarithms:
+    integer-gmp: false
+  scientific:
+    integer-simple: true
+
+ghc-options:
+    "$everything": -fPIC
