@@ -32,10 +32,10 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
+consensus-rust = { path = "consensus/consensus-rust"  }
 concordium-dns = { package = "concordium-dns", path = "deps/internal/concordium-dns" }
-concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
-crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common" }
+concordium-common = { path = "deps/internal/concordium-common"  }
+crypto_common = { path = "deps/internal/concordium-base/rust-src/crypto_common" }
 
 # External dependencies
 parking_lot = "0.11"
@@ -69,7 +69,7 @@ flatc-rust = { version = "^0.1" }
 sha2 = "0.9"
 
 # gRPC dependencies
-tonic = "0.3"
+tonic = "=0.3.0"
 prost = "0.6"
 tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
@@ -102,7 +102,7 @@ uuid = { version = "0.8", default-features = false, optional = true }
 libc = "0.2"
 
 [build-dependencies]
-tonic-build = { version = "0.3", default-features = false, features = ["transport", "prost"] }
+tonic-build = { version = "0.3.0", default-features = false, features = ["transport", "prost"] }
 capnpc = { version = "0.13", optional = true }
 flatc-rust = "^0.1"
 

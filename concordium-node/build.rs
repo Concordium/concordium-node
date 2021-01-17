@@ -46,7 +46,7 @@ fn main() -> std::io::Result<()> {
         for dir in stack_library_dirs.split(", ") {
             println!("cargo:rustc-link-search=native={}", dir);
         }
-        println!(r"cargo:rustc-link-search=native=.\deps\internal\consensus\Concordium");
+        println!(r"cargo:rustc-link-search=native=.\consensus\Concordium");
     }
 
     #[cfg(all(unix, not(feature = "static")))]
@@ -56,7 +56,7 @@ fn main() -> std::io::Result<()> {
         let local_package = Path::new(&env::var("CONCORDIUM_HASKELL_ROOT").unwrap_or_else(|_| {
             command_output(Command::new("stack").args(&[
                 "--stack-yaml",
-                "./deps/internal/consensus/stack.yaml",
+                "./consensus/stack.yaml",
                 "path",
                 "--local-install-root",
             ]))
@@ -66,7 +66,7 @@ fn main() -> std::io::Result<()> {
         let ghc_lib_dir = Path::new(&env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
             command_output(Command::new("stack").args(&[
                 "--stack-yaml",
-                "./deps/internal/consensus/stack.yaml",
+                "./consensus/stack.yaml",
                 "ghc",
                 "--",
                 "--print-libdir",
