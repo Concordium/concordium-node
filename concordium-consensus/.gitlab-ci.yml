@@ -8,22 +8,17 @@ stages:
 .generic:
   variables:
     GIT_SUBMODULE_STRATEGY: recursive
-    EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
     STACK_ROOT: "${CI_PROJECT_DIR}/.stack"
-    LD_LIBRARY_PATH: "${CI_PROJECT_DIR}/crypto/lib:${CI_PROJECT_DIR}/smart-contracts/lib:$LD_LIBRARY_PATH"
     GIT_SUBMODULE_STRATEGY: recursive
     RUSTFLAGS: -Dwarnings
-    EXTRA_LIBS_PATH: "$CI_PROJECT_DIR/external-libs"
   cache:
     paths:
       - .stack
       - .stack-work
       - crypto/.stack-work
-      - Concordium/.stack-work
-      - globalstate-mockup/deps/haskell-lmdb/.stack-work
-      - globalstate-mockup/globalstate/.stack-work
-      - globalstate-mockup/deps/haskell-lmdb/.stack-work
-      - globalstate-types/.stack-work
+      - consensus/.stack-work
+      - globalstate/haskell-lmdb/.stack-work
+      - globalstate/globalstate/.stack-work
       - scheduler/.stack-work
       - consensus-rust/target
       - crypto/rust-src/target
@@ -93,12 +88,6 @@ stages:
   script:
     - echo "Running tests without extra features"
     - ( cd consensus-rust && cargo test --all --color=always )
-
-"stack:test:globalstate-types":
-  extends: .generic-haskell-test
-  stage: test
-  script:
-    - "stack test globalstate-types --bench --no-run-benchmarks"
 
 "stack:test:globalstate":
   extends: .generic-haskell-test

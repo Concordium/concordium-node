@@ -2,16 +2,14 @@ resolver: lts-16.20
 
 packages:
 - Concordium
-- crypto
 - scheduler
-- globalstate-types
-- globalstate-mockup/globalstate
-- globalstate-mockup/deps/haskell-lmdb
+- globalstate
+- globalstate/haskell-lmdb
 
 extra-deps: []
 
 extra-lib-dirs:
-- ./crypto/lib
+- ../../deps/internal/concordium-base/lib
 - ./smart-contracts/lib
 
 flags:

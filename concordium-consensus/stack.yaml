@@ -35,11 +35,10 @@ resolver: lts-16.20
 #  - wai
 packages:
 - Concordium
-- crypto
 - scheduler
-- globalstate-types
-- globalstate-mockup/globalstate
-- globalstate-mockup/deps/haskell-lmdb
+- globalstate
+- globalstate/haskell-lmdb
+- ../deps/internal/concordium-base
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
@@ -47,7 +46,7 @@ packages:
 extra-deps: []
 
 extra-lib-dirs:
-- ./crypto/lib
+- ../deps/internal/concordium-base/lib
 - ./smart-contracts/lib
 
 # Override default flag values for local packages and extra-deps
