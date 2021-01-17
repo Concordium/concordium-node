@@ -16,3 +16,6 @@
 [submodule "consensus/smart-contracts"]
 	path = consensus/smart-contracts
 	url = ../smart-contracts.git
+[submodule "deps/internal/concordium-common"]
+	path = deps/internal/concordium-common
+	url = ../rust/concordium-common.git
