@@ -1,0 +1,212 @@
+name:                Concordium
+version:             0.1.0.0
+github:              "githubuser/Concordium"
+license:             BSD3
+author:              "Author name here"
+maintainer:          "example@example.com"
+copyright:           "2018 Author name here"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Please see the README on GitHub at <https://github.com/githubuser/Concordium#readme>
+
+dependencies:
+- base >= 4.7 && < 5
+- bytestring >= 0.10
+- random >= 1.1
+- cereal >= 0.5.7
+- unordered-containers >= 0.2
+- hashable >= 1.0.1.1
+- containers >0.5.9.1
+- time >=1.8
+- transformers >=0.5
+- microlens-platform >=0.3
+- microlens >=0.3
+- mtl >=2.2
+- pqueue >= 1.4.1
+- psqueues >= 0.2.7
+- vector >= 0.12
+- concordium-crypto
+- base16-bytestring
+- aeson >= 1.4.2
+- text >= 1.2
+- scheduler
+- globalstate-types
+- globalstate
+- filepath >= 1.4
+- directory >= 1.3
+
+default-extensions:
+- RecordWildCards
+- LambdaCase
+- TupleSections
+- MultiParamTypeClasses
+- FlexibleContexts
+- FlexibleInstances
+- FunctionalDependencies
+
+flags:
+  dynamic:
+    manual: False
+    default: True
+
+library:
+  source-dirs: src
+  ghc-options:
+      - -fPIC
+      - -Wall
+      - -Wcompat
+      - -Werror=missing-fields
+      - -Werror=missing-methods
+      - -Wredundant-constraints
+      - -O2
+      - -fno-ignore-asserts
+  when:
+    - condition: os(windows)
+      then:
+        ghc-options: -shared -static lib.def
+      else:
+        when:
+          - condition: flag(dynamic)
+            then:
+              ghc-options: -shared -dynamic
+            else:
+              ghc-options: -static
+
+# Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
+# Possibly this depends on the platform
+
+executables:
+  Concordium-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+      - Concordium
+
+  deterministic-runner:
+    main:                Main.hs
+    source-dirs:         deterministic-runner
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+      - Concordium
+      - criterion >= 1.5
+
+  Concordium-catchup:
+    main:                Main.hs
+    source-dirs:         catchup
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - Concordium
+
+  genesis:
+    main:         Genesis.hs
+    source-dirs:  genesis
+    ghc-options:
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - Concordium
+    - cmdargs >= 0.10
+    - filepath >= 1.4
+
+tests:
+  Concordium-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - Concordium
+    - hspec >= 2.5
+    - QuickCheck >= 2.10
+    - hspec-expectations >= 0.8
+    - vector >= 0.12
+    - math-functions >= 0.2
