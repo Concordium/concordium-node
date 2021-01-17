@@ -35,12 +35,11 @@ dependencies:
 - pqueue >= 1.4.1
 - psqueues >= 0.2.7
 - vector >= 0.12
-- concordium-crypto
+- concordium-base
 - base16-bytestring
 - aeson >= 1.4.2
 - text >= 1.2
 - scheduler
-- globalstate-types
 - globalstate
 - filepath >= 1.4
 - directory >= 1.3

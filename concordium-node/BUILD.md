@@ -23,7 +23,7 @@ Environment variables only apply to the default build. This links with shared Ha
 
 - `CONCORDIUM_HASKELL_ROOT` should, if present, be a directory containing
    - libHSConcordium-0.1.0.0
-   - libHSconcordium-crypto-0.1
+   - libHSconcordium-crypto-0.1.0.0
    - libHSglobalstate-types-0.1.0.0
    - libHSglobalstate-0.1.0.0
    - libHSlmdb-0.2.5
