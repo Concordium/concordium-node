@@ -1,4 +1,4 @@
-use concordium_common::network_types::PeerId;
+use crate::common::p2p_node_id::PeerId;
 use nohash_hasher::BuildNoHashHasher;
 use std::{
     cmp::Ordering,
