@@ -3,11 +3,10 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::Fallible;
 use rand::distributions::{Distribution, Uniform};
-
-use concordium_common::network_types::PeerId;
 use crypto_common::{Buffer, Deserial, Serial};
-
 use std::fmt;
+
+pub type PeerId = u64;
 
 /// The basic identifier of a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
