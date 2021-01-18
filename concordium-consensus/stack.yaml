@@ -34,11 +34,9 @@ resolver: lts-16.20
 #  - auto-update
 #  - wai
 packages:
-- Concordium
-- scheduler
-- globalstate
-- globalstate/haskell-lmdb
-- ../deps/internal/concordium-base
+- .
+- haskell-lmdb
+- ../concordium-base
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
@@ -46,7 +44,7 @@ packages:
 extra-deps: []
 
 extra-lib-dirs:
-- ../deps/internal/concordium-base/lib
+- ../concordium-base/lib
 - ./smart-contracts/lib
 
 # Override default flag values for local packages and extra-deps
@@ -72,6 +70,3 @@ extra-lib-dirs:
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
-
-nix:
-  shell-file: shell-stack.nix

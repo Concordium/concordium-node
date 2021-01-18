@@ -1,9 +1,9 @@
 //! The node identifier.
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use crypto_common::{Buffer, Deserial, Serial};
 use failure::Fallible;
 use rand::distributions::{Distribution, Uniform};
-use crypto_common::{Buffer, Deserial, Serial};
 use std::fmt;
 
 pub type PeerId = u64;

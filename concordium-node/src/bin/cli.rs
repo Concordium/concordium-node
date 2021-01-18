@@ -15,18 +15,18 @@ use rkv::{
     Manager, Rkv,
 };
 
-use concordium_common::{spawn_or_die, QueueMsg};
-use consensus_rust::{
-    consensus::{
-        ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
-        CONSENSUS_QUEUE_DEPTH_OUT_HI,
-    },
-    ffi,
-    messaging::ConsensusMessage,
-};
-use p2p_client::{
+use concordium_node::{
     common::{P2PNodeId, PeerType},
     configuration as config,
+    consensus_ffi::{
+        consensus::{
+            ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
+            CONSENSUS_QUEUE_DEPTH_OUT_HI,
+        },
+        ffi,
+        helpers::QueueMsg,
+        messaging::ConsensusMessage,
+    },
     p2p::{
         connectivity::connect,
         maintenance::{attempt_bootstrap, spawn},
@@ -34,6 +34,7 @@ use p2p_client::{
     },
     plugins::{self, consensus::*},
     rpc::RpcServerImpl,
+    spawn_or_die,
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
@@ -46,7 +47,7 @@ use std::{
 };
 
 #[cfg(feature = "instrumentation")]
-use p2p_client::stats_export_service::start_push_gateway;
+use concordium_node::stats_export_service::start_push_gateway;
 #[cfg(feature = "instrumentation")]
 use std::net::SocketAddr;
 
@@ -57,7 +58,7 @@ async fn main() -> Fallible<()> {
 
     #[cfg(feature = "staging_net")]
     {
-        p2p_client::plugins::staging_net::authenticate(&conf.cli.staging_net_token)
+        concordium_node::plugins::staging_net::authenticate(&conf.cli.staging_net_token)
             .await
             .expect("Staging network client authentication failed");
     }
@@ -148,7 +149,7 @@ async fn main() -> Fallible<()> {
     };
 
     let mut database_directory = data_dir_path;
-    database_directory.push(p2p_client::configuration::DATABASE_SUB_DIRECTORY_NAME);
+    database_directory.push(concordium_node::configuration::DATABASE_SUB_DIRECTORY_NAME);
     if !database_directory.exists() {
         std::fs::create_dir_all(&database_directory)?;
     }
@@ -419,7 +420,7 @@ where
 
 #[cfg(feature = "elastic_logging")]
 fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
-    use p2p_client::plugins::elasticlogging;
+    use concordium_node::plugins::elasticlogging;
 
     let (enabled, url) = (conf.elastic_logging_enabled, conf.elastic_logging_url.clone());
     if enabled {
@@ -428,7 +429,7 @@ fn setup_transfer_log_thread(conf: &config::CliConfig) -> JoinHandle<()> {
         }
     }
     spawn_or_die!("transfer log", {
-        let receiver = consensus_rust::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
+        let receiver = consensus_ffi::transferlog::TRANSACTION_LOG_QUEUE.receiver.lock().unwrap();
         loop {
             match receiver.recv() {
                 Ok(QueueMsg::Relay(msg)) => {

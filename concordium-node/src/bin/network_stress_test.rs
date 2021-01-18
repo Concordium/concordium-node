@@ -5,7 +5,7 @@ use failure::Fallible;
 use log::LevelFilter;
 use rand::{thread_rng, Rng};
 
-use p2p_client::{
+use concordium_node::{
     common::PeerType,
     connection::Connection,
     network::NetworkId,
@@ -27,7 +27,7 @@ fn main() -> Fallible<()> {
     let env = Env::default().filter_or("LOG_LEVEL", "trace");
     let mut log_builder = Builder::from_env(env);
     // disregard invalid packet type errors
-    log_builder.filter_module("p2p_client::connection::message_handlers", LevelFilter::Off);
+    log_builder.filter_module("concordium_node::connection::message_handlers", LevelFilter::Off);
     // hide module paths
     log_builder.format_module_path(false);
     // hide the timestamps

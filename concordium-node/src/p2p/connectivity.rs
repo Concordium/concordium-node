@@ -13,13 +13,14 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
     connection::{ConnChange, Connection, MessageSendingPriority},
-    netmsg,
+    lock_or_die, netmsg,
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
         PacketDestination,
     },
     only_fbs,
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
+    read_or_die, write_or_die,
 };
 
 #[cfg(feature = "malicious_testing")]
@@ -60,7 +61,7 @@ macro_rules! send_to_all {
 #[macro_export]
 macro_rules! find_conn_by_id {
     ($node:expr, $id:expr) => {{
-        read_or_die!($node.connections()).values().find(|conn| conn.remote_id() == Some($id))
+        crate::read_or_die!($node.connections()).values().find(|conn| conn.remote_id() == Some($id))
     }};
 }
 
@@ -68,7 +69,9 @@ macro_rules! find_conn_by_id {
 #[macro_export]
 macro_rules! find_conns_by_ip {
     ($node:expr, $ip:expr) => {{
-        read_or_die!($node.connections()).values().filter(|conn| conn.remote_peer.addr.ip() == $ip)
+        crate::read_or_die!($node.connections())
+            .values()
+            .filter(|conn| conn.remote_peer.addr.ip() == $ip)
     }};
 }
 

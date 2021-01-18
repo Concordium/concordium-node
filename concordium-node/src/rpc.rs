@@ -8,14 +8,15 @@ use crate::{
     failure::Fallible,
     network::NetworkId,
     p2p::{bans::BanId, P2PNode},
+    read_or_die,
 };
 
-use byteorder::WriteBytesExt;
-use concordium_common::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType};
-use consensus_rust::{
+use crate::consensus_ffi::{
     consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
     messaging::{ConsensusMessage, MessageType},
 };
+use byteorder::WriteBytesExt;
 use tonic::{transport::Server, Code, Request, Response, Status};
 
 use std::{
@@ -810,6 +811,7 @@ mod tests {
     pub mod proto {
         tonic::include_proto!("concordium");
     }
+
     use proto::p2p_client::P2pClient;
 
     use std::sync::Arc;

@@ -8,9 +8,7 @@ use std::alloc::System;
 static A: System = System;
 
 use concordium_common::PacketType;
-use crypto_common::Serial;
-use failure::{bail, Error};
-use p2p_client::{
+use concordium_node::{
     common::PeerType,
     network::NetworkId,
     p2p::{
@@ -20,6 +18,8 @@ use p2p_client::{
     stats_export_service::instantiate_stats_export_engine,
     utils,
 };
+use crypto_common::Serial;
+use failure::{bail, Error};
 use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 
 fn main() -> Result<(), Error> {

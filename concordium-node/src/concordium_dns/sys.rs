@@ -1,4 +1,4 @@
-use crate::sys_c as sys;
+use crate::concordium_dns::sys_c as sys;
 use failure::{Fail, Fallible};
 use libc::c_int;
 use std::{
@@ -25,9 +25,7 @@ impl fmt::Display for UBError {
         let s = unsafe {
             // At time of writing ub_strerror always returns a string.
             // Assume that won't change in the future.
-            CStr::from_ptr(sys::ub_strerror(self.err_code))
-                .to_str()
-                .unwrap()
+            CStr::from_ptr(sys::ub_strerror(self.err_code)).to_str().unwrap()
         };
         write!(f, "{}", s)
     }
@@ -44,7 +42,10 @@ macro_rules! into_result {
     ($err:expr, $ok:expr) => {
         match $err {
             0 => Ok($ok),
-            err => Err(UBError { err_code: err }.into()),
+            err => Err(UBError {
+                err_code: err,
+            }
+            .into()),
         }
     };
 }
@@ -85,7 +86,9 @@ impl Context {
         if ctx.is_null() {
             Err(())
         } else {
-            Ok(Context { ub_ctx: ctx })
+            Ok(Context {
+                ub_ctx: ctx,
+            })
         }
     }
 
@@ -165,8 +168,7 @@ impl<'a> std::iter::Iterator for DataIter<'a> {
 fn ipv4_to_cstr<'a>(ip: &net::Ipv4Addr, buf: &'a mut [u8; IP_CSTR_MAX]) -> &'a CStr {
     let len = {
         let mut w = io::BufWriter::new(&mut buf[..]);
-        w.write_fmt(format_args!("{}", &ip))
-            .expect("write_fmt ipv4");
+        w.write_fmt(format_args!("{}", &ip)).expect("write_fmt ipv4");
         IP_CSTR_MAX + 1 - w.into_inner().expect("into_inner ipv4").len()
     };
     CStr::from_bytes_with_nul(&buf[..len]).expect("valid ipv4 c str")
@@ -175,8 +177,7 @@ fn ipv4_to_cstr<'a>(ip: &net::Ipv4Addr, buf: &'a mut [u8; IP_CSTR_MAX]) -> &'a C
 fn ipv6_to_cstr<'a>(ip: &net::Ipv6Addr, buf: &'a mut [u8; IP_CSTR_MAX]) -> &'a CStr {
     let len = {
         let mut w = io::BufWriter::new(&mut buf[..]);
-        w.write_fmt(format_args!("{}", &ip))
-            .expect("write_fmt ipv6");
+        w.write_fmt(format_args!("{}", &ip)).expect("write_fmt ipv6");
         IP_CSTR_MAX + 1 - w.into_inner().expect("into_inner ipv6").len()
     };
     CStr::from_bytes_with_nul(&buf[..len]).expect("valid ipv6 c str")

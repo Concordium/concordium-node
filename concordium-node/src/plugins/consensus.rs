@@ -6,22 +6,23 @@ use crate::{
     common::{get_current_stamp, P2PNodeId},
     configuration::{self, MAX_CATCH_UP_TIME},
     connection::ConnChange,
+    consensus_ffi::{
+        catch_up::{PeerList, PeerStatus},
+        consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
+        ffi,
+        helpers::{
+            ConsensusFfiResponse,
+            PacketType::{self, *},
+            QueueMsg,
+        },
+        messaging::{ConsensusMessage, DistributionMode, MessageType},
+    },
     find_conn_by_id,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
-};
-use concordium_common::{
-    ConsensusFfiResponse,
-    PacketType::{self, *},
-    QueueMsg,
-};
-use consensus_rust::{
-    catch_up::{PeerList, PeerStatus},
-    consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
-    ffi,
-    messaging::{ConsensusMessage, DistributionMode, MessageType},
+    read_or_die, write_or_die,
 };
 use crypto_common::Deserial;
 
@@ -79,7 +80,7 @@ pub fn start_consensus_layer(
 /// Stop consensus container
 pub fn stop_consensus_layer(container: ConsensusContainer) {
     container.stop();
-    consensus_rust::ffi::stop_haskell();
+    crate::consensus_ffi::ffi::stop_haskell();
 }
 
 /// Obtains the genesis data and baker's private data.

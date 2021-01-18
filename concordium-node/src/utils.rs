@@ -1,8 +1,7 @@
 //! Miscellaneous utilities.
 
-use crate::{self as p2p_client, configuration as config};
+use crate::{concordium_dns::dns, configuration as config};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
-use concordium_dns::dns;
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer, Verifier};
 use env_logger::{Builder, Env};
 use failure::Fallible;
@@ -514,7 +513,7 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
         info!("Config:{:?}\n", conf);
     }
 
-    info!("Starting up {} version {}!", p2p_client::APPNAME, p2p_client::VERSION);
+    info!("Starting up {} version {}!", crate::APPNAME, crate::VERSION);
     info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
     info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
     info!(

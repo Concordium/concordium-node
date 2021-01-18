@@ -1,8 +1,3 @@
-#[macro_use]
-extern crate lazy_static;
-#[macro_use]
-extern crate log;
-
 // ffi macros
 
 macro_rules! wrap_c_call_string {
@@ -100,10 +95,7 @@ macro_rules! wrap_c_committee_call {
         let consensus = $self.consensus.load(Ordering::SeqCst);
         let result = unsafe { $c_call(consensus) };
         ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|code| {
-            panic!(
-                "Unknown Consensus Baking Committee FFI return code: {}",
-                code
-            )
+            panic!("Unknown Consensus Baking Committee FFI return code: {}", code)
         })
     }};
 }
@@ -114,4 +106,5 @@ pub mod blockchain_types;
 pub mod catch_up;
 pub mod consensus;
 pub mod ffi;
+pub mod helpers;
 pub mod messaging;
