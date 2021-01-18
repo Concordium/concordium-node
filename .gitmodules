@@ -1,9 +1,6 @@
 [submodule "deps/internal/grpc-api"]
 	path = deps/internal/grpc-api
 	url = ../grpc-api.git
-[submodule "deps/internal/concordium-dns"]
-	path = deps/internal/concordium-dns
-	url = ../rust/concordium-dns.git
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
 	url = ../rust/external/noiseexplorer_xx
