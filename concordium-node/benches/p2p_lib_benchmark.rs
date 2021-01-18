@@ -8,8 +8,8 @@ mod nop {
 
 macro_rules! bench_s11n {
     ($name:expr) => {
+        use concordium_node::{network::NetworkMessage, test_utils::create_random_packet};
         use criterion::{BenchmarkId, Criterion, Throughput};
-        use p2p_client::{network::NetworkMessage, test_utils::create_random_packet};
         use std::io::{Cursor, Seek, SeekFrom};
 
         pub fn bench_s11n(c: &mut Criterion) {
@@ -77,9 +77,9 @@ macro_rules! dedup_bench {
 #[cfg(feature = "dedup_benchmarks")]
 mod dedup {
     use circular_queue::CircularQueue;
+    use concordium_node::test_utils::generate_random_data;
     use criterion::{BenchmarkId, Criterion, Throughput};
     use digest::Digest;
-    use p2p_client::test_utils::generate_random_data;
     use sha2::Sha256;
     use std::time::Duration;
     use twox_hash::XxHash64;

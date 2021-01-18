@@ -29,9 +29,10 @@ use crate::{
     },
     only_fbs,
     p2p::P2PNode,
+    read_or_die, write_or_die,
 };
 
-use concordium_common::PacketType;
+use crate::consensus_ffi::helpers::PacketType;
 use crypto_common::Deserial;
 
 use std::{

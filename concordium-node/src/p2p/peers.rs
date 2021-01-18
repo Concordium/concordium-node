@@ -7,6 +7,7 @@ use crate::{
     network::{NetworkMessage, NetworkPayload, NetworkRequest},
     only_fbs,
     p2p::{maintenance::attempt_bootstrap, P2PNode},
+    read_or_die,
 };
 
 use std::sync::{atomic::Ordering, Arc};

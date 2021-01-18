@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
 
-use consensus_rust::{
+use concordium_node::consensus_ffi::{
     consensus::{ConsensusContainer, ConsensusLogLevel},
     ffi,
 };

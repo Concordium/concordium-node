@@ -1,14 +1,20 @@
-name:                Concordium
+name:                concordium-consensus
 version:             0.1.0.0
 github:              "githubuser/Concordium"
 license:             BSD3
-author:              "Author name here"
-maintainer:          "example@example.com"
-copyright:           "2018 Author name here"
+author:              "Concordium AG"
+maintainer:          "contact@concordium.com"
+copyright:           "Concordium AG"
 
 extra-source-files:
 - README.md
 - ChangeLog.md
+
+custom-setup:
+  dependencies:
+    - base  >= 4.7
+    - Cabal >= 2.2
+    - directory >= 1.3
 
 # Metadata used when publishing your package
 # synopsis:            Short description of your package
@@ -39,10 +45,17 @@ dependencies:
 - base16-bytestring
 - aeson >= 1.4.2
 - text >= 1.2
-- scheduler
-- globalstate
 - filepath >= 1.4
 - directory >= 1.3
+- persistent-template >= 2.6.0
+- persistent-postgresql >= 2.9.1
+- persistent >= 2.10
+- resource-pool >= 0.2.3.2
+- monad-logger >= 0.3.30
+- recursion-schemes >= 5.1
+- file-embed >= 0.0.11
+
+- lmdb
 
 default-extensions:
 - RecordWildCards
@@ -52,6 +65,7 @@ default-extensions:
 - FlexibleContexts
 - FlexibleInstances
 - FunctionalDependencies
+- GeneralizedNewtypeDeriving
 
 flags:
   dynamic:
@@ -69,6 +83,9 @@ library:
       - -Wredundant-constraints
       - -O2
       - -fno-ignore-asserts
+
+  extra-libraries: wasm_chain_integration
+
   when:
     - condition: os(windows)
       then:
@@ -87,7 +104,7 @@ library:
 executables:
   Concordium-exe:
     main:                Main.hs
-    source-dirs:         app
+    source-dirs:         test-runners/app
     ghc-options:
     - -threaded
     - -rtsopts
@@ -107,11 +124,11 @@ executables:
               else:
                 ghc-options: -static
     dependencies:
-      - Concordium
+      - concordium-consensus
 
   deterministic-runner:
     main:                Main.hs
-    source-dirs:         deterministic-runner
+    source-dirs:         test-runners/deterministic
     ghc-options:
     - -threaded
     - -rtsopts
@@ -130,12 +147,12 @@ executables:
               else:
                 ghc-options: -static
     dependencies:
-      - Concordium
+      - concordium-consensus
       - criterion >= 1.5
 
-  Concordium-catchup:
+  catchup-runner:
     main:                Main.hs
-    source-dirs:         catchup
+    source-dirs:         test-runners/catchup
     ghc-options:
     - -threaded
     - -rtsopts
@@ -155,11 +172,11 @@ executables:
               else:
                 ghc-options: -static
     dependencies:
-    - Concordium
+    - concordium-consensus
 
   genesis:
     main:         Genesis.hs
-    source-dirs:  genesis
+    source-dirs:  tools/genesis
     ghc-options:
     - -Wall
     - -Wcompat
@@ -176,14 +193,37 @@ executables:
               else:
                 ghc-options: -static
     dependencies:
-    - Concordium
+    - concordium-consensus
     - cmdargs >= 0.10
     - filepath >= 1.4
 
+  database-exporter:
+    main:         Main.hs
+    source-dirs:  tools/database-exporter
+    ghc-options:
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - optparse-applicative >= 0.15
+    - filepath >= 1.4
+
 tests:
-  Concordium-test:
+  consensus:
     main:                Spec.hs
-    source-dirs:         test
+    source-dirs:         tests/consensus
     ghc-options:
     - -threaded
     - -rtsopts
@@ -191,6 +231,7 @@ tests:
     - -Wall
     - -Wcompat
     - -fno-ignore-asserts
+    - -Wno-deprecations
     when:
       - condition: os(windows)
         then:
@@ -203,9 +244,77 @@ tests:
               else:
                 ghc-options: -static
     dependencies:
-    - Concordium
+    - concordium-consensus
     - hspec >= 2.5
     - QuickCheck >= 2.10
     - hspec-expectations >= 0.8
     - vector >= 0.12
     - math-functions >= 0.2
+
+  globalstate:
+    main:                Spec.hs
+    source-dirs:         tests/globalstate
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    - -Wno-deprecations
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - hspec >= 2.6
+    - QuickCheck >= 2.12
+    - hspec-expectations >= 0.8
+    - containers
+    - time >= 1.8
+    - random >= 1.1
+    - HUnit >= 1.6
+    - temporary >= 1.3
+
+
+  scheduler:
+    main:                Spec.hs
+    source-dirs:         tests/scheduler
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    - -Wno-deprecations
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - hspec >= 2.6
+    - HUnit >= 1.6
+    - QuickCheck >= 2.12
+    - hspec-expectations >= 0.8
+    - containers
+    - microlens-platform >= 0.3
+    - aeson >= 1.4.2
+    - filepath >= 1.4.2
+

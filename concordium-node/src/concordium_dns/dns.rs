@@ -1,4 +1,4 @@
-use crate::sys::*;
+use crate::concordium_dns::sys::*;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 const DNS_ANCHOR_1: &str = ". IN DNSKEY 257 3 8 AwEAAaz/tAm8yTn4Mfeh5eyI96WSVexTBAvkMgJzkKTOiW1vkIbzxeF3+/4RgWOq7HrxRixHlFlExOLAJr5emLvN7SWXgnLh4+B5xQlNVz8Og8kvArMtNROxVQuCaSnIDdD5LKyWbRd2n9WGe2R8PzgCmr3EgVLrjyBxWezF0jLHwVN8efS3rCj/EWgvIWgb9tarpVUDK/b58Da+sqqls3eNbuv7pr+eoZG+SrDK6nWeL3c6H5Apxz7LjVc1uTIdsIXxuOLYA4/ilBmSVIzuDWfdRUfhHdY6+cn8HFRm+2hM8AnXGXws9555KrUB5qihylGa8subX2Nn6UwNR1AkUTV74bU=";
@@ -17,10 +17,7 @@ pub fn resolve_dns_txt_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    debug!(
-        "Attempting to resolve TXT record {} using DNS server {:?}",
-        entry, dns_servers
-    );
+    debug!("Attempting to resolve TXT record {} using DNS server {:?}", entry, dns_servers);
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::TXT)
 }
 
@@ -29,10 +26,7 @@ pub fn resolve_dns_a_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    debug!(
-        "Attempting to resolve A record {} using DNS server {:?}",
-        entry, dns_servers
-    );
+    debug!("Attempting to resolve A record {} using DNS server {:?}", entry, dns_servers);
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::A)
 }
 
@@ -41,10 +35,7 @@ pub fn resolve_dns_aaaa_record(
     dns_servers: &[IpAddr],
     no_dnssec_fail: bool,
 ) -> Result<Vec<String>, String> {
-    debug!(
-        "Attempting to resolve AAAA record {} using DNS server {:?}",
-        entry, dns_servers
-    );
+    debug!("Attempting to resolve AAAA record {} using DNS server {:?}", entry, dns_servers);
     resolve_dns_record(entry, dns_servers, no_dnssec_fail, LookupType::AAAA)
 }
 
@@ -151,7 +142,7 @@ fn data_to_ipv6(data: &[u8]) -> Ipv6Addr {
 
 #[cfg(test)]
 mod tests {
-    use crate::dns::*;
+    use crate::concordium_dns::dns::*;
     use std::str::FromStr;
 
     #[test]
@@ -272,7 +263,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_cleanbrowsing_resolve_dns() {
+    #[ignore]
+    pub fn _test_cleanbrowsing_resolve_dns() {
         let res = resolve_dns_txt_record(
             "concordium.com",
             &[IpAddr::from_str("185.228.168.168").unwrap()],

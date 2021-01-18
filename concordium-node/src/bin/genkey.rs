@@ -1,8 +1,8 @@
 #![recursion_limit = "1024"]
 
+use concordium_node::utils::{generate_ed25519_key, to_hex_string};
 use ed25519_dalek::{PublicKey, SecretKey};
 use failure::Fallible;
-use p2p_client::utils::{generate_ed25519_key, to_hex_string};
 use std::{fs::OpenOptions, io::Write, process::exit};
 use structopt::StructOpt;
 

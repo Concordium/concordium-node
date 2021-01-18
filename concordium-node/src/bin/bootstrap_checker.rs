@@ -5,13 +5,13 @@ use std::alloc::System;
 #[global_allocator]
 static A: System = System;
 
-use failure::Error;
-use p2p_client::{
+use concordium_node::{
     common::PeerType,
     p2p::maintenance::{attempt_bootstrap, spawn, P2PNode},
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
+use failure::Error;
 
 use std::{env, process::Command, thread, time::Duration};
 

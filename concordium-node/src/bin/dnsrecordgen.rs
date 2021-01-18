@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
+use concordium_node::utils::generate_bootstrap_dns;
 use failure::Fallible;
-use p2p_client::utils::generate_bootstrap_dns;
 use std::{fs::File, io::Read, process::exit};
 use structopt::StructOpt;
 

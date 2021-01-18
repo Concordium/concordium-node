@@ -1,15 +1,14 @@
 resolver: lts-16.20
 
 packages:
-- Concordium
-- scheduler
-- globalstate
-- globalstate/haskell-lmdb
+- .
+- haskell-lmdb
+- ../concordium-base
 
 extra-deps: []
 
 extra-lib-dirs:
-- ../../deps/internal/concordium-base/lib
+- ../concordium-base/lib
 - ./smart-contracts/lib
 
 flags:

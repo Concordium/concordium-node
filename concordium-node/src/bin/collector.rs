@@ -1,7 +1,7 @@
 #![recursion_limit = "1024"]
+use concordium_node::{common::collector_utils::NodeInfo, req_with_auth, utils::setup_logger_env};
 use env_logger::Env;
 use failure::Fallible;
-use p2p_client::{common::collector_utils::NodeInfo, req_with_auth, utils::setup_logger_env};
 use serde_json::Value;
 use std::{
     borrow::ToOwned,
@@ -118,7 +118,11 @@ async fn main() {
         info!("{:?}", conf);
     }
 
-    info!("Starting up {}-node-collector version {}!", p2p_client::APPNAME, p2p_client::VERSION);
+    info!(
+        "Starting up {}-node-collector version {}!",
+        concordium_node::APPNAME,
+        concordium_node::VERSION
+    );
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
         error!("The number of node-names and grpc-hosts must be equal!");

@@ -1,6 +1,11 @@
-use crate::blockchain_types::BakerId;
-use concordium_common::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
+use crate::consensus_ffi::{
+    blockchain_types::BakerId,
+    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
+    messaging::ConsensusMessage,
+};
 use failure::Fallible;
+use parking_lot::Condvar;
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -9,13 +14,6 @@ use std::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex,
     },
-};
-
-use parking_lot::Condvar;
-
-use crate::{
-    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
-    messaging::ConsensusMessage,
 };
 
 pub type PeerId = u64;

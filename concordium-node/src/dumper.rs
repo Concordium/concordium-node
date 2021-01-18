@@ -10,9 +10,8 @@ cfg_if! {
         use std::io::Write;
     }
 }
+use crate::{network::NetworkMessage, spawn_or_die};
 use chrono::prelude::{DateTime, Utc};
-
-use crate::network::NetworkMessage;
 
 use std::{fmt, net::IpAddr, sync::Arc};
 

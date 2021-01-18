@@ -5,14 +5,6 @@ use std::{convert::TryFrom, fmt, ops::Deref};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
-#[cfg(feature = "s11n_serde")]
-#[macro_use]
-extern crate serde_derive;
-
-#[macro_use]
-pub mod fails;
-pub mod network_types;
-
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 
@@ -92,11 +84,7 @@ impl AsRef<[u8]> for HashBytes {
 // a short, 8-character beginning of the SHA
 impl fmt::Debug for HashBytes {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{:08x}",
-            (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),
-        )
+        write!(f, "{:08x}", (&self.0[..]).read_u32::<NetworkEndian>().unwrap(),)
     }
 }
 
@@ -264,10 +252,7 @@ impl TryFrom<i64> for ConsensusIsInBakingCommitteeResponse {
             -2 => Ok(AddedButNotActiveInCommittee),
             -3 => Ok(AddedButWrongKeys),
             baker_id if baker_id >= 0 => Ok(ActiveInCommittee(baker_id as u64)),
-            _ => Err(format_err!(
-                "Unsupported FFI return code for committee status ({})",
-                value
-            )),
+            _ => Err(format_err!("Unsupported FFI return code for committee status ({})", value)),
         }
     }
 }
@@ -290,10 +275,7 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
             0 => Ok(NotInCommittee),
             1 => Ok(AddedButNotActiveInCommittee),
             2 => Ok(ActiveInCommittee),
-            _ => Err(format_err!(
-                "Unsupported FFI return code for committee status ({})",
-                value
-            )),
+            _ => Err(format_err!("Unsupported FFI return code for committee status ({})", value)),
         }
     }
 }

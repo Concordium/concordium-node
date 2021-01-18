@@ -3,7 +3,7 @@
 cfg_if! {
     if #[cfg(feature = "instrumentation")] {
         use prometheus::{self, Encoder, core::{AtomicU64, GenericGauge}, IntCounter, IntGauge, Opts, Registry, TextEncoder};
-        use crate::common::p2p_node_id::P2PNodeId;
+        use crate::{common::p2p_node_id::P2PNodeId, spawn_or_die, read_or_die};
         use std::{net::SocketAddr, thread, time, sync::RwLock};
         use gotham::{
             handler::IntoResponse,

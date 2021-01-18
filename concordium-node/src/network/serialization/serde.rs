@@ -1,11 +1,9 @@
+use crate::network::NetworkMessage;
 use failure::Fallible;
 #[cfg(feature = "s11n_serde_msgpack")]
 use rmp_serde::{encode::write as to_writer, from_slice};
 #[cfg(feature = "s11n_serde_cbor")]
 use serde_cbor::{from_slice, to_writer};
-
-use crate::network::NetworkMessage;
-
 use std::io::Write;
 
 impl NetworkMessage {

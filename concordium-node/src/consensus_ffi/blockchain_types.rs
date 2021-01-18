@@ -3,7 +3,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use crypto_common::{Buffer, Deserial, Serial};
 use failure::{format_err, Fallible};
 
-use concordium_common::HashBytes;
+use crate::consensus_ffi::helpers::HashBytes;
 
 use std::{convert::TryFrom, fmt, io::Cursor, mem::size_of};
 
@@ -34,7 +34,10 @@ impl Deserial for ContractAddress {
         let index = ContractIndex::deserial(source)?;
         let subindex = ContractSubIndex::deserial(source)?;
 
-        let contract_address = ContractAddress { index, subindex };
+        let contract_address = ContractAddress {
+            index,
+            subindex,
+        };
 
         Ok(contract_address)
     }
@@ -97,9 +100,7 @@ impl fmt::Display for AccountAddress {
 
 impl Serial for AccountAddress {
     fn serial<W: WriteBytesExt>(&self, target: &mut W) {
-        target
-            .write_all(&self.0)
-            .expect("Writing to buffer is safe.");
+        target.write_all(&self.0).expect("Writing to buffer is safe.");
     }
 }
 
@@ -119,7 +120,7 @@ pub fn create_serialization_cursor(size: usize) -> Cursor<Box<[u8]>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain_types::AccountAddress;
+    use crate::consensus_ffi::blockchain_types::AccountAddress;
     #[test]
     fn check_encoding_of_address() {
         let expected_result = &"2xBvQb4QFBzCDcRdyuGzPDcWSMvDDisfMUnXeRnNJFdWqBBmK7";

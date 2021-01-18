@@ -2,6 +2,8 @@
 
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate lazy_static;
 
 #[cfg(feature = "elastic_logging")]
 #[macro_use]
@@ -26,9 +28,6 @@ extern crate failure;
 #[macro_use]
 extern crate quickcheck;
 
-#[macro_use]
-extern crate concordium_common;
-
 #[cfg(feature = "s11n_serde")]
 #[macro_use]
 extern crate serde_derive;
@@ -52,6 +51,9 @@ pub mod dumper;
 pub mod rpc;
 pub mod stats_export_service;
 pub mod utils;
+
+pub mod concordium_dns;
+pub mod consensus_ffi;
 
 pub mod test_utils;
 
