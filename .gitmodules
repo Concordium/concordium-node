@@ -1,11 +1,11 @@
-[submodule "deps/internal/grpc-api"]
-	path = deps/internal/grpc-api
+[submodule "concordium-grpc-api"]
+	path = concordium-grpc-api
 	url = ../grpc-api.git
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
 	url = ../rust/external/noiseexplorer_xx
-[submodule "deps/internal/concordium-base"]
-	path = deps/internal/concordium-base
+[submodule "concordium-base"]
+	path = concordium-base
 	url = ../concordium-base.git
 [submodule "concordium-consensus/haskell-lmdb"]
 	path = concordium-consensus/haskell-lmdb
