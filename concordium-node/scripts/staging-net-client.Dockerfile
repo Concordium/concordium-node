@@ -15,9 +15,9 @@ COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh
 RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
-    strip /build-project/target/release/p2p_client-cli && \
+    strip /build-project/target/release/concordium-node && \
     strip /build-project/target/release/node-collector && \
-    cp /build-project/target/release/p2p_client-cli /build-project/ && \
+    cp /build-project/target/release/concordium-node /build-project/ && \
     cp /build-project/target/release/node-collector /build-project/ && \
     cd /build-project/genesis-data && \
     tar -xf 20-bakers.tar.gz && \
@@ -41,7 +41,7 @@ ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
-COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
+COPY --from=build /build-project/concordium-node /concordium-node
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat

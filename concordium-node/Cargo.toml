@@ -8,7 +8,7 @@ publish = false
 build = "build.rs"
 autobins = false
 edition = "2018"
-default-run = "concordium-node-cli"
+default-run = "concordium-node"
 license = "MIT"
 
 [features]
@@ -117,7 +117,7 @@ name = "concordium_node"
 
 [[bin]]
 path = "src/bin/cli.rs"
-name = "concordium-node-cli"
+name = "concordium-node"
 
 [[bin]]
 path = "src/bin/bootstrapper.rs"

@@ -29,7 +29,7 @@ RUN --mount=type=ssh ./build-binaries.sh "collector"
 
 RUN chmod +x /build-project/start.sh
 
-RUN cp /build-project/target/debug/p2p_client-cli /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/target/debug/node-collector-backend /build-project/
+RUN cp /build-project/target/debug/concordium-node /build-project/target/debug/p2p_bootstrapper-cli /build-project/target/debug/node-collector /build-project/target/debug/node-collector-backend /build-project/
 
 ## Wallet-proxy
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-haskell:0.12 as wallet-proxy-build
@@ -60,7 +60,7 @@ COPY --from=build /build-project/baker_id_generator /baker_id_generator
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis-data /genesis-data
 COPY --from=build /build-project/genesis-complementary-bundle /genesis-complementary-bundle
-COPY --from=build /build-project/p2p_client-cli /p2p_client-cli
+COPY --from=build /build-project/concordium-node /concordium-node
 COPY --from=build /build-project/p2p_bootstrapper-cli /p2p_bootstrapper-cli
 COPY --from=build /build-project/node-collector /node-collector
 COPY --from=build /build-project/node-collector-backend /node-collector-backend 

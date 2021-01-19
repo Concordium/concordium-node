@@ -14,12 +14,12 @@ ENV LD_LIBRARY_PATH=/usr/local/lib
 RUN --mount=type=ssh ./init.build.env.sh
 RUN --mount=type=ssh mkdir -p /build-project/release && \
     ./build-binaries.sh "instrumentation,collector" "release" && \
-    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/release/ && \
+    cp /build-project/target/release/concordium-node /build-project/target/release/p2p_bootstrapper-cli /build-project/release/ && \
     cp /build-project/target/release/node-collector /build-project/release/ && \
     cp /build-project/target/release/node-collector-backend /build-project/release/ && \
     mkdir -p /build-project/debug/ && \
     ./build-binaries.sh "instrumentation,collector" && \
-    cp /build-project/target/release/p2p_client-cli /build-project/target/release/p2p_bootstrapper-cli /build-project/debug/ && \
+    cp /build-project/target/release/concordium-node /build-project/target/release/p2p_bootstrapper-cli /build-project/debug/ && \
     cp /build-project/target/release/node-collector /build-project/debug/ && \
     cp /build-project/target/release/node-collector-backend /build-project/debug/ && \
     cargo clean && \
@@ -30,7 +30,7 @@ RUN --mount=type=ssh mkdir -p /build-project/release && \
     #RUSTFLAGS="-Z sanitizer=address" cargo build --target x86_64-unknown-linux-gnu --features=instrumentation && \
     #RUSTFLAGS="-Z sanitizer=address" cargo test --no-run --target x86_64-unknown-linux-gnu --features=instrumentation && \
     #mkdir -p sanitized && \
-    #mv target/x86_64-unknown-linux-gnu/debug/p2p_client-cli sanitized/ && \
+    #mv target/x86_64-unknown-linux-gnu/debug/concordium-node sanitized/ && \
     #mv target/x86_64-unknown-linux-gnu/debug/p2p_bootstrapper-cli sanitized/ && \
     #cp target/x86_64-unknown-linux-gnu/debug/address_sanitizer* sanitized/ && \
     #cp target/x86_64-unknown-linux-gnu/debug/p2p_client-* sanitized/ && \

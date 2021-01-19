@@ -151,10 +151,10 @@ function testnet_node() {
   if [ "$3" != "none" ];
     then
       profiling="valgrind --tool="$3" "
-      binary="./target/debug/p2p_client-cli"
+      binary="./target/debug/concordium-node"
     else
       profiling=""
-      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin p2p_client-cli --"
+      binary="cargo run $CONCORDIUM_P2P_EXTRA_ARGS --bin concordium-node --"
   fi
   instanceid=$1; shift
   bootstrappercount=$1; shift
