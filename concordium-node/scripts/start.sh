@@ -383,7 +383,7 @@ fi
 
 if [ "$MODE" == "tps_receiver" ]; then
     echo "Receiver!"
-    /p2p_client-cli \
+    /concordium-node \
     --enable-tps-test-recv \
     $ARGS
 elif [ "$MODE" == "tps_sender" ]; then
@@ -397,18 +397,18 @@ elif [ "$MODE" == "tps_sender" ]; then
         dd if=/dev/urandom of=test-$i bs=1 count=1024 > /dev/null 2>&1
     done
     # Echo to cron file
-    /p2p_client-cli \
+    /concordium-node \
     --connect-to 10.96.0.15:8888 \
     $ARGS
 elif [ "$MODE" == "basic" ]; then
     if [ -n "$ENABLE_TERM_HANDLER" ];
     then
         trap _term SIGTERM
-        /p2p_client-cli $ARGS &
+        /concordium-node $ARGS &
         CHILD_PID=$!
         wait $CHILD_PID
     else
-        /p2p_client-cli $ARGS
+        /concordium-node $ARGS
     fi
 
     if [ -n "$DONT_CRASH" ];
@@ -471,7 +471,7 @@ elif [ "$MODE" == "local_basic" ]; then
             sleep $DB_SLEEP
         fi
     fi
-    /p2p_client-cli --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
+    /concordium-node --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID="0000000001000000"
     /p2p_bootstrapper-cli \
