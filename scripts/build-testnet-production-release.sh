@@ -29,12 +29,12 @@ fi
 
 VERSION=`cat Cargo.toml | grep "version = \"" | head -n1 | sed 's/version = \"//' | sed 's/\"//'`
 
-./scripts/build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_TYPE $CONSENSUS_PROFILING
+./build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_TYPE $CONSENSUS_PROFILING
 
 if [ -z "$JENKINS_HOME" ]; then
   git checkout $CURRENT_BRANCH
 fi
 
-GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
+GENESIS_VERSION=$(cat GENESIS_DATA_VERSION)
 
 echo "Finished building and pushing develop release with tag $VERSION with consensus $CONSENSUS_TYPE with profiling $CONSENSUS_PROFILING and genesis $GENESIS_VERSION"
