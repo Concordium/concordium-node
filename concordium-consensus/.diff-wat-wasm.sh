@@ -4,8 +4,8 @@
 # The .wasm files are committed for convenience in testing, so that people
 # who do not touch the scheduler or smart contracts do not need all the Wasm tooling installed.
 
-# This script should be run from the root of the prototype repository. The idea is to report all
-# the files that failed, hence no early exit from the script.
+# This script should be run from the directory that it resides in. The idea is
+# to report all the files that failed, hence no early exit from the script.
 
 pushd testdata/contracts
 
