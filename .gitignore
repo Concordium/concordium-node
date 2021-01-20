@@ -1,6 +1,7 @@
 *.zst
 *.swo
 *.swp
+*~
 target
 *.orig
 *.bk
@@ -41,3 +42,5 @@ genesis_data
 /concordium-consensus/stack.yaml.lock
 /concordium-consensus/concordium-consensus.cabal
 /concordium-consensus/a.out
+/concordium-consensus/HSdll.dll
+/concordium-consensus/HSdll.dll.a
