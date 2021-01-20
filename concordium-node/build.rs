@@ -47,8 +47,12 @@ fn main() -> std::io::Result<()> {
         // Traverse the directory to link all of the libs in ghc.
         match env::var("CARGO_CFG_TARGET_OS").as_ref().map(|x| &**x) {
             Ok("windows") => {
-                let extra_library_dirs =
-                    command_output(Command::new("stack").args(&["--stack-yaml", "../concordium-consensus/stack.yaml", "path", "--extra-library-dirs"]));
+                let extra_library_dirs = command_output(Command::new("stack").args(&[
+                    "--stack-yaml",
+                    "../concordium-consensus/stack.yaml",
+                    "path",
+                    "--extra-library-dirs",
+                ]));
                 for extra_library_dir in extra_library_dirs.split(", ") {
                     println!("cargo:rustc-link-search=native={}", extra_library_dir);
                 }
