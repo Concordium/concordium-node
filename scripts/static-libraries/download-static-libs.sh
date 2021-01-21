@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
 
 set -e
-BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
+NODE_DIR="$( cd "$(dirname "$0")" ; pwd -P )"/..
 (
-  VERSION_TAG=$( cd $BASEDIR/../.. && git rev-parse --verify HEAD )
-  if [[ ! -z "$1" && "$1" != "default" ]]; then
-    VERSION_TAG="$VERSION_TAG-$1"
-  fi
-  ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
+  VERSION_TAG=$(cat scripts/static-libraries/LATEST_STATIC_LIBRARIES)
+  ARCHIVES_DIR=$NODE_DIR/deps/static-libs/linux/archives
   if [ ! -d $ARCHIVES_DIR ]; then
     mkdir -p $ARCHIVES_DIR
   fi
@@ -31,8 +28,8 @@ BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
       (
         cd target/
         printf "Replacing local version with upstream\n"
-        rm -rf $BASEDIR/../deps/static-libs/linux/{profiling,rust,vanilla}
-        cp -r * $BASEDIR/../deps/static-libs/linux/
+        rm -rf $NODE_DIR/deps/static-libs/linux/{profiling,rust,vanilla}
+        cp -r * $NODE_DIR/deps/static-libs/linux/
       )
       rm -rf target/
       echo $VERSION_TAG > $ARCHIVES_DIR/VERSIONTAG

@@ -104,6 +104,7 @@ libc = "0.2"
 tonic-build = { version = "0.3.0", default-features = false, features = ["transport", "prost"] }
 capnpc = { version = "0.13", optional = true }
 flatc-rust = "^0.1"
+walkdir = "2"
 
 [dev-dependencies]
 criterion = "0.3"

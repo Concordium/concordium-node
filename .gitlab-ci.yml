@@ -111,11 +111,12 @@ stages:
       - concordium-consensus/haskell-lmdb/.stack-work # haskell artifacts
       - concordium-consensus/smart-contracts/wasm-chain-integration/target # don't build again
       - concordium-consensus/smart-contracts/lib # will link against these
-    name: "$CI_JOB_STAGE-$CI_COMMIT_REF_NAME"
     expire_in: 2 hour
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes: &files-haskell-build
+        - "**/Cargo.toml"
+        - "**/*.rs"
         - "**/*.yaml"
         - "**/*.hs"
         - "concordium-base"
