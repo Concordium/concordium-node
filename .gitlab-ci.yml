@@ -261,6 +261,7 @@ stages:
       changes: *files-haskell-test
       allow_failure: true
   script:
+    - ( cd concordium-consensus && ./.diff-wat-wasm.sh )
     - stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
 
 "cargo:build-bench":
