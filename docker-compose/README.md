@@ -8,7 +8,6 @@ To build the stable image built in a Jenkins pipeline (it gets tagged `latest`, 
 $> git clone -b master --single-branch git@gitlab.com:Concordium/tools/baker_id_gen.git baker_id_gen # Only needed once, as it's a vital component to scaling the bakers inside docker-compose
 $> scripts/download-genesis-data.sh
 $> scripts/download-genesis-complementary-bundle.sh
-$> echo $(cd deps/internal/consensus && git rev-parse HEAD) > CONSENSUS_VERSION
 $> DOCKER_BUILDKIT=1 docker build -f scripts/dev-client.Dockerfile -t concordium/dev-client:latest --ssh default . --no-cache
 ```
 ## Latest stable from master branch
