@@ -13,3 +13,5 @@ concordium.test.key
 win_build
 scripts/local
 .git
+concordium-node/deps/*
+**/.stack-work/*
