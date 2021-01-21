@@ -49,12 +49,13 @@ different ways, either via environment variables or Cargo features.
 The package supports the following features related to linking with the Haskell component.
 
 - `static`: This feature enables linking with static Haskell libraries.
-   They are expected to be available in `../deps/static-libs/linux/vanilla`.
+   They are expected to be available in `./deps/static-libs/linux/vanilla`.
    The [../scripts/download-static-libs.sh](../scripts/download-static-libs.sh)`
    script will download them into the correct location.
+   **The script is intended to be run from the root of the repository.**
 
 - `profiling`: This will link with Haskell libraries built with profiling support. This option implies `static`, with the difference
-  that the libraries must be available in `../deps/static-libs/linux/profiling`.
+  that the libraries must be available in `./deps/static-libs/linux/profiling`.
 
 By default none of these features are enabled.
 
@@ -87,14 +88,14 @@ Environment variables only apply to the default build. This links with shared Ha
   dependencies, it will only try to discover them. Building should be done before
   by running `stack build` inside
   [../concordium-consensus/](../concordium-consensus/) or running
-  
+
   ```console
   stack --stack-yaml ../concordium-consensus/stack.yaml build
   ```
-  
+
   Once the node is built it can be run as
   ```console
-  cargo run -- 
+  cargo run --
   ```
   or
   ```console
@@ -106,7 +107,7 @@ Environment variables only apply to the default build. This links with shared Ha
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies
-  that have 
+  that have
 
 ## Installing genesis data
 Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/concordium`). This determines how many bakers you need to run for the network to be able to work properly.
@@ -117,12 +118,12 @@ $> cargo test --all
 ```
 
 # Obtaining documentation
-The output is placed in `target/doc` by default.
+The output is placed in [./target/doc](./target/doc) by default.
 ```console
 $> cargo doc
 ```
 
-To automatically open the browser with the documentation once it is generated to
+To automatically open the browser with the documentation once it is generated use the `--open` flag.
 ```console
 $> cargo doc --open
 ```
