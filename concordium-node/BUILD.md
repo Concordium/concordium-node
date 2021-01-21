@@ -1,4 +1,4 @@
-# The build process for the rust component
+# The build process configuration
 
 The [build.rs](./build.rs) script links with a number of Haskell libraries and
 supports a number of configuration options that can be configured in two
@@ -9,11 +9,12 @@ different ways, either via environment variables or Cargo features.
 The package supports the following features
 
 - `static`: This feature enables linking with static Haskell libraries.
-   They are expected to be available in `./deps/static-libs/linux/vanilla`, i.e. in that subdirectory of this directory.
-   The `download-static-libraries.sh` script from the p2p-client repository will download them into the correct location.
+   They are expected to be available in `../deps/static-libs/linux/vanilla`, i.e. in that subdirectory of this directory.
+   The [../scripts/download-static-libs.sh](../scripts/download-static-libs.sh)`
+   script will download them into the correct location.
 
 - `profiling`: This will link with Haskell libraries built with profiling support. This option implies `static`, with the difference
-  that the libraries must be available in `./deps/static-libs/linux/profiling`.
+  that the libraries must be available in `../deps/static-libs/linux/profiling`.
 
 By default no features are enabled.
 
@@ -22,12 +23,9 @@ By default no features are enabled.
 Environment variables only apply to the default build. This links with shared Haskell libraries.
 
 - `CONCORDIUM_HASKELL_ROOT` should, if present, be a directory containing
-   - libHSConcordium-0.1.0.0
-   - libHSconcordium-crypto-0.1.0.0
-   - libHSglobalstate-types-0.1.0.0
-   - libHSglobalstate-0.1.0.0
+   - libHSconcordium-consensus-0.1.0.0
+   - libHSconcordium-base-0.1.0.0
    - libHSlmdb-0.2.5
-   - libHSscheduler-0.1.0.0
 
    This only applies to non-windows platforms. It is not used on other platforms.
    On Windows the Concordium haskell package is built with a `standalone` option which embeds all dependent libraries into one single DLL.
@@ -43,5 +41,12 @@ Environment variables only apply to the default build. This links with shared Ha
    -- --print-libdir`.
 
 
-Note that [build.rs](./build.rs) will not automatically build the Haskell
-dependencies. This should be done before by running `stack build`.
+## CAVEATS
+
+Note that [build.rs](./build.rs) **will not** automatically build the Haskell
+dependencies. This should be done before by running `stack build` inside
+[../concordium-consensus/](../concordium-consensus/) or running
+
+```console
+stack --stack-yaml ../concordium-consensus/stack.yaml build
+```
