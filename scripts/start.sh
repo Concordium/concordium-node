@@ -89,7 +89,9 @@ then
 fi
 
 # If BAKER_CREDENTIALS_FILENAME is provided, get that one.
-# Otherwise, use the old behavior (using BAKER-ID)
+# Otherwise we assume we are given a baker number, from which we construct the credential
+# file `baker-n-credentials.json`. This is used for testing where we spawn a number of
+# bakers at the same time. The id's are provided by the baker_id_gen tool.
 if [ -n "$BAKER_CREDENTIALS_FILENAME" ];
 then
     BAKER_CREDENTIALS_FILE="${DATA_DIR}/${BAKER_CREDENTIALS_FILENAME}"
@@ -103,7 +105,7 @@ then
     BAKER_CREDENTIALS_FILE="${DATA_DIR}/baker-${REAL_BAKER_ID}-credentials.json"
     if [ -f $BAKER_CREDENTIALS_FILE ];
     then
-        ARGS="$ARGS --baker-id $REAL_BAKER_ID"
+        ARGS="$ARGS --baker-credentials-file $BAKER_CREDENTIALS_FILE"
     fi
 
     if [ -n "$LOGGING_SPLIT_HALF_TRACE_HALF_INFO" ]; then
@@ -471,7 +473,7 @@ elif [ "$MODE" == "local_basic" ]; then
             sleep $DB_SLEEP
         fi
     fi
-    /concordium-node --baker-id $BAKER_ID --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
+    /concordium-node --baker-credentials-file "${DATA_DIR}/baker-${BAKER_ID}-credentials.json" --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID="0000000001000000"
     /p2p_bootstrapper-cli \

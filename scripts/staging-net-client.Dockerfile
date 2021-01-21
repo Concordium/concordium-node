@@ -8,17 +8,14 @@ ARG consensus_profiling=false
 ENV CONSENSUS_PROFILING=$consensus_profiling
 COPY . /build-project
 WORKDIR /build-project
-COPY ./scripts/init.build.env.sh ./init.build.env.sh
 COPY ./scripts/start.sh ./start.sh
 COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 ENV LD_LIBRARY_PATH=/usr/local/lib
-RUN --mount=type=ssh ./init.build.env.sh
+RUN --mount=type=ssh ./scripts/download-static-libs.sh
 RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
-    strip /build-project/target/release/concordium-node && \
-    strip /build-project/target/release/node-collector && \
-    cp /build-project/target/release/concordium-node /build-project/ && \
-    cp /build-project/target/release/node-collector /build-project/ && \
+    strip /build-project/concordium-node/target/release/concordium-node && \
+    strip /build-project/concordium-node/target/release/node-collector && \
     cd /build-project/genesis-data && \
     tar -xf 20-bakers.tar.gz && \
     cd genesis_data && \
@@ -41,8 +38,8 @@ ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
-COPY --from=build /build-project/concordium-node /concordium-node
-COPY --from=build /build-project/node-collector /node-collector
+COPY --from=build /build-project/concordium-node/target/release/concordium-node /concordium-node
+COPY --from=build /build-project/concordium-node/target/release/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
 COPY --from=build /build-project/genesis.dat /genesis.dat
 RUN sha256sum /genesis.dat
