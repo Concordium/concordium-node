@@ -10,8 +10,8 @@ fi
 
 if [[ -n "$2" && "$2" == "release" ]]; then
     echo "Building release build with $FEATURES"
-    cargo build --release --features=$FEATURES
+    cargo build --manifest-path concordium-node/Cargo.toml --release --features=$FEATURES
 else
     echo "Building debug build with $FEATURES"
-    cargo build --features=$FEATURES
+    cargo build --manifest-path concordium-node/Cargo.toml --features=$FEATURES
 fi

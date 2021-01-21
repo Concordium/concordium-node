@@ -172,10 +172,10 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
 fn link_static_libs() -> std::io::Result<()> {
     let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     #[cfg(not(feature = "profiling"))]
-    let path = format!("{}/../deps/static-libs/linux/vanilla", out_dir);
+    let path = format!("{}/deps/static-libs/linux/vanilla", out_dir);
 
     #[cfg(feature = "profiling")]
-    let path = format!("{}/../deps/static-libs/linux/profiling", out_dir);
+    let path = format!("{}/deps/static-libs/linux/profiling", out_dir);
 
     ["concordium", "dependencies", "ghc"].iter().for_each(|subdir| {
         println!("cargo:rustc-link-search=native={}/{}", path, subdir);
@@ -197,7 +197,7 @@ fn link_static_libs() -> std::io::Result<()> {
         }
     });
 
-    println!("cargo:rustc-link-search=native={}/../deps/static-libs/linux/rust", out_dir);
+    println!("cargo:rustc-link-search=native={}/deps/static-libs/linux/rust", out_dir);
     println!("cargo:rustc-link-lib=static=Rcrypto");
     println!("cargo:rustc-link-lib=static=wasm_chain_integration");
 
