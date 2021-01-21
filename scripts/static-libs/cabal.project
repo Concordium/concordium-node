@@ -1,1 +1,0 @@
-packages: ./Concordium ../deps/internal/concordium-base ./globalstate ./crypto ./scheduler ./globalstate/haskell-lmdb
