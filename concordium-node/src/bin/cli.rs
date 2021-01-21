@@ -119,8 +119,7 @@ async fn main() -> Fallible<()> {
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    let is_baker =
-        conf.cli.baker.baker_id.is_some() || conf.cli.baker.baker_credentials_file.is_some();
+    let is_baker = conf.cli.baker.baker_credentials_file.is_some();
 
     let data_dir_path = app_prefs.get_user_app_dir();
     let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
