@@ -17,7 +17,7 @@ pipeline {
             }
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
-                    sh './scripts/build-and-push-static-libs.sh'
+                    sh './scripts/static-libraries/build-and-push-static-libs.sh'
                 }
             }
         }
