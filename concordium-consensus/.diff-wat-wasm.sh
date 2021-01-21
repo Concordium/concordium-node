@@ -7,7 +7,7 @@
 # This script should be run from the root of the prototype repository. The idea is to report all
 # the files that failed, hence no early exit from the script.
 
-pushd scheduler/testdata/contracts
+pushd testdata/contracts
 
 RET=0
 

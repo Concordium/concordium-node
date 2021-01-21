@@ -162,7 +162,7 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
             }
         }
     }
-    Ok(rts_dir.into())
+    Ok(rts_dir)
 }
 
 #[cfg(feature = "static")]
