@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 
-set -e
-BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
-(
-  VERSION_TAG=$( cd $BASEDIR/../.. && git rev-parse --verify HEAD )
-  if [[ ! -z "$1" && "$1" != "default" ]]; then
-    VERSION_TAG="$VERSION_TAG-$1"
-  fi
-  ARCHIVES_DIR=$BASEDIR/../deps/static-libs/linux/archives
+set -euo pipefail
+# This script is intended to be run from the root of the repository, or with two arguments.
+# The first argument must be the root of the concordium-node package, and the second should be
+# the name of the file with a hash of the static libraries.
+
+if [ "$#" -eq 2 ]; then
+    NODE_DIR=$1
+    VERSION_TAG=$(cat $2)
+else
+    # else assume we are run from the root of the repository.
+    NODE_DIR=$(pwd)/concordium-node
+    VERSION_TAG=$(cat scripts/static-libraries/LATEST_STATIC_LIBRARIES)
+fi
+
+if [ -d "$NODE_DIR" ]; then
+  ARCHIVES_DIR=$NODE_DIR/deps/static-libs/linux/archives
   if [ ! -d $ARCHIVES_DIR ]; then
     mkdir -p $ARCHIVES_DIR
   fi
@@ -31,11 +39,16 @@ BASEDIR="$( cd "$(dirname "$0")" ; pwd -P )"
       (
         cd target/
         printf "Replacing local version with upstream\n"
-        rm -rf $BASEDIR/../deps/static-libs/linux/{profiling,rust,vanilla}
-        cp -r * $BASEDIR/../deps/static-libs/linux/
+        rm -rf $NODE_DIR/deps/static-libs/linux/{profiling,rust,vanilla}
+        cp -r * $NODE_DIR/deps/static-libs/linux/
       )
       rm -rf target/
       echo $VERSION_TAG > $ARCHIVES_DIR/VERSIONTAG
+    else
+        echo "Downloaded archive is already the latest version."
     fi
   )
-)
+else
+    echo "The script should be run from the root of the concordium-node repository."
+    exit 1
+fi
