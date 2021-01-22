@@ -89,12 +89,6 @@ pub fn get_baker_data(
     let mut genesis_loc = app_prefs.get_user_app_dir();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
 
-    let credentials_loc = if let Some(path) = &conf.baker_credentials_file {
-        std::path::PathBuf::from(path)
-    } else {
-        bail!("Baker credentials file not supplied.")
-    };
-
     let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
         Ok(mut file) => {
             let mut read_data = vec![];
@@ -107,6 +101,11 @@ pub fn get_baker_data(
     };
 
     let private_data = if needs_private {
+        let credentials_loc = if let Some(path) = &conf.baker_credentials_file {
+            std::path::PathBuf::from(path)
+        } else {
+            bail!("Baker credentials file not supplied.")
+        };
         match OpenOptions::new().read(true).open(&credentials_loc) {
             Ok(mut file) => {
                 let mut read_data = vec![];

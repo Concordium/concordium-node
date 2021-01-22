@@ -9,7 +9,12 @@ pipeline {
         stage('build') {
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
-                    sh './scripts/download-genesis-data.sh && ./scripts/download-genesis-complementary-bundle.sh && ./scripts/build-docker-compose-image.sh debug default true && docker push concordium/dev-client:debug'
+                    sh '''\
+                           ./scripts/download-genesis-data.sh
+                           ./scripts/download-genesis-complementary-bundle.sh
+                           ./scripts/build-docker-compose-image.sh debug true
+                           docker push concordium/dev-client:develop
+                       '''
                 }
             }
         }
