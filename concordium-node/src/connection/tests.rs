@@ -2,11 +2,11 @@ use itertools::Itertools;
 
 use crate::{
     common::PeerType,
+    consensus_ffi::helpers::PacketType,
     network::NetworkId,
     p2p::connectivity::send_broadcast_message,
     test_utils::{await_handshakes, connect, make_node_and_sync, next_available_port},
 };
-use concordium_common::PacketType;
 
 use std::sync::Arc;
 

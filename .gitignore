@@ -38,3 +38,7 @@ genesis-data
 genesis-complementary-bundle
 genesis-data-test
 genesis_data
+/concordium-consensus/stack.yaml.lock
+/concordium-consensus/concordium-consensus.cabal
+/concordium-consensus/a.out
+deps/static-libs

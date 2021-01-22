@@ -2,6 +2,8 @@
 
 pub mod p2p_node_id;
 pub mod p2p_peer;
+#[macro_use]
+pub mod utils;
 
 use chrono::prelude::*;
 

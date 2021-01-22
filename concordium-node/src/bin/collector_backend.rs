@@ -1,17 +1,17 @@
 #![recursion_limit = "1024"]
 #[macro_use]
 extern crate gotham_derive;
-use env_logger::Env;
-use failure::Fallible;
-use p2p_client::{
+use concordium_node::{
     common::{collector_utils::*, get_current_stamp},
     utils::setup_logger_env,
 };
+use env_logger::Env;
+use failure::Fallible;
 use structopt::StructOpt;
 use twox_hash::XxHash64;
 #[macro_use]
 extern crate log;
-use concordium_common::{read_or_die, spawn_or_die, write_or_die};
+use concordium_node::{read_or_die, spawn_or_die, write_or_die};
 use futures::prelude::*;
 use gotham::{
     handler::{HandlerError, HandlerFuture, IntoResponse},
@@ -131,8 +131,8 @@ pub fn main() -> Fallible<()> {
 
     info!(
         "Starting up {}-node-collector-backend version {}!",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
+        concordium_node::APPNAME,
+        concordium_node::VERSION
     );
 
     let node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>> =
@@ -163,8 +163,8 @@ fn index(state: State) -> (State, HTMLStringResponse) {
     trace!("Processing an index request");
     let message = HTMLStringResponse(format!(
         "<html><body><h1>Collector backend for {} v{}</h1>Operational!</p></body></html>",
-        p2p_client::APPNAME,
-        p2p_client::VERSION
+        concordium_node::APPNAME,
+        concordium_node::VERSION
     ));
     (state, message)
 }

@@ -6,22 +6,23 @@ use crate::{
     common::{get_current_stamp, P2PNodeId},
     configuration::{self, MAX_CATCH_UP_TIME},
     connection::ConnChange,
+    consensus_ffi::{
+        catch_up::{PeerList, PeerStatus},
+        consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
+        ffi,
+        helpers::{
+            ConsensusFfiResponse,
+            PacketType::{self, *},
+            QueueMsg,
+        },
+        messaging::{ConsensusMessage, DistributionMode, MessageType},
+    },
     find_conn_by_id,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
-};
-use concordium_common::{
-    ConsensusFfiResponse,
-    PacketType::{self, *},
-    QueueMsg,
-};
-use consensus_rust::{
-    catch_up::{PeerList, PeerStatus},
-    consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
-    ffi,
-    messaging::{ConsensusMessage, DistributionMode, MessageType},
+    read_or_die, write_or_die,
 };
 use crypto_common::Deserial;
 
@@ -35,8 +36,6 @@ use std::{
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
-const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
-const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
 
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
@@ -69,7 +68,6 @@ pub fn start_consensus_layer(
         u64::from(conf.transactions_purging_delay),
         genesis_data,
         private_data,
-        conf.baker_id,
         max_logging_level,
         appdata_dir,
         database_connection_url,
@@ -79,7 +77,7 @@ pub fn start_consensus_layer(
 /// Stop consensus container
 pub fn stop_consensus_layer(container: ConsensusContainer) {
     container.stop();
-    consensus_rust::ffi::stop_haskell();
+    crate::consensus_ffi::ffi::stop_haskell();
 }
 
 /// Obtains the genesis data and baker's private data.
@@ -94,14 +92,7 @@ pub fn get_baker_data(
     let credentials_loc = if let Some(path) = &conf.baker_credentials_file {
         std::path::PathBuf::from(path)
     } else {
-        let mut private_loc = app_prefs.get_user_app_dir();
-        if let Some(baker_id) = conf.baker_id {
-            private_loc.push(format!(
-                "{}{}{}",
-                FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
-            ));
-        }
-        private_loc
+        bail!("Baker credentials file not supplied.")
     };
 
     let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
@@ -124,7 +115,7 @@ pub fn get_baker_data(
                     Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
-            Err(e) => bail!("Can't open the private data file ({})!", e),
+            Err(e) => bail!("Can't open the baker credentials file ({})!", e),
         }
     } else {
         None

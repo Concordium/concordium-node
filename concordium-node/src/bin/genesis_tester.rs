@@ -1,6 +1,6 @@
 #![recursion_limit = "1024"]
 
-use consensus_rust::{
+use concordium_node::consensus_ffi::{
     consensus::{ConsensusContainer, ConsensusLogLevel},
     ffi,
 };
@@ -70,10 +70,6 @@ pub fn main() -> Fallible<()> {
         u64::max_value(),
         genesis_data,
         private_data.clone(),
-        match private_data {
-            Some(_) => Some(0),
-            _ => None,
-        },
         ConsensusLogLevel::Info,
         &tmp_dir.into_path(),
         &"",

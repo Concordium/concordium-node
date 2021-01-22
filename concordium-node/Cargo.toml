@@ -1,5 +1,5 @@
 [package]
-name = "p2p_client"
+name = "concordium_node"
 version = "0.4.8" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
@@ -8,19 +8,19 @@ publish = false
 build = "build.rs"
 autobins = false
 edition = "2018"
-default-run = "p2p_client-cli"
+default-run = "concordium-node"
 license = "MIT"
 
 [features]
 default = []
 s11n_capnp = ["capnp", "capnpc"]
-s11n_serde = ["concordium-common/s11n_serde", "serde", "serde_derive"]
+s11n_serde = ["serde", "serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
 instrumentation = ["serde", "serde_derive", "gotham", "mime", "gotham_derive", "prometheus", "hyper", "num_cpus", "reqwest", "http" ]
 network_dump = []
-static = [ "consensus-rust/static" ]
-profiling = [ "consensus-rust/profiling", "static" ]
+static = [ ]
+profiling = [ "static" ]
 collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
 staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
@@ -32,10 +32,7 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-consensus-rust = { path = "deps/internal/consensus/consensus-rust"  }
-concordium-dns = { package = "concordium-dns", path = "deps/internal/concordium-dns" }
-concordium-common = { path = "deps/internal/consensus/globalstate-mockup/deps/concordium-common"  }
-crypto_common = { path = "deps/internal/consensus/crypto/rust-src/crypto_common" }
+crypto_common = { path = "../concordium-base/rust-src/crypto_common" }
 
 # External dependencies
 parking_lot = "0.11"
@@ -58,7 +55,7 @@ digest = "0.9"
 twox-hash = { version = "^1.5.0", features = ["digest"] }
 nohash-hasher = "0.2"
 rayon = "1.4"
-noiseexplorer_xx = { path = "deps/external/noiseexplorer_xx" }
+noiseexplorer_xx = { path = "../deps/external/noiseexplorer_xx" }
 bytesize = "1.0"
 crossbeam-channel = "0.4"
 semver = { version = "0.10", features = ["serde"] }
@@ -67,9 +64,11 @@ signal-hook = "0.1"
 flatbuffers = { version = "^0.6" }
 flatc-rust = { version = "^0.1" }
 sha2 = "0.9"
+lazy_static = "^1.2"
+base58check = "^0.1"
 
 # gRPC dependencies
-tonic = "0.3"
+tonic = "=0.3.0"
 prost = "0.6"
 tokio = { version = "0.2", features = ["macros", "rt-threaded"] }
 
@@ -102,9 +101,10 @@ uuid = { version = "0.8", default-features = false, optional = true }
 libc = "0.2"
 
 [build-dependencies]
-tonic-build = { version = "0.3", default-features = false, features = ["transport", "prost"] }
+tonic-build = { version = "0.3.0", default-features = false, features = ["transport", "prost"] }
 capnpc = { version = "0.13", optional = true }
 flatc-rust = "^0.1"
+walkdir = "2"
 
 [dev-dependencies]
 criterion = "0.3"
@@ -114,11 +114,11 @@ itertools = "0.9"
 
 [lib]
 path = "src/lib.rs"
-name = "p2p_client"
+name = "concordium_node"
 
 [[bin]]
 path = "src/bin/cli.rs"
-name = "p2p_client-cli"
+name = "concordium-node"
 
 [[bin]]
 path = "src/bin/bootstrapper.rs"

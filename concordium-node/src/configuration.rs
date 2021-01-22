@@ -136,8 +136,6 @@ pub struct PrometheusConfig {
 #[derive(StructOpt, Debug)]
 /// Parameters related to Baking (only used in cli).
 pub struct BakerConfig {
-    #[structopt(long = "baker-id", help = "Baker ID")]
-    pub baker_id: Option<u64>,
     #[cfg(feature = "profiling")]
     #[structopt(
         long = "heap-profiling",

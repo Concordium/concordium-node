@@ -9,12 +9,13 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     connection::ConnChange,
+    consensus_ffi::helpers::PacketType,
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, PacketDestination},
     p2p::{maintenance::spawn, P2PNode},
+    read_or_die,
     stats_export_service::StatsExportService,
 };
-use concordium_common::PacketType;
 use crypto_common::Serial;
 
 use std::{

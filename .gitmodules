@@ -1,12 +1,15 @@
-[submodule "deps/internal/grpc-api"]
-	path = deps/internal/grpc-api
+[submodule "concordium-grpc-api"]
+	path = concordium-grpc-api
 	url = ../grpc-api.git
-[submodule "deps/internal/consensus"]
-	path = deps/internal/consensus
-	url = ../consensus/prototype.git
-[submodule "deps/internal/concordium-dns"]
-	path = deps/internal/concordium-dns
-	url = ../rust/concordium-dns.git
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
 	url = ../rust/external/noiseexplorer_xx
+[submodule "concordium-base"]
+	path = concordium-base
+	url = ../concordium-base.git
+[submodule "concordium-consensus/haskell-lmdb"]
+	path = concordium-consensus/haskell-lmdb
+	url = ../external/lmdb.git
+[submodule "concordium-consensus/smart-contracts"]
+	path = concordium-consensus/smart-contracts
+	url = ../smart-contracts.git
