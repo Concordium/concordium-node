@@ -18,6 +18,11 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
+    consensus_ffi::{
+        catch_up::PeerList,
+        consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    },
+    lock_or_die,
     network::{Buckets, NetworkId, Networks},
     p2p::{
         bans::BanId,
@@ -25,12 +30,9 @@ use crate::{
         peers::check_peers,
     },
     plugins::consensus::{check_peer_states, update_peer_list},
+    read_or_die, spawn_or_die,
     stats_export_service::StatsExportService,
-    utils,
-};
-use consensus_rust::{
-    catch_up::PeerList,
-    consensus::{ConsensusContainer, CALLBACK_QUEUE},
+    utils, write_or_die,
 };
 
 use std::{

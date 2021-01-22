@@ -1,6 +1,10 @@
-use crate::{catch_up::*, consensus::*, messaging::*};
+use crate::consensus_ffi::{
+    catch_up::*,
+    consensus::*,
+    helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
+    messaging::*,
+};
 use byteorder::{NetworkEndian, ReadBytesExt};
-use concordium_common::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType};
 use crypto_common::Serial;
 use failure::{bail, format_err, Fallible};
 use std::{
@@ -145,10 +149,7 @@ fn start_haskell_init(
         args.push("+RTS".to_owned())
     }
 
-    if rts_flags
-        .iter()
-        .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
-    {
+    if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
         args.push("--install-signal-handlers=no".to_owned());
     }
 
@@ -162,18 +163,10 @@ fn start_haskell_init(
         args.push("-RTS".to_owned());
     }
 
-    info!(
-        "Starting consensus with the following profiling arguments {:?}",
-        args
-    );
-    let args = args
-        .iter()
-        .map(|arg| CString::new(arg.as_bytes()).unwrap())
-        .collect::<Vec<CString>>();
-    let c_args = args
-        .iter()
-        .map(|arg| arg.as_ptr())
-        .collect::<Vec<*const c_char>>();
+    info!("Starting consensus with the following profiling arguments {:?}", args);
+    let args =
+        args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
+    let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
     let ptr_c_argc = &(c_args.len() as c_int);
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
@@ -187,10 +180,7 @@ fn start_haskell_init(rts_flags: &[String]) {
     let mut args = vec![program_name];
     if !rts_flags.is_empty() {
         args.push("+RTS".to_owned());
-        if rts_flags
-            .iter()
-            .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
-        {
+        if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
             args.push("--install-signal-handlers=no".to_owned());
         }
         for flag in rts_flags {
@@ -204,14 +194,9 @@ fn start_haskell_init(rts_flags: &[String]) {
         args.push("--install-signal-handlers=no".to_owned());
         args.push("-RTS".to_owned());
     }
-    let args = args
-        .iter()
-        .map(|arg| CString::new(arg.as_bytes()).unwrap())
-        .collect::<Vec<CString>>();
-    let c_args = args
-        .iter()
-        .map(|arg| arg.as_ptr())
-        .collect::<Vec<*const c_char>>();
+    let args =
+        args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
+    let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
     let ptr_c_argc = &(c_args.len() as c_int);
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
@@ -538,10 +523,7 @@ impl ConsensusContainer {
     }
 
     pub fn get_blocks_at_height(&self, block_height: u64) -> String {
-        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(
-            consensus,
-            block_height
-        ))
+        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(consensus, block_height))
     }
 
     pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> String {

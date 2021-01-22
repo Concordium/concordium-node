@@ -1,69 +1,361 @@
-image: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.15"
+image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.17
 
 stages:
-  - lint
+  - rust-fmt
+  - haskell-build
   - test
 
 .generic:
   variables:
-    RUSTFLAGS: -Dwarnings -llmdb
     GIT_SUBMODULE_STRATEGY: recursive
+    RUSTFLAGS: -Dwarnings -llmdb
   before_script:
-    - rustc --version && cargo --version
-    - git config --global url.https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.com/.insteadOf ssh://git@gitlab.com:22/
+    - if [ -d .stack ]; then
+         echo "restore stack folder";
+         if [ -d $HOME/.stack ]; then
+            rm -rf $HOME/.stack;
+         fi;
+         mv .stack $HOME/;
+      fi
+    - if [ -d .cargo ]; then
+         echo "restore stack folder";
+         if [ -d $HOME/.cargo ]; then
+            rm -rf $HOME/.cargo;
+         fi;
+         mv .cargo $HOME/;
+      fi
+  after_script:
+    - mv $HOME/.stack ./
+    - mv $HOME/.cargo ./
+  cache:
+    paths:
+      # cache haskell dependencies
+      - .stack
+      # cache rust dependencies
+      - .cargo
+      # cache rust artifacts
+      - concordium-node/target
+    policy: pull-push
+  interruptible: true
+
+.generic-haskell-test:
+  extends: .generic
+  cache:
+    policy: pull
+  variables:
+    TEST_LEVEL: 1
+
+# NOTE:
+# Gitlab CI doesn't allow merging arrays when extending jobs, so we are forced
+# to duplicate the general structure of rules in every job. Ideally we should
+# be able to do something like:
+#
+#     .generic:
+#       rules: A
+#
+#     job:
+#       extends: .generic
+#       rules: B
+#
+# And it would result in a job that combines both rules A and B or even better,
+# that executes B and if successful then executes A, but that is not the case,
+# see: https://docs.gitlab.com/ee/ci/yaml/#merge-details
+#
+# Explanations for each of the rules are given in the first job.
+
+################################## RUST-FMT ####################################
+
+"lint:fmt":
+  extends: .generic
+  stage: rust-fmt
+  image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-rust-fmt:2019-11-13
+  cache: {}
+  rules:
+    # Always run pipeline in master branch
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: &files-fmt
+        - "**/*.rs"
+    # Run pipeline if on a merge request which is not a draft
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-fmt
+    # To avoid duplicated pipelines, when we are pushing to a branch it will not
+    # create pipelines, but instead we need to put this into an MR, which would
+    # either trigger the rule above of below this one.
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    # Otherwise, create the pipeline to be run manually if wanted
+    # and if an error happens, as this is a testing branch, keep running
+    - changes: *files-fmt
+      when: manual
+      allow_failure: true
+  script:
+    - cargo fmt --manifest-path concordium-node/Cargo.toml --all -- --color=always
+    - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+
+################################ HASKELL-BUILD #################################
+
+"stack:build":
+  extends: .generic
+  stage: haskell-build
+  artifacts:
+    paths:
+      - concordium-base/.stack-work # haskell artifacts
+      - concordium-base/rust-src/target # don't build again
+      - concordium-base/lib # will link against these
+      - concordium-consensus/.stack-work # haskell artifacts
+      - concordium-consensus/haskell-lmdb/.stack-work # haskell artifacts
+      - concordium-consensus/smart-contracts/wasm-chain-integration/target # don't build again
+      - concordium-consensus/smart-contracts/lib # will link against these
+    expire_in: 2 hour
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: &files-haskell-build
+        - "**/Cargo.toml"
+        - "**/*.rs"
+        - "**/*.yaml"
+        - "**/*.hs"
+        - "concordium-base"
+        - "concordium-consensus/smart-contracts"
+        - "concordium-consensus/haskell-lmdb"
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-haskell-build
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-haskell-build
+      allow_failure: true
+  script:
+    - stack build --stack-yaml concordium-consensus/stack.yaml --test --bench --no-run-tests --no-run-benchmarks
+    # gitlab CI uses zip which doesn't preserve symlinks so we have to copy the actual libraries
+    - rm concordium-base/lib/* concordium-consensus/smart-contracts/lib/*
+    - cp concordium-base/rust-src/target/release/*.a concordium-base/lib
+    - cp concordium-base/rust-src/target/release/*.so concordium-base/lib
+    - cp concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.a concordium-consensus/smart-contracts/lib
+    - cp concordium-consensus/smart-contracts/wasm-chain-integration/target/release/*.so concordium-consensus/smart-contracts/lib
+
+##################################### TEST #####################################
+
+"lint:clippy":
+  extends: .generic
+  stage: test
+  cache:
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: &files-clippy
+        - "**/Cargo.toml"
+        - "**/*.rs"
+        - "concordium-base"
+        - "concordium-consensus/smart-contracts"
+        - "concordium-consensus/lmdb"
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-clippy
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-clippy
+      allow_failure: true
+  script:
+    - echo "Running clippy with without extra features"
+    - cargo clippy --manifest-path concordium-node/Cargo.toml --color=always --all -- -Dclippy::all
+    - echo "Running clippy with network dump, instrumentation, collector and staging net features"
+    - cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
+    - echo "Running clippy with s11n features"
+    - cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_capnp --color=always --all -- -Dclippy::all
+    - cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_cbor --color=always --all -- -Dclippy::all
+    - cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_msgpack --color=always --all -- -Dclippy::all
+
+"stack:test:consensus":
+  extends: .generic-haskell-test
+  stage: test
+  cache:
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: &files-haskell-test
+        - "**/*.yaml"
+        - "**/*.hs"
+        - "concordium-base"
+        - "concordium-consensus/smart-contracts"
+        - "concordium-consensus/haskell-lmdb"
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-haskell-test
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-haskell-test
+      allow_failure: true
+  script:
+    - stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+
+"stack:test:globalstate":
+  extends: .generic-haskell-test
+  stage: test
+  cache:
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: *files-haskell-test
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-haskell-test
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-haskell-test
+      allow_failure: true
+  script:
+    - stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+
+"stack:test:scheduler":
+  extends: .generic-haskell-test
+  stage: test
+  cache:
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: *files-haskell-test
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-haskell-test
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-haskell-test
+      allow_failure: true
+  script:
+    - ( cd concordium-consensus && ./.diff-wat-wasm.sh )
+    - stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
+
+"cargo:build-bench":
+  extends: .generic
+  stage: test
+  cache:
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: &files-cargo-bench
+        - "**/Cargo.toml"
+        - "**/*.rs"
+        - "**/*.hs"
+        - "**/*.yaml"        
+        - "concordium-base"
+        - "concordium-consensus/smart-contracts"
+        - "concordium-consensus/haskell-lmdb"
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-cargo-bench
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-cargo-bench
+      allow_failure: true
+  script:
+    - cargo bench --manifest-path concordium-node/Cargo.toml --color=always --no-run
+    - cargo bench --manifest-path concordium-node/Cargo.toml --features=s11n_capnp --color=always --no-run
+    - cargo bench --manifest-path concordium-node/Cargo.toml --features=s11n_serde_cbor --color=always --no-run
+    - cargo bench --manifest-path concordium-node/Cargo.toml --features=s11n_serde_msgpack --color=always --no-run
 
 "cargo:test":
   extends: .generic
   stage: test
+  cache:
+    policy: pull
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'
+      changes: &files-cargo-test
+        - "**/Cargo.toml"
+        - "**/*.rs"
+        - "**/*.hs"
+        - "**/*.yaml"        
+        - "concordium-base"
+        - "concordium-consensus/smart-contracts"
+        - "concordium-consensus/haskell-lmdb"        
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
+           $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^wip:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^draft:/ &&
+           $CI_MERGE_REQUEST_TITLE !~ /^Wip:/'
+      changes: *files-cargo-test
+      when: on_success
+    - if: '$CI_PIPELINE_SOURCE == "push"'
+      when: never
+    - when: manual
+      changes: *files-cargo-test
+      allow_failure: true
   script:
-    - scripts/download-static-libs.sh
     - echo "Running tests without extra features"
-    - cargo test --all --features=static --color=always
+    - cargo test --manifest-path concordium-node/Cargo.toml --all --color=always
     - echo "Running tests with network dump, instrumentation, and collector features"
-    - cargo test --all --color=always --features=static,instrumentation,collector,network_dump
-    - echo "Compiling the benches"
-    - cargo bench --features=static --color=always --no-run
-    - cargo bench --features=static,s11n_capnp --color=always --no-run
-    - cargo bench --features=static,s11n_serde_cbor --color=always --no-run
-    - cargo bench --features=static,s11n_serde_msgpack --color=always --no-run
+    - cargo test --manifest-path concordium-node/Cargo.toml --all --color=always --features=instrumentation,collector,network_dump
 
-"genesis:test":
-  extends: .generic
-  stage: test
-  script:
-    - scripts/download-static-libs.sh
-    - scripts/download-genesis-data.sh
-    - cargo build --features=genesis_tester,static
-    - scripts/test-genesis.sh 1-bakers.tar.gz
-    - scripts/test-genesis.sh 5-bakers.tar.gz
-    - scripts/test-genesis.sh 20-bakers.tar.gz
-    # - scripts/test-genesis.sh 1000-bakers.tar.gz
-    - scripts/test-genesis.sh 1-bakers.tar.gz 0
-    - scripts/test-genesis.sh 5-bakers.tar.gz 2
-    - scripts/test-genesis.sh 20-bakers.tar.gz 10
-    # - scripts/test-genesis.sh 1000-bakers.tar.gz 200
 
-.generic-lint:
-  extends: .generic
 
-"lint:fmt":
-  extends: .generic-lint
-  stage: lint
-  image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-rust-fmt:2019-11-13
-  script:
-    - cargo fmt -- --color=always
-    - test $(git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | wc -l) -eq 0 || (echo 'You have introduced some unformatted code:'; git ls-files --modified | grep -v ".dll$" | grep -v ".a$" | grep -v ".pc$" | grep -v ".def$" | grep -v "tar.gz" | sed 's/^/* /'; echo 'Please run `cargo fmt` and amend your MR.'; exit 1)
+# TODO:
+#
+# How the genesis data and static libraries will be distributed is still not
+# absolutely clear, so this job for now is commented but it is important and as
+# soon as the genesis-data flow is clear it should be re-enabled.
 
-"lint:clippy":
-  extends: .generic-lint
-  stage: lint
-  script:
-    - scripts/download-static-libs.sh
-    - echo "Running clippy with without extra features"
-    - cargo clippy --color=always --all --features=static -- -Dclippy::all
-    - echo "Running clippy with network dump, instrumentation, collector and staging net features"
-    - cargo clippy --features=static,instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
-    - echo "Running clippy with s11n features"
-    - cargo clippy --features=static,s11n_capnp --color=always --all -- -Dclippy::all
-    - cargo clippy --features=static,s11n_serde_cbor --color=always --all -- -Dclippy::all
-    - cargo clippy --features=static,s11n_serde_msgpack --color=always --all -- -Dclippy::all
+# "genesis:test":
+#   when: never
+#   extends: .generic
+#   stage: test
+#   script:
+#     - scripts/download-static-libs.sh
+#     - scripts/download-genesis-data.sh
+#     - cargo build --features=genesis_tester,static
+#     - scripts/test-genesis.sh 1-bakers.tar.gz
+#     - scripts/test-genesis.sh 5-bakers.tar.gz
+#     - scripts/test-genesis.sh 20-bakers.tar.gz
+#     # - scripts/test-genesis.sh 1000-bakers.tar.gz
+#     - scripts/test-genesis.sh 1-bakers.tar.gz 0
+#     - scripts/test-genesis.sh 5-bakers.tar.gz 2
+#     - scripts/test-genesis.sh 20-bakers.tar.gz 10
+#     # - scripts/test-genesis.sh 1000-bakers.tar.gz 200

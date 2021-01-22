@@ -1,6 +1,10 @@
-use crate::blockchain_types::BakerId;
-use concordium_common::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper};
+use crate::consensus_ffi::{
+    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
+    helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
+    messaging::ConsensusMessage,
+};
 use failure::Fallible;
+use parking_lot::Condvar;
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -9,13 +13,6 @@ use std::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
         Arc, Mutex,
     },
-};
-
-use parking_lot::Condvar;
-
-use crate::{
-    ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
-    messaging::ConsensusMessage,
 };
 
 pub type PeerId = u64;
@@ -217,7 +214,6 @@ pub struct ConsensusContainer {
     pub max_block_size:            u64,
     pub insertions_before_purging: u64,
     pub transaction_keep_alive:    u64,
-    pub baker_id:                  Option<BakerId>,
     pub is_baking:                 Arc<AtomicBool>,
     pub consensus:                 Arc<AtomicPtr<consensus_runner>>,
     pub genesis:                   Arc<[u8]>,
@@ -235,7 +231,6 @@ impl ConsensusContainer {
         transactions_purging_delay: u64,
         genesis_data: Vec<u8>,
         private_data: Option<Vec<u8>>,
-        baker_id: Option<BakerId>,
         max_log_level: ConsensusLogLevel,
         appdata_dir: &PathBuf,
         database_connection_url: &str,
@@ -263,7 +258,6 @@ impl ConsensusContainer {
                 max_block_size,
                 insertions_before_purging,
                 transaction_keep_alive,
-                baker_id,
                 is_baking: Arc::new(AtomicBool::new(false)),
                 consensus: Arc::new(AtomicPtr::new(consensus_ptr)),
                 genesis: Arc::from(genesis_data),

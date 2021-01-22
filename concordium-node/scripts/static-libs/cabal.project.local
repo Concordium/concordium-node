@@ -1,9 +1,0 @@
-static: True
-profiling: True
-library-profiling-detail: all-functions
-
-package *
-  ghc-options: -fPIC -threaded
-
-program-options
-  ghc-options: -fPIC -threaded

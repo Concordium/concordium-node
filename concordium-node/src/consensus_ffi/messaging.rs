@@ -1,5 +1,4 @@
-use crate::catch_up::PeerStatus;
-use concordium_common::{network_types::PeerId, PacketType};
+use crate::consensus_ffi::{catch_up::PeerStatus, consensus::PeerId, helpers::PacketType};
 use std::{fmt, sync::Arc};
 
 /// The type of messages passed between GlobalState and the consensus layer.

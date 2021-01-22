@@ -17,32 +17,26 @@ impl<T> From<std::sync::PoisonError<T>> for PoisonError {
 #[macro_export]
 macro_rules! safe_lock {
     ($e:expr) => {
-        $e.lock()
-            .map_err($crate::fails::PoisonError::from)
-            .unwrap_or_else(|e| {
-                panic!("{}", e);
-            })
+        $e.lock().map_err($crate::fails::PoisonError::from).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
     };
 }
 
 #[macro_export]
 macro_rules! safe_write {
     ($e:expr) => {
-        $e.write()
-            .map_err($crate::fails::PoisonError::from)
-            .unwrap_or_else(|e| {
-                panic!("{}", e);
-            })
+        $e.write().map_err($crate::fails::PoisonError::from).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
     };
 }
 
 #[macro_export]
 macro_rules! safe_read {
     ($e:expr) => {
-        $e.read()
-            .map_err($crate::fails::PoisonError::from)
-            .unwrap_or_else(|e| {
-                panic!("{}", e);
-            })
+        $e.read().map_err($crate::fails::PoisonError::from).unwrap_or_else(|e| {
+            panic!("{}", e);
+        })
     };
 }
