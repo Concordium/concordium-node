@@ -36,8 +36,6 @@ use std::{
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
-const FILE_NAME_PREFIX_BAKER_PRIVATE: &str = "baker-";
-const FILE_NAME_SUFFIX_BAKER_PRIVATE: &str = "-credentials.json";
 
 /// Initializes the consensus layer with the given setup.
 pub fn start_consensus_layer(
@@ -70,7 +68,6 @@ pub fn start_consensus_layer(
         u64::from(conf.transactions_purging_delay),
         genesis_data,
         private_data,
-        conf.baker_id,
         max_logging_level,
         appdata_dir,
         database_connection_url,
@@ -95,14 +92,7 @@ pub fn get_baker_data(
     let credentials_loc = if let Some(path) = &conf.baker_credentials_file {
         std::path::PathBuf::from(path)
     } else {
-        let mut private_loc = app_prefs.get_user_app_dir();
-        if let Some(baker_id) = conf.baker_id {
-            private_loc.push(format!(
-                "{}{}{}",
-                FILE_NAME_PREFIX_BAKER_PRIVATE, baker_id, FILE_NAME_SUFFIX_BAKER_PRIVATE
-            ));
-        }
-        private_loc
+        bail!("Baker credentials file not supplied.")
     };
 
     let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {
@@ -125,7 +115,7 @@ pub fn get_baker_data(
                     Err(_) => bail!("Couldn't open up private baker file for reading"),
                 }
             }
-            Err(e) => bail!("Can't open the private data file ({})!", e),
+            Err(e) => bail!("Can't open the baker credentials file ({})!", e),
         }
     } else {
         None

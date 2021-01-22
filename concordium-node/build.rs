@@ -122,6 +122,9 @@ fn main() -> std::io::Result<()> {
         }
     }
 
+    #[cfg(feature = "static")]
+    link_static_libs()?;
+
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
@@ -166,7 +169,7 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
             }
         }
     }
-    Ok(rts_dir.into())
+    Ok(rts_dir)
 }
 
 #[cfg(feature = "static")]
@@ -178,7 +181,7 @@ fn link_static_libs() -> std::io::Result<()> {
     #[cfg(feature = "profiling")]
     let path = format!("{}/deps/static-libs/linux/profiling", out_dir);
 
-    ["concordium", "cabal", "ghc"].iter().for_each(|subdir| {
+    ["concordium", "dependencies", "ghc"].iter().for_each(|subdir| {
         println!("cargo:rustc-link-search=native={}/{}", path, subdir);
         let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
             .into_iter()
@@ -197,6 +200,12 @@ fn link_static_libs() -> std::io::Result<()> {
             }
         }
     });
+
+    println!("cargo:rustc-link-search=native={}/deps/static-libs/linux/rust", out_dir);
+    println!("cargo:rustc-link-lib=static=Rcrypto");
+    println!("cargo:rustc-link-lib=static=wasm_chain_integration");
+
+    println!("cargo:rustc-link-lib=dylib=pq");
 
     Ok(())
 }
