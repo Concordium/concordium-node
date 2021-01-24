@@ -13,7 +13,8 @@ import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Transactions
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.SQL
+import Concordium.SQL.Helpers
+import Concordium.SQL.AccountTransactionIndex
 
 import Database.Persist
 import Database.Persist.Postgresql
@@ -26,26 +27,6 @@ import qualified Data.Sequence as Seq
 
 import Control.Monad.Logger
 import Control.Monad.Reader
-
-share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
-  Summary sql=summaries
-    block (ByteStringSerialized BlockHash)
-    timestamp Timestamp
-    height BlockHeight
-    summary AE.Value
-    deriving Eq Show
-
-  Entry sql=ati
-    account (ByteStringSerialized AccountAddress)
-    summary SummaryId
-    deriving Eq Show
-
-  ContractEntry sql=cti
-    index ContractIndex
-    subindex ContractSubindex
-    summary SummaryId
-    deriving Eq Show
-  |]
 
 connectPostgres :: ConnectionString -> IO (Pool SqlBackend)
 connectPostgres connString = runNoLoggingT (createPostgresqlPool connString 5)
