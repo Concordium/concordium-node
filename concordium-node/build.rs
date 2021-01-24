@@ -2,10 +2,10 @@ use std::{env, path::Path};
 #[cfg(any(all(unix, not(feature = "static")), windows))]
 use std::{process::Command, str};
 
-#[cfg(all(unix, not(feature = "static")))]
+#[cfg(not(feature = "static"))]
 const GHC_VARIANT: &str = "x86_64-linux-ghc-8.8.4";
 
-#[cfg(all(unix, not(feature = "static")))]
+#[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
     str::from_utf8(&cmd.output().unwrap().stdout).unwrap().trim_end().to_string()
 }
@@ -47,15 +47,19 @@ fn main() -> std::io::Result<()> {
         // Traverse the directory to link all of the libs in ghc.
         match env::var("CARGO_CFG_TARGET_OS").as_ref().map(|x| &**x) {
             Ok("windows") => {
-                // Copy HSdll.dll.a to HSdll.dll in build directory for now
-                println!("cargo:rustc-link-search=native=.");
-                let extra_library_dirs =
-                    command_output(Command::new("stack").args(&["path", "--extra-library-dirs"]));
+                let extra_library_dirs = command_output(Command::new("stack").args(&[
+                    "--stack-yaml",
+                    "../concordium-consensus/stack.yaml",
+                    "path",
+                    "--extra-library-dirs",
+                ]));
                 for extra_library_dir in extra_library_dirs.split(", ") {
-                    println!("cargo:rustc_link-search=native={}", extra_library_dir);
+                    println!("cargo:rustc-link-search=native={}", extra_library_dir);
                 }
-                println!("cargo:rustc-link-lib=dylib=HSdll");
                 println!("cargo:rustc-link-lib=dylib=libpq");
+
+                println!("cargo:rustc-link-search=native=../concordium-consensus");
+                println!("cargo:rustc-link-lib=dylib=HSdll");
             }
             Ok(_) => {
                 // If the haskell root is provided we use it. In this case we assume.
