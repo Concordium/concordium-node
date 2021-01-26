@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -exo pipefail
 
 if [ "$#" -lt 2 ]
 then
