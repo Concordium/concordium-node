@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -e
+
+set -exo pipefail
 
 if [ "$#" -lt 1 ]
 then
@@ -19,8 +20,8 @@ if [ -z "$JENKINS_HOME" ]; then
 fi
 
 VERSION=`git rev-parse --verify HEAD`
-GENESIS_VERSION=$(cat GENESIS_DATA_VERSION)
+GENESIS_VERSION=$(cat ./scripts/GENESIS_DATA_VERSION)
 
-./build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_PROFILING
+./scripts/testnet-deployments/build-all-docker.sh $VERSION $BUILD_TYPE $CONSENSUS_PROFILING
 
 echo "Finished building and pushing develop release with tag $VERSION with profiling $CONSENSUS_PROFILING and genesis $GENESIS_VERSION"
