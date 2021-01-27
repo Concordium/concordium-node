@@ -713,7 +713,7 @@ genesisState GenesisDataV2{..} = BlockState {..}
     mkAccount GenesisAccount{..} bid =
           case gaBaker of
             Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
-            _ -> newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
+            _ -> newAccountMultiCredential genesisCryptographicParameters gaVerifyKeys gaAddress gaCredentials
                       & accountAmount .~ gaBalance
                       & case gaBaker of
                           Nothing -> id

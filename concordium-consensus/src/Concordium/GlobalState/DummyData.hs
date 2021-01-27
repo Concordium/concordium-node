@@ -3,6 +3,7 @@
 
 module Concordium.GlobalState.DummyData where
 
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -246,7 +247,7 @@ makeFakeBakerAccount gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggreg
     gbRestakeEarnings = True    
     gaBaker = Just GenesisBaker {..}
     vfKey = SigScheme.correspondingVerifyKey kp
-    gaCredential = dummyCredential dummyCryptographicParameters gaAddress vfKey dummyMaxValidTo dummyCreatedAt
+    gaCredentials = dummyCredential dummyCryptographicParameters gaAddress vfKey dummyMaxValidTo dummyCreatedAt :| []
     gaVerifyKeys = makeSingletonAC vfKey
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral gbBakerId) - 1
@@ -258,7 +259,7 @@ createCustomAccount amount kp address = GenesisAccount {
       gaAddress = address,
       gaVerifyKeys = makeSingletonAC vfKey,
       gaBalance = amount,
-      gaCredential = credential,
+      gaCredentials = credential :| [],
       gaBaker = Nothing
     }
   where credential = dummyCredential dummyCryptographicParameters address vfKey dummyMaxValidTo dummyCreatedAt
