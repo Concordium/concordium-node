@@ -1,4 +1,4 @@
-image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.17
+image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/development:0.17
 
 stages:
   - rust-fmt
@@ -33,8 +33,18 @@ stages:
       - .stack
       # cache rust dependencies
       - .cargo
+      # concordium-base artifacts
+      - concordium-base/.stack-work
+      - concordium-base/rust-src/target
+      - concordium-base/lib
+      # concordium-consesnsus artifacts
+      - concordium-consensus/.stack-work
+      - concordium-consensus/haskell-lmdb/.stack-work
+      - concordium-consensus/smart-contracts/wasm-chain-integration/target
+      - concordium-consensus/smart-contracts/lib
       # cache rust artifacts
       - concordium-node/target
+
     policy: pull-push
   interruptible: true
 
@@ -68,7 +78,7 @@ stages:
 "lint:fmt":
   extends: .generic
   stage: rust-fmt
-  image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base-rust-fmt:2019-11-13
+  image: 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/rustfmt:0.17
   cache: {}
   rules:
     # Always run pipeline in master branch
@@ -102,16 +112,6 @@ stages:
 "stack:build":
   extends: .generic
   stage: haskell-build
-  artifacts:
-    paths:
-      - concordium-base/.stack-work # haskell artifacts
-      - concordium-base/rust-src/target # don't build again
-      - concordium-base/lib # will link against these
-      - concordium-consensus/.stack-work # haskell artifacts
-      - concordium-consensus/haskell-lmdb/.stack-work # haskell artifacts
-      - concordium-consensus/smart-contracts/wasm-chain-integration/target # don't build again
-      - concordium-consensus/smart-contracts/lib # will link against these
-    expire_in: 2 hour
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
       changes: &files-haskell-build
@@ -276,7 +276,7 @@ stages:
         - "**/Cargo.toml"
         - "**/*.rs"
         - "**/*.hs"
-        - "**/*.yaml"        
+        - "**/*.yaml"
         - "concordium-base"
         - "concordium-consensus/smart-contracts"
         - "concordium-consensus/haskell-lmdb"
@@ -311,10 +311,10 @@ stages:
         - "**/Cargo.toml"
         - "**/*.rs"
         - "**/*.hs"
-        - "**/*.yaml"        
+        - "**/*.yaml"
         - "concordium-base"
         - "concordium-consensus/smart-contracts"
-        - "concordium-consensus/haskell-lmdb"        
+        - "concordium-consensus/haskell-lmdb"
       when: on_success
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" &&
            $CI_MERGE_REQUEST_TITLE !~ /^WIP:/ &&

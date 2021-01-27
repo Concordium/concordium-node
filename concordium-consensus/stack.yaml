@@ -36,12 +36,13 @@ resolver: lts-16.20
 packages:
 - .
 - haskell-lmdb
-- ../concordium-base
 
 # Dependency packages to be pulled from upstream that are not in the resolver
 # using the same syntax as the packages field.
 # (e.g., acme-missiles-0.3)
-extra-deps: []
+extra-deps:
+  - ../concordium-base
+
 
 extra-lib-dirs:
 - ../concordium-base/lib
