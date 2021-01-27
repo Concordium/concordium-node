@@ -300,15 +300,15 @@ deriving via TreeStateBlockStateM g c r s m
 -----------------------------------------------------------------------------
 
 -- |Configuration that uses in-memory, Haskell implementations for both tree state and block state.
-data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData BS.BlockState
+data MemoryTreeMemoryBlockConfig = MTMBConfig RuntimeParameters GenesisData
 
 -- |Configuration that uses the in-memory, Haskell implementation of tree state and the
 -- persistent Haskell implementation of block state.
-data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData BS.BlockState
+data MemoryTreeDiskBlockConfig = MTDBConfig RuntimeParameters GenesisData
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state
-data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.BlockState
+data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData
 
 -- |Configuration that uses the disk implementation for both the tree state
 -- and the block state, as well as an external database for producing
@@ -316,7 +316,6 @@ data DiskTreeDiskBlockConfig = DTDBConfig RuntimeParameters GenesisData BS.Block
 data DiskTreeDiskBlockWithLogConfig = DTDBWLConfig {
   configRP :: RuntimeParameters,
   configGD :: GenesisData,
-  configBS :: BS.BlockState,
   configTxLog :: !ByteString
   }
 
@@ -336,8 +335,9 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     type GSContext MemoryTreeMemoryBlockConfig = ()
     type GSState MemoryTreeMemoryBlockConfig = SkovData BS.HashedBlockState
     type GSLogContext MemoryTreeMemoryBlockConfig = NoLogContext
-    initialiseGlobalState (MTMBConfig rtparams gendata bs) = do
-      return ((), initialSkovData rtparams gendata (BS.hashBlockState bs), NoLogContext)
+    initialiseGlobalState (MTMBConfig rtparams gendata) = do
+        let bs = genesisState gendata
+        return ((), initialSkovData rtparams gendata (BS.hashBlockState bs), NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
 
 -- |Configuration that uses the Haskell implementation of tree state and the
@@ -346,11 +346,11 @@ instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig = PersistentBlockStateContext
     type GSLogContext MemoryTreeDiskBlockConfig = NoLogContext
     type GSState MemoryTreeDiskBlockConfig = SkovData HashedPersistentBlockState
-    initialiseGlobalState (MTDBConfig rtparams gendata bs) = liftIO $ do
+    initialiseGlobalState (MTDBConfig rtparams gendata) = liftIO $ do
         pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
         let pbsc = PersistentBlockStateContext {..}
         pbs <- runReaderT (runPersistentBlockStateMonad (do
-                                                           pbs <- makePersistent bs
+                                                           pbs <- makePersistent (genesisState gendata)
                                                            _ <- saveBlockState pbs
                                                            return pbs)) pbsc
         return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
@@ -362,7 +362,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
     type GSState DiskTreeDiskBlockConfig = SkovPersistentData () HashedPersistentBlockState
     type GSContext DiskTreeDiskBlockConfig = PersistentBlockStateContext
 
-    initialiseGlobalState (DTDBConfig rtparams gendata bs) = do
+    initialiseGlobalState (DTDBConfig rtparams gendata) = do
       -- check if all the necessary database files exist
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
       if existingDB then do
@@ -379,7 +379,7 @@ instance GlobalStateConfig DiskTreeDiskBlockConfig where
         pbscBlobStore <- liftIO $ createBlobStore blockStateFile
         let pbsc = PersistentBlockStateContext{..}
         (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad (do
-                                                                    pbs <- makePersistent bs
+                                                                    pbs <- makePersistent (genesisState gendata)
                                                                     ser <- saveBlockState pbs
                                                                     return (pbs, ser))) pbsc
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
@@ -393,7 +393,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
     type GSState DiskTreeDiskBlockWithLogConfig = SkovPersistentData DiskDump HashedPersistentBlockState
     type GSContext DiskTreeDiskBlockWithLogConfig = PersistentBlockStateContext
     type GSLogContext DiskTreeDiskBlockWithLogConfig = PerAccountAffectIndex
-    initialiseGlobalState (DTDBWLConfig rtparams gendata bs txLog) = do
+    initialiseGlobalState (DTDBWLConfig rtparams gendata txLog) = do
         -- check if all the necessary database files exist
       (blockStateFile, existingDB) <- checkExistingDatabase rtparams
       dbHandle <- liftIO $ do
@@ -415,7 +415,7 @@ instance GlobalStateConfig DiskTreeDiskBlockWithLogConfig where
         pbscBlobStore <- liftIO $ createBlobStore blockStateFile
         let pbsc = PersistentBlockStateContext{..}
         (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad (do
-                                                                    pbs <- makePersistent bs
+                                                                    pbs <- makePersistent (genesisState gendata)
                                                                     ser <- saveBlockState pbs
                                                                     return (pbs, ser))) pbsc
         let ati = defaultValue

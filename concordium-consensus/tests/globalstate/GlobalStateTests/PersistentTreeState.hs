@@ -16,13 +16,13 @@ import Concordium.Crypto.DummyData
 import Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -63,8 +63,7 @@ createGlobalState dbDir = do
   let
     n = 3
     genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
-    state = basicGenesisState genesis
-    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis state
+    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 

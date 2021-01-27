@@ -5,10 +5,10 @@ module Concordium.Kontrol.UpdateLeaderElectionParameters (updateSeedState, compu
 import Data.Serialize
 
 import Concordium.Types
+import Concordium.Types.SeedState
 import Concordium.Crypto.SHA256 as H
 import Concordium.Crypto.VRF
 
-import Concordium.GlobalState.SeedState
 
 -- |Compute the update for the leadership election nonce due to a particular block nonce.
 updateWithBlockNonce :: BlockNonce -> H.Hash -> H.Hash

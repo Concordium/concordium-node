@@ -31,12 +31,12 @@ import qualified Concordium.GlobalState.Basic.BlockState.Accounts as Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Basic.BlockState.Instances as Instances
 import qualified Concordium.GlobalState.Rewards as Rewards
-import qualified Concordium.GlobalState.IdentityProviders as IPS
-import qualified Concordium.GlobalState.AnonymityRevokers as ARS
+import qualified Concordium.Types.IdentityProviders as IPS
+import qualified Concordium.Types.AnonymityRevokers as ARS
 import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.SeedState
+import Concordium.Types.SeedState
 import Concordium.ID.Types (regId)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -691,6 +691,56 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths 
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
     _blockUpdates = initialUpdates auths chainParams
+    _blockReleaseSchedule = Map.empty
+    _blockEpochBlocksBaked = emptyHashedEpochBlocks
+    _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
+              bshBirkParameters = getHash _blockBirkParameters,
+              bshCryptographicParameters = getHash _blockCryptographicParameters,
+              bshIdentityProviders = getHash _blockIdentityProviders,
+              bshAnonymityRevokers = getHash _blockAnonymityRevokers,
+              bshModules = getHash _blockModules,
+              bshBankStatus = getHash _blockBank,
+              bshAccounts = getHash _blockAccounts,
+              bshInstances = getHash _blockInstances,
+              bshUpdates = getHash _blockUpdates,
+              bshEpochBlocks = getHash _blockEpochBlocksBaked
+            }
+
+-- |Initial block state based on 'GenesisData'.
+genesisState :: GenesisData -> BlockState
+genesisState GenesisDataV2{..} = BlockState {..}
+  where
+    mkAccount GenesisAccount{..} bid =
+          case gaBaker of
+            Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
+            _ -> newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
+                      & accountAmount .~ gaBalance
+                      & case gaBaker of
+                          Nothing -> id
+                          Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
+                            _stakedAmount = gbStake,
+                            _stakeEarnings = gbRestakeEarnings,
+                            _accountBakerInfo = BakerInfo {
+                                _bakerIdentity = bid,
+                                _bakerSignatureVerifyKey = gbSignatureVerifyKey,
+                                _bakerElectionVerifyKey = gbElectionVerifyKey,
+                                _bakerAggregationVerifyKey = gbAggregationVerifyKey
+                                },
+                            _bakerPendingChange = NoChange
+                            }
+    accounts = zipWith mkAccount genesisAccounts [0..]
+    _blockBirkParameters = initialBirkParameters accounts genesisSeedState
+    _blockCryptographicParameters = makeHashed genesisCryptographicParameters
+    _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts accounts
+    _blockInstances = Instances.emptyInstances
+    _blockModules = Modules.emptyModules
+    -- initial amount in the central bank is the amount on all genesis accounts combined
+    initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
+    _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
+    _blockIdentityProviders = makeHashed genesisIdentityProviders
+    _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
+    _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    _blockUpdates = initialUpdates genesisAuthorizations genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
     _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {

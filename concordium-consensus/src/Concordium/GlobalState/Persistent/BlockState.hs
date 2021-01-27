@@ -47,8 +47,8 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
-import qualified Concordium.GlobalState.IdentityProviders as IPS
-import qualified Concordium.GlobalState.AnonymityRevokers as ARS
+import qualified Concordium.Types.IdentityProviders as IPS
+import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.Bakers
@@ -63,7 +63,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as TransientAcc
 import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import qualified Concordium.GlobalState.Basic.BlockState.Updates as Basic
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
-import Concordium.GlobalState.SeedState
+import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
