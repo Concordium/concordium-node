@@ -167,9 +167,3 @@ do this, integrated with the tools we have is providing the exported file to the
 retrieve the file and give it to consensus, who will import each serialized
 block in sequence. If any imports fail, the state will remain as-is and the node
 will have to catch-up after starting.
-
-## [genesis](./tools/genesis/)
-
-Is a tool that takes all the parameters, accounts, and other data that goes into
-a genesis block, and combines them into a single file that is needed to start
-the node.
