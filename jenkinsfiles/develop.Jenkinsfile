@@ -11,7 +11,7 @@ pipeline {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
                     sh '''\
                            ./scripts/download-genesis-data.sh
-                           ./build-testnet-develop-release.sh release default false
+                           ./scripts/testnet-deployments/build-testnet-develop-release.sh release default false
                        '''
                 }
             }

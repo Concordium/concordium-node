@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -e
-GENESIS_TESTER_BIN="target/debug/genesis_tester"
+GENESIS_TESTER_BIN="concordium-node/target/debug/genesis_tester"
 
 rm -rf genesis-data-test
 mkdir genesis-data-test

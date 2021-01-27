@@ -155,7 +155,13 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
     let rts_variant =
         env::var("HASKELL_RTS_VARIANT").unwrap_or_else(|_| "libHSrts_thr-".to_owned());
     let ghc_lib_dir = env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
-        command_output(Command::new("stack").args(&["ghc", "--", "--print-libdir"]))
+        command_output(Command::new("stack").args(&[
+            "--stack-yaml",
+            "../concordium-consensus/stack.yaml",
+            "ghc",
+            "--",
+            "--print-libdir",
+        ]))
     });
     let rts_dir = Path::new(&ghc_lib_dir).join("rts");
     println!("cargo:rustc-link-search=native={}", rts_dir.to_string_lossy());
