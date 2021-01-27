@@ -252,7 +252,7 @@ instance HashableTo Hash.Hash PersistentAccount where
 
 instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 
--- |Create an empty account with the given public key, encryption key, address and credential.
+-- |Create an empty account with the given public key, address and credential.
 newAccount :: MonadBlobStore m => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m PersistentAccount
 newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   let newPData = PersistingAccountData {

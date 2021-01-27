@@ -9,6 +9,7 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 import System.Random
 import Lens.Micro.Platform
 import Data.Maybe
+import Data.List.NonEmpty (NonEmpty(..))
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -70,7 +71,7 @@ makeBakerAccountKeys bid amount =
         gaAddress = address,
         gaVerifyKeys = makeSingletonAC vfKey,
         gaBalance = amount,
-        gaCredential = credential,
+        gaCredentials = credential :| [],
         gaBaker = Just GenesisBaker {
                 gbElectionVerifyKey = VRF.publicKey (bakerElectionKey bkr),
                 gbSignatureVerifyKey = Sig.verifyKey (bakerSignKey bkr),
