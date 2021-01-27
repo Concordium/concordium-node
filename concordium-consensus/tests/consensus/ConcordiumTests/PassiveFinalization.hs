@@ -23,13 +23,13 @@ import Concordium.Crypto.SHA256
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import qualified Concordium.GlobalState.Basic.TreeState as TS
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
 
 import Concordium.Logger
@@ -270,7 +270,7 @@ createInitStates additionalFinMembers = do
         finMemberAmount = bakerAmount * 10 ^ (6 :: Int)
     let bis@(baker1:baker2:finMember:finMembers) = makeBakersByStake ([bakerAmount, bakerAmount, finMemberAmount] ++ take additionalFinMembers (repeat finMemberAmount))
     let 
-        seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
         gen = GenesisDataV2 {
@@ -290,7 +290,7 @@ createInitStates additionalFinMembers = do
         createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
-                                           (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
+                                           (MTMBConfig defaultRuntimeParameters gen)
                                            (ActiveFinalization fininst)
                                            NoHandler
                                    (initCtx, initState) <- runSilentLogger (initialiseSkov config)

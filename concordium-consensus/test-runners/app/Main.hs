@@ -19,7 +19,7 @@ import qualified Data.Map as Map
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
@@ -27,7 +27,7 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
 import Concordium.GlobalState.Paired
@@ -157,21 +157,21 @@ dummyArs = emptyAnonymityRevokers
 
 -- type TreeConfig = DiskTreeDiskBlockConfig
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
+-- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
 -- type TreeConfig = MemoryTreeDiskBlockConfig
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData (genesisState genData)
+-- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
 
 --type TreeConfig = MemoryTreeMemoryBlockConfig
 --makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
---makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (genesisState genData)
+--makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
 --uncomment if wanting paired config
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData (Dummy.basicGenesisState genData), DTDBConfig rp genData (Dummy.basicGenesisState genData))
+   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 

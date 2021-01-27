@@ -6,6 +6,8 @@
 -- baker parameters and finalization parameters.
 module Concordium.GlobalState.Parameters(
     module Concordium.GlobalState.Parameters,
+    module Concordium.Types.Parameters,
+    module Concordium.Genesis.Data,
     BakerInfo,
     MintDistribution(..),
     TransactionFeeDistribution(..),
@@ -13,282 +15,22 @@ module Concordium.GlobalState.Parameters(
 ) where
 
 import Prelude hiding (fail)
-import GHC.Generics hiding (to)
-import Data.Serialize
 import Control.Monad.Fail
 import Control.Monad hiding (fail)
-import qualified Data.List as List
-import Data.Ratio
-import Data.Word
-import Lens.Micro.Platform
 import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Aeson as AE
-import Data.Aeson.Types (FromJSON(..), ToJSON(..), (.:), (.:?), (.!=), withObject, object)
+import Data.Aeson.Types (FromJSON(..), (.:), withObject)
 import Concordium.Types.Updates
 
 import Concordium.Common.Version
 import Concordium.Types
-import Concordium.Types.HashableTo
-import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.ID.Parameters(GlobalContext)
-import qualified Concordium.ID.Types as ID
-import qualified Concordium.Crypto.BlsSignature as Bls
+import Concordium.Types.Parameters
 
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
-import qualified Concordium.GlobalState.SeedState as SeedState
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 
-type CryptographicParameters = GlobalContext
-
--- |Updatable chain parameters.
-data ChainParameters = ChainParameters {
-    -- |Election difficulty parameter.
-    _cpElectionDifficulty :: !ElectionDifficulty,
-    -- |Euro:Energy rate.
-    _cpEuroPerEnergy :: !ExchangeRate,
-    -- |uGTU:Euro rate.
-    _cpMicroGTUPerEuro :: !ExchangeRate,
-    -- |uGTU:Energy rate.
-    -- This is derived, but will be computed when the other
-    -- rates are updated since it is more useful.
-    _cpEnergyRate :: !EnergyRate,
-    -- |Number of additional epochs that bakers must cool down when
-    -- removing stake. The cool-down will effectively be 2 epochs
-    -- longer than this value, since at any given time, the bakers
-    -- (and stakes) for the current and next epochs have already
-    -- been determined.
-    _cpBakerExtraCooldownEpochs :: !Epoch,
-    -- |LimitAccountCreation: the maximum number of accounts
-    -- that may be created in one block.
-    _cpAccountCreationLimit :: !CredentialsPerBlockLimit,
-    -- |Reward parameters.
-    _cpRewardParameters :: !RewardParameters,
-    -- |Foundation account index.
-    _cpFoundationAccount :: !AccountIndex
-} deriving (Eq, Show)
-
-makeChainParameters ::
-    ElectionDifficulty
-    -- ^Election difficulty
-    -> ExchangeRate
-    -- ^Euro:Energy rate
-    -> ExchangeRate
-    -- ^uGTU:Euro rate
-    -> Epoch
-    -- ^Baker cooldown
-    -> CredentialsPerBlockLimit
-    -- ^Account creation limit
-    -> RewardParameters
-    -- ^Reward parameters
-    -> AccountIndex
-    -- ^Foundation account
-    -> ChainParameters
-makeChainParameters
-    _cpElectionDifficulty
-    _cpEuroPerEnergy
-    _cpMicroGTUPerEuro
-    _cpBakerExtraCooldownEpochs
-    _cpAccountCreationLimit
-    _cpRewardParameters
-    _cpFoundationAccount
-      = ChainParameters{..}
-  where
-    _cpEnergyRate = computeEnergyRate _cpMicroGTUPerEuro _cpEuroPerEnergy
-
-{-# INLINE cpElectionDifficulty #-}
-cpElectionDifficulty :: Lens' ChainParameters ElectionDifficulty
-cpElectionDifficulty = lens _cpElectionDifficulty (\cp ed -> cp {_cpElectionDifficulty = ed})
-
-{-# INLINE cpEuroPerEnergy #-}
-cpEuroPerEnergy :: Lens' ChainParameters ExchangeRate
-cpEuroPerEnergy = lens _cpEuroPerEnergy (\cp epe -> cp {_cpEuroPerEnergy = epe, _cpEnergyRate = computeEnergyRate (_cpMicroGTUPerEuro cp) epe})
-
-{-# INLINE cpMicroGTUPerEuro #-}
-cpMicroGTUPerEuro :: Lens' ChainParameters ExchangeRate
-cpMicroGTUPerEuro = lens _cpMicroGTUPerEuro (\cp mgtupe -> cp {_cpMicroGTUPerEuro = mgtupe, _cpEnergyRate = computeEnergyRate mgtupe (_cpEuroPerEnergy cp)})
-
-{-# INLINE cpEnergyRate #-}
-cpEnergyRate :: SimpleGetter ChainParameters EnergyRate
-cpEnergyRate = to _cpEnergyRate
-
-{-# INLINE cpBakerExtraCooldownEpochs #-}
-cpBakerExtraCooldownEpochs :: Lens' ChainParameters Epoch
-cpBakerExtraCooldownEpochs = lens _cpBakerExtraCooldownEpochs (\cp bce -> cp {_cpBakerExtraCooldownEpochs = bce})
-
-{-# INLINE cpFoundationAccount #-}
-cpFoundationAccount :: Lens' ChainParameters AccountIndex
-cpFoundationAccount = lens _cpFoundationAccount (\cp fa -> cp {_cpFoundationAccount = fa})
-
-{-# INLINE cpAccountCreationLimit #-}
-cpAccountCreationLimit :: Lens' ChainParameters CredentialsPerBlockLimit
-cpAccountCreationLimit = lens _cpAccountCreationLimit (\cp acl -> cp {_cpAccountCreationLimit = acl})
-
-instance HasRewardParameters ChainParameters where
-  rewardParameters = lens _cpRewardParameters (\cp rp -> cp {_cpRewardParameters = rp})
-
-instance Serialize ChainParameters where
-  put ChainParameters{..} = do
-    put _cpElectionDifficulty
-    put _cpEuroPerEnergy
-    put _cpMicroGTUPerEuro
-    put _cpBakerExtraCooldownEpochs
-    put _cpAccountCreationLimit
-    put _cpRewardParameters
-    put _cpFoundationAccount
-  get = makeChainParameters <$> get <*> get <*> get <*> get <*> get <*> get <*> get
-
-instance HashableTo Hash.Hash ChainParameters where
-  getHash = Hash.hash . encode
-
-instance Monad m => MHashableTo m Hash.Hash ChainParameters
-
-instance FromJSON ChainParameters where
-  parseJSON = withObject "ChainParameters" $ \v ->
-    makeChainParameters
-      <$> v .: "electionDifficulty"
-      <*> v .: "euroPerEnergy"
-      <*> v .: "microGTUPerEuro"
-      <*> v .: "bakerCooldownEpochs"
-      <*> v .: "accountCreationLimit"
-      <*> v .: "rewardParameters"
-      <*> v .: "foundationAccountIndex"
-
-instance ToJSON ChainParameters where
-  toJSON ChainParameters{..} = object [
-      "electionDifficulty" AE..= _cpElectionDifficulty,
-      "euroPerEnergy" AE..= _cpEuroPerEnergy,
-      "microGTUPerEuro" AE..= _cpMicroGTUPerEuro,
-      "bakerCooldownEpochs" AE..= _cpBakerExtraCooldownEpochs,
-      "accountCreationLimit" AE..= _cpAccountCreationLimit,
-      "rewardParameters" AE..= _cpRewardParameters,
-      "foundationAccountIndex" AE..= _cpFoundationAccount
-    ]
-
-data VoterInfo = VoterInfo {
-    voterVerificationKey :: VoterVerificationKey,
-    voterVRFKey :: VoterVRFPublicKey,
-    voterPower :: VoterPower,
-    voterBlsKey :: Bls.PublicKey
-} deriving (Eq, Generic, Show)
-instance Serialize VoterInfo where
-
-data FinalizationParameters = FinalizationParameters {
-    finalizationMinimumSkip :: BlockHeight,
-    finalizationCommitteeMaxSize :: FinalizationCommitteeSize,
-    finalizationWaitingTime :: Duration,
-    finalizationIgnoreFirstWait :: Bool,
-    finalizationOldStyleSkip :: Bool,
-    finalizationSkipShrinkFactor :: Ratio Word64,
-    finalizationSkipGrowFactor :: Ratio Word64,
-    finalizationDelayShrinkFactor :: Ratio Word64,
-    finalizationDelayGrowFactor :: Ratio Word64,
-    finalizationAllowZeroDelay :: Bool
-} deriving (Eq, Generic, Show)
-instance Serialize FinalizationParameters where
-
-instance FromJSON FinalizationParameters where
-    parseJSON = withObject "FinalizationParameters" $ \v -> do
-        finalizationMinimumSkip <- BlockHeight <$> v .: "minimumSkip"
-        finalizationCommitteeMaxSize <- v .: "committeeMaxSize"
-        finalizationWaitingTime <- v .: "waitingTime"
-        finalizationIgnoreFirstWait <- v .:? "ignoreFirstWait" .!= False
-        finalizationOldStyleSkip <- v .:? "oldStyleSkip" .!= False
-        finalizationSkipShrinkFactor <- v .: "skipShrinkFactor"
-        unless (finalizationSkipShrinkFactor > 0 && finalizationSkipShrinkFactor < 1) $
-          fail "skipShrinkFactor must be strictly between 0 and 1"
-        finalizationSkipGrowFactor <- v .: "skipGrowFactor"
-        unless (finalizationSkipGrowFactor > 1) $
-          fail "skipGrowFactor must be strictly greater than 1"
-        finalizationDelayShrinkFactor <- v .: "delayShrinkFactor"
-        unless (finalizationDelayShrinkFactor > 0 && finalizationDelayShrinkFactor < 1) $
-          fail "delayShrinkFactor must be strictly between 0 and 1"
-        finalizationDelayGrowFactor <- v .: "delayGrowFactor"
-        unless (finalizationDelayGrowFactor > 1) $
-          fail "delayGrowFactor must be strictly greater than 1"
-        finalizationAllowZeroDelay <- v .:? "allowZeroDelay" .!= False
-        return FinalizationParameters{..}
-
-data GenesisDataV2 = GenesisDataV2 {
-    genesisTime :: !Timestamp,
-    genesisSlotDuration :: !Duration,
-    genesisSeedState :: !SeedState.SeedState,
-    genesisAccounts :: ![Account],
-    genesisFinalizationParameters :: !FinalizationParameters,
-    genesisCryptographicParameters :: !CryptographicParameters,
-    genesisIdentityProviders :: !IdentityProviders,
-    genesisAnonymityRevokers :: !AnonymityRevokers,
-    genesisMaxBlockEnergy :: !Energy,
-    genesisAuthorizations :: !Authorizations,
-    genesisChainParameters :: !ChainParameters
-} deriving (Generic, Show, Eq)
-
-getGenesisDataV2 :: Get GenesisDataV2
-getGenesisDataV2 = do
-    genesisTime <- get
-    genesisSlotDuration <- get
-    genesisSeedState <- get
-    genesisAccounts <- get
-    -- Verify that each baker account records the correct baker id
-    forM_ (zip [0..] genesisAccounts) $ \(i, acct) -> case _accountBaker acct of
-        Just ab | _bakerIdentity (_accountBakerInfo ab) /= i ->
-          fail "BakerId does not match account index"
-        _ -> return ()
-    genesisFinalizationParameters <- get
-    genesisCryptographicParameters <- get
-    genesisIdentityProviders <- get
-    genesisAnonymityRevokers <- get
-    genesisMaxBlockEnergy <- get
-    genesisAuthorizations <- get
-    genesisChainParameters <- get
-    unless (toInteger (genesisChainParameters ^. cpFoundationAccount) < toInteger (length genesisAccounts)) $
-      fail "Foundation account is not a valid account index."
-    return GenesisDataV2{..}
-
-putGenesisDataV2 :: Putter GenesisDataV2
-putGenesisDataV2 GenesisDataV2{..} = do
-    put genesisTime
-    put genesisSlotDuration
-    put genesisSeedState
-    put genesisAccounts
-    put genesisFinalizationParameters
-    put genesisCryptographicParameters
-    put genesisIdentityProviders
-    put genesisAnonymityRevokers
-    put genesisMaxBlockEnergy
-    put genesisAuthorizations
-    put genesisChainParameters
-
-
-instance Serialize GenesisDataV2 where
-  get = getGenesisDataV2
-  put = putGenesisDataV2
-
-type GenesisData = GenesisDataV2
-genesisDataVersion :: Version
-genesisDataVersion = 2
-
--- |Deserialize genesis data.
--- Read the version and decide how to parse the remaining data based on the
--- version.
---
--- Currently only supports version 1
-getExactVersionedGenesisData :: Get GenesisData
-getExactVersionedGenesisData =
-  getVersion >>= \case
-    2 -> getGenesisDataV2
-    n -> fail $ "Unsupported Genesis version: " ++ show n
-
--- |Serialize the genesis data with a version according to the V1 format.
--- In contrast to 'putGenesisDataV1' this function also prepends the version.
-putVersionedGenesisDataV2 :: GenesisData -> Put
-putVersionedGenesisDataV2 fpm = putVersion 2 <> putGenesisDataV2 fpm
-
--- |Get the total amount of GTU in genesis data.
-genesisTotalGTU :: GenesisData -> Amount
-genesisTotalGTU GenesisDataV2{..} =
-  sum (_accountAmount <$> genesisAccounts)
+import Concordium.Genesis.Data
 
 readIdentityProviders :: BSL.ByteString -> Maybe IdentityProviders
 readIdentityProviders bs = do
@@ -329,6 +71,7 @@ getExactVersionedCryptographicParameters bs = do
    guard (vVersion v == 0)
    return (vValue v)
 
+{-
 -- 'GenesisBaker' is an abstraction of a baker at genesis.
 -- It includes the minimal information for generating a baker.
 data GenesisBaker = GenesisBaker {
@@ -484,6 +227,7 @@ type GenesisParameters = GenesisParametersV2
 
 genesisParametersVersion :: Version
 genesisParametersVersion = 2
+-}
 
 -- |Implementation-defined parameters, such as block size. They are not
 -- protocol-level parameters hence do not fit into 'GenesisParameters'.
@@ -537,53 +281,6 @@ instance FromJSON RuntimeParameters where
     when (rpEarlyBlockThreshold <= 0) $
       fail "The early block threshold must be a postitive integer"
     return RuntimeParameters{..}
-
--- |NB: This function will silently ignore bakers with duplicate signing keys.
--- If some of the parameters are not valid, or inconsistent, this function will
--- raise an exception.
-parametersToGenesisData :: GenesisParameters -> GenesisData
-parametersToGenesisData GenesisParametersV2{gpChainParameters=GenesisChainParameters{..},..} = GenesisDataV2{..}
-    where
-        genesisTime = gpGenesisTime
-        genesisSlotDuration = gpSlotDuration
-        genesisSeedState = SeedState.genesisSeedState gpLeadershipElectionNonce gpEpochLength
-
-        mkAccount GenesisAccount{..} bid =
-          case gaBaker of
-            Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
-            _ -> newAccount genesisCryptographicParameters gaVerifyKeys gaAddress gaCredential
-                      & accountAmount .~ gaBalance
-                      & case gaBaker of
-                          Nothing -> id
-                          Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
-                            _stakedAmount = gbStake,
-                            _stakeEarnings = gbRestakeEarnings,
-                            _accountBakerInfo = BakerInfo {
-                                _bakerIdentity = bid,
-                                _bakerSignatureVerifyKey = gbSignatureVerifyKey,
-                                _bakerElectionVerifyKey = gbElectionVerifyKey,
-                                _bakerAggregationVerifyKey = gbAggregationVerifyKey
-                                },
-                            _bakerPendingChange = NoChange
-                            }
-        genesisAccounts = zipWith mkAccount gpInitialAccounts [0..]
-        genesisFinalizationParameters = gpFinalizationParameters
-        genesisCryptographicParameters = gpCryptographicParameters
-        genesisIdentityProviders = gpIdentityProviders
-        genesisAnonymityRevokers = gpAnonymityRevokers
-        genesisMaxBlockEnergy = gpMaxBlockEnergy
-        genesisAuthorizations = gpAuthorizations
-        genesisChainParameters = makeChainParameters
-            gcpElectionDifficulty
-            gcpEuroPerEnergy
-            gcpMicroGTUPerEuro
-            gcpBakerExtraCooldownEpochs
-            gcpAccountCreationLimit
-            gcpRewardParameters
-            foundationAccountIndex
-        foundationAccountIndex = case List.findIndex ((gcpFoundationAccount ==) . gaAddress) gpInitialAccounts of
-          Nothing -> error "Foundation account is missing"
-          Just i -> fromIntegral i
 
 -- |Values of updates that are stored in update queues.
 -- These are slightly different to the 'UpdatePayload' type,

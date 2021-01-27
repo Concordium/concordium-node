@@ -17,13 +17,13 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards as Rewards
 import Concordium.Types.Updates
 
-import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.Basic.BlockState.AccountTable(toList)
 
 import Concordium.Types
@@ -31,28 +31,9 @@ import System.Random
 import Data.FileEmbed
 import qualified Data.ByteString.Lazy.Char8 as BSL
 import qualified Data.ByteString as BS
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
-
-{-# WARNING basicGenesisState "Do not use in production" #-}
-basicGenesisState :: GenesisData -> Basic.BlockState
-basicGenesisState genData =
-  Basic.initialState
-        (genesisSeedState genData)
-        (genesisCryptographicParameters genData)
-        (genesisAccounts genData)
-        (genesisIdentityProviders genData)
-        (genesisAnonymityRevokers genData)
-        (genesisAuthorizations genData)
-        (genesisChainParameters genData)
-
--- kp :: Int -> Sig.KeyPair
--- kp n = fst (Sig.randomKeyPair (mkStdGen n))
-
--- proofKP :: Int -> VRF.KeyPair
--- proofKP n = fst (VRF.randomKeyPair (mkStdGen n))
 
 cryptoParamsFileContents :: BS.ByteString
 cryptoParamsFileContents = $(makeRelativeToProject "testdata/global.json" >>= embedFile)
@@ -114,7 +95,7 @@ dummyAuthorizations = Authorizations {
 -- |Make a given number of baker accounts for use in genesis.
 -- These bakers should be the first accounts in a genesis block (because
 -- the baker ids must match the account indexes).
-makeFakeBakers :: Word -> [Account]
+makeFakeBakers :: Word -> [GenesisAccount]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
     where
         mbs gen bid = account : mbs gen''' (bid + 1)
@@ -173,7 +154,7 @@ makeTestingGenesisData
   genesisChainParameters
     = GenesisDataV2 {..}
     where
-        genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
+        genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         genesisFinalizationParameters =
           FinalizationParameters {
            finalizationWaitingTime = 100,
@@ -190,7 +171,7 @@ makeTestingGenesisData
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
 emptyBirkParameters :: Accounts -> BasicBirkParameters
-emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.genesisSeedState (Hash.hash "NONCE") 360)
+emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
 dummyRewardParameters :: RewardParameters
 dummyRewardParameters = RewardParameters {
@@ -255,34 +236,30 @@ mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographic
   where
     cred = dummyCredential dummyCryptographicParameters addr (head keys) dummyMaxValidTo dummyCreatedAt
 
+-- |Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
-makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> Account
-makeFakeBakerAccount bid _bakerElectionVerifyKey _bakerSignatureVerifyKey _bakerAggregationVerifyKey =
-    acct & accountAmount .~ balance
-      & accountBaker ?~ bkr
+makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> GenesisAccount
+makeFakeBakerAccount gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey = GenesisAccount {..}
   where
-    balance = 1000000000000
-    staked = 999000000000
+    gaBalance = 1000000000000
+    gbStake = 999000000000
+    gbRestakeEarnings = True    
+    gaBaker = Just GenesisBaker {..}
     vfKey = SigScheme.correspondingVerifyKey kp
-    credential = dummyCredential dummyCryptographicParameters address vfKey dummyMaxValidTo dummyCreatedAt
-    acct = newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
+    gaCredential = dummyCredential dummyCryptographicParameters gaAddress vfKey dummyMaxValidTo dummyCreatedAt
+    gaVerifyKeys = makeSingletonAC vfKey
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
-    seed = - (fromIntegral bid) - 1
-    (address, seed') = randomAccountAddress (mkStdGen seed)
+    seed = - (fromIntegral gbBakerId) - 1
+    (gaAddress, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
-    bkr = AccountBaker {
-      _stakedAmount = staked,
-      _stakeEarnings = True,
-      _accountBakerInfo = BakerInfo {
-        _bakerIdentity = bid,
-        ..
-      },
-      _bakerPendingChange = NoChange
-    }
 
-createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> Account
-createCustomAccount amount kp address =
-    newAccount dummyCryptographicParameters (makeSingletonAC vfKey) address credential
-        & (accountAmount .~ amount)
+createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> GenesisAccount
+createCustomAccount amount kp address = GenesisAccount {
+      gaAddress = address,
+      gaVerifyKeys = makeSingletonAC vfKey,
+      gaBalance = amount,
+      gaCredential = credential,
+      gaBaker = Nothing
+    }
   where credential = dummyCredential dummyCryptographicParameters address vfKey dummyMaxValidTo dummyCreatedAt
         vfKey = SigScheme.correspondingVerifyKey kp

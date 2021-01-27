@@ -24,7 +24,7 @@ import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
-import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.Types.SeedState as SeedState
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.Types as T
 import qualified Concordium.Wasm as Wasm
@@ -33,7 +33,7 @@ import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.SeedState
+import Concordium.Types.SeedState
 
 import Concordium.Afgjort.Finalize(FinalizationStateLenses(..), FinalizationCurrentRound(..))
 import Concordium.Afgjort.Finalize.Types

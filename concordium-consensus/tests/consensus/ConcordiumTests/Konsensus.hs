@@ -26,7 +26,6 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Rewards (BankStatus(..))
 import qualified Concordium.GlobalState.TreeState as TreeState
 import qualified Concordium.GlobalState.Basic.TreeState as TS
@@ -39,12 +38,12 @@ import Concordium.GlobalState.BlockPointer (bpHash, bpHeight)
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
-import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
 
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -524,10 +523,10 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
         let stakes = replicate f (averageStake + stakeDiff) ++ replicate b (averageStake - stakeDiff)
         createInitStates (makeBakersByStake stakes) [] maxFinComSize
 
-createInitStates :: [(BakerIdentity, FullBakerInfo, Account, SigScheme.KeyPair)] -> [Account] -> FinalizationCommitteeSize -> PropertyM IO States
+createInitStates :: [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)] -> [GenesisAccount] -> FinalizationCommitteeSize -> PropertyM IO States
 createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM createState bis)
     where
-        seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
         gen = GenesisDataV2 {
                 genesisTime = 0,
@@ -545,11 +544,11 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
         createState (bid, binfo, acct, kp) = do
             let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                 config = SkovConfig
-                    (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
+                    (MTMBConfig defaultRuntimeParameters gen)
                     (ActiveFinalization fininst)
                     NoHandler
             (initCtx, initState) <- runSilentLogger (initialiseSkov config)
-            return (bid, binfo, (kp, acct ^. accountAddress), initCtx, initState)
+            return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
 
 instance Show BakerIdentity where
     show _ = "[Baker Identity]"

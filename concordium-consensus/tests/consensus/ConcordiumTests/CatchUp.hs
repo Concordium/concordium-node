@@ -19,13 +19,12 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import qualified Concordium.GlobalState.Basic.TreeState as BTS
-import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
@@ -93,7 +92,7 @@ initialiseStatesDictator n = do
         let bakerAmt = 1000000
             stakes = (2*bakerAmt) : take (n-1) (repeat bakerAmt)
             bis = makeBakersByStake stakes
-            seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+            seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
             bakerAccounts = map (\(_, _, acc, _) -> acc) bis
             gen = GenesisDataV2 {
                     genesisTime = 0,
@@ -111,11 +110,11 @@ initialiseStatesDictator n = do
         res <- liftIO $ mapM (\(bid, binfo, acct, kp) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
+                                        (MTMBConfig defaultRuntimeParameters gen)
                                         (ActiveFinalization fininst)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)
-                                return (bid, binfo, (kp, acct ^. accountAddress), initCtx, initState)
+                                return (bid, binfo, (kp, gaAddress acct), initCtx, initState)
                              ) bis
         return $ Vec.fromList res
 
