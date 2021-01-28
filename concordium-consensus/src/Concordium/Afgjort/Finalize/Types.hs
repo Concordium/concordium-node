@@ -90,6 +90,16 @@ makeFinalizationCommittee FinalizationParameters {..} totalGTU bakers = Finaliza
         totalWeight = sum (partyWeight <$> parties)
         corruptWeight = (totalWeight - 1) `div` 3
 
+-- |A finalization committee with no parties. No finalization record is
+-- ever valid with respect to such a committee, since at least one honest
+-- party must sign a finalization record for it to be valid.
+emptyFinalizationCommittee :: FinalizationCommittee
+emptyFinalizationCommittee = FinalizationCommittee {
+        parties = Vec.empty,
+        totalWeight = 0,
+        corruptWeight = 0
+    }
+
 data FinalizationSessionId = FinalizationSessionId {
     fsidGenesis :: !BlockHash,
     fsidIncarnation :: !Word64

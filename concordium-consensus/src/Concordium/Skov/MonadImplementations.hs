@@ -24,6 +24,10 @@ import Control.Monad.RWS.Strict
 import Control.Monad.Identity
 import Lens.Micro.Platform
 import Data.Proxy
+import qualified Data.Text as Text
+
+import Concordium.Types
+import Concordium.Types.Updates
 
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.BlockState
@@ -32,7 +36,7 @@ import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Block hiding (PendingBlock)
 import Concordium.GlobalState
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.Skov.Monad
+import Concordium.Skov.Monad as Skov
 import Concordium.Skov.Update
 import Concordium.Skov.CatchUp
 import Concordium.Logger
@@ -350,7 +354,7 @@ class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
     handleBlock :: SkovMonad m => BlockPointerType m -> m ()
     handleFinalize :: SkovMonad m => FinalizationRecord -> BlockPointerType m -> m ()
 
-
+-- |A handler that does nothing.
 data NoHandler = NoHandler
 
 instance HandlerConfig (SkovConfig gc fc NoHandler) where
@@ -361,6 +365,31 @@ instance HandlerConfig (SkovConfig gc fc NoHandler) where
 instance Monad m => HandlerConfigHandlers (SkovConfig gc fc NoHandler) (SkovT h (SkovConfig gc fc NoHandler) m) where
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ -> return ()
+
+-- |A handler that checks finalized blocks for protocol updates and:
+--  * logs a warning if a protocol update is queued;
+--  * logs an error if a protocol update has occurred.
+data LogUpdateHandler = LogUpdateHandler
+
+instance HandlerConfig (SkovConfig gc fc LogUpdateHandler) where
+    type HCContext (SkovConfig gc fc LogUpdateHandler) = ()
+    type HCState (SkovConfig gc fc LogUpdateHandler) = ()
+    initialiseHandler = \_ -> ((),())
+
+instance Monad m => HandlerConfigHandlers (SkovConfig gc fc LogUpdateHandler) (SkovT h (SkovConfig gc fc LogUpdateHandler) m) where
+    handleBlock = \_ -> return ()
+    handleFinalize = \_ _ ->
+        Skov.getProtocolUpdateStatus >>= \case
+            Left pu -> logEvent Kontrol LLError $
+                "Consensus has been updated: " ++ showPU pu
+            Right [] -> return ()
+            Right ((ts, pu):_) -> logEvent Kontrol LLWarning $
+                "Consensus is scheduled to update at " ++
+                show (timestampToUTCTime $ transactionTimeToTimestamp ts) ++
+                ": " ++ showPU pu
+        where
+            showPU ProtocolUpdate{..} = Text.unpack puMessage ++ "\n[" 
+                ++ Text.unpack puSpecificationURL ++ " (hash " ++ show puSpecificationHash ++ ")]"
 
 instance (
         GlobalStateConfig gsconf,

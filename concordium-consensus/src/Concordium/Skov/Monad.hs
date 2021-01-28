@@ -209,16 +209,25 @@ deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
 
 deriving via (MGSTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)
 
+-- |Get the 'Timestamp' of the genesis block.
 getGenesisTime :: (SkovQueryMonad m) => m Timestamp
 getGenesisTime = genesisTime <$> getGenesisData
 
+-- |Get the 'FinalizationParameters'.
 getFinalizationParameters :: (SkovQueryMonad m) => m FinalizationParameters
 getFinalizationParameters = genesisFinalizationParameters <$> getGenesisData
 
+-- |Get the 'UTCTime' corresponding to a particular slot.
 getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
         return $ posixSecondsToUTCTime $ 0.001 * (fromIntegral (tsMillis $ genesisTime genData) + fromIntegral (durationMillis $ genesisSlotDuration genData) * fromIntegral s)
+
+-- |Perform the monadic action unless the consensus is already shut down.
+unlessShutDown :: (SkovQueryMonad m) => m UpdateResult -> m UpdateResult
+unlessShutDown a = isShutDown >>= \case
+        True -> return ResultConsensusShutDown
+        False -> a
 
 -- * Generic instance of SkovQueryMonad based on a TreeStateMonad.
 

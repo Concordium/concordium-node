@@ -273,6 +273,10 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         u1 <- coerceBSML (getUpdates bps1)
         u2 <- coerceBSMR (getUpdates bps2)
         assert (u1 == u2) $ return u1
+    getProtocolUpdateStatus (bps1, bps2) = do
+        us1 <- coerceBSML (getProtocolUpdateStatus bps1)
+        us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
+        assert (us1 == us2) $ return us1
 
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)

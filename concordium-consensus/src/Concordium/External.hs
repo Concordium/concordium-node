@@ -223,8 +223,8 @@ makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteStrin
 makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData
 
 
-type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) NoHandler
-type PassiveConfig gs = SkovConfig gs (NoFinalization ()) NoHandler
+type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) LogUpdateHandler
+type PassiveConfig gs = SkovConfig gs (NoFinalization ()) LogUpdateHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
@@ -247,8 +247,8 @@ consensusLogMethod BakerRunnerWithLog{bakerSyncRunnerWithLog=SyncRunner{syncLogM
 consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
 runWithConsensus :: ConsensusRunner
-                 -> (forall h f gs. TS.TreeStateMonad (SkovT h (SkovConfig gs f NoHandler) LogIO)
-                     => SkovT h (SkovConfig gs f NoHandler) LogIO a) -> IO a
+                 -> (forall h f gs. TS.TreeStateMonad (SkovT h (SkovConfig gs f LogUpdateHandler) LogIO)
+                     => SkovT h (SkovConfig gs f LogUpdateHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
 runWithConsensus BakerRunnerWithLog{..} = runSkovTransaction bakerSyncRunnerWithLog
@@ -323,7 +323,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
             (Right genData, Right bid) -> do
               let
                   finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-                  hconfig = NoHandler
+                  hconfig = LogUpdateHandler
               if connStringLen /= 0 then do -- enable logging of transactions
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
@@ -391,7 +391,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
         case runGet getExactVersionedGenesisData gdata of
             Right genData -> do
               let finconfig = NoFinalization
-                  hconfig = NoHandler
+                  hconfig = LogUpdateHandler
               if connStringLen /= 0 then do
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
@@ -478,6 +478,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    12 | ResultMissingImportFile            | The file provided for importing doesn't exist                                          | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    13 | ResultConsensusShutDown            | Consensus has been shut down and the message was ignored                               | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -495,12 +497,13 @@ toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
 toReceiveResult ResultEarlyBlock = 11
 toReceiveResult ResultMissingImportFile = 12
+toReceiveResult ResultConsensusShutDown = 13
 
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
--- and @ResultStale@.
+-- @ResultStale@, and @ResultConsensusShutDown@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 receiveBlock :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr cstr l = do
@@ -523,8 +526,8 @@ receiveBlock bptr cstr l = do
 
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@ and
--- @ResultUnverifiable@.
+-- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@,
+-- @ResultUnverifiable@, @ResultConsensusShutDown@.
 -- 'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalization :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveFinalization bptr cstr l = do
@@ -546,7 +549,7 @@ receiveFinalization bptr cstr l = do
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, and @ResultStale@.
+-- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@ and @ResultConsensusShutDown@.
 -- (Currently, @ResultDuplicate@ cannot happen, although it may be supported in future.)
 -- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
 receiveFinalizationRecord :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
@@ -567,7 +570,8 @@ receiveFinalizationRecord bptr cstr l = do
                 PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
 
 -- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
+-- @ResultStale@, @ResultInvalid@, and @ResultConsensusShutDown@.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
