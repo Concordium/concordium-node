@@ -910,7 +910,13 @@ notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         finIndexInitialDelta .= newFinDelay
         finFailedRounds .= []
         -- Update finalization committee for the new round
-        finCommittee <~ getFinalizationCommittee bp
+        sd <- isShutDown
+        if sd then
+            -- In case of shutdown, use the empty committee, so that we
+            -- won't produce finalization messages.
+            finCommittee .= emptyFinalizationCommittee 
+        else
+            finCommittee <~ getFinalizationCommittee bp
         -- Determine if we're in the committee
         mMyParty <- getMyParty
         case mMyParty of
@@ -1071,7 +1077,7 @@ deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIS
 instance (FinalizationBaseMonad r s m) => FinalizationMonad (ActiveFinalizationM r s m) where
     finalizationBlockArrival = notifyBlockArrival
     finalizationBlockFinal fr b = notifyBlockFinalized fr b
-    finalizationReceiveMessage = receiveFinalizationPseudoMessage
-    finalizationReceiveRecord b fr = receiveFinalizationRecord b fr
+    finalizationReceiveMessage = unlessShutDown . receiveFinalizationPseudoMessage
+    finalizationReceiveRecord b fr = unlessShutDown $ receiveFinalizationRecord b fr
     finalizationUnsettledRecordAt = getQueuedFinalization
     finalizationUnsettledRecords = getQueuedFinalizationsBeyond

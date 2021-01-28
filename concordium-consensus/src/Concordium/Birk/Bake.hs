@@ -196,6 +196,9 @@ validateBakerKeys BakerInfo{..} ident =
 
 doBakeForSlot :: forall m. (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
+    -- Do not bake if consensus is shut down
+    shutdown <- isShutDown
+    guard (not shutdown)
     bb <- bestBlockBefore slot
     guard (blockSlot bb < slot)
     bbState <- blockState bb

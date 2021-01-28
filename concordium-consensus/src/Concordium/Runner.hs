@@ -146,28 +146,32 @@ startSyncRunner sr@SyncRunner{..} = do
                             `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
             bakeLoop :: Slot -> IO ()
             bakeLoop lastSlot = do
-                (mblock, sfs', curSlot) <- runWithStateLog syncState syncLogMethod (\sfs -> do
+                (mblock, sfs', curSlot, shutdown) <- runWithStateLog syncState syncLogMethod (\sfs -> do
                         let bake = do
+                                shutdown <- isShutDown
                                 curSlot <- getCurrentSlot
                                 mblock <-
                                         if curSlot > lastSlot then do
                                             bakeForSlot syncBakerIdentity curSlot
                                         else
                                             return Nothing
-                                return (mblock, curSlot)
+                                return (mblock, curSlot, shutdown)
                         -- TODO: modify handlers to send out finalization messages AFTER any generated block
-                        ((mblock, curSlot), sfs') <-
+                        ((mblock, curSlot, shutdown), sfs') <-
                           runSkovT bake (syncSkovHandlers sr) syncContext sfs
-                        return ((mblock, sfs', curSlot), sfs'))
+                        return ((mblock, sfs', curSlot, shutdown), sfs'))
                 forM_ mblock $ syncCallback . SOMsgNewBlock
-                delay <- runLoggerT (evalSkovT (do
-                    curSlot' <- getCurrentSlot
-                    if curSlot == curSlot' then do
-                      ttns <- timeUntilNextSlot
-                      return $! truncate (ttns * 1e6)
-                    else return 0) () syncContext sfs') syncLogMethod
-                when (delay > 0) $ threadDelay delay
-                bakeLoop curSlot
+                if shutdown then
+                    syncLogMethod Runner LLWarning "Consensus has been updated; terminating baking loop."
+                else do
+                    delay <- runLoggerT (evalSkovT (do
+                        curSlot' <- getCurrentSlot
+                        if curSlot == curSlot' then do
+                            ttns <- timeUntilNextSlot
+                            return $! truncate (ttns * 1e6)
+                        else return 0) () syncContext sfs') syncLogMethod
+                    when (delay > 0) $ threadDelay delay
+                    bakeLoop curSlot
         _ <- forkIO $ do
             tid <- myThreadId
             putRes <- tryPutMVar syncBakerThread tid
