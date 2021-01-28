@@ -24,7 +24,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.SeedState
+import Concordium.Types.SeedState
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.GlobalState.Basic.BlockState.Updates

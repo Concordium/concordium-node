@@ -62,9 +62,9 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Types
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
-import Concordium.GlobalState.SeedState
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
+import Concordium.Types.SeedState
 import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID

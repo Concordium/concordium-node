@@ -174,29 +174,6 @@ executables:
     dependencies:
     - concordium-consensus
 
-  genesis:
-    main:         Genesis.hs
-    source-dirs:  tools/genesis
-    ghc-options:
-    - -Wall
-    - -Wcompat
-    - -fno-ignore-asserts
-    when:
-      - condition: os(windows)
-        then:
-          ghc-options: -static
-        else:
-          when:
-            - condition: flag(dynamic)
-              then:
-                ghc-options: -dynamic
-              else:
-                ghc-options: -static
-    dependencies:
-    - concordium-consensus
-    - cmdargs >= 0.10
-    - filepath >= 1.4
-
   database-exporter:
     main:         Main.hs
     source-dirs:  tools/database-exporter

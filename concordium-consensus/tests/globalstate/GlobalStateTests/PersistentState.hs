@@ -30,7 +30,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Bakers
-import Concordium.GlobalState.SeedState
+import Concordium.Types.SeedState
 import Concordium.Types
 
 data PersistentContext = PersistentContext {
