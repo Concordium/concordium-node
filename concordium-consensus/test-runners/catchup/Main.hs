@@ -17,13 +17,13 @@ import System.Directory
 
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Parameters
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.AnonymityRevokers
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
@@ -45,7 +45,7 @@ import qualified Concordium.Crypto.DummyData as Dummy
 
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
 type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 

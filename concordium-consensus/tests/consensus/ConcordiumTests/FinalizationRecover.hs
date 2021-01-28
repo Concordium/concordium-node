@@ -17,8 +17,8 @@ import Concordium.GlobalState
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 import qualified Concordium.GlobalState.DummyData as Dummy
 
 import Test.Hspec
@@ -32,7 +32,7 @@ dummyArs = emptyAnonymityRevokers
 -- type TreeConfig = DiskTreeDiskBlockConfig
 type TreeConfig = MemoryTreeMemoryBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData (Dummy.basicGenesisState genData)
+makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
 genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =

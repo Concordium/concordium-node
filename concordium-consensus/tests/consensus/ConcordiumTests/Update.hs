@@ -28,11 +28,11 @@ import Concordium.Crypto.SHA256
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.SeedState as SeedState
+import qualified Concordium.Types.SeedState as SeedState
 
 import Concordium.Logger
 
@@ -95,7 +95,7 @@ createInitStates :: IO (BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
         bis@[baker1, baker2] = makeBakersByStake [bakerAmount, bakerAmount]
-        seedState = SeedState.genesisSeedState (hash "LeadershipElectionNonce") 10
+        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
         cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
         gen = GenesisDataV2 {
@@ -114,7 +114,7 @@ createInitStates = do
         createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig
-                                           (MTMBConfig defaultRuntimeParameters gen (Dummy.basicGenesisState gen))
+                                           (MTMBConfig defaultRuntimeParameters gen)
                                            (ActiveFinalization fininst)
                                            NoHandler
                                    (initCtx, initState) <- runSilentLogger (initialiseSkov config)

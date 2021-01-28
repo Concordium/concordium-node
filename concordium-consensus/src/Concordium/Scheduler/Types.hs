@@ -6,8 +6,8 @@ module Concordium.Scheduler.Types (module Concordium.Scheduler.Types,
                                    module Concordium.GlobalState.Instance,
                                    module Concordium.GlobalState.Rewards,
                                    module Concordium.GlobalState.Parameters,
-                                   module Concordium.GlobalState.IdentityProviders,
-                                   module Concordium.GlobalState.AnonymityRevokers,
+                                   module Concordium.Types.IdentityProviders,
+                                   module Concordium.Types.AnonymityRevokers,
                                    IdentityProviderIdentity) where
 
 import Concordium.Types
@@ -17,8 +17,8 @@ import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Rewards
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 
 import Concordium.ID.Types(IdentityProviderIdentity)
 

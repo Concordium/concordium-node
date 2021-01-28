@@ -9,6 +9,7 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 import System.Random
 import Lens.Micro.Platform
 import Data.Maybe
+import Data.List.NonEmpty (NonEmpty(..))
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -17,11 +18,10 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.SeedState as SeedState
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
+import qualified Concordium.Types.SeedState as SeedState
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Types.Updates
@@ -30,7 +30,7 @@ import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 
-makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, Account, SigScheme.KeyPair)]
+makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
 makeBakersByStake = mbs 0
     where
         mbs _ [] = []
@@ -44,11 +44,11 @@ makeBakersByStake = mbs 0
                         _bakerSignatureVerifyKey = bakerSignPublicKey ident,
                         _bakerAggregationVerifyKey = bakerAggregationPublicKey ident
                     },
-                    _bakerStake = _stakedAmount (fromJust (account ^. accountBaker))
+                    _bakerStake = gbStake (fromJust (gaBaker account))
                 }
 
-makeBakers :: Word -> [(BakerIdentity, FullBakerInfo, Account, SigScheme.KeyPair)]
-makeBakers nBakers = makeBakersByStake [if bid `mod` 2 == 0 then 1200000000000 else 800000000000 | bid <- [0..nBakers-1]]
+makeBakers :: Word -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
+makeBakers nBakers = makeBakersByStake [if even bid then 1200000000000 else 800000000000 | bid <- [0..nBakers-1]]
 
 generateBakerKeys :: BakerId -> BakerIdentity
 generateBakerKeys bakerId = BakerIdentity{..}
@@ -61,33 +61,33 @@ generateBakerKeys bakerId = BakerIdentity{..}
 
 -- |Creates a baker account and keys, with 99% of the account's balance staked.
 -- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
-makeBakerAccountKeys :: BakerId -> Amount -> (Account, SigScheme.KeyPair, BakerIdentity)
+makeBakerAccountKeys :: BakerId -> Amount -> (GenesisAccount, SigScheme.KeyPair, BakerIdentity)
 makeBakerAccountKeys bid amount =
     (acct, kp, bkr)
   where
     vfKey = SigScheme.correspondingVerifyKey kp
     credential = dummyCredential dummyCryptographicParameters address vfKey dummyMaxValidTo dummyCreatedAt
-    acct = newAccount dummyCryptographicParameters
-                (makeSingletonAC vfKey) address credential
-                & accountAmount .~ amount
-                & accountBaker ?~ AccountBaker{
-                    _stakedAmount = amount - (amount `div` 100),
-                    _stakeEarnings = False,
-                    _accountBakerInfo = BakerInfo {
-                        _bakerIdentity = bid,
-                        _bakerElectionVerifyKey = VRF.publicKey (bakerElectionKey bkr),
-                        _bakerSignatureVerifyKey = Sig.verifyKey (bakerSignKey bkr),
-                        _bakerAggregationVerifyKey = bakerAggregationPublicKey bkr
-                    },
-                    _bakerPendingChange = NoChange
-                }
+    acct = GenesisAccount {
+        gaAddress = address,
+        gaVerifyKeys = makeSingletonAC vfKey,
+        gaBalance = amount,
+        gaCredentials = credential :| [],
+        gaBaker = Just GenesisBaker {
+                gbElectionVerifyKey = VRF.publicKey (bakerElectionKey bkr),
+                gbSignatureVerifyKey = Sig.verifyKey (bakerSignKey bkr),
+                gbAggregationVerifyKey = bakerAggregationPublicKey bkr,
+                gbStake = amount - (amount `div` 100),
+                gbRestakeEarnings = False,
+                gbBakerId = bid
+            }
+        }
     bkr = generateBakerKeys bid
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral bid) - 1
     (address, seed') = randomAccountAddress (mkStdGen seed)
     kp = uncurry SigScheme.KeyPairEd25519 $ fst (randomEd25519KeyPair seed')
 
-makeBakerAccount :: BakerId -> Amount -> Account
+makeBakerAccount :: BakerId -> Amount -> GenesisAccount
 makeBakerAccount bid = (^. _1) . makeBakerAccountKeys bid
 
 defaultFinalizationParameters :: FinalizationParameters
@@ -112,7 +112,7 @@ makeGenesisData ::
     -> CryptographicParameters -- ^Initial cryptographic parameters.
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
-    -> [Account] -- ^Additional accounts.
+    -> [GenesisAccount] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> Authorizations -- ^Authorizations for chain updates
     -> ChainParameters -- ^Initial chain parameters
@@ -131,7 +131,7 @@ makeGenesisData
         genesisChainParameters
     = (GenesisDataV2{..}, bakers)
     where
-        genesisSeedState = SeedState.genesisSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
+        genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         mbkrs = makeBakers nBakers
         bakers = (\(bid,binfo,_,_) -> (bid,binfo)) <$> mbkrs
         bakerAccounts = (\(_,_,bacc,_) -> bacc) <$> mbkrs

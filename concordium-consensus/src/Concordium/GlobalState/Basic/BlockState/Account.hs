@@ -13,6 +13,7 @@ module Concordium.GlobalState.Basic.BlockState.Account(
   module Concordium.GlobalState.Basic.BlockState.Account
 ) where
 
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Set as Set
 import qualified Data.Serialize as S
 import Lens.Micro.Platform
@@ -71,13 +72,13 @@ instance HashableTo Hash.Hash Account where
     where
       bkrHash = maybe nullAccountBakerHash getHash _accountBaker
 
--- |Create an empty account with the given public key, encryption key, address and credential.
-newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account
-newAccount cryptoParams _accountVerificationKeys _accountAddress credential = Account {
+-- |Create an empty account with the given public key, address and credentials.
+newAccountMultiCredential :: GlobalContext -> AccountKeys -> AccountAddress -> NonEmpty AccountCredential -> Account
+newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress cs@(cred :| creds) = Account {
         _accountPersisting = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
-        _accountCredentials = [credential],
-        _accountMaxCredentialValidTo = validTo credential,
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId cred),
+        _accountCredentials = cred : creds,
+        _accountMaxCredentialValidTo = maximum (validTo <$> cs),
         _accountInstances = Set.empty,
         ..
         },
@@ -87,3 +88,8 @@ newAccount cryptoParams _accountVerificationKeys _accountAddress credential = Ac
         _accountReleaseSchedule = emptyAccountReleaseSchedule,
         _accountBaker = Nothing
     }
+
+-- |Create an empty account with the given public key, address and credential.
+newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account
+newAccount cryptoParams _accountVerificationKeys _accountAddress credential
+    = newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress (credential :| [])

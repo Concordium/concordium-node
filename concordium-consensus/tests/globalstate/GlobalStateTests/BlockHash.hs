@@ -26,7 +26,6 @@ import Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256 as Hash
 
 import           System.Random
-import qualified System.IO.Unsafe as UnsafeIO
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData

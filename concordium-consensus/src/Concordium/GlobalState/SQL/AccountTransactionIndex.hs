@@ -1,7 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -19,7 +16,6 @@ import Concordium.SQL.AccountTransactionIndex
 import Database.Persist
 import Database.Persist.Postgresql
 import Database.Persist.Postgresql.JSON()
-import Database.Persist.TH
 import Data.Pool
 import qualified Data.Aeson as AE
 import qualified Data.Map as Map

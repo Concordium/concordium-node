@@ -38,7 +38,6 @@ import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Persistent.TreeState(InitException(..))
 import Concordium.GlobalState.BlockMonads
-import qualified Concordium.GlobalState.Basic.BlockState as Basic
 import Concordium.Birk.Bake as Baker
 
 import Concordium.Afgjort.Finalize
@@ -215,24 +214,13 @@ foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStat
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
-
-genesisState :: GenesisData -> Basic.BlockState
-genesisState GenesisDataV2{..} = Basic.initialState
-                       genesisSeedState
-                       genesisCryptographicParameters
-                       genesisAccounts
-                       genesisIdentityProviders
-                       genesisAnonymityRevokers
-                       genesisAuthorizations
-                       genesisChainParameters
-
 type TreeConfig = DiskTreeDiskBlockConfig
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
-makeGlobalStateConfig rt genData = DTDBConfig rt genData (genesisState genData)
+makeGlobalStateConfig rt genData = DTDBConfig rt genData
 
 type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig
 makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteString -> TreeConfigWithLog
-makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData (genesisState genData)
+makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData
 
 
 type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) NoHandler

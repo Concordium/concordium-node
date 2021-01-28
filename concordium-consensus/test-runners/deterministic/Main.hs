@@ -32,8 +32,8 @@ import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.IdentityProviders
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.IdentityProviders
+import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Block
 import Concordium.GlobalState
 import qualified Concordium.GlobalState.TreeState as TS
@@ -67,12 +67,12 @@ makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 
 
 type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData (Dummy.basicGenesisState genData)
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
 makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData (genesisState genData), DTDBConfig rp genData (genesisState genData))
+   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
 -}
 
 -- |Configuration to use for bakers.

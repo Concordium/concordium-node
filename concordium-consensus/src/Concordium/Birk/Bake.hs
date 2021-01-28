@@ -32,7 +32,7 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
-import Concordium.GlobalState.SeedState
+import Concordium.Types.SeedState
 
 import Concordium.Kontrol
 import Concordium.Birk.LeaderElection

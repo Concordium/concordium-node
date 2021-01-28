@@ -3,10 +3,9 @@
 
 module GlobalStateTests.AccountReleaseScheduleTest where
 
-import Concordium.Crypto.SHA256
 import Concordium.GlobalState
 import Concordium.GlobalState.AccountTransactionIndex
-import Concordium.GlobalState.AnonymityRevokers
+import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
@@ -16,7 +15,7 @@ import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.DummyData
-import Concordium.GlobalState.IdentityProviders
+import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import qualified Concordium.GlobalState.Persistent.Accounts
@@ -94,9 +93,8 @@ createGS dbDir = do
   let
     n = 3
     genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
-    state = basicGenesisState genesis
     rp = defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }
-    config = PairGSConfig (MTMBConfig rp genesis state, DTDBConfig rp genesis state)
+    config = PairGSConfig (MTMBConfig rp genesis, DTDBConfig rp genesis)
   (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState config
   return (Identity x, Identity y)
 
