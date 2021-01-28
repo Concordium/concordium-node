@@ -283,6 +283,14 @@ futureElectionDifficulty :: Updates -> Timestamp -> ElectionDifficulty
 futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} ts
         = processValueUpdates ts (_cpElectionDifficulty _currentParameters) _pElectionDifficultyQueue ^. _1
 
+-- |Get the protocol update status: either an effective protocol update or
+-- a list of pending future protocol updates.
+protocolUpdateStatus :: Updates -> Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)]
+protocolUpdateStatus Updates{_pendingUpdates = PendingUpdates{..},..}
+        = case _currentProtocolUpdate of
+            Nothing -> Right (_uqQueue _pProtocolQueue)
+            Just pu -> Left pu
+
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateAuthorization = u ^. pendingUpdates . pAuthorizationQueue . uqNextSequenceNumber

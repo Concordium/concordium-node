@@ -417,12 +417,18 @@ blockArrive block parentP lfBlockP ExecutionResult{..} = do
                 error errMsg
         return blockP
 
+-- |Perform the monadic action unless the consensus is already shut down.
+unlessShutDown :: (SkovQueryMonad m) => m UpdateResult -> m UpdateResult
+unlessShutDown a = isShutDown >>= \case
+        True -> return ResultConsensusShutDown
+        False -> a
+
 -- |Store a block (as received from the network) in the tree.
 -- This checks for validity of the block, and may add the block
 -- to a pending queue if its prerequisites are not met.
 doStoreBlock :: (TreeStateMonad m, FinalizationMonad m, SkovMonad m, OnSkov m) => PendingBlock -> m UpdateResult
 {- - INLINE doStoreBlock - -}
-doStoreBlock pb@GB.PendingBlock{..} = do
+doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
     let cbp = getHash pb
         BakedBlock{..} = pbBlock
     oldBlock <- getBlockStatus cbp
@@ -458,8 +464,8 @@ doStoreBlock pb@GB.PendingBlock{..} = do
 --   * 'ResultStale' which indicates that a transaction with the same sender
 --     and nonce has already been finalized. In this case the transaction is not added to the table.
 --   * 'ResultInvalid' which indicates that the transaction signature was invalid.
-doReceiveTransaction :: (TreeStateMonad m, TimeMonad m) => BlockItem -> Slot -> m UpdateResult
-doReceiveTransaction tr slot = do
+doReceiveTransaction :: (TreeStateMonad m, TimeMonad m, SkovQueryMonad m) => BlockItem -> Slot -> m UpdateResult
+doReceiveTransaction tr slot = unlessShutDown $ do
   (_, ur) <- doReceiveTransactionInternal tr slot
   when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
   return ur

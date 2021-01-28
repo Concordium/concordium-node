@@ -969,6 +969,9 @@ doGetCurrentElectionDifficulty pbs = do
 doGetUpdates :: MonadBlobStore m => PersistentBlockState -> m Basic.Updates
 doGetUpdates = makeBasicUpdates <=< refLoad . bspUpdates <=< loadPBS
 
+doGetProtocolUpdateStatus :: MonadBlobStore m => PersistentBlockState -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
+
 doProcessUpdateQueues :: MonadBlobStore m => PersistentBlockState -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState)
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
@@ -1107,6 +1110,7 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber . hpbsPointers
     getCurrentElectionDifficulty = doGetCurrentElectionDifficulty . hpbsPointers
     getUpdates = doGetUpdates . hpbsPointers
+    getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
 
 instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m) where

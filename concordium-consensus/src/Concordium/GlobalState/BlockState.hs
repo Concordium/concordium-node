@@ -247,6 +247,11 @@ class AccountOperations m => BlockStateQuery m where
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m Basic.Updates
+    -- |Get the protocol update status. If a protocol update has taken effect,
+    -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
+    -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
+    -- updates that have not yet taken effect.
+    getProtocolUpdateStatus :: BlockState m -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
@@ -596,6 +601,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
@@ -618,6 +624,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getNextUpdateSequenceNumber #-}
   {-# INLINE getCurrentElectionDifficulty #-}
   {-# INLINE getUpdates #-}
+  {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where

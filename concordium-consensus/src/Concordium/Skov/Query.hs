@@ -9,9 +9,11 @@ import Data.Foldable
 
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Finalization
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.Skov.CatchUp.Types
 
 doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
@@ -72,6 +74,19 @@ doGetCatchUpStatus cusIsRequest = do
         br <- toList <$> getBranches
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
+
+doGetProtocolUpdateStatus :: (TreeStateMonad m) => m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+doGetProtocolUpdateStatus = do
+        (lastFin, _) <- getLastFinalized
+        lastFinState <- blockState lastFin
+        getProtocolUpdateStatus lastFinState
+
+doIsShutDown :: (TreeStateMonad m) => m Bool
+doIsShutDown = do
+        status <- doGetProtocolUpdateStatus
+        return $ case status of
+            Left _ -> True
+            Right _ -> False
 
 makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}

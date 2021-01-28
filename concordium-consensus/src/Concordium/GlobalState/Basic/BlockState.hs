@@ -308,6 +308,9 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     {-# INLINE getUpdates #-}
     getUpdates bs = return (bs ^. blockUpdates)
 
+    {-# INLINE getProtocolUpdateStatus #-}
+    getProtocolUpdateStatus bs = return (bs ^. blockUpdates . to protocolUpdateStatus)
+
     {-# INLINE getCryptographicParameters #-}
     getCryptographicParameters bs =
       return $! bs ^. blockCryptographicParameters . unhashed
