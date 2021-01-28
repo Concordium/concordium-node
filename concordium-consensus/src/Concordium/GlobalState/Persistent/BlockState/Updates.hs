@@ -551,6 +551,17 @@ futureElectionDifficulty uref ts = do
                 return $ cp ^. cpElectionDifficulty
         processValueUpdates ts oldQ getCurED (\newEDp _ _ -> unStoreSerialized <$> refLoad newEDp)
 
+-- |Get the protocol update status: either an effective protocol update or
+-- a list of pending future protocol updates.
+protocolUpdateStatus :: (MonadBlobStore m) => BufferedRef Updates -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+protocolUpdateStatus uref = do
+        Updates{..} <- refLoad uref
+        case currentProtocolUpdate of
+            Null -> do
+                pq <- refLoad (pProtocolQueue pendingUpdates)
+                Right . toList <$> forM (uqQueue pq) (\(t, e) -> (t,) . unStoreSerialized <$> refLoad e)
+            Some puRef -> Left . unStoreSerialized <$> refLoad puRef
+
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: (MonadBlobStore m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
 lookupNextUpdateSequenceNumber uref uty = do

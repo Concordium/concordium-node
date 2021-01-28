@@ -23,6 +23,7 @@ import Control.Monad.IO.Class
 import Concordium.Skov.Query
 
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.GlobalState.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -68,6 +69,8 @@ data UpdateResult
     -- ^The block was sent too early and should be dropped
     | ResultMissingImportFile
     -- ^The file provided for importing blocks is missing
+    | ResultConsensusShutDown
+    -- ^The message was not processed because consensus has been shut down
     deriving (Eq, Show)
 
 class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockStateQuery m) => SkovQueryMonad m where
@@ -113,10 +116,16 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     -- |Get a catch-up status message. The flag indicates if the
     -- message should be a catch-up request.
     getCatchUpStatus :: Bool -> m CatchUpStatus
-
+    -- |Get the 'RuntimeParameters'.
     getRuntimeParameters :: m RuntimeParameters
     default getRuntimeParameters :: (TS.TreeStateMonad m) => m RuntimeParameters
     getRuntimeParameters = TS.getRuntimeParameters
+    -- |Determine if consensus has been shut down. This is the case if a protocol update has
+    -- taken effect as of the last finalized block.
+    isShutDown :: m Bool
+    -- |Return the current protocol update, or any pending updates if none has
+    -- yet taken effect.
+    getProtocolUpdateStatus :: m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
 
 data MessageType = MessageBlock | MessageFinalizationRecord
     deriving (Eq, Show)
@@ -160,6 +169,8 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     blockLastFinalizedIndex = lift . blockLastFinalizedIndex
     getCatchUpStatus = lift . getCatchUpStatus
     getRuntimeParameters = lift getRuntimeParameters
+    isShutDown = lift isShutDown
+    getProtocolUpdateStatus = lift getProtocolUpdateStatus
     {- - INLINE resolveBlock - -}
     {- - INLINE isFinalized - -}
     {- - INLINE lastFinalizedBlock - -}
@@ -272,6 +283,10 @@ instance (Monad m,
 
     {- - INLINE queryNextAccountNonce - -}
     queryNextAccountNonce = lift . TS.getNextAccountNonce
+
+    isShutDown = lift doIsShutDown
+    getProtocolUpdateStatus = lift doGetProtocolUpdateStatus
+
 
 deriving via SkovQueryMonadT (GlobalStateM db c r g s m)
       instance (Monad m,
