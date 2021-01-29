@@ -17,6 +17,7 @@ import Control.Exception
 import System.Directory
 import qualified Data.Map as Map
 
+import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
@@ -72,6 +73,24 @@ difficultyUpdateTransactions (Timestamp ts) = [u 1 0.99 60 120, u 2 0.1 120 180,
                     ruiPayload = ElectionDifficultyUpdatePayload (makeElectionDifficulty diff)
                 }
                 (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
+
+protocolUpdateTransactions :: Timestamp -> [BlockItem]
+protocolUpdateTransactions (Timestamp ts) = [ui]
+    where
+        ui = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
+                RawUpdateInstruction {
+                    ruiSeqNumber = 1,
+                    ruiEffectiveTime = fromIntegral (ts `div` 1000) + 60,
+                    ruiTimeout = fromIntegral (ts `div` 1000) + 30,
+                    ruiPayload = ProtocolUpdatePayload ProtocolUpdate {
+                        puMessage = "Updating",
+                        puSpecificationURL = "http://concordium.com",
+                        puSpecificationHash = Hash.hash "blah",
+                        puSpecificationAuxiliaryData = ""
+                    }
+                }
+                (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
+
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
@@ -173,7 +192,7 @@ makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
 makeGlobalStateConfig rp genData =
    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
+type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
 
 main :: IO ()
 main = do
@@ -194,7 +213,7 @@ main = do
                      (Energy maxBound)
                      dummyAuthorizations
                      (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n))
-    trans <- (difficultyUpdateTransactions now ++) . transactions <$> newStdGen
+    trans <- (protocolUpdateTransactions now ++) . transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
@@ -207,7 +226,7 @@ main = do
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-            hconfig = NoHandler
+            hconfig = LogUpdateHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions bakerId cin trans
