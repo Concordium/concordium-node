@@ -253,7 +253,7 @@ impl P2p for RpcServerImpl {
             if id > 0 && id < 100_000 {
                 info!("Attempting to join network {}", id);
                 let network_id = NetworkId::from(id as u16);
-                self.node.send_joinnetwork(network_id);
+                self.node.send_join_network(network_id);
                 Ok(Response::new(BoolResponse {
                     value: true,
                 }))
@@ -275,7 +275,7 @@ impl P2p for RpcServerImpl {
             if id > 0 && id < 100_000 {
                 info!("Attempting to leave network {}", id);
                 let network_id = NetworkId::from(id as u16);
-                self.node.send_leavenetwork(network_id);
+                self.node.send_leave_network(network_id);
                 Ok(Response::new(BoolResponse {
                     value: true,
                 }))
