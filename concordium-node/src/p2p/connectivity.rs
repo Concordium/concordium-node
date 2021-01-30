@@ -55,13 +55,13 @@ macro_rules! find_conns_by_ip {
 impl P2PNode {
     /// Broadcast a request to join a network.
     /// Note that this needs a write lock on the node's connections object.
-    pub fn send_joinnetwork(&self, id: NetworkId) {
+    pub fn send_join_network(&self, id: NetworkId) {
         self.broadcast_network_request(NetworkRequest::JoinNetwork(id))
     }
 
     /// Broadcast a request to leave the network.
     /// Note that this needs a write lock on the node's connections object.
-    pub fn send_leavenetwork(&self, id: NetworkId) {
+    pub fn send_leave_network(&self, id: NetworkId) {
         self.broadcast_network_request(NetworkRequest::LeaveNetwork(id))
     }
 
