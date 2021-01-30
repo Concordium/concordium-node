@@ -22,8 +22,8 @@ use crate::{
         catch_up::PeerList,
         consensus::{ConsensusContainer, CALLBACK_QUEUE},
     },
-    lock_or_die,
-    network::{Buckets, NetworkId, Networks},
+    find_conn_by_id, find_conns_by_ip, lock_or_die,
+    network::{Buckets, NetworkId, NetworkRequest, Networks},
     p2p::{
         bans::BanId,
         connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
@@ -68,7 +68,7 @@ pub struct NodeConfig {
     pub bootstrapping_interval: u64,
     pub print_peers: bool,
     pub bootstrapper_wait_minimum_peers: u16,
-    pub no_trust_bans: bool,
+    pub trust_bans: bool,
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
     pub hard_connection_limit: u16,
@@ -305,7 +305,7 @@ impl P2PNode {
                 PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
                 PeerType::Node => 0,
             },
-            no_trust_bans: conf.common.no_trust_bans,
+            trust_bans: conf.common.trust_bans,
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
@@ -666,8 +666,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             }
         }
         ConnChange::Expulsion(token) => {
-            if let Some(conn) = node.remove_connection(token) {
-                let ip = conn.remote_addr().ip();
+            if let Some(remote_peer) = node.remove_connection(token) {
+                let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
                     BanId::Ip(ip),
@@ -675,8 +675,43 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
             }
         }
-        ConnChange::Removal(token) => {
+        ConnChange::RemovalByToken(token) => {
             node.remove_connection(token);
+        }
+        ConnChange::RemovalByNodeId(remote_id) => {
+            trace!("Removing node {:?} by node id.", remote_id);
+            let maybe_token = { find_conn_by_id!(node, remote_id).map(|conn| conn.token) }; // drop the lock on the connections now
+            if let Some(token) = maybe_token {
+                if node.remove_connection(token).is_some() {
+                    // If we had a peer with the given ID we broadcast this message further.
+                    // This is not really that useful, but without some loop breaker we're going to
+                    // end up in a loop of ban requests for the same IP.
+                    // Deduplication does not handle these types of messages.
+                    // This mechanism should be redesigned so that
+                    // - it is clear what its purpose is and what the desired semantics is
+                    // - there is supporting data sent with the request, e.g., some sort of
+                    //   authentication or proof.
+                    node.broadcast_network_request(NetworkRequest::BanNode(BanId::NodeId(
+                        remote_id,
+                    )))
+                }
+            }
+        }
+        ConnChange::RemovalByIp(ip_addr) => {
+            trace!("Removing all connections to IP {}", ip_addr);
+            let tokens =
+                { find_conns_by_ip!(node, ip_addr).map(|conn| conn.token).collect::<Vec<_>>() }; // drop the lock on the connections now
+            if node.remove_connections(&tokens) {
+                // If we removed any of the peers with this IP we broadcast the ban message to
+                // all our peers. This is not really that useful, but without
+                // some loop breaker we're going to end up in a loop
+                // of ban requests for the same IP.
+                // This mechanism should be redesigned so that
+                // - it is clear what its purpose is and what the desired semantics is
+                // - there is supporting data sent with the request, e.g., some sort of
+                //   authentication or proof.
+                node.broadcast_network_request(NetworkRequest::BanNode(BanId::Ip(ip_addr)))
+            }
         }
     }
 }

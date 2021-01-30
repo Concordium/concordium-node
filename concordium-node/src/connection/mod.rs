@@ -33,14 +33,12 @@ use crate::{
 };
 
 use crate::consensus_ffi::helpers::PacketType;
-use crypto_common::Deserial;
 
 use std::{
     collections::VecDeque,
     convert::TryFrom,
     fmt,
-    io::Cursor,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     ops::{Index, IndexMut},
     str::FromStr,
     sync::{
@@ -304,7 +302,11 @@ pub enum ConnChange {
     /// Promotion to post-handshake.
     Promotion(Token),
     /// To be removed from the list of connections.
-    Removal(Token),
+    RemovalByToken(Token),
+    /// Remove any connection to a peer with the given node id.
+    RemovalByNodeId(P2PNodeId),
+    /// Remove any connection to a peer with the given IP address and port
+    RemovalByIp(IpAddr),
 }
 
 /// Message queues, indexed by priority.
@@ -443,11 +445,11 @@ impl Connection {
     #[inline]
     fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> Fallible<bool> {
         use super::network::PacketDestination;
-        ensure!(!packet.message.is_empty());
-        let packet_type = PacketType::try_from(
-            u8::deserial(&mut Cursor::new(&packet.message[..1]))
-                .expect("Writing to buffer is safe."),
-        );
+        let packet_type = if let Some(tag) = packet.message.first().copied() {
+            PacketType::try_from(tag)?
+        } else {
+            bail!("Invalid message type.")
+        };
 
         if let PacketDestination::Direct(_) = packet.destination {
             return Ok(false);
@@ -456,18 +458,18 @@ impl Connection {
         let deduplication_queues = &self.handler.connection_handler.deduplication_queues;
 
         let is_duplicate = match packet_type {
-            Ok(PacketType::FinalizationMessage) => dedup_with(
+            PacketType::FinalizationMessage => dedup_with(
                 &packet.message,
                 &mut **write_or_die!(deduplication_queues.finalizations),
             )?,
-            Ok(PacketType::Transaction) => dedup_with(
+            PacketType::Transaction => dedup_with(
                 &packet.message,
                 &mut **write_or_die!(deduplication_queues.transactions),
             )?,
-            Ok(PacketType::Block) => {
+            PacketType::Block => {
                 dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.blocks))?
             }
-            Ok(PacketType::FinalizationRecord) => {
+            PacketType::FinalizationRecord => {
                 dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.fin_records))?
             }
             _ => false,
@@ -518,7 +520,7 @@ impl Connection {
         }
 
         // process the incoming message
-        self.handle_incoming_message(message, bytes, conn_stats)
+        self.handle_incoming_message(message, conn_stats)
     }
 
     /// Concludes the connection's handshake process.

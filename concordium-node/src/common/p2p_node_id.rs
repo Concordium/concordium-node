@@ -9,7 +9,7 @@ use std::fmt;
 pub type PeerId = u64;
 
 /// The basic identifier of a node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PNodeId(pub PeerId);
 
@@ -19,6 +19,12 @@ impl Default for P2PNodeId {
         let n = Uniform::from(0..PeerId::max_value()).sample(&mut rng);
         P2PNodeId(n)
     }
+}
+
+// This is implemented manually so that the ID is printed in hex so that
+// it can be recognized.
+impl fmt::Debug for P2PNodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:016x}", self.0) }
 }
 
 impl fmt::Display for P2PNodeId {

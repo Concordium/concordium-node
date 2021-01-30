@@ -30,7 +30,7 @@ impl From<u16> for NetworkId {
     }
 }
 
-/// The collection of netwoks a node belongs to.
+/// The collection of networks a node belongs to.
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 
 /// The main object used to transmit data over the network.
@@ -49,10 +49,10 @@ pub struct NetworkMessage {
 #[macro_export]
 macro_rules! netmsg {
     ($payload_type:ident, $payload:expr) => {{
-        NetworkMessage {
+        crate::network::NetworkMessage {
             created:  get_current_stamp(),
             received: None,
-            payload:  NetworkPayload::$payload_type($payload),
+            payload:  crate::network::NetworkPayload::$payload_type($payload),
         }
     }};
 }
