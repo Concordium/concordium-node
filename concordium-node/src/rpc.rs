@@ -373,8 +373,19 @@ impl P2p for RpcServerImpl {
                     consensus_running: true,
                     consensus_type: consensus.consensus_type.to_string(),
                     consensus_baker_committee: match consensus_baking_committee_status {
-                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => true,
-                        _ => false,
+                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => {
+                            node_info_response::IsInBakingCommittee::ActiveInCommittee as i32
+                        }
+                        ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
+                            node_info_response::IsInBakingCommittee::AddedButNotActiveInCommittee
+                                as i32
+                        }
+                        ConsensusIsInBakingCommitteeResponse::AddedButWrongKeys => {
+                            node_info_response::IsInBakingCommittee::AddedButWrongKeys as i32
+                        }
+                        ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
+                            node_info_response::IsInBakingCommittee::NotInCommittee as i32
+                        }
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
                     staging_net_username,
@@ -393,7 +404,8 @@ impl P2p for RpcServerImpl {
                 consensus_baker_running: false,
                 consensus_running: false,
                 consensus_type: "Inactive".to_owned(),
-                consensus_baker_committee: false,
+                consensus_baker_committee: node_info_response::IsInBakingCommittee::NotInCommittee
+                    as i32,
                 consensus_finalizer_committee: false,
                 staging_net_username,
                 consensus_baker_id: None,
