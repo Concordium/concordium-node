@@ -17,7 +17,6 @@ use crate::{
         },
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
-    find_conn_by_id,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
@@ -394,12 +393,9 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
         (peers.catch_up_peer, peers.catch_up_stamp)
     };
     if let Some(id) = catch_up_peer {
-        // NB: The block around find_conn_by_id ensures that the lock is dropped as
-        // early as possible.
-        let mtoken = { find_conn_by_id!(node, P2PNodeId(id)).map(|conn| conn.token) };
-        if let Some(token) = mtoken {
+        if let Some(token) = node.find_conn_token_by_id(P2PNodeId(id)) {
             if now > catch_up_stamp + MAX_CATCH_UP_TIME {
-                // Try to remove the peer, since it timed-out.
+                // Try to remove the peer since it timed-out.
                 debug!("Peer {:016x} took too long to catch up; dropping", id);
                 // This function may not actually remove the peer, so we do not assume
                 // that it will be removed.
