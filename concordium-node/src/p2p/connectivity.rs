@@ -32,26 +32,6 @@ use std::{
 /// The poll token of the node's socket server.
 pub const SELF_TOKEN: Token = Token(0);
 
-/// A macro used to find a connection by the id of its node.
-/// Note that this acquires a read lock on the node's connections map.
-#[macro_export]
-macro_rules! find_conn_by_id {
-    ($node:expr, $id:expr) => {{
-        crate::read_or_die!($node.connections()).values().find(|conn| conn.remote_id() == Some($id))
-    }};
-}
-
-/// A macro used to find connections by an IP address.
-/// Note that this acquires a read lock on the node's connections map.
-#[macro_export]
-macro_rules! find_conns_by_ip {
-    ($node:expr, $ip:expr) => {{
-        crate::read_or_die!($node.connections())
-            .values()
-            .filter(|conn| conn.remote_peer.addr.ip() == $ip)
-    }};
-}
-
 impl P2PNode {
     /// Broadcast a request to join a network.
     /// Note that this needs a write lock on the node's connections object.
@@ -113,6 +93,19 @@ impl P2PNode {
     /// Add a network to the list of node's networks.
     pub fn add_network(&self, network_id: NetworkId) {
         write_or_die!(self.connection_handler.networks).insert(network_id);
+    }
+
+    /// Find a connection token of the connection to the given peer, if such a
+    /// connection exists.
+    /// NB: This acquires and releases a read lock on the node's connections.
+    pub fn find_conn_token_by_id(&self, id: P2PNodeId) -> Option<Token> {
+        read_or_die!(self.connections()).values().find_map(|conn| {
+            if conn.remote_id() == Some(id) {
+                Some(conn.token)
+            } else {
+                None
+            }
+        })
     }
 
     /// Shut down connection with the given poll token.
