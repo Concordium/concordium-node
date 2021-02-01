@@ -22,8 +22,8 @@ use crate::{
         catch_up::PeerList,
         consensus::{ConsensusContainer, CALLBACK_QUEUE},
     },
-    find_conn_by_id, find_conns_by_ip, lock_or_die,
-    network::{Buckets, NetworkId, NetworkRequest, Networks},
+    lock_or_die,
+    network::{Buckets, NetworkId, Networks},
     p2p::{
         bans::BanId,
         connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
@@ -402,17 +402,6 @@ impl P2PNode {
     #[inline]
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
 
-    /// It registers a connection's socket with the poll.
-    pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
-        self.poll_registry
-            .register(
-                &mut conn.low_level.socket,
-                conn.token,
-                Interest::READABLE | Interest::WRITABLE,
-            )
-            .map_err(|e| e.into())
-    }
-
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
     #[inline]
@@ -677,41 +666,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         }
         ConnChange::RemovalByToken(token) => {
             node.remove_connection(token);
-        }
-        ConnChange::RemovalByNodeId(remote_id) => {
-            trace!("Removing node {:?} by node id.", remote_id);
-            let maybe_token = { find_conn_by_id!(node, remote_id).map(|conn| conn.token) }; // drop the lock on the connections now
-            if let Some(token) = maybe_token {
-                if node.remove_connection(token).is_some() {
-                    // If we had a peer with the given ID we broadcast this message further.
-                    // This is not really that useful, but without some loop breaker we're going to
-                    // end up in a loop of ban requests for the same IP.
-                    // Deduplication does not handle these types of messages.
-                    // This mechanism should be redesigned so that
-                    // - it is clear what its purpose is and what the desired semantics is
-                    // - there is supporting data sent with the request, e.g., some sort of
-                    //   authentication or proof.
-                    node.broadcast_network_request(NetworkRequest::BanNode(BanId::NodeId(
-                        remote_id,
-                    )))
-                }
-            }
-        }
-        ConnChange::RemovalByIp(ip_addr) => {
-            trace!("Removing all connections to IP {}", ip_addr);
-            let tokens =
-                { find_conns_by_ip!(node, ip_addr).map(|conn| conn.token).collect::<Vec<_>>() }; // drop the lock on the connections now
-            if node.remove_connections(&tokens) {
-                // If we removed any of the peers with this IP we broadcast the ban message to
-                // all our peers. This is not really that useful, but without
-                // some loop breaker we're going to end up in a loop
-                // of ban requests for the same IP.
-                // This mechanism should be redesigned so that
-                // - it is clear what its purpose is and what the desired semantics is
-                // - there is supporting data sent with the request, e.g., some sort of
-                //   authentication or proof.
-                node.broadcast_network_request(NetworkRequest::BanNode(BanId::Ip(ip_addr)))
-            }
         }
     }
 }

@@ -115,21 +115,6 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
-    /// Deregister the connections' socket from the poll registry of the P2PNode
-    /// Returns the remote peer of the closed connection.
-    fn deregister_conn(&self, mut conn: Connection) -> RemotePeer {
-        if let Err(e) = self.poll_registry.deregister(&mut conn.low_level.socket) {
-            error!("Can't deregister socket poll for removed connection {}: {}", conn, e);
-        } else {
-            trace!(
-                "Deregistered socket poll for connection {} on socket {:?}.",
-                conn,
-                conn.low_level.socket
-            );
-        }
-        conn.remote_peer
-    }
-
     /// Shut down connection with the given poll token.
     /// Returns the remote peer, i.e., the other end, of the just closed
     /// connection, if it exists. None is only returned if no connection
@@ -137,14 +122,12 @@ impl P2PNode {
     pub fn remove_connection(&self, token: Token) -> Option<RemotePeer> {
         // First attempt to remove connection in the handshake phase.
         if let Some(removed_cand) = lock_or_die!(self.conn_candidates()).remove(&token) {
-            let res = self.deregister_conn(removed_cand);
-            Some(res)
+            Some(removed_cand.remote_peer)
         } else {
             // otherwise try to remove a full peer
             let removed_conn = write_or_die!(self.connections()).remove(&token)?;
             self.bump_last_peer_update();
-            let res = self.deregister_conn(removed_conn);
-            Some(res)
+            Some(removed_conn.remote_peer)
         }
     }
 
@@ -159,11 +142,9 @@ impl P2PNode {
         let mut removed_peers = false;
         let mut removed_candidates = false;
         for token in tokens {
-            if let Some(conn) = conn_candidates.remove(&token) {
-                self.deregister_conn(conn);
+            if conn_candidates.remove(&token).is_some() {
                 removed_candidates = true;
-            } else if let Some(conn) = connections.remove(&token) {
-                self.deregister_conn(conn);
+            } else if connections.remove(&token).is_some() {
                 removed_peers = true;
             }
         }
@@ -375,8 +356,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
         peer_type: PeerType::Node,
     };
 
-    let mut conn = Connection::new(node, socket, token, remote_peer, false);
-    node.register_conn(&mut conn)?;
+    let conn = Connection::new(node, socket, token, remote_peer, false)?;
     candidates_lock.insert(conn.token, conn);
 
     Ok(token)
@@ -458,8 +438,7 @@ pub fn connect(
                 peer_type,
             };
 
-            let mut conn = Connection::new(node, socket, token, remote_peer, true);
-            node.register_conn(&mut conn)?;
+            let conn = Connection::new(node, socket, token, remote_peer, true)?;
             candidates_lock.insert(conn.token, conn);
 
             if let Some(ref mut conn) = candidates_lock.get_mut(&token) {

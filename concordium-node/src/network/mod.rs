@@ -8,10 +8,7 @@ use semver::Version;
 
 pub use self::buckets::Buckets;
 
-use crate::{
-    common::{p2p_peer::P2PPeer, P2PNodeId},
-    p2p::bans::BanId,
-};
+use crate::common::{p2p_peer::P2PPeer, P2PNodeId};
 
 use std::collections::HashSet;
 
@@ -87,10 +84,6 @@ pub enum NetworkRequest {
     GetPeers(Networks),
     /// Used in the initial exchange of metadata with peers.
     Handshake(Handshake),
-    /// Requests that peers ban a specific node.
-    BanNode(BanId),
-    /// Requests that peers unban a specific node.
-    UnbanNode(BanId),
     /// Notifies that a node joined a specific network.
     JoinNetwork(NetworkId),
     /// Notifies that a node left a specific network.
