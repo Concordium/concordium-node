@@ -59,24 +59,6 @@ impl Connection {
                 debug!("Got a LeaveNetwork request from peer {}", peer_id);
                 self.remove_remote_end_network(network)
             }
-            NetworkPayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
-                debug!("Got a Ban request from peer {}", peer_id);
-                if self.handler.config.trust_bans {
-                    self.handle_ban(peer_to_ban)
-                } else {
-                    warn!("Ignoring a ban request from peer since `--trust-bans` is not given.");
-                    Ok(())
-                }
-            }
-            NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
-                debug!("Got an Unban request from peer {}", peer_id);
-                if self.handler.config.trust_bans {
-                    self.handle_unban(peer_to_unban)
-                } else {
-                    warn!("Ignoring an unban request from peer since `--trust-bans` is not given.");
-                    Ok(())
-                }
-            }
             NetworkPayload::NetworkPacket(pac, ..) => {
                 // packet receipt is logged later, along with its contents
                 self.handle_incoming_packet(pac, peer_id)
@@ -116,21 +98,6 @@ impl Connection {
     }
 
     fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
-
-    fn handle_ban(&self, peer_to_ban: BanId) -> Fallible<()> { self.handler.ban_node(peer_to_ban) }
-
-    fn handle_unban(&self, peer: BanId) -> Fallible<()> {
-        let is_self_unban = match peer {
-            BanId::NodeId(id) => Some(id) == self.remote_id(),
-            BanId::Ip(addr) => addr == self.remote_addr().ip(),
-            _ => unimplemented!("Socket address bans don't propagate"),
-        };
-        if is_self_unban {
-            bail!("Rejecting a self-unban attempt");
-        }
-
-        self.handler.unban_node(peer)
-    }
 
     fn handle_incoming_packet(&self, pac: NetworkPacket, peer_id: P2PNodeId) -> Fallible<()> {
         let is_broadcast = match pac.destination {

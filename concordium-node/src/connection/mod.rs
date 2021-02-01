@@ -10,7 +10,7 @@ use low_level::ConnectionLowLevel;
 use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use failure::Fallible;
-use mio::{net::TcpStream, Token};
+use mio::{net::TcpStream, Interest, Token};
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
@@ -38,7 +38,7 @@ use std::{
     collections::VecDeque,
     convert::TryFrom,
     fmt,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     ops::{Index, IndexMut},
     str::FromStr,
     sync::{
@@ -303,10 +303,6 @@ pub enum ConnChange {
     Promotion(Token),
     /// To be removed from the list of connections.
     RemovalByToken(Token),
-    /// Remove any connection to a peer with the given node id.
-    RemovalByNodeId(P2PNodeId),
-    /// Remove any connection to a peer with the given IP address and port
-    RemovalByIp(IpAddr),
 }
 
 /// Message queues, indexed by priority.
@@ -394,16 +390,17 @@ impl fmt::Display for Connection {
 
 impl Connection {
     /// Create a new connection object.
+    /// This registers the given socket with the handler's poll registry.
     pub fn new(
         handler: &Arc<P2PNode>,
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
         is_initiator: bool,
-    ) -> Self {
+    ) -> Fallible<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = ConnectionLowLevel::new(
+        let mut low_level = ConnectionLowLevel::new(
             handler,
             socket,
             is_initiator,
@@ -413,7 +410,14 @@ impl Connection {
 
         let stats = ConnectionStats::new(curr_stamp);
 
-        Self {
+        // Register the connection's socket with the handler's poll registry.
+        handler.poll_registry.register(
+            &mut low_level.socket,
+            token,
+            Interest::READABLE | Interest::WRITABLE,
+        )?;
+
+        Ok(Self {
             handler: Arc::clone(handler),
             token,
             remote_peer,
@@ -421,7 +425,7 @@ impl Connection {
             remote_end_networks: Default::default(),
             stats,
             pending_messages: MessageQueues::new(1024, 128),
-        }
+        })
     }
 
     /// Obtain the connection's latency.
@@ -721,6 +725,8 @@ impl Connection {
     }
 }
 
+/// Drop the connection and deregister it from the connection handler's poll
+/// registry.
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing the connection to {}", self);
@@ -728,6 +734,16 @@ impl Drop for Connection {
         // update peer stats if it was post-handshake
         if self.remote_id().is_some() {
             self.handler.stats.peers_dec();
+        }
+
+        if let Err(e) = self.handler.poll_registry.deregister(&mut self.low_level.socket) {
+            error!("Can't deregister socket poll for dropped connection {}: {}", self, e);
+        } else {
+            trace!(
+                "Deregistered socket poll for connection {} on socket {:?}.",
+                self,
+                self.low_level.socket
+            );
         }
     }
 }
