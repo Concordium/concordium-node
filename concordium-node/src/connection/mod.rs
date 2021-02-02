@@ -38,7 +38,7 @@ use std::{
     collections::VecDeque,
     convert::TryFrom,
     fmt,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     ops::{Index, IndexMut},
     str::FromStr,
     sync::{
@@ -303,6 +303,10 @@ pub enum ConnChange {
     Promotion(Token),
     /// To be removed from the list of connections.
     RemovalByToken(Token),
+    /// Remove any connection to a peer with the given node id.
+    RemovalByNodeId(P2PNodeId),
+    /// Remove any connection to a peer with the given IP address.
+    RemovalByIp(IpAddr),
 }
 
 /// Message queues, indexed by priority.
