@@ -500,8 +500,17 @@ impl P2PNode {
 
     /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
+        // First notify the maintenance thread to stop processing new connections or
+        // network packets.
         self.is_terminated.store(true, Ordering::Relaxed);
-        CALLBACK_QUEUE.stop().is_ok()
+        // Then process all messages we still have in the Consensus queues.
+        let queues_stopped = CALLBACK_QUEUE.stop().is_ok();
+        // Finally close all connections
+        // Make sure to drop connections so that the peers or peer candidates can
+        // quickly free up their endpoints.
+        lock_or_die!(self.conn_candidates()).clear();
+        write_or_die!(self.connections()).clear();
+        queues_stopped
     }
 
     /// Joins the threads spawned by the node.
@@ -538,6 +547,12 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         let poll_interval = Duration::from_millis(node.config.poll_interval);
 
         loop {
+            // Check the termination switch
+            if node.is_terminated.load(Ordering::Relaxed) {
+                info!("Shutting down");
+                break;
+            }
+
             // check for new events or wait
             if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);
@@ -576,12 +591,6 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             {
                 if cfg!(test) && read_or_die!(node.connections()).is_empty() {
                     panic!("the test timed out: no valid connections available");
-                }
-
-                // Check the termination switch
-                if node.is_terminated.load(Ordering::Relaxed) {
-                    info!("Shutting down");
-                    break;
                 }
 
                 connection_housekeeping(&node);
