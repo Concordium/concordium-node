@@ -663,7 +663,16 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             }
         }
         ConnChange::RemovalByToken(token) => {
+            trace!("Removing connection with token {:?}", token);
             node.remove_connection(token);
+        }
+        ConnChange::RemovalByNodeId(remote_id) => {
+            trace!("Removing connection to {} by node id.", remote_id);
+            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
+        }
+        ConnChange::RemovalByIp(ip_addr) => {
+            trace!("Removing all connections to IP {}", ip_addr);
+            node.remove_connections(&node.find_conn_tokens_by_ip(ip_addr));
         }
     }
 }
