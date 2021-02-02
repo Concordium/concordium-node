@@ -4,7 +4,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerStats, PeerType},
     connection::Connection,
     netmsg,
-    network::{NetworkMessage, NetworkPayload, NetworkRequest},
+    network::NetworkRequest,
     only_fbs,
     p2p::{maintenance::attempt_bootstrap, P2PNode},
     read_or_die,

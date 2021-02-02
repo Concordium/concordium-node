@@ -11,7 +11,7 @@ use crate::{
     connection::ConnChange,
     consensus_ffi::helpers::PacketType,
     netmsg,
-    network::{NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, PacketDestination},
+    network::{NetworkId, NetworkMessage, NetworkPacket, PacketDestination},
     p2p::{maintenance::spawn, P2PNode},
     read_or_die,
     stats_export_service::StatsExportService,

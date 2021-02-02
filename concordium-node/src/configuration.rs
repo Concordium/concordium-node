@@ -405,8 +405,6 @@ pub struct CommonConfig {
     pub data_dir: Option<String>,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
-    #[structopt(long = "no-trust-bans", help = "Don't blindly trust ban/unban requests")]
-    pub no_trust_bans: bool,
     #[structopt(
         long = "minimum-peers-bucket",
         help = "Minimum peers to keep in each bucket always",

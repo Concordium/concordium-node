@@ -8,10 +8,7 @@ use semver::Version;
 
 pub use self::buckets::Buckets;
 
-use crate::{
-    common::{p2p_peer::P2PPeer, P2PNodeId},
-    p2p::bans::BanId,
-};
+use crate::common::{p2p_peer::P2PPeer, P2PNodeId};
 
 use std::collections::HashSet;
 
@@ -30,7 +27,7 @@ impl From<u16> for NetworkId {
     }
 }
 
-/// The collection of netwoks a node belongs to.
+/// The collection of networks a node belongs to.
 pub type Networks = HashSet<NetworkId, BuildNoHashHasher<u16>>;
 
 /// The main object used to transmit data over the network.
@@ -49,10 +46,10 @@ pub struct NetworkMessage {
 #[macro_export]
 macro_rules! netmsg {
     ($payload_type:ident, $payload:expr) => {{
-        NetworkMessage {
+        crate::network::NetworkMessage {
             created:  get_current_stamp(),
             received: None,
-            payload:  NetworkPayload::$payload_type($payload),
+            payload:  crate::network::NetworkPayload::$payload_type($payload),
         }
     }};
 }
@@ -87,10 +84,6 @@ pub enum NetworkRequest {
     GetPeers(Networks),
     /// Used in the initial exchange of metadata with peers.
     Handshake(Handshake),
-    /// Requests that peers ban a specific node.
-    BanNode(BanId),
-    /// Requests that peers unban a specific node.
-    UnbanNode(BanId),
     /// Notifies that a node joined a specific network.
     JoinNetwork(NetworkId),
     /// Notifies that a node left a specific network.
