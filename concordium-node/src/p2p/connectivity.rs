@@ -24,7 +24,7 @@ use crate::{
 use std::cmp;
 use std::{
     io,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
@@ -106,6 +106,23 @@ impl P2PNode {
                 None
             }
         })
+    }
+
+    /// Find connection tokens for all connections to the given ip address.
+    /// This acquires a read lock on the node's connections and
+    /// connection_candidates objects.
+    pub fn find_conn_tokens_by_ip(&self, ip_addr: IpAddr) -> Vec<Token> {
+        lock_or_die!(self.conn_candidates())
+            .values()
+            .chain(read_or_die!(self.connections()).values())
+            .filter_map(|conn| {
+                if conn.remote_peer.addr.ip() == ip_addr {
+                    Some(conn.token)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Shut down connection with the given poll token.
