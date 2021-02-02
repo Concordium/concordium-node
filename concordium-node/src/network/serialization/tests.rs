@@ -5,7 +5,6 @@ use crate::{
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPayload, NetworkRequest, NetworkResponse,
     },
-    p2p::bans::BanId,
     test_utils::create_random_packet,
 };
 
@@ -48,24 +47,6 @@ test_s11n!(
         version:     Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
         proof:       Vec::new(),
     }))
-);
-test_s11n!(
-    s11n_req_ban_id,
-    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::NodeId(P2PNodeId(1337))))
-);
-test_s11n!(
-    s11n_req_unban_id,
-    NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(BanId::NodeId(P2PNodeId(1337))))
-);
-test_s11n!(
-    s11n_req_ban_ip_v4,
-    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([4, 3, 2, 1])),))
-);
-test_s11n!(
-    s11n_req_ban_ip_v6,
-    NetworkPayload::NetworkRequest(NetworkRequest::BanNode(BanId::Ip(IpAddr::from([
-        1, 2, 3, 4, 5, 6, 7, 8
-    ])),))
 );
 test_s11n!(
     s11n_req_join_net,

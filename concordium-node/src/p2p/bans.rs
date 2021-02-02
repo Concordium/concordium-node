@@ -4,9 +4,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};
 
-use crate::{
-    common::P2PNodeId, connection::ConnChange, find_conn_by_id, find_conns_by_ip, p2p::P2PNode,
-};
+use crate::{common::P2PNodeId, p2p::P2PNode};
 use crypto_common::{Buffer, Deserial, Serial};
 
 use std::net::{IpAddr, SocketAddr};
@@ -69,24 +67,6 @@ impl P2PNode {
             bail!("Couldn't ban a peer: couldn't obtain a lock over the kvs");
         }
 
-        match peer {
-            BanId::NodeId(id) => {
-                if let Some(conn) = find_conn_by_id!(self, id) {
-                    self.register_conn_change(ConnChange::Removal(conn.token));
-                }
-            }
-            BanId::Ip(addr) => {
-                for conn in find_conns_by_ip!(self, addr) {
-                    self.register_conn_change(ConnChange::Removal(conn.token));
-                }
-            }
-            _ => unimplemented!("Socket address bans don't persist"),
-        }
-
-        if !self.config.no_trust_bans {
-            self.send_ban(peer);
-        }
-
         Ok(())
     }
 
@@ -104,10 +84,6 @@ impl P2PNode {
             writer.commit()?;
         } else {
             bail!("Couldn't unban a peer: couldn't obtain a lock over the kvs");
-        }
-
-        if !self.config.no_trust_bans {
-            self.send_unban(peer);
         }
 
         Ok(())

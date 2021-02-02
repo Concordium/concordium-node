@@ -71,7 +71,7 @@ impl Display for P2PPeer {
 }
 
 /// Defines a remote node in the network.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct RemotePeer {
     pub id:            Option<P2PNodeId>,
     pub addr:          SocketAddr,

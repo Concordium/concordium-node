@@ -68,7 +68,6 @@ pub struct NodeConfig {
     pub bootstrapping_interval: u64,
     pub print_peers: bool,
     pub bootstrapper_wait_minimum_peers: u16,
-    pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
     pub hard_connection_limit: u16,
@@ -305,7 +304,6 @@ impl P2PNode {
                 PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
                 PeerType::Node => 0,
             },
-            no_trust_bans: conf.common.no_trust_bans,
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
@@ -401,17 +399,6 @@ impl P2PNode {
     /// A convenience method for accessing the collection of  node's buckets.
     #[inline]
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
-
-    /// It registers a connection's socket with the poll.
-    pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
-        self.poll_registry
-            .register(
-                &mut conn.low_level.socket,
-                conn.token,
-                Interest::READABLE | Interest::WRITABLE,
-            )
-            .map_err(|e| e.into())
-    }
 
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
@@ -666,8 +653,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             }
         }
         ConnChange::Expulsion(token) => {
-            if let Some(conn) = node.remove_connection(token) {
-                let ip = conn.remote_addr().ip();
+            if let Some(remote_peer) = node.remove_connection(token) {
+                let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
                     BanId::Ip(ip),
@@ -675,7 +662,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
             }
         }
-        ConnChange::Removal(token) => {
+        ConnChange::RemovalByToken(token) => {
             node.remove_connection(token);
         }
     }

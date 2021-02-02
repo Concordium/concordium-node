@@ -10,7 +10,7 @@ use low_level::ConnectionLowLevel;
 use bytesize::ByteSize;
 use circular_queue::CircularQueue;
 use failure::Fallible;
-use mio::{net::TcpStream, Token};
+use mio::{net::TcpStream, Interest, Token};
 
 #[cfg(feature = "network_dump")]
 use crate::dumper::DumpItem;
@@ -33,13 +33,11 @@ use crate::{
 };
 
 use crate::consensus_ffi::helpers::PacketType;
-use crypto_common::Deserial;
 
 use std::{
     collections::VecDeque,
     convert::TryFrom,
     fmt,
-    io::Cursor,
     net::SocketAddr,
     ops::{Index, IndexMut},
     str::FromStr,
@@ -304,7 +302,7 @@ pub enum ConnChange {
     /// Promotion to post-handshake.
     Promotion(Token),
     /// To be removed from the list of connections.
-    Removal(Token),
+    RemovalByToken(Token),
 }
 
 /// Message queues, indexed by priority.
@@ -392,16 +390,17 @@ impl fmt::Display for Connection {
 
 impl Connection {
     /// Create a new connection object.
+    /// This registers the given socket with the handler's poll registry.
     pub fn new(
         handler: &Arc<P2PNode>,
         socket: TcpStream,
         token: Token,
         remote_peer: RemotePeer,
         is_initiator: bool,
-    ) -> Self {
+    ) -> Fallible<Self> {
         let curr_stamp = get_current_stamp();
 
-        let low_level = ConnectionLowLevel::new(
+        let mut low_level = ConnectionLowLevel::new(
             handler,
             socket,
             is_initiator,
@@ -411,7 +410,14 @@ impl Connection {
 
         let stats = ConnectionStats::new(curr_stamp);
 
-        Self {
+        // Register the connection's socket with the handler's poll registry.
+        handler.poll_registry.register(
+            &mut low_level.socket,
+            token,
+            Interest::READABLE | Interest::WRITABLE,
+        )?;
+
+        Ok(Self {
             handler: Arc::clone(handler),
             token,
             remote_peer,
@@ -419,7 +425,7 @@ impl Connection {
             remote_end_networks: Default::default(),
             stats,
             pending_messages: MessageQueues::new(1024, 128),
-        }
+        })
     }
 
     /// Obtain the connection's latency.
@@ -443,11 +449,11 @@ impl Connection {
     #[inline]
     fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> Fallible<bool> {
         use super::network::PacketDestination;
-        ensure!(!packet.message.is_empty());
-        let packet_type = PacketType::try_from(
-            u8::deserial(&mut Cursor::new(&packet.message[..1]))
-                .expect("Writing to buffer is safe."),
-        );
+        let packet_type = if let Some(tag) = packet.message.first().copied() {
+            PacketType::try_from(tag)?
+        } else {
+            bail!("Invalid message type.")
+        };
 
         if let PacketDestination::Direct(_) = packet.destination {
             return Ok(false);
@@ -456,18 +462,18 @@ impl Connection {
         let deduplication_queues = &self.handler.connection_handler.deduplication_queues;
 
         let is_duplicate = match packet_type {
-            Ok(PacketType::FinalizationMessage) => dedup_with(
+            PacketType::FinalizationMessage => dedup_with(
                 &packet.message,
                 &mut **write_or_die!(deduplication_queues.finalizations),
             )?,
-            Ok(PacketType::Transaction) => dedup_with(
+            PacketType::Transaction => dedup_with(
                 &packet.message,
                 &mut **write_or_die!(deduplication_queues.transactions),
             )?,
-            Ok(PacketType::Block) => {
+            PacketType::Block => {
                 dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.blocks))?
             }
-            Ok(PacketType::FinalizationRecord) => {
+            PacketType::FinalizationRecord => {
                 dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.fin_records))?
             }
             _ => false,
@@ -518,7 +524,7 @@ impl Connection {
         }
 
         // process the incoming message
-        self.handle_incoming_message(message, bytes, conn_stats)
+        self.handle_incoming_message(message, conn_stats)
     }
 
     /// Concludes the connection's handshake process.
@@ -719,6 +725,8 @@ impl Connection {
     }
 }
 
+/// Drop the connection and deregister it from the connection handler's poll
+/// registry.
 impl Drop for Connection {
     fn drop(&mut self) {
         debug!("Closing the connection to {}", self);
@@ -726,6 +734,16 @@ impl Drop for Connection {
         // update peer stats if it was post-handshake
         if self.remote_id().is_some() {
             self.handler.stats.peers_dec();
+        }
+
+        if let Err(e) = self.handler.poll_registry.deregister(&mut self.low_level.socket) {
+            error!("Can't deregister socket poll for dropped connection {}: {}", self, e);
+        } else {
+            trace!(
+                "Deregistered socket poll for connection {} on socket {:?}.",
+                self,
+                self.low_level.socket
+            );
         }
     }
 }
