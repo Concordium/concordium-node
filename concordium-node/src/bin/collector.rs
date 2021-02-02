@@ -1,5 +1,9 @@
 #![recursion_limit = "1024"]
-use concordium_node::{common::collector_utils::NodeInfo, req_with_auth, utils::setup_logger_env};
+use concordium_node::{
+    common::{collector_utils::NodeInfo, grpc_api},
+    req_with_auth,
+    utils::setup_logger_env,
+};
 use env_logger::Env;
 use failure::Fallible;
 use serde_json::Value;
@@ -17,10 +21,6 @@ use structopt::StructOpt;
 use tonic::{metadata::MetadataValue, transport::channel::Channel, Request};
 #[macro_use]
 extern crate log;
-
-pub mod proto {
-    tonic::include_proto!("concordium");
-}
 
 // Force the system allocator on every platform
 use std::alloc::System;
@@ -190,9 +190,9 @@ async fn collect_data<'a>(
     );
 
     let channel = Channel::from_shared(grpc_host).unwrap().connect().await?;
-    let mut client = proto::p2p_client::P2pClient::new(channel);
+    let mut client = grpc_api::p2p_client::P2pClient::new(channel);
 
-    let empty_req = || req_with_auth!(proto::Empty {}, grpc_auth_token);
+    let empty_req = || req_with_auth!(grpc_api::Empty {}, grpc_auth_token);
 
     trace!("Requesting basic node info via gRPC");
     let node_info_reply = client.node_info(empty_req()).await?;
@@ -209,7 +209,7 @@ async fn collect_data<'a>(
     trace!("Requesting node peer stats info via gRPC");
     let node_peer_stats_reply = client
         .peer_stats(req_with_auth!(
-            proto::PeersRequest {
+            grpc_api::PeersRequest {
                 include_bootstrappers: false,
             },
             grpc_auth_token
@@ -226,7 +226,7 @@ async fn collect_data<'a>(
     let node_id = node_info_reply.node_id.to_owned().unwrap();
     let staging_net_username = node_info_reply.staging_net_username.to_owned();
     let peer_type = node_info_reply.peer_type.to_owned();
-    let baker_committee = node_info_reply.consensus_baker_committee;
+    let baker_committee = node_info_reply.consensus_baker_committee();
     let finalization_committee = node_info_reply.consensus_finalizer_committee;
     let consensus_running = node_info_reply.consensus_running;
     let uptime = node_uptime_reply.get_ref().value as u64;
@@ -296,7 +296,7 @@ async fn collect_data<'a>(
     let ancestors_since_best_block = if best_block_height > finalized_block_height {
         trace!("Requesting further consensus status via gRPC");
         let block_and_height_req = req_with_auth!(
-            proto::BlockHashAndAmount {
+            grpc_api::BlockHashAndAmount {
                 block_hash: best_block.clone(),
                 amount:     best_block_height - finalized_block_height,
             },
@@ -324,7 +324,7 @@ async fn collect_data<'a>(
     };
 
     let block_req = req_with_auth!(
-        proto::BlockHash {
+        grpc_api::BlockHash {
             block_hash: best_block.clone(),
         },
         grpc_auth_token
@@ -347,7 +347,7 @@ async fn collect_data<'a>(
         json_block_info_value["blockParent"].as_str().unwrap().to_owned()
     } else {
         let finalized_block_req = req_with_auth!(
-            proto::BlockHash {
+            grpc_api::BlockHash {
                 block_hash: finalized_block.clone(),
             },
             grpc_auth_token

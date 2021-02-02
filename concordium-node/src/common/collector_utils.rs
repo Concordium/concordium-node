@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::common::grpc_api::node_info_response::IsInBakingCommittee;
+
 /// Contains all the node information used by the collector.
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize)]
@@ -32,7 +34,7 @@ pub struct NodeInfo {
     pub packetsSent: u64,
     pub packetsReceived: u64,
     pub consensusRunning: bool,
-    pub bakingCommitteeMember: i32,
+    pub bakingCommitteeMember: IsInBakingCommittee,
     pub consensusBakerId: Option<u64>,
     pub finalizationCommitteeMember: bool,
     pub ancestorsSinceBestBlock: Option<Vec<String>>,
@@ -89,7 +91,7 @@ pub struct NodeInfoDashboard<'a> {
     pub packetsSent: u64,
     pub packetsReceived: u64,
     pub consensusRunning: bool,
-    pub bakingCommitteeMember: i32,
+    pub bakingCommitteeMember: IsInBakingCommittee,
     pub consensusBakerId: Option<u64>,
     pub finalizationCommitteeMember: bool,
     pub transactionsPerBlockEMA: Option<f64>,
