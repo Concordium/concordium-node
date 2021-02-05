@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -e
+set -ex
 STACK_VERSION="2.5.1"
 
 #############################################################################################################################
@@ -10,11 +10,11 @@ sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/concordi
 
 mkdir -p /target/{profiling,vanilla}/{ghc,dependencies,concordium}
 mkdir -p /binaries/{lib,bin}
-for lib in $(find `stack ghc -- --print-libdir` -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a"); do
+for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml ghc -- --print-libdir` -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a"); do
     cp $lib /target/profiling/ghc/
 done
 
-for lib in $(find `stack ghc -- --print-libdir` -type f -name "*.a" ! -name "*_p.a" ! -name "*_l.a" ! -name "*_debug.a" ! -name "*rts.a" ! -name "*ffi.a"); do
+for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml ghc -- --print-libdir` -type f -name "*.a" ! -name "*_p.a" ! -name "*_l.a" ! -name "*_debug.a" ! -name "*rts.a" ! -name "*ffi.a"); do
     cp $lib /target/vanilla/ghc/
 done
 
