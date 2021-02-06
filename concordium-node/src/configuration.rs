@@ -602,7 +602,9 @@ pub fn parse_config() -> Fallible<Config> {
         ensure!(
             max_allowed_nodes >= conf.connection.desired_nodes,
             "Desired nodes set to {}, but max allowed nodes is set to {}. Max allowed nodes must \
-             be greater or equal to desired amounnt of nodes"
+             be greater or equal to desired amount of nodes",
+            conf.connection.desired_nodes,
+            max_allowed_nodes
         );
     }
 
