@@ -437,7 +437,7 @@ elif [ "$MODE" == "local_collector" ]; then
     fi
     for i in `seq 1 $NUM_BAKERS`
     do
-        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host http://baker_$i:10000 --node-name baker_$i"
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host http://docker-compose_baker_$i:10000 --node-name baker_$i"
     done
     ARGS="$ARGS $COLLECTOR_NODE_URLS"
     /node-collector $ARGS

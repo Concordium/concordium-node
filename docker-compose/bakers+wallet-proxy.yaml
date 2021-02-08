@@ -1,27 +1,19 @@
 version: '3'
 services:
-    postgresql:
-        image: postgres:latest
-        environment:
-          POSTGRES_PASSWORD: concordium
-          POSTGRES_USER: concordium
-          POSTGRES_DB: concordium
-        ports:
-            - "5432:5432"
     bootstrapper:
-        image: concordium/dev-client:latest
+        image: concordium/dev-node:latest
+        depends_on:
+            - baker_id_gen
+            - collector_backend
         environment:
             - RUST_BACKTRACE=1
-            - RUST_LOG=trace
+            - RUST_LOG=info
             - MODE=local_bootstrapper
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
-        depends_on:
-            - collector_backend
-            - baker_id_gen
     collector_backend:
-        image: concordium/dev-client:latest
+        image: concordium/dev-node:latest
         environment:
             - RUST_BACKTRACE=1
             - RUST_LOG=info
@@ -34,11 +26,11 @@ services:
         ports:
             - "12000:10000"
     baker_id_gen:
-        image: concordium/dev-client:latest
+        image: concordium/dev-node:latest
         entrypoint:
             - /baker_id_generator
     baker:
-        image: concordium/dev-client:latest
+        image: concordium/dev-node:latest
         depends_on:
             - bootstrapper
             - postgresql
@@ -46,7 +38,7 @@ services:
             - /start.sh
         environment:
             - RUST_BACKTRACE=1
-            - RUST_LOG=debug
+            - RUST_LOG=info
             - DESIRED_PEERS=${DESIRED_PEERS}
             - BOOTSTRAP_FIRST_NODE=bootstrapper:8888
             - EXTERNAL_PORT=8888
@@ -54,18 +46,18 @@ services:
             - MODE=local_basic
             - DATA_DIR=/var/lib/concordium/data
             - RPC_SERVER_ADDR=0.0.0.0
+            - EXTRA_ARGS=${EXTRA_ARGS}
             - TRANSACTION_OUTCOME_LOGGING=1
             - TRANSACTION_OUTCOME_LOGGING_HOST=postgresql
             - TRANSACTION_OUTCOME_LOGGING_PORT=5432
             - TRANSACTION_OUTCOME_LOGGING_NAME=concordium
             - TRANSACTION_OUTCOME_LOGGING_USERNAME=concordium
             - TRANSACTION_OUTCOME_LOGGING_PASSWORD=concordium
-            - EXTRA_ARGS=${EXTRA_ARGS}
             - DB_SLEEP=${DB_SLEEP}
         ports:
             - "11100-11500:10000"
     collector:
-        image: concordium/dev-client:latest
+        image: concordium/dev-node:latest
         depends_on:
             - baker
         environment:
@@ -78,3 +70,26 @@ services:
             - EXTRA_ARGS=${EXTRA_ARGS}
         entrypoint:
             - /start.sh
+    postgresql:
+        image: postgres:latest
+        environment:
+          POSTGRES_PASSWORD: concordium
+          POSTGRES_USER: concordium
+          POSTGRES_DB: concordium
+        ports:
+            - "5432:5432"
+    wallet_proxy:
+        image: concordium/dev-node:latest
+        depends_on:
+            - baker
+            - postgresql
+        environment:
+            - MODE=local_wallet_proxy
+            - WALLET_PROXY_GRPC_IP=docker-compose_baker_1
+            - WALLET_PROXY_GRPC_PORT=10000
+            - WALLET_PROXY_DATABASE="host=postgresql port=5432 user=concordium dbname=concordium password=concordium"
+            - DB_SLEEP=${DB_SLEEP}
+        entrypoint:
+            - /start.sh
+        ports:
+            - "14000:3000"
