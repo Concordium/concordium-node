@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 
-# Enable all errors
-set -e
+set -euxo pipefail
 
-# Retrieve genesis data sha
-GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
+genesis_version="$(cat scripts/GENESIS_DATA_VERSION)"
+dir=genesis-complementary-bundle
 
-# Setup directory we expect them to be in
-mkdir -p genesis-complementary-bundle
+mkdir -p "$dir"
 
-# Download all files in archive
-(
-    cd genesis-complementary-bundle &&
-    curl -s https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/complementary-bundle-${GENESIS_VERSION}.tar.gz | tar xzf -
-)
+s3_bucket_url="https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com"
+
+curl -sSf "$s3_bucket_url/complementary-bundle-${genesis_version}.tar.gz" |
+	tar -C "$dir" -xzf -
