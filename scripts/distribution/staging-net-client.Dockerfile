@@ -47,9 +47,9 @@ ENV GRPC_HOST=http://localhost:10000
 ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
 
-RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq apt-transport-https gnupg-agent software-properties-common
-RUN curl -sL 'https://getenvoy.io/gpg' | apt-key add - && add-apt-repository "deb [arch=amd64] https://dl.bintray.com/tetrate/getenvoy-deb $(lsb_release -cs) stable"
-RUN apt-get install -y getenvoy-envoy
+RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
+RUN curl -L https://getenvoy.io/cli | bash -s -- -b /usr/local/bin
+RUN getenvoy fetch standard:1.17.0
 
 COPY --from=node-dashboard /static /node-dashboard/static
 COPY --from=node-dashboard /envoy.yaml /node-dashboard/envoy.yaml
