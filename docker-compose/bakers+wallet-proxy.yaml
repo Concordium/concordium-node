@@ -87,8 +87,7 @@ services:
     - MODE=local_wallet_proxy
     - WALLET_PROXY_GRPC_IP=docker-compose_baker_1
     - WALLET_PROXY_GRPC_PORT=10000
-    - WALLET_PROXY_DATABASE="host=postgresql port=5432 user=concordium dbname=concordium
-      password=concordium"
+    - WALLET_PROXY_DATABASE="host=postgresql port=5432 user=concordium dbname=concordium password=concordium"
     - DB_SLEEP=${DB_SLEEP}
     entrypoint:
     - /start.sh
