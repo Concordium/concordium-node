@@ -528,11 +528,7 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
                 handleEvs True (WMVBAComplete _ : evs') = handleEvs True evs'
                 handleEvs b (WMVBADelay ticks action : evs') = do
                     FinalizationParameters{..} <- getFinalizationParameters
-                    let
-                        ticks'
-                            | finalizationIgnoreFirstWait = if ticks == 0 then 0 else (ticks - 1)
-                            | otherwise = ticks
-                        delay = fromIntegral ticks' * durationToNominalDiffTime finalizationWaitingTime
+                    let delay = fromIntegral ticks * durationToNominalDiffTime finalizationWaitingTime
                     if delay == 0 then
                         triggerWMVBA _finsSessionId _finsIndex roundDelta action
                     else
@@ -937,9 +933,7 @@ nextFinalizationGap bp FinalizationParameters{..} oldGap = do
     lf <- bpLastFinalized bp
     let
         heightDiff = bpHeight bp - bpHeight lf
-        newGap
-            | finalizationOldStyleSkip = floor (finalizationSkipShrinkFactor * fromIntegral heightDiff)
-            | otherwise = if heightDiff == oldGap
+        newGap = if heightDiff == oldGap
                     then floor (finalizationSkipShrinkFactor * fromIntegral oldGap)
                     else ceiling (finalizationSkipGrowFactor * fromIntegral oldGap)
     return $ max (1 + finalizationMinimumSkip) newGap
