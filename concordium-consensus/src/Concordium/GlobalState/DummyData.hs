@@ -159,8 +159,6 @@ makeTestingGenesisData
         genesisFinalizationParameters =
           FinalizationParameters {
            finalizationWaitingTime = 100,
-           finalizationIgnoreFirstWait = False,
-           finalizationOldStyleSkip = False,
            finalizationSkipShrinkFactor = 0.8,
            finalizationSkipGrowFactor = 2,
            finalizationDelayShrinkFactor = 0.8,
