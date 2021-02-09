@@ -373,17 +373,17 @@ impl P2p for RpcServerImpl {
                     consensus_type: consensus.consensus_type.to_string(),
                     consensus_baker_committee: match consensus_baking_committee_status {
                         ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => {
-                            node_info_response::IsInBakingCommittee::ActiveInCommittee as i32
+                            node_info_response::IsInBakingCommittee::ActiveInCommittee.into()
                         }
                         ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
                             node_info_response::IsInBakingCommittee::AddedButNotActiveInCommittee
-                                as i32
+                                .into()
                         }
                         ConsensusIsInBakingCommitteeResponse::AddedButWrongKeys => {
-                            node_info_response::IsInBakingCommittee::AddedButWrongKeys as i32
+                            node_info_response::IsInBakingCommittee::AddedButWrongKeys.into()
                         }
                         ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
-                            node_info_response::IsInBakingCommittee::NotInCommittee as i32
+                            node_info_response::IsInBakingCommittee::NotInCommittee.into()
                         }
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
