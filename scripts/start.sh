@@ -499,12 +499,6 @@ elif [ "$MODE" == "local_wallet_proxy" ]; then
     else
         ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account-0.json"
     fi
-    if [ -n "$WALLET_PROXY_GLOBAL_JSON" ]; 
-    then
-        ARGS="$ARGS --global $WALLET_PROXY_GLOBAL_JSON"
-    else
-        ARGS="$ARGS --global /genesis-complementary-bundle/global.json"
-    fi
     if [ -n "$WALLET_PROXY_IPS_METADATA_JSON" ]; 
     then
         ARGS="$ARGS --ip-data $WALLET_PROXY_IPS_METADATA_JSON"
