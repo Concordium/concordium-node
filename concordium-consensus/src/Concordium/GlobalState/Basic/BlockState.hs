@@ -40,6 +40,8 @@ import Concordium.Types.SeedState
 import Concordium.ID.Types (regId)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
+import Concordium.Utils.Serialization
+import qualified Concordium.Wasm as Wasm
 
 data BasicBirkParameters = BasicBirkParameters {
     -- |The currently-registered bakers.
@@ -60,6 +62,25 @@ instance HashableTo H.Hash BasicBirkParameters where
       where
         bpH0 = H.hash $ "SeedState" <> encode _birkSeedState
         bpH1 = H.hashOfHashes (getHash _birkNextEpochBakers) (getHash _birkCurrentEpochBakers)
+
+-- |Serialize 'BasicBirkParameters' in V0 format.
+putBirkParametersV0 :: Putter BasicBirkParameters
+putBirkParametersV0 BasicBirkParameters{..} = do
+    put _birkSeedState
+    putEpochBakersV0 (_unhashed _birkNextEpochBakers)
+    putEpochBakersV0 (_unhashed _birkCurrentEpochBakers)
+
+-- |Deserialize 'BasicBirkParameters' in V0 format.
+-- Since the active bakers are not stored in the serialization,
+-- the 'BasicBirkParameters' will have empty 'ActiveBakers',
+-- which should be corrected by processing the accounts table.
+getBirkParametersV0 :: Get BasicBirkParameters
+getBirkParametersV0 = do
+    _birkSeedState <- get
+    _birkNextEpochBakers <- makeHashed <$> getEpochBakersV0
+    _birkCurrentEpochBakers <- makeHashed <$> getEpochBakersV0
+    let _birkActiveBakers = ActiveBakers Set.empty Set.empty
+    return BasicBirkParameters{..}
 
 -- | Create a BasicBirkParameters value from the components
 makeBirkParameters ::
@@ -119,6 +140,19 @@ consEpochBlock bid heb = HashedEpochBlocks {
     hebBlocks = bid : hebBlocks heb,
     hebHash = Rewards.epochBlockHash bid (hebHash heb)
   }
+
+-- |Serialize 'HashedEpochBlocks' in V0 format.
+putHashedEpochBlocksV0 :: Putter HashedEpochBlocks
+putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
+    putLength (length hebBlocks)
+    mapM_ put hebBlocks
+
+-- |Deserialize 'HashedEpochBlocks' in V0 format.
+getHashedEpochBlocksV0 :: Get HashedEpochBlocks
+getHashedEpochBlocksV0 = do
+    numBlocks <- getLength
+    blocks <- replicateM numBlocks get
+    return $! foldr' consEpochBlock emptyHashedEpochBlocks blocks
 
 data BlockState = BlockState {
     _blockAccounts :: !Accounts.Accounts,
@@ -192,6 +226,96 @@ hashBlockState bs@BlockState{..} = HashedBlockState {
 
 instance HashableTo StateHash BlockState where
     getHash = _blockStateHash . hashBlockState
+
+
+-- |Serialize 'BlockState' in V0 format.
+putBlockStateV0 :: Putter BlockState
+putBlockStateV0 bs = do
+    -- BirkParameters
+    putBirkParametersV0 (bs ^. blockBirkParameters)
+    -- CryptographicParameters
+    let cryptoParams = bs ^. blockCryptographicParameters . unhashed
+    put cryptoParams
+    -- IdentityProviders
+    put (bs ^. blockIdentityProviders . unhashed)
+    -- AnonymityRevokers
+    put (bs ^. blockAnonymityRevokers . unhashed)
+    -- Modules
+    Modules.putModulesV0 (bs ^. blockModules)
+    -- BankStatus
+    put (bs ^. blockBank . unhashed)
+    -- Accounts
+    Accounts.putAccountsV0 cryptoParams (bs ^. blockAccounts)
+    -- Instances
+    Instances.putInstancesV0 (bs ^. blockInstances)
+    -- Updates
+    putUpdatesV0 (bs ^. blockUpdates)
+    -- Epoch blocks
+    putHashedEpochBlocksV0 (bs ^. blockEpochBlocksBaked)
+
+-- |Deserialize 'BlockState' in V0 format.
+-- This checks a number of invariants:
+--
+--  * Each smart contract instance is correctly a valid owner account.
+--  * Bakers cannot have duplicate aggregation keys.
+--
+-- The serialization format reduces redundancy to ensure that:
+--
+--  * The active bakers are exactly the accounts with baker records.
+--  * The block release schedule contains the minimal scheduled release
+--    timestamp for every account with a scheduled release.
+--  * Accounts correctly record their instances.
+--
+-- Note that the transaction outcomes will always be empty.
+getBlockStateV0 :: Get BlockState
+getBlockStateV0 = do
+    -- BirkParameters
+    preBirkParameters <- getBirkParametersV0
+    -- CryptographicParameters
+    cryptoParams <- get
+    let _blockCryptographicParameters = makeHashed cryptoParams
+    -- IdentityProviders
+    _blockIdentityProviders <- makeHashed <$> get
+    -- AnonymityRevokers
+    _blockAnonymityRevokers <- makeHashed <$> get
+    -- Modules
+    _blockModules <- Modules.getModulesV0
+    -- BankStatus
+    _blockBank <- makeHashed <$> get
+    accounts0 <- Accounts.getAccountsV0 cryptoParams
+    let resolveModule modRef initName = do
+            mi <- Modules.getInterface modRef _blockModules
+            return (Wasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
+    _blockInstances <- Instances.getInstancesV0 resolveModule
+    _blockUpdates <- getUpdatesV0 
+    _blockEpochBlocksBaked <- getHashedEpochBlocksV0
+    -- Add references from accounts to their instances
+    let processInstance accounts inst = case Accounts.getAccountIndex (Instances.instanceOwner params) accounts of
+            Nothing -> fail "Instance has invalid owner"
+            Just aix -> return $! accounts & Accounts.indexedAccount aix . accountInstances %~ Set.insert (Instances.instanceAddress params)
+          where
+            params = Instances.instanceParameters inst
+    _blockAccounts <- foldM processInstance accounts0 (_blockInstances ^.. Instances.foldInstances)
+    -- Construct the release schedule and active bakers from the accounts
+    let processAccount (rs,bkrs) account = do
+          let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
+                  Nothing -> rs
+                  Just ((ts, _), _) -> Map.insert (account ^. accountAddress) ts rs
+          bkrs' <- case account ^. accountBaker of
+              Nothing -> return bkrs
+              Just AccountBaker {_accountBakerInfo = BakerInfo{..}} -> do
+                when (_bakerAggregationVerifyKey `Set.member` _aggregationKeys bkrs) $
+                  fail "Duplicate baker aggregation key"
+                return $! bkrs & activeBakers %~ Set.insert _bakerIdentity
+                          & aggregationKeys %~ Set.insert _bakerAggregationVerifyKey
+          return (rs', bkrs')
+    (_blockReleaseSchedule, actBkrs) <- foldM processAccount (Map.empty, _birkActiveBakers preBirkParameters) (Accounts.accountList _blockAccounts)
+    let _blockBirkParameters = preBirkParameters {_birkActiveBakers = actBkrs}
+    let _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    return BlockState{..}
+
+
+
 
 newtype PureBlockStateMonad m a = PureBlockStateMonad {runPureBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad)
@@ -315,6 +439,8 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getCryptographicParameters bs =
       return $! bs ^. blockCryptographicParameters . unhashed
 
+    {-# INLINE serializeBlockState #-}
+    serializeBlockState = return . runPutLazy . putBlockStateV0 . _unhashedBlockState
 
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
@@ -324,7 +450,7 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
-  getAccountCredentials acc = return $ acc ^. accountCredentials
+  getAccountCredentials acc = return . toList $ acc ^. accountCredentials
 
   getAccountMaxCredentialValidTo acc = return $ acc ^. accountMaxCredentialValidTo
 

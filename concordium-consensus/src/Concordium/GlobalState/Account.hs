@@ -3,14 +3,18 @@
 module Concordium.GlobalState.Account where
 
 import Control.Monad
+import Data.Bits
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import Data.Maybe
 import Data.Serialize
 import Lens.Micro.Platform
 
 import Concordium.Utils
+import Concordium.Utils.Serialization
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
@@ -30,7 +34,7 @@ data PersistingAccountData = PersistingAccountData {
   _accountAddress :: !AccountAddress
   ,_accountEncryptionKey :: !AccountEncryptionKey
   ,_accountVerificationKeys :: !AccountKeys
-  ,_accountCredentials :: ![AccountCredential]
+  ,_accountCredentials :: !(NonEmpty AccountCredential)
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
   ,_accountInstances :: !(Set.Set ContractAddress)
@@ -98,14 +102,16 @@ instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
                                   put _accountEncryptionKey <>
                                   put _accountVerificationKeys <>
-                                  put _accountCredentials <> -- The order is significant for hash computation
+                                  putLength (length _accountCredentials) <>
+                                  mapM_ put _accountCredentials <> -- The order is significant for hash computation
                                   put (Set.toAscList _accountInstances)
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
     _accountVerificationKeys <- get
-    _accountCredentials <- get
-    when (null _accountCredentials) $ fail "Account has no credentials"
+    numCredentials <- getLength
+    when (numCredentials < 1) $ fail "Account has no credentials"
+    _accountCredentials <- (:|) <$> get <*> replicateM (numCredentials - 1) get
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
     _accountInstances <- Set.fromList <$> get
     return PersistingAccountData{..}
@@ -190,7 +196,7 @@ makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
 
 {-# INLINE addCredential #-}
 addCredential :: HasPersistingAccountData d => AccountCredential -> d -> d
-addCredential cdv = (accountCredentials %~ (cdv:))
+addCredential cdv = (accountCredentials %~ NE.cons cdv)
   . (accountMaxCredentialValidTo %~ max (validTo cdv))
 
 {-# INLINE setKey #-}
@@ -270,3 +276,44 @@ updateAccountKeys mKeysUpd mNewThreshold = accountVerificationKeys %~ \AccountKe
   where
     update oldKeys (RemoveKeys indices) = Set.foldl' (flip Map.delete) oldKeys indices
     update oldKeys (SetKeys keys) = Map.foldlWithKey (\m idx key -> Map.insert idx key m) oldKeys keys
+
+-- |Flags used for serializing an account in V0 format.
+data AccountSerializationFlags = AccountSerializationFlags {
+    -- |Whether the account address is serialized explicity,
+    -- or derived from the last credential.
+    asfExplicitAddress :: Bool,
+    -- |Whether the encryption key is serialized explicity,
+    -- or derived from the cryptographic parameters and last
+    -- credential.
+    asfExplicitEncryptionKey :: Bool,
+    -- |Whether the account has more than one credential.
+    asfMultipleCredentials :: Bool,
+    -- |Whether the account's encrypted amount is serialized
+    -- explicity, or is the default (empty) value.
+    asfExplicitEncryptedAmount :: Bool,
+    -- |Whether the account's release schedule is serialized
+    -- explicitly, or is the default (empty) value.
+    asfExplicitReleaseSchedule :: Bool,
+    -- |Whether the account has a baker.
+    asfHasBaker :: Bool
+  }
+
+instance Serialize AccountSerializationFlags where
+  put AccountSerializationFlags{..} = putWord8 $
+          cbit 0 asfExplicitAddress
+          .|. cbit 1 asfExplicitEncryptionKey
+          .|. cbit 2 asfMultipleCredentials
+          .|. cbit 3 asfExplicitEncryptedAmount
+          .|. cbit 4 asfExplicitReleaseSchedule
+          .|. cbit 5 asfHasBaker
+    where
+      cbit n b = if b then bit n else 0
+  get = do
+    flags <- getWord8
+    let asfExplicitAddress = testBit flags 0
+        asfExplicitEncryptionKey = testBit flags 1
+        asfMultipleCredentials = testBit flags 2
+        asfExplicitEncryptedAmount = testBit flags 3
+        asfExplicitReleaseSchedule = testBit flags 4
+        asfHasBaker = testBit flags 5
+    return AccountSerializationFlags{..}

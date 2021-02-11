@@ -174,6 +174,31 @@ executables:
     dependencies:
     - concordium-consensus
 
+  execute-chain:
+    main:                Main.hs
+    source-dirs:         test-runners/execute-chain
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+
+
   database-exporter:
     main:         Main.hs
     source-dirs:  tools/database-exporter

@@ -45,6 +45,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
+import qualified Data.ByteString.Lazy as LBS
 import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -130,6 +131,7 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
+  -- TODO: Use 'Data.List.Nonempty'
   getAccountCredentials :: Account m -> m [AccountCredential]
 
   -- |Get the last expiry time of a credential on the account.
@@ -255,6 +257,12 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
+
+    -- |Serialize the block state to a byte string.
+    -- This serialization does not include
+    serializeBlockState :: BlockState m -> m LBS.ByteString
+
+    -- writeBlockState :: BlockState m -> Handle -> m ()
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -603,6 +611,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getUpdates = lift . getUpdates
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
+  serializeBlockState = lift . serializeBlockState
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getBakerAccount #-}
@@ -626,6 +635,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getUpdates #-}
   {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
+  {-# INLINE serializeBlockState #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress

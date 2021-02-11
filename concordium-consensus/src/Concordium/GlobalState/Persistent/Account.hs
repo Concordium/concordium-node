@@ -9,10 +9,14 @@ import Data.Serialize
 import Lens.Micro.Platform
 import Data.Word
 import Control.Monad
+import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
 import qualified Data.Set as Set
 
+import Concordium.Utils.Serialization
+import Concordium.Utils.Serialization.Put
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Types.HashableTo
@@ -22,6 +26,7 @@ import Concordium.ID.Types
 import Concordium.ID.Parameters
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
+import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, _stakedAmount, _stakeEarnings, _accountBakerInfo, _bakerPendingChange, stakedAmount, stakeEarnings, accountBakerInfo, bakerPendingChange)
@@ -61,6 +66,29 @@ initialPersistentAccountEncryptedAmount = do
     _aggregatedAmount = Nothing,
     ..
     }
+
+-- |Serialize a 'PersistentAccountEncryptedAmount' if it is not the empty
+-- encrypted amount (in which case, @Nothing@ is returned).
+putAccountEncryptedAmountV0 :: (MonadBlobStore m) => PersistentAccountEncryptedAmount -> m (Maybe Put)
+putAccountEncryptedAmountV0 PersistentAccountEncryptedAmount{..} = do
+    sAmt <- refLoad _selfAmount
+    if sAmt == mempty && _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount then
+      return Nothing
+    else do
+      ieas <- mapM refLoad _incomingEncryptedAmounts
+      putAgg <- case _aggregatedAmount of
+          Nothing -> return $ putWord32be 0
+          Just (eref, n) -> do
+            e <- refLoad eref
+            return $ do
+              putWord32be n
+              put e
+      return . Just $ do
+        put sAmt
+        put _startIndex
+        putWord32be (fromIntegral (Seq.length ieas))
+        mapM_ put ieas
+        putAgg
 
 -- | Given an AccountEncryptedAmount, create a Persistent version of it
 storePersistentAccountEncryptedAmount :: MonadBlobStore m => AccountEncryptedAmount -> m PersistentAccountEncryptedAmount
@@ -175,6 +203,16 @@ hashAccountBaker :: MonadBlobStore m => Nullable (BufferedRef PersistentAccountB
 hashAccountBaker Null = return nullAccountBakerHash
 hashAccountBaker (Some r) = getHashM r
 
+-- |Serialize a 'PersistentAccountBaker'.
+putAccountBakerV0 :: (MonadBlobStore m, MonadPut m) => PersistentAccountBaker -> m ()
+putAccountBakerV0 PersistentAccountBaker{..} = do
+    abi <- refLoad _accountBakerInfo
+    liftPut $ do
+      put _stakedAmount
+      put _stakeEarnings
+      put abi
+      put _bakerPendingChange
+
 data PersistentAccount = PersistentAccount {
   -- |Next available nonce for this account.
   _accountNonce :: !Nonce
@@ -257,7 +295,7 @@ newAccount :: MonadBlobStore m => GlobalContext -> AccountKeys -> AccountAddress
 newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   let newPData = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
-        _accountCredentials = [credential],
+        _accountCredentials = credential :| [],
         _accountMaxCredentialValidTo = validTo credential,
         _accountInstances = Set.empty,
         ..
@@ -448,3 +486,43 @@ addToSelfEncryptedAmount :: MonadBlobStore m => EncryptedAmount -> PersistentAcc
 addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
   newSelf <- makeBufferedRef . (<> newAmount) =<< loadBufferedRef _selfAmount
   return old{_selfAmount = newSelf}
+
+
+-- * Serialization
+
+-- |Serialize an account in V0 format.
+-- This format allows accounts to be stored in a reduced format by
+-- elliding (some) data that can be inferred from context, or is
+-- the default value.  Note that there can be multiple representations
+-- of the same account.
+-- This format does not store the smart contract instances, which are
+-- implied by the instance table.
+putAccountV0 :: (MonadBlobStore m, MonadPut m) => GlobalContext -> PersistentAccount -> m ()
+putAccountV0 cryptoParams PersistentAccount{..} = do
+    PersistingAccountData {..} <- refLoad _persistingData
+    let
+        initialRegId = regId (NE.last _accountCredentials)
+        asfExplicitAddress = _accountAddress /= addressFromRegId initialRegId
+        asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialRegId
+        (asfMultipleCredentials, putCredentials) = case _accountCredentials of
+          cred :| [] -> (False, put cred)
+          creds -> (True, putLength (length creds) >> mapM_ put creds)
+    aea <- refLoad _accountEncryptedAmount
+    (asfExplicitEncryptedAmount, putEA) <- putAccountEncryptedAmountV0 aea <&> \case
+        Nothing -> (False, return ())
+        Just p -> (True, p)
+    arSched <- loadPersistentAccountReleaseSchedule =<< refLoad _accountReleaseSchedule
+    let
+        asfExplicitReleaseSchedule = arSched /= Transient.emptyAccountReleaseSchedule
+        asfHasBaker = case _accountBaker of {Null -> False; _ -> True}
+    liftPut $ do
+        put AccountSerializationFlags {..}
+        when asfExplicitAddress $ put _accountAddress
+        when asfExplicitEncryptionKey $ put _accountEncryptionKey
+        put _accountVerificationKeys
+        putCredentials
+        put _accountNonce
+        put _accountAmount
+        putEA
+        when asfExplicitReleaseSchedule $ put arSched
+    forM_ _accountBaker $ refLoad >=> putAccountBakerV0

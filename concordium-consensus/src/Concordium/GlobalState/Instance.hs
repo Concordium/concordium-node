@@ -111,3 +111,39 @@ updateInstance' amnt val i =  i {
                                 instanceAmount = amnt,
                                 instanceHash = makeInstanceHash (instanceParameters i) val amnt
                             }
+
+-- |Serialize a smart contract instance in V0 format.
+putInstanceV0 :: Putter Instance
+putInstanceV0 Instance{instanceParameters = InstanceParameters{..}, ..} = do
+        -- InstanceParameters
+        -- Only put the Subindex part of the address
+        put (contractSubindex instanceAddress)
+        put instanceOwner
+        put instanceContractModule
+        put instanceInitName
+        -- instanceReceiveFuns, instanceModuleInterface and instanceParameterHash
+        -- are not included, since they can be derived from context.
+        put instanceModel
+        put instanceAmount
+
+-- |Deserialize a smart contract instance in V0 format.
+getInstanceV0
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, Wasm.ModuleInterface))
+    -- ^Function for resolving the receive functions and module interface.
+    -> ContractIndex
+    -- ^Index of the contract
+    -> Get Instance
+getInstanceV0 resolve idx = do
+        -- InstanceParameters
+        subindex <- get
+        let instanceAddress = ContractAddress idx subindex
+        instanceOwner <- get
+        instanceContractModule <- get
+        instanceInitName <- get
+        (instanceReceiveFuns, instanceModuleInterface) <-
+            case resolve instanceContractModule instanceInitName of
+                Just r -> return r
+                Nothing -> fail "Unable to resolve smart contract"
+        instanceModel <- get
+        instanceAmount <- get
+        return $ makeInstance instanceContractModule instanceInitName instanceReceiveFuns instanceModuleInterface instanceModel instanceAmount instanceOwner instanceAddress

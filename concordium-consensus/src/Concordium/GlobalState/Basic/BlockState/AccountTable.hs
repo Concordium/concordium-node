@@ -70,6 +70,15 @@ append acct (Tree t) = (append' t) & _2 %~ Tree
         newLeaf = Leaf newHash acct
         newHash = getHash acct
 
+-- |Get the size of an 'AccountTable'.
+size :: AccountTable -> Word64
+size Empty = 0
+size (Tree t) = size' t
+    where
+        size' (Leaf _ _) = 1
+        size' (Branch lvl True _ _ _) = bit (fromIntegral lvl + 1)
+        size' (Branch lvl False _ _ r) = setBit (size' r) (fromIntegral lvl)
+
 type instance Index AT = AccountIndex
 type instance IxValue AT = Account
 

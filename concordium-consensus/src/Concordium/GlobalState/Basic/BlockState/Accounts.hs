@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 module Concordium.GlobalState.Basic.BlockState.Accounts where
 
+import Data.Serialize
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -12,10 +13,13 @@ import Concordium.Types
 import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.BakerInfo
 import Concordium.Types.HashableTo
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.ID.Types as ID
 import Data.Foldable
+import Concordium.ID.Parameters
+import Control.Monad
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -149,3 +153,40 @@ instance Ixed Accounts where
      case accountMap ^. at' addr of
        Nothing -> pure acc
        Just i -> (\atable -> acc { accountTable = atable }) <$> ix i f accountTable
+
+accountList :: Accounts -> [Account]
+accountList = fmap snd . AT.toList . accountTable
+
+-- |Serialize 'Accounts' in V0 format.
+putAccountsV0 :: GlobalContext -> Putter Accounts
+putAccountsV0 cryptoParams Accounts{..} = do
+    putWord64be $ AT.size accountTable
+    forM_ (AT.toList accountTable) $ \(_, acct) -> putAccountV0 cryptoParams acct
+
+-- |Deserialize 'Accounts' in V0 format.
+-- This validates the following invariants:
+--
+--  * Every baker account's 'BakerId' must match the account index.
+--  * 'CredentialRegistrationID's must not be used on more than one account.
+getAccountsV0 :: GlobalContext -> Get Accounts
+getAccountsV0 cryptoParams = do
+    nAccounts <- getWord64be
+    let loop i accts@Accounts{..}
+          | i < nAccounts = do
+            acct <- getAccountV0 cryptoParams
+            let acctId = AccountIndex i
+            forM_ (_accountBaker acct) $ \bkr ->
+              unless (_bakerIdentity (_accountBakerInfo bkr) == BakerId acctId) $
+                fail "BakerID does not match account index"
+            let addRegId regids cred
+                  | ID.regId cred `Set.member` regids = fail "Duplicate credential"
+                  | otherwise = return $ Set.insert (ID.regId cred) regids
+            newRegIds <- foldM addRegId accountRegIds (_accountCredentials (_accountPersisting acct))
+            loop (i+1)
+              Accounts {
+                accountMap = Map.insert (_accountAddress (_accountPersisting acct)) acctId accountMap,
+                accountTable = snd (AT.append acct accountTable),
+                accountRegIds = newRegIds
+              }
+          | otherwise = return accts
+    loop 0 emptyAccounts

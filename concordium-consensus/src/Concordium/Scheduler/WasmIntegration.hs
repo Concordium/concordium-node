@@ -74,7 +74,7 @@ applyInitFun
     -- ^Nothing if execution ran out of energy.
     -- Just (result, remainingEnergy) otherwise, where @remainingEnergy@ is the amount of energy that is left from the amount given.
 applyInitFun miface cm initCtx iName param amnt iEnergy = processInterpreterResult (get :: Get ()) result
-  where result = unsafeDupablePerformIO $ do
+  where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -142,7 +142,7 @@ applyReceiveFun
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
 applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
-  where result = unsafeDupablePerformIO $ do
+  where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
                   BSU.unsafeUseAsCStringLen nameBytes $ \(nameBytesPtr, nameBytesLen) ->
@@ -190,7 +190,7 @@ processModule modl = do
             }
       in Just ModuleInterface{miModuleSize = moduleSourceLength $ wasmSource modl,..}
 
-  where ffiResult = unsafeDupablePerformIO $ do
+  where ffiResult = unsafePerformIO $ do
           unsafeUseModuleSourceAsCStringLen (wasmSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
             alloca $ \artifactLenPtr ->
               alloca $ \outputLenPtr -> do

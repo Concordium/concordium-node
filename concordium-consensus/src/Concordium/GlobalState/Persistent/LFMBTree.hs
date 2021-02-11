@@ -37,6 +37,10 @@ module Concordium.GlobalState.Persistent.LFMBTree
     toAscPairList,
     fromAscList,
 
+    -- * Traversal
+    mfold,
+    mmap_,
+
     -- * Specialized functions for @Nullable@
     lookupNullable,
     delete,
@@ -395,6 +399,28 @@ fromAscListNullable l = fromAscList $ go l 0
          | i == ix = Some v : go xs (i + 1)
          | otherwise = (replicate (fromIntegral $ i - ix) Null) ++ go z i
         go [] _ = []
+
+-- | Fold a monadic action over the tree.
+mfold :: (CanStoreLFMBTree m ref v) => (a -> v -> m a) -> a -> LFMBTree k ref v -> m a
+mfold _ a0 Empty = return a0
+mfold f a0 (NonEmpty _ t) = mfoldT a0 t
+  where
+    mfoldT a (Leaf v) = f a =<< refLoad v
+    mfoldT a (Node _ l r) = do
+      a' <- mfoldT a =<< refLoad l
+      mfoldT a' =<< refLoad r
+
+-- | Map a monadic action over the tree, discarding the results.
+mmap_ :: (CanStoreLFMBTree m ref v) => (v -> m ()) -> LFMBTree k ref v -> m ()
+mmap_ _ Empty = return ()
+mmap_ f (NonEmpty _ t) = mmap_T t
+  where
+    mmap_T (Leaf v) = f =<< refLoad v
+    mmap_T (Node _ l r) = do
+      mmap_T =<< refLoad l
+      mmap_T =<< refLoad r
+
+
 
 {-
 -------------------------------------------------------------------------------
