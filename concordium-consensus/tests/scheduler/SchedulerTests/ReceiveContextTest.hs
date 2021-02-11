@@ -6,6 +6,7 @@ import Test.Hspec
 import Test.HUnit
 import Lens.Micro.Platform
 import Control.Monad.IO.Class
+import Data.Foldable
 
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
@@ -83,7 +84,7 @@ checkReceiveResult (suc, fails, instances) = do
         selfBalance = 9, -- balance it was initialized with
         sender = Types.AddressAccount alesAccount,
         owner = alesAccount,
-        rcSenderPolicies = map mkSenderPolicy $ (mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials)
+        rcSenderPolicies = map mkSenderPolicy $ toList $ mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials
         }
   let expectedState = Types.encodeChainMeta chainMeta <> encodeReceiveContext receiveCtx
   assertEqual "Instance model is the chain metadata + receive context." model expectedState

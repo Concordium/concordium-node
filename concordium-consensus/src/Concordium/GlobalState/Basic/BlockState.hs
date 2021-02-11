@@ -17,6 +17,8 @@ import Control.Monad
 import Data.Foldable
 import Data.Serialize
 import qualified Data.Sequence as Seq
+import Data.ByteString.Builder (hPutBuilder)
+import Control.Monad.IO.Class
 
 import Concordium.Types
 import Concordium.Types.Updates
@@ -439,9 +441,6 @@ instance Monad m => BS.BlockStateQuery (PureBlockStateMonad m) where
     getCryptographicParameters bs =
       return $! bs ^. blockCryptographicParameters . unhashed
 
-    {-# INLINE serializeBlockState #-}
-    serializeBlockState = return . runPutLazy . putBlockStateV0 . _unhashedBlockState
-
 instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountAddress acc = return $ acc ^. accountAddress
@@ -772,7 +771,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoSetRewardAccounts bs rew = return $! bs & blockBank . unhashed . Rewards.rewardAccounts .~ rew
 
-instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
+instance MonadIO m => BS.BlockStateStorage (PureBlockStateMonad m) where
     {-# INLINE thawBlockState #-}
     thawBlockState bs = return $ _unhashedBlockState bs
 
@@ -796,6 +795,12 @@ instance Monad m => BS.BlockStateStorage (PureBlockStateMonad m) where
 
     {-# INLINE cacheBlockState #-}
     cacheBlockState = return
+
+    {-# INLINE serializeBlockState #-}
+    serializeBlockState = return . runPutLazy . putBlockStateV0 . _unhashedBlockState
+
+    {-# INLINE writeBlockState #-}
+    writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockStateV0 . _unhashedBlockState
 
 -- |Initial block state.
 initialState :: SeedState

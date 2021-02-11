@@ -1160,9 +1160,6 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getUpdates = doGetUpdates . hpbsPointers
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
-    serializeBlockState hpbs = do
-        p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
-        return $ runPutLazy p
 
 instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m) where
 
@@ -1267,3 +1264,10 @@ instance PersistentState r m => BlockStateStorage (PersistentBlockStateMonad r m
         bsp' <- cache bsp
         liftIO $ writeIORef hpbsPointers bsp'
         return pbs
+
+    serializeBlockState hpbs = do
+        p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
+        return $ runPutLazy p
+
+    writeBlockState h hpbs =
+        runPutH (putBlockStateV0 (hpbsPointers hpbs)) h

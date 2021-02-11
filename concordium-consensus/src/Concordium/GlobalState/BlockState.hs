@@ -47,6 +47,7 @@ import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 import qualified Data.ByteString.Lazy as LBS
 import Data.Word
+import System.IO (Handle)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -257,12 +258,6 @@ class AccountOperations m => BlockStateQuery m where
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
-
-    -- |Serialize the block state to a byte string.
-    -- This serialization does not include
-    serializeBlockState :: BlockState m -> m LBS.ByteString
-
-    -- writeBlockState :: BlockState m -> Handle -> m ()
 
 -- |Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts {
@@ -586,6 +581,15 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- (where applicable).
     cacheBlockState :: BlockState m -> m (BlockState m)
 
+    -- |Serialize the block state to a byte string.
+    -- This serialization does not include transaction outcomes.
+    serializeBlockState :: BlockState m -> m LBS.ByteString
+
+    -- |Serialize the block state to a file handle.
+    -- This serialization does not include transaction outcomes.
+    writeBlockState :: Handle -> BlockState m -> m ()
+
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
@@ -611,7 +615,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getUpdates = lift . getUpdates
   getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
-  serializeBlockState = lift . serializeBlockState
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
   {-# INLINE getBakerAccount #-}
@@ -635,7 +638,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getUpdates #-}
   {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
-  {-# INLINE serializeBlockState #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress
@@ -754,6 +756,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     saveBlockState = lift . saveBlockState
     loadBlockState hsh = lift . loadBlockState hsh
     cacheBlockState = lift . cacheBlockState
+    serializeBlockState = lift . serializeBlockState
+    writeBlockState fh bs = lift $ writeBlockState fh bs
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -762,6 +766,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE saveBlockState #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE cacheBlockState #-}
+    {-# INLINE serializeBlockState #-}
+    {-# INLINE writeBlockState #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)

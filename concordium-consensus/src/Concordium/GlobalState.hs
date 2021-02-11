@@ -116,20 +116,20 @@ deriving via PureBlockStateMonad m
     instance BlockStateTypes (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance MonadLogger m
+    instance Monad m
              => BlockStateQuery (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance MonadLogger m
+    instance Monad m
              => AccountOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (MonadLogger m,
+    instance (Monad m,
               BlockStateQuery (MemoryBlockStateM r g s m))
              => BlockStateOperations (MemoryBlockStateM r g s m)
 
 deriving via PureBlockStateMonad m
-    instance (MonadLogger m,
+    instance (MonadIO m,
               BlockStateOperations (MemoryBlockStateM r g s m))
              => BlockStateStorage (MemoryBlockStateM r g s m)
 
