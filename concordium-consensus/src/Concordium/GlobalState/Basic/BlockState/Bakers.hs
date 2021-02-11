@@ -5,6 +5,7 @@
 
 module Concordium.GlobalState.Basic.BlockState.Bakers where
 
+import Control.Exception
 import Data.Set(Set)
 import qualified Data.Vector as Vec
 import Data.Serialize
@@ -12,6 +13,7 @@ import Lens.Micro.Platform
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.Types
+import Concordium.Utils.Serialization
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
@@ -53,6 +55,23 @@ instance HashableTo H.Hash EpochBakers where
     getHash EpochBakers{..} = H.hashOfHashes (hashVec _bakerInfos) (hashVec _bakerStakes)
       where
         hashVec v = H.hash $ runPut $ mapM_ put v
+
+-- |Serialize 'EpochBakers' in V0 format.
+putEpochBakersV0 :: Putter EpochBakers
+putEpochBakersV0 EpochBakers{..} = do
+    assert (Vec.length _bakerInfos == Vec.length _bakerStakes) $
+        putLength (Vec.length _bakerInfos)
+    mapM_ put _bakerInfos
+    mapM_ put _bakerStakes
+
+-- |Deserialize 'EpochBakers' in V0 format.
+getEpochBakersV0 :: Get EpochBakers
+getEpochBakersV0 = do
+    bakers <- getLength
+    _bakerInfos <- Vec.replicateM bakers get
+    _bakerStakes <- Vec.replicateM bakers get
+    let _bakerTotalStake = Vec.sum _bakerStakes
+    return EpochBakers{..}
 
 -- |Convert an 'EpochBakers' to a 'FullBakers'.
 epochToFullBakers :: EpochBakers -> FullBakers

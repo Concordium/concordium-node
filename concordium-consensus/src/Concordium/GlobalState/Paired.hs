@@ -283,6 +283,13 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
 
+    serializeBlockState (bps1, bps2) = do
+        s1 <- coerceBSML (serializeBlockState bps1)
+        s2 <- coerceBSMR (serializeBlockState bps2)
+        -- While we check for equality, in future it could be
+        -- acceptable for implementations to give different results.
+        assert (s1 == s2) $ return s2
+
 instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
   => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
 

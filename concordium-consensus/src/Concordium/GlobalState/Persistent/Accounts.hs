@@ -14,6 +14,7 @@ import Data.Maybe
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
+import Concordium.Utils.Serialization.Put
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
@@ -28,6 +29,7 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.Types.HashableTo
 import Data.Foldable (foldrM, foldl', foldlM)
+import Concordium.ID.Parameters
 
 -- |Representation of the set of accounts on the chain.
 -- Each account has an 'AccountIndex' which is the order
@@ -291,3 +293,9 @@ updateAccount !upd !acc = do
 -- |Get a list of all account addresses.
 accountAddresses :: MonadBlobStore m => Accounts -> m [AccountAddress]
 accountAddresses = Trie.keys . accountMap
+
+-- |Serialize accounts in V0 format.
+putAccountsV0 :: (MonadBlobStore m, MonadPut m) => GlobalContext -> Accounts -> m ()
+putAccountsV0 cryptoParams accts = do
+        liftPut $ putWord64be $ L.size (accountTable accts)
+        L.mmap_ (putAccountV0 cryptoParams) (accountTable accts)

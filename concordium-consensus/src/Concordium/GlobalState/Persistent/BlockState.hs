@@ -67,6 +67,8 @@ import Concordium.Types.SeedState
 import Concordium.Logger (MonadLogger)
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
+import Concordium.Utils.Serialization.Put
+import Concordium.Utils.Serialization
 
 
 type EpochBlocks = Nullable (BufferedRef EpochBlock)
@@ -151,6 +153,18 @@ makeHashedEpochBlocks [] = return emptyHashedEpochBlocks
 makeHashedEpochBlocks (b:bs) = do
         hebbs <- makeHashedEpochBlocks bs
         consEpochBlock b hebbs
+
+putHashedEpochBlocksV0 :: (MonadBlobStore m, MonadPut m) => HashedEpochBlocks -> m ()
+putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
+        ebs <- loadEB Seq.empty hebBlocks
+        liftPut $ do
+            putLength (Seq.length ebs)
+            mapM_ put ebs
+    where
+        loadEB s Null = return s
+        loadEB s (Some ebref) = do
+            EpochBlock{..} <- refLoad ebref
+            loadEB (s Seq.|> ebBakerId) ebPrevious
 
 type PersistentBlockState = IORef (BufferedRef BlockStatePointers)
 
@@ -300,6 +314,13 @@ data PersistentBirkParameters = PersistentBirkParameters {
 
 makeLenses ''PersistentBirkParameters
 
+-- |Serialize 'PersistentBirkParameters' in V0 format.
+putBirkParametersV0 :: (MonadBlobStore m, MonadPut m) => PersistentBirkParameters -> m ()
+putBirkParametersV0 PersistentBirkParameters{..} = do
+        sPut _birkSeedState
+        putEpochBakersV0 =<< refLoad _birkNextEpochBakers
+        putEpochBakersV0 =<< refLoad _birkCurrentEpochBakers
+
 instance MonadBlobStore m => MHashableTo m H.Hash PersistentBirkParameters where
   getHashM PersistentBirkParameters {..} = do
     nextHash <- getHashM _birkNextEpochBakers
@@ -420,6 +441,31 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
             ..
           }
   liftIO $ newIORef $! bsp
+
+putBlockStateV0 :: (MonadBlobStore m, MonadPut m) => PersistentBlockState -> m ()
+putBlockStateV0 pbs = do
+    BlockStatePointers{..} <- loadPBS pbs
+    -- BirkParameters
+    putBirkParametersV0 bspBirkParameters
+    -- CryptographicParameters
+    cryptoParams <- refLoad bspCryptographicParameters
+    sPut cryptoParams
+    -- IdentityProviders
+    sPut =<< refLoad bspIdentityProviders
+    -- AnonymityReovkers
+    sPut =<< refLoad bspAnonymityRevokers
+    -- Modules
+    Modules.putModulesV0 =<< refLoad bspModules
+    -- BankStatus
+    sPut $ _unhashed bspBank
+    -- Accounts
+    Accounts.putAccountsV0 cryptoParams bspAccounts
+    -- Instances
+    Instances.putInstancesV0 bspInstances
+    -- Updates
+    putUpdatesV0 =<< refLoad bspUpdates
+    -- Epoch blocks
+    putHashedEpochBlocksV0 bspEpochBlocks
 
 loadPBS :: MonadBlobStore m => PersistentBlockState -> m BlockStatePointers
 loadPBS = loadBufferedRef <=< liftIO . readIORef
@@ -1078,6 +1124,8 @@ newtype PersistentBlockStateMonad r m a = PersistentBlockStateMonad {runPersiste
 type PersistentState r m = (MonadIO m, MonadReader r m, HasBlobStore r)
 
 instance PersistentState r m => MonadBlobStore (PersistentBlockStateMonad r m)
+instance PersistentState r m => MonadBlobStore (PutT (PersistentBlockStateMonad r m))
+instance PersistentState r m => MonadBlobStore (PutH (PersistentBlockStateMonad r m))
 
 type instance BlockStatePointer PersistentBlockState = BlobRef BlockStatePointers
 type instance BlockStatePointer HashedPersistentBlockState = BlobRef BlockStatePointers
@@ -1112,6 +1160,9 @@ instance PersistentState r m => BlockStateQuery (PersistentBlockStateMonad r m) 
     getUpdates = doGetUpdates . hpbsPointers
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
+    serializeBlockState hpbs = do
+        p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
+        return $ runPutLazy p
 
 instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m) where
 
@@ -1121,7 +1172,7 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
-  getAccountCredentials acc = acc ^^. accountCredentials
+  getAccountCredentials acc = toList <$> acc ^^. accountCredentials
 
   getAccountMaxCredentialValidTo acc = acc ^^. accountMaxCredentialValidTo
 

@@ -12,7 +12,10 @@ module Concordium.GlobalState.Basic.BlockState.Instances(
     createInstance,
     deleteInstance,
     foldInstances,
-    instanceCount
+    instanceCount,
+    -- * Serialization
+    putInstancesV0,
+    getInstancesV0
 ) where
 
 import Concordium.Types
@@ -20,6 +23,8 @@ import qualified Concordium.Wasm as Wasm
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Basic.BlockState.InstanceTable
 
+import Data.Serialize
+import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
 
@@ -58,3 +63,29 @@ foldInstances f is@(Instances (Tree _ t)) = is <$ (foldIT . _Right) f t
 instanceCount :: Instances -> Word64
 instanceCount (Instances Empty) = 0
 instanceCount (Instances (Tree c _)) = c
+
+-- |Serialize 'Instances' in V0 format.
+putInstancesV0 :: Putter Instances
+putInstancesV0 (Instances Empty) = putWord8 0
+putInstancesV0 (Instances (Tree _ t)) = do
+        mapM_ putOptInstance (t ^.. foldIT)
+        putWord8 0
+    where
+        putOptInstance (Left si) = do
+            putWord8 1
+            put si
+        putOptInstance (Right inst) = do
+            putWord8 2
+            putInstanceV0 inst
+
+-- |Deserialize 'Instances' in V0 format.
+getInstancesV0
+    :: (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, Wasm.ModuleInterface))
+    -> Get Instances
+getInstancesV0 resolve = Instances <$> constructM buildInstance
+    where
+        buildInstance idx = getWord8 >>= \case
+            0 -> return Nothing
+            1 -> Just . Left <$> get
+            2 -> Just . Right <$> getInstanceV0 resolve idx
+            _ -> fail "Bad instance list"
