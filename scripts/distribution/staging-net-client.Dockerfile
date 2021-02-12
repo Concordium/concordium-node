@@ -23,10 +23,17 @@ RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
     sha256sum genesis.dat && \
     cp genesis.dat /build-project/
 
+FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.0-alpha as node-dashboard
+
 # Collect artifacts from build image.
 FROM ubuntu:20.04
 
 EXPOSE 8888
+# Node dashboard
+EXPOSE 8099
+# GRPC-web proxy
+EXPOSE 9999
+# GRPC
 EXPOSE 10000
 ENV RPC_SERVER_ADDR=0.0.0.0
 ENV MODE=basic
@@ -41,6 +48,12 @@ ENV DISTRIBUTION_CLIENT=true
 ENV ENABLE_TERM_HANDLER=true
 
 RUN apt-get update && apt-get install -y unbound curl netbase ca-certificates supervisor nginx libnuma1 libtinfo6 libpq-dev liblmdb-dev jq
+RUN curl -L https://getenvoy.io/cli | bash -s -- -b /usr/local/bin
+RUN getenvoy fetch standard:1.17.0
+
+COPY --from=node-dashboard /static /node-dashboard/static
+COPY --from=node-dashboard /envoy.yaml /node-dashboard/envoy.yaml
+COPY --from=node-dashboard /nginx.conf /etc/nginx/sites-enabled/node-dashboard
 
 COPY --from=build /build-project/concordium-node/target/release/concordium-node /concordium-node
 COPY --from=build /build-project/concordium-node/target/release/node-collector /node-collector

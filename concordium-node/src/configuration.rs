@@ -9,7 +9,7 @@ use std::{
     io::{BufReader, BufWriter, Write},
     path::PathBuf,
 };
-use structopt::StructOpt;
+use structopt::{clap::AppSettings, StructOpt};
 
 /// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
@@ -590,7 +590,12 @@ impl Config {
 
 /// Verifies the validity of the configuration.
 pub fn parse_config() -> Fallible<Config> {
-    let conf = Config::from_args();
+    let conf = {
+        let app = Config::clap()
+            .setting(AppSettings::ArgRequiredElseHelp)
+            .global_setting(AppSettings::ColoredHelp);
+        Config::from_clap(&app.get_matches())
+    };
 
     ensure!(
         conf.connection.max_allowed_nodes_percentage >= 100,
