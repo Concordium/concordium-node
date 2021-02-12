@@ -91,17 +91,16 @@ impl IntoResponse for JSONStringResponse {
     }
 }
 
+type NodeMap = Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>;
+
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    pub nodes:           Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+    pub nodes:           NodeMap,
     pub banned_versions: Vec<String>,
 }
 
 impl CollectorStateData {
-    fn new(
-        nodes: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
-        banned_versions: Vec<String>,
-    ) -> Self {
+    fn new(nodes: NodeMap, banned_versions: Vec<String>) -> Self {
         Self {
             nodes,
             banned_versions,
@@ -135,7 +134,7 @@ pub fn main() -> Fallible<()> {
         concordium_node::VERSION
     );
 
-    let node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>> =
+    let node_info_map: NodeMap =
         Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(1500, Default::default())));
 
     let _allowed_stale_time = conf.stale_time_allowed;
@@ -223,48 +222,84 @@ fn nodes_staging_users_info(state: State) -> (State, JSONStringResponse) {
     (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
-fn nodes_post_handler(mut state: State) -> Pin<Box<HandlerFuture>> {
+fn bad_request(message: &'static str) -> HandlerError {
+    HandlerError::from(gotham::anyhow::anyhow!(message)).with_status(StatusCode::BAD_REQUEST)
+}
+
+/// Maximum number of bytes allowed for the message body.
+const CONTENT_LENGTH_LIMIT: u32 = 10000;
+/// Maximum number of bytes allowed for the name of the node.
+const NODE_NAME_LENGHT_LIMIT: usize = 100;
+/// Maximum average ping allowed in milliseconds.
+const NODE_AVERAGE_PING_LIMIT: f64 = 30000.0;
+/// Maximum number peers in peersList.
+const NODE_PEER_LIST_LEN_LIMIT: usize = 50;
+
+async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, HandlerError> {
     trace!("Processing a post from a node-collector");
-    body::to_bytes(Body::take_from(&mut state))
-        .then(|full_body| match full_body {
-            Ok(body_content) => {
-                let decoded: Result<NodeInfo, _> =
-                    rmp_serde::decode::from_read(Cursor::new(&body_content));
-                match decoded {
-                    Ok(mut nodes_info) => {
-                        if !nodes_info.nodeName.is_empty() && !nodes_info.nodeId.is_empty() {
-                            let state_data = CollectorStateData::borrow_from(&state);
-                            if !state_data.banned_versions.contains(&nodes_info.client) {
-                                nodes_info.last_updated = get_current_stamp();
-                                write_or_die!(state_data.nodes)
-                                    .insert(nodes_info.nodeId.clone(), nodes_info);
-                            } else {
-                                warn!(
-                                    "Rejecting client due to banned version ({})",
-                                    nodes_info.client
-                                );
-                            }
-                        } else {
-                            error!("Client submitted data without nodeName and nodeId");
-                        }
-                        let res = create_empty_response(&state, StatusCode::OK);
-                        future::ok((state, res))
-                    }
-                    Err(e) => {
-                        error!("Can't parse client data: {}", e);
-                        future::err((
-                            state,
-                            HandlerError::from(e).with_status(StatusCode::INTERNAL_SERVER_ERROR),
-                        ))
-                    }
-                }
-            }
-            Err(e) => future::err((
-                state,
-                HandlerError::from(e).with_status(StatusCode::INTERNAL_SERVER_ERROR),
-            )),
-        })
-        .boxed()
+
+    // Check header 'Content-Length'
+    {
+        let headers = hyper::HeaderMap::borrow_from(&state);
+        let header_content_length = headers
+            .get(hyper::header::CONTENT_LENGTH)
+            .ok_or_else(|| bad_request("Header 'Content-Length' is required"))?;
+
+        let content_length: u32 = header_content_length.to_str()?.parse()?;
+        if content_length > CONTENT_LENGTH_LIMIT {
+            warn!(
+                "Content-Length '{}' is larger than the limit {} set by the collector backend",
+                content_length, CONTENT_LENGTH_LIMIT
+            );
+            return Err(bad_request(
+                "Content-Length is larger than the limit set by the collector backend",
+            ));
+        }
+    }
+
+    let body_content = body::to_bytes(Body::take_from(state)).await?;
+
+    let mut nodes_info: NodeInfo = rmp_serde::decode::from_read(Cursor::new(&body_content))
+        .map_err(|e| {
+            error!("Can't parse client data: {}", e);
+            e
+        })?;
+
+    if nodes_info.nodeName.is_empty() || nodes_info.nodeId.is_empty() {
+        error!("Client submitted data without nodeName or nodeId");
+        return Err(bad_request("nodeName and nodeId cannot be empty"));
+    }
+
+    if nodes_info.nodeName.len() > NODE_NAME_LENGHT_LIMIT {
+        error!("Client submitted data with a nodeName of length {}", nodes_info.nodeName.len());
+        return Err(bad_request("nodeName is to long to be considered valid"));
+    }
+
+    match nodes_info.averagePing {
+        Some(avg_ping) if avg_ping > NODE_AVERAGE_PING_LIMIT => {
+            error!("Client submitted data with a average ping of {}", avg_ping);
+            return Err(bad_request("Average ping is to high to be considered valid"));
+        }
+        _ => {}
+    };
+
+    if nodes_info.peersList.len() > NODE_PEER_LIST_LEN_LIMIT {
+        error!("Client submitted data with a peersList of length {}", nodes_info.peersList.len());
+        return Err(bad_request("peersList is to long to be considered valid"));
+    }
+
+    let state_data = CollectorStateData::borrow_from(&state);
+    if state_data.banned_versions.contains(&nodes_info.client) {
+        warn!("Rejecting client due to banned version ({})", nodes_info.client);
+        return Err(HandlerError::from(gotham::anyhow::anyhow!("node version is banned"))
+            .with_status(StatusCode::BAD_REQUEST));
+    }
+
+    info!("node update from {}", nodes_info.nodeId);
+    nodes_info.last_updated = get_current_stamp();
+    write_or_die!(state_data.nodes).insert(nodes_info.nodeId.clone(), nodes_info);
+
+    Ok(create_empty_response(&state, StatusCode::OK))
 }
 
 pub fn router(
@@ -283,7 +318,7 @@ pub fn router(
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
         route.get("/nodesStagingNetUsers").to(nodes_staging_users_info);
         route.get("/data/nodesStagingNetUsers").to(nodes_staging_users_info);
-        route.post("/nodes/post").to(nodes_post_handler);
-        route.post("/post/nodes").to(nodes_post_handler);
+        route.post("/nodes/post").to_async_borrowing(nodes_post_handler_async);
+        route.post("/post/nodes").to_async_borrowing(nodes_post_handler_async);
     })
 }
