@@ -265,6 +265,17 @@ pub fn handle_consensus_inbound_msg(
         // relay external messages to Consensus
         let consensus_result = send_msg_to_consensus(node, source, consensus, &request)?;
 
+        // if processing a CatchUpStatus message resulted in an InvalidResult
+        // the value is inconsistent with our globalstate so it must be running
+        // in another chain. Reject and soft-ban.
+        if request.variant == CatchUpStatus
+            && consensus_result == ConsensusFfiResponse::InvalidResult
+        {
+            if let Some(tk) = node.find_conn_token_by_id(P2PNodeId(request.source_peer())) {
+                node.register_conn_change(ConnChange::Expulsion(tk))
+            }
+        }
+
         // adjust the peer state(s) based on the feedback from Consensus
         update_peer_states(node, &request, consensus_result);
 
