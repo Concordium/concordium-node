@@ -436,7 +436,7 @@ doStoreBlock pb@GB.PendingBlock{..} = do
             case txList of
               Nothing -> do
                 blockArriveDead cbp
-                return ResultInvalid
+                return ResultStale
               Just newTransactions -> do
                 purgeTransactionTable False =<< currentTime
                 let block1 = GB.PendingBlock{pbBlock = BakedBlock{bbTransactions = newTransactions, ..}, ..}
