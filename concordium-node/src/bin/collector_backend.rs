@@ -12,21 +12,19 @@ use twox_hash::XxHash64;
 #[macro_use]
 extern crate log;
 use concordium_node::{read_or_die, spawn_or_die, write_or_die};
-use futures::prelude::*;
 use gotham::{
-    handler::{HandlerError, HandlerFuture, IntoResponse},
+    handler::{HandlerError, IntoResponse},
     helpers::http::response::{create_empty_response, create_response},
     middleware::state::StateMiddleware,
     pipeline::{single::single_pipeline, single_middleware},
     router::{builder::*, Router},
     state::{FromState, State},
 };
-use hyper::{body, Body, Response, StatusCode};
+use hyper::{body::HttpBody, Body, Response, StatusCode};
 use std::{
     collections::HashMap,
     hash::BuildHasherDefault,
     io::Cursor,
-    pin::Pin,
     sync::{Arc, RwLock},
     thread,
     time::Duration,
@@ -227,37 +225,55 @@ fn bad_request(message: &'static str) -> HandlerError {
 }
 
 /// Maximum number of bytes allowed for the message body.
-const CONTENT_LENGTH_LIMIT: u32 = 10000;
+const CONTENT_LENGTH_LIMIT: u64 = 100000;
 /// Maximum number of bytes allowed for the name of the node.
 const NODE_NAME_LENGHT_LIMIT: usize = 100;
 /// Maximum average ping allowed in milliseconds.
 const NODE_AVERAGE_PING_LIMIT: f64 = 30000.0;
 /// Maximum number peers in peersList.
-const NODE_PEER_LIST_LEN_LIMIT: usize = 50;
+const NODE_PEERS_COUNT_LIMIT: u64 = 50;
+/// The minimum number of nodes to needed to do checks against the average.
+const MINIMUM_NUMBER_OF_NODES_FOR_AVERAGES: u64 = 20;
+/// Maximum offset height of the best block allowed above the average best
+/// block.
+const ALLOWED_AVERAGE_BEST_BLOCK_HEIGHT_OFFSET: u64 = 1000;
+/// Maximum offset height of the finalized block allowed above the average best
+/// block.
+const ALLOWED_AVERAGE_FINALIZED_BLOCK_HEIGHT_OFFSET: u64 = 1000;
 
 async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, HandlerError> {
     trace!("Processing a post from a node-collector");
 
-    // Check header 'Content-Length'
-    {
-        let headers = hyper::HeaderMap::borrow_from(&state);
-        let header_content_length = headers
-            .get(hyper::header::CONTENT_LENGTH)
-            .ok_or_else(|| bad_request("Header 'Content-Length' is required"))?;
-
-        let content_length: u32 = header_content_length.to_str()?.parse()?;
-        if content_length > CONTENT_LENGTH_LIMIT {
-            warn!(
-                "Content-Length '{}' is larger than the limit {} set by the collector backend",
-                content_length, CONTENT_LENGTH_LIMIT
-            );
-            return Err(bad_request(
-                "Content-Length is larger than the limit set by the collector backend",
-            ));
-        }
+    let mut body = Body::take_from(state);
+    let content_length = body
+        .size_hint()
+        .exact()
+        .ok_or_else(|| bad_request("Header 'Content-Length' is required"))?;
+    if content_length > CONTENT_LENGTH_LIMIT {
+        warn!(
+            "Content-Length '{}' is larger than the limit {} set by the collector backend",
+            content_length, CONTENT_LENGTH_LIMIT
+        );
+        return Err(bad_request(
+            "Content-Length is larger than the limit set by the collector backend",
+        ));
     }
 
-    let body_content = body::to_bytes(Body::take_from(state)).await?;
+    // Fail if body is larger than content-length
+    let body_content = {
+        let mut content = Vec::with_capacity(content_length as usize);
+        while let Some(buf) = body.data().await {
+            let buffer = buf?;
+            if content.len() + buffer.len() > (content_length as usize) {
+                return Err(bad_request("Invalid body"));
+            }
+            content.append(&mut buffer.to_vec());
+        }
+        if content.len() != content_length as usize {
+            return Err(bad_request("Invalid body"));
+        }
+        content
+    };
 
     let mut nodes_info: NodeInfo = rmp_serde::decode::from_read(Cursor::new(&body_content))
         .map_err(|e| {
@@ -272,27 +288,71 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
 
     if nodes_info.nodeName.len() > NODE_NAME_LENGHT_LIMIT {
         error!("Client submitted data with a nodeName of length {}", nodes_info.nodeName.len());
-        return Err(bad_request("nodeName is to long to be considered valid"));
+        return Err(bad_request("nodeName is to long too be considered valid"));
     }
 
     match nodes_info.averagePing {
         Some(avg_ping) if avg_ping > NODE_AVERAGE_PING_LIMIT => {
             error!("Client submitted data with a average ping of {}", avg_ping);
-            return Err(bad_request("Average ping is to high to be considered valid"));
+            return Err(bad_request("Average ping is too high to be considered valid"));
         }
         _ => {}
     };
 
-    if nodes_info.peersList.len() > NODE_PEER_LIST_LEN_LIMIT {
-        error!("Client submitted data with a peersList of length {}", nodes_info.peersList.len());
-        return Err(bad_request("peersList is to long to be considered valid"));
+    if nodes_info.peersCount > NODE_PEERS_COUNT_LIMIT {
+        error!("Client submitted data with a peersCount {}", nodes_info.peersCount);
+        return Err(bad_request("peersCount is too high to be considered valid"));
     }
 
     let state_data = CollectorStateData::borrow_from(&state);
     if state_data.banned_versions.contains(&nodes_info.client) {
         warn!("Rejecting client due to banned version ({})", nodes_info.client);
-        return Err(HandlerError::from(gotham::anyhow::anyhow!("node version is banned"))
-            .with_status(StatusCode::BAD_REQUEST));
+        return Err(bad_request("node version is banned"));
+    }
+
+    // Check the best block height and finalized block height against the average,
+    // if state contains information from enough nodes.
+    {
+        let nodes = read_or_die!(state_data.nodes);
+        let len = nodes.len() as u64;
+        if len >= MINIMUM_NUMBER_OF_NODES_FOR_AVERAGES {
+            let mut sum_best_block_height: u64 = 0;
+            let mut sum_finalized_block_height: u64 = 0;
+            for node in nodes.values() {
+                sum_best_block_height += node.bestBlockHeight;
+                sum_finalized_block_height += node.finalizedBlockHeight;
+            }
+            let avg_best_block_height = sum_best_block_height / len;
+            let avg_finalized_block_height = sum_finalized_block_height / len;
+
+            if nodes_info.bestBlockHeight
+                > avg_best_block_height + ALLOWED_AVERAGE_BEST_BLOCK_HEIGHT_OFFSET
+            {
+                error!(
+                    "Client submitted data with a best block height '{}', which is to high above \
+                     the average {}",
+                    nodes_info.bestBlockHeight, avg_best_block_height
+                );
+                return Err(bad_request(
+                    "bestBlockHeight is too high above average to be considered valid",
+                ));
+            }
+
+            if nodes_info.finalizedBlockHeight
+                > avg_finalized_block_height + ALLOWED_AVERAGE_FINALIZED_BLOCK_HEIGHT_OFFSET
+            {
+                error!(
+                    "Client submitted data with a finalized block height '{}', which is to high \
+                     above the average {}",
+                    nodes_info.finalizedBlockHeight, avg_finalized_block_height
+                );
+                return Err(bad_request(
+                    "finalizedBlockHeight is too high above average to be considered valid",
+                ));
+            }
+        } else {
+            warn!("Not enought nodes for checking against the average")
+        }
     }
 
     info!("node update from {}", nodes_info.nodeId);
