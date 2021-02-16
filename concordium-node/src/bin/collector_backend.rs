@@ -16,7 +16,7 @@ use gotham::{
     handler::{HandlerError, IntoResponse},
     helpers::http::response::{create_empty_response, create_response},
     middleware::state::StateMiddleware,
-    pipeline::{single::single_pipeline, single_middleware},
+    pipeline::{new_pipeline, single::single_pipeline},
     router::{builder::*, Router},
     state::{FromState, State},
 };
@@ -69,6 +69,56 @@ struct ConfigCli {
         help = "Versions that are banned from publishing to the collector backend"
     )]
     pub banned_versions: Vec<String>,
+    #[structopt(flatten)]
+    validation_config: ValidationConfig,
+}
+
+#[derive(Debug, Clone, StateData, StructOpt)]
+pub struct ValidationConfig {
+    #[structopt(
+        long = "valid-content-length",
+        help = "Maximum number of bytes allowed for the message body",
+        default_value = "100000"
+    )]
+    pub valid_content_length: u64,
+    #[structopt(
+        long = "valid-node-name-lenght",
+        help = "Maximum number of bytes allowed for the name of the node",
+        default_value = "100"
+    )]
+    pub valid_node_name_lenght: usize,
+    #[structopt(
+        long = "valid-node-average-ping",
+        help = "Maximum average ping allowed in milliseconds",
+        default_value = "30000"
+    )]
+    pub valid_node_average_ping: f64,
+    #[structopt(
+        long = "valid-node-peers-count",
+        help = "Maximum number for peers count",
+        default_value = "50"
+    )]
+    pub valid_node_peers_count: u64,
+    #[structopt(
+        long = "validate-against-average-at",
+        help = "The minimum number of nodes needed to calculate averages for validation",
+        default_value = "20"
+    )]
+    pub validate_against_average_at: u64,
+    #[structopt(
+        long = "valid-additional-best-block-height",
+        help = "Maximum additional height of the best block allowed compared to the average best \
+                block height. See also --validate-against-average-at",
+        default_value = "1000"
+    )]
+    pub valid_additional_best_block_height: u64,
+    #[structopt(
+        long = "valid-additional-finalized-block-height",
+        help = "Maximum additional height of the finalized block allowed compared to the average \
+                finalized block height. See also --validate-against-average-at",
+        default_value = "1000"
+    )]
+    pub valid_additional_finalized_block_height: u64,
 }
 
 pub struct HTMLStringResponse(pub String);
@@ -152,7 +202,7 @@ pub fn main() -> Fallible<()> {
     let addr = format!("{}:{}", conf.host, conf.port);
     info!("Listening for requests at http://{}", addr);
 
-    gotham::start(addr, router(node_info_map, conf.banned_versions));
+    gotham::start(addr, router(node_info_map, conf.banned_versions, conf.validation_config));
     Ok(())
 }
 
@@ -224,35 +274,18 @@ fn bad_request(message: &'static str) -> HandlerError {
     HandlerError::from(gotham::anyhow::anyhow!(message)).with_status(StatusCode::BAD_REQUEST)
 }
 
-/// Maximum number of bytes allowed for the message body.
-const CONTENT_LENGTH_LIMIT: u64 = 100000;
-/// Maximum number of bytes allowed for the name of the node.
-const NODE_NAME_LENGHT_LIMIT: usize = 100;
-/// Maximum average ping allowed in milliseconds.
-const NODE_AVERAGE_PING_LIMIT: f64 = 30000.0;
-/// Maximum number peers in peersList.
-const NODE_PEERS_COUNT_LIMIT: u64 = 50;
-/// The minimum number of nodes to needed to do checks against the average.
-const MINIMUM_NUMBER_OF_NODES_FOR_AVERAGES: u64 = 20;
-/// Maximum offset height of the best block allowed above the average best
-/// block.
-const ALLOWED_AVERAGE_BEST_BLOCK_HEIGHT_OFFSET: u64 = 1000;
-/// Maximum offset height of the finalized block allowed above the average best
-/// block.
-const ALLOWED_AVERAGE_FINALIZED_BLOCK_HEIGHT_OFFSET: u64 = 1000;
-
 async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, HandlerError> {
     trace!("Processing a post from a node-collector");
-
+    let validation_conf = ValidationConfig::take_from(state);
     let mut body = Body::take_from(state);
     let content_length = body
         .size_hint()
         .exact()
         .ok_or_else(|| bad_request("Header 'Content-Length' is required"))?;
-    if content_length > CONTENT_LENGTH_LIMIT {
+    if content_length > validation_conf.valid_content_length {
         warn!(
             "Content-Length '{}' is larger than the limit {} set by the collector backend",
-            content_length, CONTENT_LENGTH_LIMIT
+            content_length, validation_conf.valid_content_length
         );
         return Err(bad_request(
             "Content-Length is larger than the limit set by the collector backend",
@@ -278,7 +311,8 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
     let mut nodes_info: NodeInfo = rmp_serde::decode::from_read(Cursor::new(&body_content))
         .map_err(|e| {
             error!("Can't parse client data: {}", e);
-            e
+            HandlerError::from(gotham::anyhow::anyhow!("Can't parse client data: {}", e))
+                .with_status(StatusCode::BAD_REQUEST)
         })?;
 
     if nodes_info.nodeName.is_empty() || nodes_info.nodeId.is_empty() {
@@ -286,20 +320,20 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
         return Err(bad_request("nodeName and nodeId cannot be empty"));
     }
 
-    if nodes_info.nodeName.len() > NODE_NAME_LENGHT_LIMIT {
+    if nodes_info.nodeName.len() > validation_conf.valid_node_name_lenght {
         error!("Client submitted data with a nodeName of length {}", nodes_info.nodeName.len());
         return Err(bad_request("nodeName is to long too be considered valid"));
     }
 
     match nodes_info.averagePing {
-        Some(avg_ping) if avg_ping > NODE_AVERAGE_PING_LIMIT => {
+        Some(avg_ping) if avg_ping > validation_conf.valid_node_average_ping => {
             error!("Client submitted data with a average ping of {}", avg_ping);
             return Err(bad_request("Average ping is too high to be considered valid"));
         }
         _ => {}
     };
 
-    if nodes_info.peersCount > NODE_PEERS_COUNT_LIMIT {
+    if nodes_info.peersCount > validation_conf.valid_node_peers_count {
         error!("Client submitted data with a peersCount {}", nodes_info.peersCount);
         return Err(bad_request("peersCount is too high to be considered valid"));
     }
@@ -315,7 +349,7 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
     {
         let nodes = read_or_die!(state_data.nodes);
         let len = nodes.len() as u64;
-        if len >= MINIMUM_NUMBER_OF_NODES_FOR_AVERAGES {
+        if len >= validation_conf.validate_against_average_at {
             let mut sum_best_block_height: u64 = 0;
             let mut sum_finalized_block_height: u64 = 0;
             for node in nodes.values() {
@@ -326,7 +360,7 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
             let avg_finalized_block_height = sum_finalized_block_height / len;
 
             if nodes_info.bestBlockHeight
-                > avg_best_block_height + ALLOWED_AVERAGE_BEST_BLOCK_HEIGHT_OFFSET
+                > avg_best_block_height + validation_conf.valid_additional_best_block_height
             {
                 error!(
                     "Client submitted data with a best block height '{}', which is to high above \
@@ -339,7 +373,8 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
             }
 
             if nodes_info.finalizedBlockHeight
-                > avg_finalized_block_height + ALLOWED_AVERAGE_FINALIZED_BLOCK_HEIGHT_OFFSET
+                > avg_finalized_block_height
+                    + validation_conf.valid_additional_finalized_block_height
             {
                 error!(
                     "Client submitted data with a finalized block height '{}', which is to high \
@@ -363,13 +398,16 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
 }
 
 pub fn router(
-    node_info_map: Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>,
+    node_info_map: NodeMap,
     banned_versions: Vec<String>,
+    validation_config: ValidationConfig,
 ) -> Router {
     let state_data = CollectorStateData::new(node_info_map, banned_versions);
-    let middleware = StateMiddleware::new(state_data);
-    let pipeline = single_middleware(middleware);
-    let (chain, pipelines) = single_pipeline(pipeline);
+    let validation_config_middleware = StateMiddleware::new(validation_config);
+    let collector_state_middleware = StateMiddleware::new(state_data);
+    let (chain, pipelines) = single_pipeline(
+        new_pipeline().add(validation_config_middleware).add(collector_state_middleware).build(),
+    );
     build_router(chain, pipelines, |route| {
         route.get("/").to(index);
         route.get("/nodesSummary").to(nodes_summary);
