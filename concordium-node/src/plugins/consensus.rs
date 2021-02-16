@@ -18,6 +18,7 @@ use crate::{
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
     p2p::{
+        bans::BanId,
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
@@ -32,6 +33,7 @@ use std::{
     io::{Cursor, Read},
     path::PathBuf,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
@@ -454,12 +456,35 @@ fn update_peer_states(
                 }
             }
             ConsensusFfiResponse::InvalidResult => {
-                // if processing a CatchUpStatus message resulted in an InvalidResult
-                // the value is inconsistent with our globalstate so it must be running
-                // in another chain. Reject and soft-ban.
-                if let Some(tk) = node.find_conn_token_by_id(P2PNodeId(source_peer)) {
-                    node.register_conn_change(ConnChange::Expulsion(tk))
+                let id = request.source_peer();
+                if let Some(token) = node.find_conn_token_by_id(P2PNodeId(id)) {
+                    // Remove the peer since it is incompatible with us.
+                    debug!(
+                        "Catching up with peer {:016x} resulted in incompatible globalstates, \
+                         dropping and soft-banning",
+                        id
+                    );
+                    node.register_conn_change(ConnChange::Expulsion(token));
+                } else {
+                    // Connection no longer exists
+                    debug!(
+                        "Catch-up-in-progress peer {:016x} no longer exists, but it was \
+                         incompatible",
+                        id
+                    );
+                    warn!("Soft-banning node id {} due to a breach of protocol", id);
+                    write_or_die!(node.connection_handler.soft_bans).insert(
+                        BanId::NodeId(P2PNodeId(id)),
+                        Instant::now() + Duration::from_secs(configuration::SOFT_BAN_DURATION_SECS),
+                    );
                 }
+                let peers = &mut write_or_die!(node.peers);
+                if let Some(p) = peers.catch_up_peer {
+                    if p == id {
+                        peers.catch_up_peer = None;
+                    }
+                }
+                peers.peer_states.remove(&id);
             }
             _ => {}
         }
