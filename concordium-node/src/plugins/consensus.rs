@@ -456,13 +456,12 @@ fn update_peer_states(
                 }
             }
             ConsensusFfiResponse::InvalidResult => {
-                let id = request.source_peer();
-                if let Some(token) = node.find_conn_token_by_id(P2PNodeId(id)) {
+                if let Some(token) = node.find_conn_token_by_id(P2PNodeId(source_peer)) {
                     // Remove the peer since it is incompatible with us.
                     debug!(
                         "Catching up with peer {:016x} resulted in incompatible globalstates, \
                          dropping and soft-banning",
-                        id
+                        source_peer
                     );
                     node.register_conn_change(ConnChange::Expulsion(token));
                 } else {
@@ -470,21 +469,18 @@ fn update_peer_states(
                     debug!(
                         "Catch-up-in-progress peer {:016x} no longer exists, but it was \
                          incompatible",
-                        id
+                        source_peer
                     );
-                    warn!("Soft-banning node id {} due to a breach of protocol", id);
+                    warn!("Soft-banning node id {} due to a breach of protocol", source_peer);
                     write_or_die!(node.connection_handler.soft_bans).insert(
-                        BanId::NodeId(P2PNodeId(id)),
+                        BanId::NodeId(P2PNodeId(source_peer)),
                         Instant::now() + Duration::from_secs(configuration::SOFT_BAN_DURATION_SECS),
                     );
                 }
-                let peers = &mut write_or_die!(node.peers);
-                if let Some(p) = peers.catch_up_peer {
-                    if p == id {
-                        peers.catch_up_peer = None;
-                    }
+                if peers.catch_up_peer == Some(source_peer) {
+                    peers.catch_up_peer = None;
                 }
-                peers.peer_states.remove(&id);
+                peers.peer_states.remove(&source_peer);
             }
             _ => {}
         }
