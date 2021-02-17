@@ -259,7 +259,6 @@ newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
         _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
         _accountCredentials = [credential],
         _accountMaxCredentialValidTo = validTo credential,
-        _accountInstances = Set.empty,
         ..
         }
   _persistingData <- refMake newPData

@@ -843,12 +843,8 @@ doPutNewInstance pbs fnew = do
         -- Create the instance
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
         let ca = instanceAddress (instanceParameters inst)
-        -- Update the owner account's set of instances
-        let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
-        (_, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
         (ca,) <$> storePBS pbs bsp{
-                            bspInstances = insts,
-                            bspAccounts = accts
+                            bspInstances = insts
                         }
     where
         fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
@@ -1128,8 +1124,6 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad r m
   getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
   getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
-
-  getAccountInstances acc = acc ^^. accountInstances
 
   getAccountBaker acc = case acc ^. accountBaker of
         Null -> return Nothing

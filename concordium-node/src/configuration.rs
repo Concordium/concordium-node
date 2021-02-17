@@ -23,7 +23,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
 pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
-    other.major == 0 && other.minor == 4 && other.patch >= 8
+    other.major == 0 && other.minor == 5
 }
 
 /// The maximum size of objects accepted from the network.
