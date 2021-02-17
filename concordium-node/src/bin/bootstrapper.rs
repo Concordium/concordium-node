@@ -1,7 +1,10 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
-use std::alloc::System;
+use std::{
+    alloc::System,
+    sync::{Arc, RwLock},
+};
 #[global_allocator]
 static A: System = System;
 
@@ -11,7 +14,7 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
-use failure::Error;
+use failure::{ensure, Error};
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -22,6 +25,17 @@ fn main() -> Result<(), Error> {
     let data_dir_path = app_prefs.get_user_app_dir();
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let regenesis_arc = Arc::new(RwLock::new(
+        conf.bootstrapper
+            .regenesis_block_hashes
+            .expect("Bootstrapper can't run without specifying genesis hashes")
+            .clone(),
+    ));
+
+    ensure!(
+        regenesis_arc.read().unwrap().len() > 0,
+        "Bootstrapper can't run without specifying genesis hashes"
+    );
 
     let id = match conf.common.id {
         Some(ref x) => x.to_owned(),
@@ -34,6 +48,7 @@ fn main() -> Result<(), Error> {
         PeerType::Bootstrapper,
         stats_export_service,
         Some(data_dir_path),
+        regenesis_arc,
     );
 
     #[cfg(feature = "instrumentation")]
