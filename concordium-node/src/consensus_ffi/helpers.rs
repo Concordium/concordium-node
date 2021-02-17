@@ -1,7 +1,7 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible};
 
-use std::{convert::TryFrom, fmt, ops::Deref};
+use std::{convert::TryFrom, fmt, ops::Deref, str::FromStr};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -79,6 +79,16 @@ impl Deref for HashBytes {
 
 impl AsRef<[u8]> for HashBytes {
     fn as_ref(&self) -> &[u8] { &self }
+}
+
+impl FromStr for HashBytes {
+    type Err = failure::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        hex::decode(s)
+            .map(|x| HashBytes::new(&x))
+            .map_err(|e| failure::Error::from_boxed_compat(Box::new(e)))
+    }
 }
 
 // a short, 8-character beginning of the SHA
