@@ -215,6 +215,9 @@ async fn main() -> Fallible<()> {
     // action after the consensus queues have been stopped and __no__ calls will
     // be made to any Haskell functions. Otherwise this will likely lead to
     // undefined behaviour and/or panics.
+    // This will stop any outstanding Haskell threads.
+    // It will wait for all blocking FFI calls to terminate, but any interruptible
+    // Haskell code, including interruptible FFI calls, will be forcibly stopped.
     ffi::stop_haskell();
 
     info!("P2PNode gracefully closed.");
