@@ -173,12 +173,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the release schedule for an account.
   getAccountReleaseSchedule :: Account m -> m AccountReleaseSchedule
 
-  -- |The set of instances belonging to this account
-  -- TODO: Revisit choice of datastructure. Additions and removals
-  -- are expected to be rare. The set is traversed when stake delegation
-  -- changes.
-  getAccountInstances :: Account m -> m (Set ContractAddress)
-
   -- |Get the baker info (if any) attached to an account.
   getAccountBaker :: Account m -> m (Maybe AccountBaker)
 
@@ -631,7 +625,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
   getAccountReleaseSchedule = lift . getAccountReleaseSchedule
-  getAccountInstances = lift . getAccountInstances
   getAccountBaker = lift . getAccountBaker
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}
@@ -642,7 +635,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}
   {-# INLINE getAccountReleaseSchedule #-}
-  {-# INLINE getAccountInstances #-}
   {-# INLINE getAccountBaker #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where

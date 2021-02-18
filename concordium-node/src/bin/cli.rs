@@ -204,14 +204,21 @@ async fn main() -> Fallible<()> {
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
 
-    // Shut down the consensus layer
-    consensus.stop();
-    ffi::stop_haskell();
-
     // Wait for the consensus queue threads to stop
     for consensus_queue_thread in consensus_queue_threads {
         consensus_queue_thread.join().expect("A consensus queue thread panicked");
     }
+
+    // Shut down the consensus layer
+    consensus.stop();
+    // And finally stop the haskell runtime. It is important that this is the last
+    // action after the consensus queues have been stopped and __no__ calls will
+    // be made to any Haskell functions. Otherwise this will likely lead to
+    // undefined behaviour and/or panics.
+    // This will stop any outstanding Haskell threads.
+    // It will wait for all blocking FFI calls to terminate, but any interruptible
+    // Haskell code, including interruptible FFI calls, will be forcibly stopped.
+    ffi::stop_haskell();
 
     info!("P2PNode gracefully closed.");
 
