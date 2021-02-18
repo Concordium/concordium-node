@@ -209,7 +209,6 @@ getInstances hash sfsRef = runStateQuery sfsRef $
 -- - accountAmount -- an integral non-negative value
 -- - accountCredentials -- a list of versioned credential values.
 -- - accountDelegation -- null or a baker id
--- - accountInstances -- a list of contract instance addresses owned by this account.
 -- - accountEncryptedAmount -- an object detailing the current encrypted balance on the account (which consists of a number of encrypted amounts)
 -- - accountEncryptionKey -- the encryption key others can use to send to this account.
 getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
@@ -222,7 +221,6 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               amount <- BS.getAccountAmount acc
               creds <- BS.getAccountCredentials acc
               baker <- BS.getAccountBaker acc
-              instances <- BS.getAccountInstances acc
               encrypted <- BS.getAccountEncryptedAmount acc
               encryptionKey <- BS.getAccountEncryptionKey acc
               releaseSchedule <- BS.getAccountReleaseSchedule acc
@@ -231,7 +229,6 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
                               , "accountReleaseSchedule" .= releaseSchedule
                                 -- credentials, most recent first
                               ,"accountCredentials" .= map (Versioned 0) creds
-                              ,"accountInstances" .= S.toList instances
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
                               ] <> renderBaker baker

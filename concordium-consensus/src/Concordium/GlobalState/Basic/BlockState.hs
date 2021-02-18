@@ -333,8 +333,6 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad m) where
 
   getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
 
-  getAccountInstances acc = return $ acc ^. accountInstances
-
   getAccountBaker acc = return $ acc ^. accountBaker
 
 instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
@@ -374,8 +372,6 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
             bs' = bs
                 -- Add the instance
                 & blockInstances .~ instances'
-                -- Update the owner account's set of instances
-                & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
 
     bsoPutNewModule bs iface = return $!
         case Modules.putInterface iface (bs ^. blockModules) of

@@ -79,7 +79,6 @@ newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress 
         _accountEncryptionKey = makeEncryptionKey cryptoParams (regId cred),
         _accountCredentials = cred : creds,
         _accountMaxCredentialValidTo = maximum (validTo <$> cs),
-        _accountInstances = Set.empty,
         ..
         },
         _accountNonce = minNonce,
