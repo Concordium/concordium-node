@@ -13,6 +13,7 @@ use twox_hash::XxHash64;
 extern crate log;
 use concordium_node::{read_or_die, spawn_or_die, write_or_die};
 use gotham::{
+    anyhow::*,
     handler::{HandlerError, IntoResponse},
     helpers::http::response::{create_empty_response, create_response},
     middleware::state::StateMiddleware,
@@ -77,36 +78,42 @@ struct ConfigCli {
 pub struct ValidationConfig {
     #[structopt(
         long = "valid-content-length",
+        env = "COLLECTOR_BACKEND_VALID_CONTENT_LENGTH",
         help = "Maximum number of bytes allowed for the message body",
         default_value = "100000"
     )]
     pub valid_content_length: u64,
     #[structopt(
         long = "valid-node-name-lenght",
+        env = "COLLECTOR_BACKEND_VALID_NODE_NAME_LENGHT",
         help = "Maximum number of bytes allowed for the name of the node",
         default_value = "100"
     )]
     pub valid_node_name_lenght: usize,
     #[structopt(
         long = "valid-node-average-ping",
+        env = "COLLECTOR_BACKEND_VALID_NODE_AVERAGE_PING",
         help = "Maximum average ping allowed in milliseconds",
         default_value = "30000"
     )]
     pub valid_node_average_ping: f64,
     #[structopt(
         long = "valid-node-peers-count",
+        env = "COLLECTOR_BACKEND_VALID_NODE_PEERS_COUNT",
         help = "Maximum number for peers count",
         default_value = "50"
     )]
     pub valid_node_peers_count: u64,
     #[structopt(
         long = "validate-against-average-at",
+        env = "COLLECTOR_BACKEND_VALIDATE_AGAINTS_AVERAGE_AT",
         help = "The minimum number of nodes needed to calculate averages for validation",
         default_value = "20"
     )]
     pub validate_against_average_at: u64,
     #[structopt(
         long = "valid-additional-best-block-height",
+        env = "COLLECTOR_BACKEND_VALID_ADDITIONAL_BEST_BLOCK_HEIGHT",
         help = "Maximum additional height of the best block allowed compared to the average best \
                 block height. See also --validate-against-average-at",
         default_value = "1000"
@@ -114,6 +121,7 @@ pub struct ValidationConfig {
     pub valid_additional_best_block_height: u64,
     #[structopt(
         long = "valid-additional-finalized-block-height",
+        env = "COLLECTOR_BACKEND_VALID_ADDITIONAL_FINALIZED_BLOCK_HEIGHT",
         help = "Maximum additional height of the finalized block allowed compared to the average \
                 finalized block height. See also --validate-against-average-at",
         default_value = "1000"
@@ -139,16 +147,19 @@ impl IntoResponse for JSONStringResponse {
     }
 }
 
-type NodeMap = Arc<RwLock<HashMap<String, NodeInfo, BuildHasherDefault<XxHash64>>>>;
+type NodeId = String;
+
+/// Map from a NodeId to the most recent valid NodeInfo.
+type NodeInfoMap = Arc<RwLock<HashMap<NodeId, NodeInfo, BuildHasherDefault<XxHash64>>>>;
 
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    pub nodes:           NodeMap,
+    pub nodes:           NodeInfoMap,
     pub banned_versions: Vec<String>,
 }
 
 impl CollectorStateData {
-    fn new(nodes: NodeMap, banned_versions: Vec<String>) -> Self {
+    fn new(nodes: NodeInfoMap, banned_versions: Vec<String>) -> Self {
         Self {
             nodes,
             banned_versions,
@@ -182,7 +193,7 @@ pub fn main() -> Fallible<()> {
         concordium_node::VERSION
     );
 
-    let node_info_map: NodeMap =
+    let node_info_map: NodeInfoMap =
         Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(1500, Default::default())));
 
     let _allowed_stale_time = conf.stale_time_allowed;
@@ -270,79 +281,58 @@ fn nodes_staging_users_info(state: State) -> (State, JSONStringResponse) {
     (state, JSONStringResponse(String::from_utf8(response).unwrap()))
 }
 
-fn bad_request(message: &'static str) -> HandlerError {
-    HandlerError::from(gotham::anyhow::anyhow!(message)).with_status(StatusCode::BAD_REQUEST)
+async fn nodes_post_handler_wrapper(state: &mut State) -> Result<Response<Body>, HandlerError> {
+    nodes_post_handler(state).await.map_err(|e| {
+        info!("Bad request: {}", e);
+        HandlerError::from(e).with_status(StatusCode::BAD_REQUEST)
+    })
 }
 
-async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, HandlerError> {
+async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Response<Body>> {
     trace!("Processing a post from a node-collector");
     let validation_conf = ValidationConfig::take_from(state);
     let mut body = Body::take_from(state);
-    let content_length = body
-        .size_hint()
-        .exact()
-        .ok_or_else(|| bad_request("Header 'Content-Length' is required"))?;
-    if content_length > validation_conf.valid_content_length {
-        warn!(
-            "Content-Length '{}' is larger than the limit {} set by the collector backend",
-            content_length, validation_conf.valid_content_length
-        );
-        return Err(bad_request(
-            "Content-Length is larger than the limit set by the collector backend",
-        ));
-    }
+    let content_length =
+        body.size_hint().exact().ok_or_else(|| anyhow!("Header 'Content-Length' is required"))?;
+
+    ensure!(
+        content_length <= validation_conf.valid_content_length,
+        "Content-Length is larger than the limit set by the collector backend"
+    );
 
     // Fail if body is larger than content-length
     let body_content = {
         let mut content = Vec::with_capacity(content_length as usize);
         while let Some(buf) = body.data().await {
             let buffer = buf?;
-            if content.len() + buffer.len() > (content_length as usize) {
-                return Err(bad_request("Invalid body"));
-            }
+            ensure!(content.len() + buffer.len() <= (content_length as usize), "Invalid body");
             content.append(&mut buffer.to_vec());
         }
-        if content.len() != content_length as usize {
-            return Err(bad_request("Invalid body"));
-        }
+        ensure!(content.len() == content_length as usize, "Invalid body");
         content
     };
 
     let mut nodes_info: NodeInfo = rmp_serde::decode::from_read(Cursor::new(&body_content))
-        .map_err(|e| {
-            error!("Can't parse client data: {}", e);
-            HandlerError::from(gotham::anyhow::anyhow!("Can't parse client data: {}", e))
-                .with_status(StatusCode::BAD_REQUEST)
-        })?;
+        .context("Can't parse client data")?;
 
-    if nodes_info.nodeName.is_empty() || nodes_info.nodeId.is_empty() {
-        error!("Client submitted data without nodeName or nodeId");
-        return Err(bad_request("nodeName and nodeId cannot be empty"));
+    ensure!(!nodes_info.nodeName.is_empty(), "nodeName cannot be empty");
+    ensure!(!nodes_info.nodeId.is_empty(), "nodeId cannot be empty");
+    ensure!(
+        nodes_info.nodeName.len() <= validation_conf.valid_node_name_lenght,
+        "nodeName is to long too be considered valid"
+    );
+    if let Some(avg_ping) = nodes_info.averagePing {
+        ensure!(
+            avg_ping <= validation_conf.valid_node_average_ping,
+            "Average ping is too high to be considered valid"
+        );
     }
-
-    if nodes_info.nodeName.len() > validation_conf.valid_node_name_lenght {
-        error!("Client submitted data with a nodeName of length {}", nodes_info.nodeName.len());
-        return Err(bad_request("nodeName is to long too be considered valid"));
-    }
-
-    match nodes_info.averagePing {
-        Some(avg_ping) if avg_ping > validation_conf.valid_node_average_ping => {
-            error!("Client submitted data with a average ping of {}", avg_ping);
-            return Err(bad_request("Average ping is too high to be considered valid"));
-        }
-        _ => {}
-    };
-
-    if nodes_info.peersCount > validation_conf.valid_node_peers_count {
-        error!("Client submitted data with a peersCount {}", nodes_info.peersCount);
-        return Err(bad_request("peersCount is too high to be considered valid"));
-    }
-
+    ensure!(
+        nodes_info.peersCount <= validation_conf.valid_node_peers_count,
+        "peersCount is too high to be considered valid"
+    );
     let state_data = CollectorStateData::borrow_from(&state);
-    if state_data.banned_versions.contains(&nodes_info.client) {
-        warn!("Rejecting client due to banned version ({})", nodes_info.client);
-        return Err(bad_request("node version is banned"));
-    }
+    ensure!(!state_data.banned_versions.contains(&nodes_info.client), "node version is banned");
 
     // Check the best block height and finalized block height against the average,
     // if state contains information from enough nodes.
@@ -359,38 +349,21 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
             let avg_best_block_height = sum_best_block_height / len;
             let avg_finalized_block_height = sum_finalized_block_height / len;
 
-            if nodes_info.bestBlockHeight
-                > avg_best_block_height + validation_conf.valid_additional_best_block_height
-            {
-                error!(
-                    "Client submitted data with a best block height '{}', which is to high above \
-                     the average {}",
-                    nodes_info.bestBlockHeight, avg_best_block_height
-                );
-                return Err(bad_request(
-                    "bestBlockHeight is too high above average to be considered valid",
-                ));
-            }
+            ensure!(
+                nodes_info.bestBlockHeight
+                    <= avg_best_block_height + validation_conf.valid_additional_best_block_height,
+                "bestBlockHeight is too high above average to be considered valid",
+            );
 
-            if nodes_info.finalizedBlockHeight
-                > avg_finalized_block_height
-                    + validation_conf.valid_additional_finalized_block_height
-            {
-                error!(
-                    "Client submitted data with a finalized block height '{}', which is to high \
-                     above the average {}",
-                    nodes_info.finalizedBlockHeight, avg_finalized_block_height
-                );
-                return Err(bad_request(
-                    "finalizedBlockHeight is too high above average to be considered valid",
-                ));
-            }
-        } else {
-            warn!("Not enought nodes for checking against the average")
+            ensure!(
+                nodes_info.finalizedBlockHeight
+                    <= avg_finalized_block_height
+                        + validation_conf.valid_additional_finalized_block_height,
+                "finalizedBlockHeight is too high above average to be considered valid",
+            );
         }
     }
 
-    info!("node update from {}", nodes_info.nodeId);
     nodes_info.last_updated = get_current_stamp();
     write_or_die!(state_data.nodes).insert(nodes_info.nodeId.clone(), nodes_info);
 
@@ -398,7 +371,7 @@ async fn nodes_post_handler_async(state: &mut State) -> Result<Response<Body>, H
 }
 
 pub fn router(
-    node_info_map: NodeMap,
+    node_info_map: NodeInfoMap,
     banned_versions: Vec<String>,
     validation_config: ValidationConfig,
 ) -> Router {
@@ -416,7 +389,7 @@ pub fn router(
         route.get("/data/nodesBlocksInfo").to(nodes_block_info);
         route.get("/nodesStagingNetUsers").to(nodes_staging_users_info);
         route.get("/data/nodesStagingNetUsers").to(nodes_staging_users_info);
-        route.post("/nodes/post").to_async_borrowing(nodes_post_handler_async);
-        route.post("/post/nodes").to_async_borrowing(nodes_post_handler_async);
+        route.post("/nodes/post").to_async_borrowing(nodes_post_handler_wrapper);
+        route.post("/post/nodes").to_async_borrowing(nodes_post_handler_wrapper);
     })
 }
