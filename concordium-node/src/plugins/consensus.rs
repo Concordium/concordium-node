@@ -454,23 +454,13 @@ fn update_peer_states(
                 }
             }
             ConsensusFfiResponse::InvalidResult => {
-                if let Some(token) = node.find_conn_token_by_id(P2PNodeId(source_peer)) {
-                    // Remove the peer since it is incompatible with us.
-                    debug!(
-                        "Catching up with peer {:016x} resulted in incompatible globalstates, \
-                         dropping and soft-banning",
-                        source_peer
-                    );
-                    node.register_conn_change(ConnChange::ExpulsionByToken(token));
-                } else {
-                    // Connection no longer exists
-                    debug!(
-                        "Catch-up-in-progress peer {:016x} no longer exists, but it was \
-                         incompatible",
-                        source_peer
-                    );
-                    node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
-                }
+                // Remove the peer since it is incompatible with us.
+                debug!(
+                    "Catching up with peer {:016x} resulted in incompatible globalstates, \
+                     dropping and soft-banning",
+                    source_peer
+                );
+                node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
             }
             _ => {}
         }

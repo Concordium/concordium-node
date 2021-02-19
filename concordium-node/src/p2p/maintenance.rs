@@ -677,6 +677,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         }
         ConnChange::ExpulsionById(remote_id) => {
             warn!("Soft-banning remote id {} due to a breach of protocol", remote_id);
+            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
             write_or_die!(node.connection_handler.soft_bans).insert(
                 BanId::NodeId(remote_id),
                 Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
