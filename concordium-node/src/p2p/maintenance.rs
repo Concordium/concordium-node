@@ -665,7 +665,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 }
             }
         }
-        ConnChange::Expulsion(token) => {
+        ConnChange::ExpulsionByToken(token) => {
             if let Some(remote_peer) = node.remove_connection(token) {
                 let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
@@ -673,7 +673,16 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     BanId::Ip(ip),
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                 );
+                update_peer_list(node);
             }
+        }
+        ConnChange::ExpulsionById(remote_id) => {
+            warn!("Soft-banning remote id {} due to a breach of protocol", remote_id);
+            write_or_die!(node.connection_handler.soft_bans).insert(
+                BanId::NodeId(remote_id),
+                Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
+            );
+            update_peer_list(node);
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
