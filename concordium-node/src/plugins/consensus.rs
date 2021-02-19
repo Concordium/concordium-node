@@ -18,7 +18,6 @@ use crate::{
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
     p2p::{
-        bans::BanId,
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
     },
@@ -33,7 +32,6 @@ use std::{
     io::{Cursor, Read},
     path::PathBuf,
     sync::Arc,
-    time::{Duration, Instant},
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
@@ -463,7 +461,7 @@ fn update_peer_states(
                          dropping and soft-banning",
                         source_peer
                     );
-                    node.register_conn_change(ConnChange::Expulsion(token));
+                    node.register_conn_change(ConnChange::ExpulsionByToken(token));
                 } else {
                     // Connection no longer exists
                     debug!(
@@ -471,16 +469,8 @@ fn update_peer_states(
                          incompatible",
                         source_peer
                     );
-                    warn!("Soft-banning node id {} due to a breach of protocol", source_peer);
-                    write_or_die!(node.connection_handler.soft_bans).insert(
-                        BanId::NodeId(P2PNodeId(source_peer)),
-                        Instant::now() + Duration::from_secs(configuration::SOFT_BAN_DURATION_SECS),
-                    );
+                    node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
                 }
-                if peers.catch_up_peer == Some(source_peer) {
-                    peers.catch_up_peer = None;
-                }
-                peers.peer_states.remove(&source_peer);
             }
             _ => {}
         }
