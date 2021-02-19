@@ -673,7 +673,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     BanId::Ip(ip),
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                 );
-                update_peer_list(node);
             }
         }
         ConnChange::ExpulsionById(remote_id) => {
@@ -682,7 +681,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 BanId::NodeId(remote_id),
                 Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
             );
-            update_peer_list(node);
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
