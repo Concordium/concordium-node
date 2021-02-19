@@ -13,9 +13,10 @@ module Concordium.GlobalState.Basic.BlockState.Account(
   module Concordium.GlobalState.Basic.BlockState.Account
 ) where
 
-import Data.List.NonEmpty (NonEmpty(..))
+-- import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Set as Set
 import qualified Data.Serialize as S
+import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -26,6 +27,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.Types
+import Concordium.Types.Transactions(getAccountInformation)
 
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data Account = Account {
@@ -72,14 +74,17 @@ instance HashableTo Hash.Hash Account where
     where
       bkrHash = maybe nullAccountBakerHash getHash _accountBaker
 
+
+
 -- |Create an empty account with the given public key, address and credentials.
-newAccountMultiCredential :: GlobalContext -> AccountKeys -> AccountAddress -> NonEmpty AccountCredential -> Account
-newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress cs@(cred :| creds) = Account {
+newAccountMultiCredential :: GlobalContext -> AccountThreshold -> AccountAddress -> Map.Map KeyIndex AccountCredential -> Account
+newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountPersisting = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId cred),
-        _accountCredentials = cred : creds,
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! 0)),
+        _accountCredentials = cs,
         _accountMaxCredentialValidTo = maximum (validTo <$> cs),
         _accountInstances = Set.empty,
+        _accountVerificationKeys = getAccountInformation threshold cs,
         ..
         },
         _accountNonce = minNonce,
@@ -90,6 +95,6 @@ newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress 
     }
 
 -- |Create an empty account with the given public key, address and credential.
-newAccount :: GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account
-newAccount cryptoParams _accountVerificationKeys _accountAddress credential
-    = newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress (credential :| [])
+newAccount :: GlobalContext -> AccountAddress -> AccountCredential -> Account
+newAccount cryptoParams _accountAddress credential
+    = newAccountMultiCredential cryptoParams 1 _accountAddress (Map.singleton 0 credential)

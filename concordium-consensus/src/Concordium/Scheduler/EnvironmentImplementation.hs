@@ -164,9 +164,9 @@ instance (MonadReader ContextState m,
     return caddr
 
   {-# INLINE createAccount #-}
-  createAccount cparams akeys addr credential = do
+  createAccount cparams addr credential = do
     s <- use schedulerBlockState
-    (res, s') <- lift (bsoCreateAccount s cparams akeys addr credential)
+    (res, s') <- lift (bsoCreateAccount s cparams addr credential)
     schedulerBlockState .= s'
     return res
 
@@ -188,11 +188,11 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auNonce ?~ (nonce + 1)))
     schedulerBlockState .= s'
 
-  {-# INLINE addAccountCredential #-}
-  addAccountCredential !acc !cdi = do
+  {-# INLINE addAccountCredentials #-}
+  addAccountCredentials !acc !creds = do
     s <- use schedulerBlockState
     addr <- getAccountAddress acc
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredential ?~ cdi))
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredentials ?~ creds))
     schedulerBlockState .= s'
 
   {-# INLINE commitChanges #-}

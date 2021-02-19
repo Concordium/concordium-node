@@ -32,7 +32,7 @@ import Prelude hiding(mod, exp)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |Sign a transaction with the given list of keys.
-signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
+signTx :: [(KeyIndex, [(KeyIndex, KeyPair)])] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
 signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
@@ -213,6 +213,6 @@ data TransactionHeader = TransactionHeader {
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader
                              , payload :: PayloadJSON
-                             , keys :: [(KeyIndex, KeyPair)]
+                             , keys :: [(KeyIndex, [(KeyIndex, KeyPair)])]
                              }
   deriving(Show,Generic)

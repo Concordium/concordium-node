@@ -37,7 +37,7 @@ import Concordium.GlobalState.Basic.BlockState.Updates
 import qualified Concordium.Types.Transactions as Transactions
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.Types.SeedState
-import Concordium.ID.Types (regId)
+import Concordium.ID.Types (credId)
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
 
@@ -355,16 +355,16 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
     {-# INLINE bsoRegIdExists #-}
     bsoRegIdExists bs regid = return (Accounts.regIdExists regid (bs ^. blockAccounts))
 
-    bsoCreateAccount bs gc keys addr cred = return $ 
+    bsoCreateAccount bs gc addr cred = return $ 
             if Accounts.exists addr accounts then
               (Nothing, bs)
             else
               (Just acct, bs & blockAccounts .~ newAccounts)
         where
-            acct = newAccount gc keys addr cred
+            acct = newAccount gc addr cred
             accounts = bs ^. blockAccounts
             newAccounts = Accounts.putAccount acct $
-                          Accounts.recordRegId (regId cred)
+                          Accounts.recordRegId (credId cred)
                           accounts
 
     bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
@@ -387,11 +387,11 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
-        (case accountUpdates ^. auCredential of
+        (case accountUpdates ^. auCredentials of
              Nothing -> bs & blockAccounts %~ Accounts.putAccount updatedAccount
-             Just cdi ->
+             Just creds ->
                bs & blockAccounts %~ Accounts.putAccount updatedAccount
-                                   . Accounts.recordRegId (regId cdi))
+                                   . Accounts.recordRegIds (Map.elems $ credId <$> creds))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account
@@ -713,7 +713,7 @@ genesisState GenesisDataV2{..} = BlockState {..}
     mkAccount GenesisAccount{..} bid =
           case gaBaker of
             Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
-            _ -> newAccountMultiCredential genesisCryptographicParameters gaVerifyKeys gaAddress gaCredentials
+            _ -> newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
                       & accountAmount .~ gaBalance
                       & case gaBaker of
                           Nothing -> id

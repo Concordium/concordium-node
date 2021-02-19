@@ -230,7 +230,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
                               ,"accountAmount" .= amount
                               , "accountReleaseSchedule" .= releaseSchedule
                                 -- credentials, most recent first
-                              ,"accountCredentials" .= map (Versioned 0) creds
+                              ,"accountCredentials" .= fmap (Versioned 0) creds
                               ,"accountInstances" .= S.toList instances
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
