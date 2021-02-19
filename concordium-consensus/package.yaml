@@ -58,6 +58,7 @@ dependencies:
 - lmdb
 
 default-extensions:
+- DataKinds
 - RecordWildCards
 - LambdaCase
 - TupleSections
@@ -197,6 +198,7 @@ executables:
                 ghc-options: -static
     dependencies:
     - concordium-consensus
+    - clock
 
 
   database-exporter:

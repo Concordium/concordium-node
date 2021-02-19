@@ -1,8 +1,8 @@
 {-# LANGUAGE
     BangPatterns,
     OverloadedStrings,
-    CPP,
-    ScopedTypeVariables #-}
+    ScopedTypeVariables,
+    TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -48,6 +48,9 @@ import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState.DummyData (dummyAuthorizations)
+
+-- Protocol version
+type PV = 'P0
 
 nContracts :: Int
 nContracts = 2
@@ -108,7 +111,7 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
             now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getExactVersionedBlock now) blockBS of
+                    case runGet (getExactVersionedBlock @ PV now) blockBS of
                         Right (NormalBlock !block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
@@ -187,12 +190,12 @@ dummyArs = emptyAnonymityRevokers
 --makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
 --uncomment if wanting paired config
-type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 makeGlobalStateConfig rp genData =
    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
+type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
 
 main :: IO ()
 main = do

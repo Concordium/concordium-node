@@ -68,6 +68,9 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
+-- |Protocol version
+type PV = 'P0
+
 isActiveCurrentRound :: FinalizationCurrentRound -> Bool
 isActiveCurrentRound (ActiveCurrentRound _) = True
 isActiveCurrentRound _ = False
@@ -79,7 +82,7 @@ type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 type NFCUS = Map.Map UpdateType NonFinalizedChainUpdates
 
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
 finalizationParameters finComSize = defaultFinalizationParameters{finalizationCommitteeMaxSize = finComSize}
@@ -93,7 +96,7 @@ defaultMaxFinComSize = 1000
 maxFinComSizeChangingFinCommittee :: FinalizationCommitteeSize
 maxFinComSizeChangingFinCommittee = 10
 
-invariantSkovData :: TS.SkovData BState.HashedBlockState -> Either String ()
+invariantSkovData :: TS.SkovData PV (BState.HashedBlockState PV) -> Either String ()
 invariantSkovData TS.SkovData{..} = addContext $ do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
@@ -224,7 +227,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         notDeadOrPending _ = True
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
-        checkEpochs :: BasicBlockPointer BState.HashedBlockState -> Either String ()
+        checkEpochs :: BasicBlockPointer PV (BState.HashedBlockState PV) -> Either String ()
         checkEpochs bp = do
             let params = BState._blockBirkParameters (BState._unhashedBlockState (BS._bpState bp))
                 seedState = BState._birkSeedState params
@@ -528,7 +531,7 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
     where
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
-        gen = GenesisDataV2 {
+        gen = GDP0 GenesisDataV2 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
                 genesisSeedState = seedState,

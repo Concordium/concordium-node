@@ -19,16 +19,16 @@ import Test.QuickCheck
 import Test.Hspec
 
 blockA :: Val
-blockA = T.BlockHashV0 (H.hash "A")
+blockA = T.BlockHash (H.hash "A")
 
 blockB :: Val
-blockB = T.BlockHashV0 (H.hash "B")
+blockB = T.BlockHash (H.hash "B")
 
 blockC :: Val
-blockC = T.BlockHashV0 (H.hash "C")
+blockC = T.BlockHash (H.hash "C")
 
 blockD :: Val
-blockD = T.BlockHashV0 (H.hash "D")
+blockD = T.BlockHash (H.hash "D")
 
 blocks :: [Val]
 blocks = [blockA, blockB, blockC, blockD]

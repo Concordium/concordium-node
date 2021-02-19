@@ -4,7 +4,6 @@
 module Concordium.GlobalState.Persistent.BlockPointer where
 
 import Concordium.GlobalState.Block
-import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Parameters
 import Concordium.Types
@@ -14,10 +13,9 @@ import Control.Monad.IO.Class
 import qualified Data.List as List
 import Data.Time.Clock
 import System.Mem.Weak
-import Data.Serialize
 import Concordium.Logger
 
-type PersistentBlockPointer ati = BlockPointer ati Weak
+type PersistentBlockPointer pv ati = BlockPointer pv ati Weak
 
 -- |Create an empty weak pointer
 --
@@ -31,11 +29,12 @@ emptyWeak = do
   return pointer
 
 -- |Creates a persistent block pointer with the provided block and metadata. Should not be called directly.
-makePersistentBlockPointer :: (Monad m) => Block                               -- ^Pending block
+makePersistentBlockPointer :: (IsProtocolVersion pv, Monad m)
+                           => Block pv                               -- ^Pending block
                            -> Maybe BlockHash                    -- ^Precomputed hash of this block. If not provided, it will be computed in-place.
                            -> BlockHeight                        -- ^Height of the block
-                           -> Weak (PersistentBlockPointer ati bs)    -- ^Parent block pointer
-                           -> Weak (PersistentBlockPointer ati bs)    -- ^Last finalized block pointer
+                           -> Weak (PersistentBlockPointer pv ati bs)    -- ^Parent block pointer
+                           -> Weak (PersistentBlockPointer pv ati bs)    -- ^Last finalized block pointer
                            -> BlockHash                          -- ^Last finalized block hash
                            -> bs                                 -- ^Block state
                            -> ati                                -- ^Account index table for this block
@@ -44,7 +43,7 @@ makePersistentBlockPointer :: (Monad m) => Block                               -
                            -> Maybe Int                          -- ^Transaction count (only non available if we are upgrading a pending block)
                            -> Maybe Int                          -- ^Transction size (only non available if we are upgrading a pending block)
                            -> Energy                       -- ^Energy cost of all transactions in the block. If not provided, it will be computed in-place.
-                           -> m (PersistentBlockPointer ati bs)
+                           -> m (PersistentBlockPointer pv ati bs)
 makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFinalizedHash _bpState _bpATI _bpArriveTime _bpReceiveTime txcount txsize _bpTransactionsEnergyCost = do
   let _bpHash = maybe (getHash b) id hs
   return $ BlockPointer {
@@ -62,15 +61,15 @@ makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFina
 -- do block with Weak pointers results in the pointer being deallocated immediately so instead of doing that
 -- we will just put empty pointers there. In any case, when reading those values, if the block is the genesis
 -- block we don't even deref these pointers so they can be empty.
-makeGenesisPersistentBlockPointer :: (MonadIO m) =>
-                                    GenesisData
+makeGenesisPersistentBlockPointer :: forall pv m bs ati. (IsProtocolVersion pv, MonadIO m) =>
+                                    GenesisData pv
                                   -> bs
                                   -> ati
-                                  -> m (PersistentBlockPointer ati bs)
+                                  -> m (PersistentBlockPointer pv ati bs)
 makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
-  let _bpReceiveTime = timestampToUTCTime (genesisTime genData)
+  let _bpReceiveTime = timestampToUTCTime (gdGenesisTime genData)
       b = GenesisBlock genData
-      _bpHash = BlockHashV0 . Hash.hashLazy . runPutLazy $ put genesisSlot <> put genData
+      _bpHash = hashGenesisData (protocolVersion :: SProtocolVersion pv) genData
   _bpParent <- emptyWeak
   _bpLastFinalized <- emptyWeak
   return $ BlockPointer {
@@ -86,15 +85,15 @@ makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
       ..}
 
 -- |Converts a Pending Block into a PersistentBlockPointer
-makePersistentBlockPointerFromPendingBlock :: forall m ati bs. (MonadLogger m, MonadIO m) =>
+makePersistentBlockPointerFromPendingBlock :: forall pv m ati bs. (IsProtocolVersion pv, MonadLogger m, MonadIO m) =>
                                    PendingBlock      -- ^Pending block
-                                 -> PersistentBlockPointer ati bs  -- ^Parent block
-                                 -> PersistentBlockPointer ati bs  -- ^Last finalized block
+                                 -> PersistentBlockPointer pv ati bs  -- ^Parent block
+                                 -> PersistentBlockPointer pv ati bs  -- ^Last finalized block
                                  -> bs                             -- ^Block state
                                  -> ati                         -- ^Account transaction index table for this block
                                  -> UTCTime                     -- ^Block arrival time
                                  -> Energy                      -- ^Energy cost of all transactions in the block
-                                 -> m (PersistentBlockPointer ati bs)
+                                 -> m (PersistentBlockPointer pv ati bs)
 makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
   (parentW, lfinW) <- liftIO $ do
     parentW <- mkWeakPtr parent Nothing
@@ -110,11 +109,11 @@ makePersistentBlockPointerFromPendingBlock pb parent lfin st ati arr ene = do
 
 -- | Create an unlinked persistent block pointer
 makeBlockPointerFromPersistentBlock :: (MonadIO m) =>
-                                      Block                      -- ^Block deserialized as retrieved from the disk
+                                      Block pv                   -- ^Block deserialized as retrieved from the disk
                                     -> bs                        -- ^Block state
                                     -> ati                       -- ^Account index table for this block
                                     -> BasicBlockPointerData     -- ^Block info
-                                    -> m (PersistentBlockPointer ati bs)
+                                    -> m (PersistentBlockPointer pv ati bs)
 makeBlockPointerFromPersistentBlock _bpBlock _bpState _bpATI _bpInfo = liftIO $ do
   _bpParent <- emptyWeak
   _bpLastFinalized <- emptyWeak

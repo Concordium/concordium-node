@@ -326,34 +326,34 @@ deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
 deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r w state m)
 
 -- Pure block state scheduler state
-type PBSSS = NoLogSchedulerState (PureBlockStateMonad Identity)
+type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
 -- newtype wrapper to forget the automatic writer instance so we can repurpose it for logging.
-newtype RWSTBS m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] PBSSS m a}
-  deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS, MonadTrans)
+newtype RWSTBS pv m a = RWSTBS {_runRWSTBS :: RWST ContextState [(LogSource, LogLevel, String)] (PBSSS pv) m a}
+  deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv), MonadTrans)
 
-instance Monad m => MonadWriter () (RWSTBS m) where
+instance Monad m => MonadWriter () (RWSTBS pv m) where
   tell _ = return ()
   listen = fmap (,())
   pass = fmap fst
 
 -- |Basic implementation of the scheduler that does no transaction logging.
-newtype SchedulerImplementation a = SchedulerImplementation { _runScheduler :: RWSTBS (PureBlockStateMonad Identity) a }
-    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState PBSSS)
+newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
+    deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, MonadLogger)
-      via (BSOMonadWrapper ContextState () PBSSS (MGSTrans RWSTBS (PureBlockStateMonad Identity)))
+      via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
-instance Monad m => MonadLogger (RWSTBS m) where
+instance Monad m => MonadLogger (RWSTBS pv m) where
   logEvent source level event = RWSTBS (RWST (\_ s -> return ((), s, [(source, level, event)])))
 
-deriving via (PureBlockStateMonad Identity) instance GS.BlockStateTypes SchedulerImplementation
+deriving via (PureBlockStateMonad pv Identity) instance GS.BlockStateTypes (SchedulerImplementation pv)
 
-deriving via (BSOMonadWrapper ContextState () PBSSS (MGSTrans RWSTBS (PureBlockStateMonad Identity))) instance
-  SchedulerMonad SchedulerImplementation
+deriving via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
+  (IsProtocolVersion pv) => SchedulerMonad (SchedulerImplementation pv)
 
-instance ATITypes SchedulerImplementation where
-  type ATIStorage SchedulerImplementation = ()
+instance ATITypes (SchedulerImplementation pv) where
+  type ATIStorage (SchedulerImplementation pv) = ()
 
-runSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> (a, PBSSS)
+runSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> (a, PBSSS pv)
 runSI sc cd energy maxCreds gs =
   let (a, s, !_) =
         runIdentity $
@@ -362,20 +362,20 @@ runSI sc cd energy maxCreds gs =
   in (a, s)
 
 -- |Same as the previous method, but retain the logs of the run.
-runSIWithLogs :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> (a, PBSSS, [(LogSource, LogLevel, String)])
+runSIWithLogs :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> (a, PBSSS pv, [(LogSource, LogLevel, String)])
 runSIWithLogs sc cd energy maxCreds gs =
   runIdentity $
   runPureBlockStateMonad $
   runRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs)
 
 
-execSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> PBSSS
+execSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> PBSSS pv
 execSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $
        execRWST (_runRWSTBS . _runScheduler $ sc) (ContextState cd energy maxCreds) (mkInitialSS gs))
 
-evalSI :: SchedulerImplementation a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState -> a
+evalSI :: SchedulerImplementation pv a -> ChainMetadata -> Energy -> CredentialsPerBlockLimit -> BlockState pv -> a
 evalSI sc cd energy maxCreds gs =
   fst (runIdentity $
        runPureBlockStateMonad $

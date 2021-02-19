@@ -140,7 +140,7 @@ makeTestingGenesisData ::
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> Authorizations -- ^Initial update authorizations
     -> ChainParameters -- ^Initial chain parameters
-    -> GenesisData
+    -> GenesisDataV2
 makeTestingGenesisData
   genesisTime
   nBakers
@@ -197,7 +197,7 @@ dummyChainParameters :: ChainParameters
 dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 168 10 dummyRewardParameters 0
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: Accounts -> BlockState
+createBlockState :: Accounts -> BlockState 'P0
 createBlockState accounts =
     emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
       (blockAccounts .~ accounts) .
@@ -206,7 +206,7 @@ createBlockState accounts =
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
+blockStateWithAlesAccount :: Amount -> Accounts -> BlockState 'P0
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 

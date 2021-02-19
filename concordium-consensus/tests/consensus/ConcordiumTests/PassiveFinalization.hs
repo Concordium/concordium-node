@@ -50,10 +50,13 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 -- for cases where finalization messages are received out of order (i.e. messages for a later
 -- finalization round arrive before the messages for an earlier finalization round).
 
+-- |Protocol version
+type PV = 'P0
+
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip=100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
@@ -205,7 +208,7 @@ bake bid n = do
           (\BS.BlockPointer {_bpBlock = NormalBlock block} -> return block)
           mb
 
-store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
+store :: (SkovMonad PV m, MonadFail m) => BakedBlock -> m ()
 store block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> return()
     result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result
@@ -273,7 +276,7 @@ createInitStates additionalFinMembers = do
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GenesisDataV2 {
+        gen = GDP0 GenesisDataV2 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
                 genesisSeedState = seedState,

@@ -116,7 +116,7 @@ makeGenesisData ::
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> Authorizations -- ^Authorizations for chain updates
     -> ChainParameters -- ^Initial chain parameters
-    -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
+    -> (GenesisData 'P0, [(BakerIdentity, FullBakerInfo)])
 makeGenesisData
         genesisTime
         nBakers
@@ -129,7 +129,7 @@ makeGenesisData
         genesisMaxBlockEnergy
         genesisAuthorizations
         genesisChainParameters
-    = (GenesisDataV2{..}, bakers)
+    = (GDP0 GenesisDataV2{..}, bakers)
     where
         genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         mbkrs = makeBakers nBakers

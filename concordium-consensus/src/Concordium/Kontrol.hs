@@ -19,29 +19,29 @@ import Concordium.Afgjort.Finalize.Types
 currentTimestamp :: (TimeMonad m) => m Timestamp
 currentTimestamp = utcTimeToTimestamp <$> currentTime
 
-timeUntilNextSlot :: (TimeMonad m, SkovQueryMonad m) => m NominalDiffTime
+timeUntilNextSlot :: (TimeMonad m, SkovQueryMonad pv m) => m NominalDiffTime
 timeUntilNextSlot = do
     gen <- getGenesisData
     now <- utcTimeToPOSIXSeconds <$> currentTime
-    return $ (0.001 * fromIntegral (tsMillis (genesisTime gen)) - now) `mod'` (durationToNominalDiffTime (genesisSlotDuration gen))
+    return $ (0.001 * fromIntegral (tsMillis (gdGenesisTime gen)) - now) `mod'` (durationToNominalDiffTime (gdSlotDuration gen))
 
-getCurrentSlot :: (TimeMonad m, SkovQueryMonad m) => m Slot
+getCurrentSlot :: (TimeMonad m, SkovQueryMonad pv m) => m Slot
 getCurrentSlot = do
         gen <- getGenesisData
         ct <- currentTimestamp
-        return $ Slot $ if ct <= genesisTime gen
+        return $ Slot $ if ct <= gdGenesisTime gen
                           then 0
-                          else fromIntegral ((tsMillis $ ct - genesisTime gen) `div` durationMillis (genesisSlotDuration gen))
+                          else fromIntegral ((tsMillis $ ct - gdGenesisTime gen) `div` durationMillis (gdSlotDuration gen))
 
 -- |Get the timestamp at the beginning of the given slot.
-getSlotTimestamp :: (SkovQueryMonad m) => Slot -> m Timestamp
+getSlotTimestamp :: (SkovQueryMonad pv m) => Slot -> m Timestamp
 getSlotTimestamp slot = do
   gen <- getGenesisData
   -- We should be safe with respect to any overflow issues here since Timestamp is Word64
-  return (addDuration (genesisTime gen) (genesisSlotDuration gen * fromIntegral slot))
+  return (addDuration (gdGenesisTime gen) (gdSlotDuration gen * fromIntegral slot))
 
 -- |Select the finalization committee based on bakers from the given block.
-getFinalizationCommittee :: (SkovQueryMonad m) => BlockPointerType m -> m FinalizationCommittee
+getFinalizationCommittee :: (SkovQueryMonad pv m) => BlockPointerType m -> m FinalizationCommittee
 getFinalizationCommittee bp = do
        finParams <- getFinalizationParameters
        blockState <- queryBlockState bp

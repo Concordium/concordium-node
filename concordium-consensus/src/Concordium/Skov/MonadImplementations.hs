@@ -53,30 +53,33 @@ import Concordium.Afgjort.Buffer
 
 type RWSTIO c = RWST (Identity (GSContext c)) () (Identity (GSState c)) LogIO
 
-type BlockStateType c = BlockStateM
+type BlockStateType pv c = BlockStateM
+                        pv
                         (GSContext c)
                         (Identity (GSContext c))
                         (GSState c)
                         (Identity (GSState c))
                         (RWSTIO c)
 
-type TreeStateType c = TreeStateBlockStateM
+type TreeStateType pv c = TreeStateBlockStateM
+                       pv
                        (GSState c)
                        (GSContext c)
                        (Identity (GSContext c))
                        (Identity (GSState c))
                        (RWSTIO c)
 
-type GlobalStateQuery c = (BlockStateStorage (BlockStateType c), TreeStateMonad (TreeStateType c))
+type GlobalStateQuery pv c = (BlockStateStorage (BlockStateType pv c), TreeStateMonad pv (TreeStateType pv c))
 
 -- |This is a convenience wrapper that automatically implements SkovQueryMonad via SkovQueryMonadT
 -- instance.
-type GlobalState c =
-  GlobalStateM NoLogContext (GSContext c) (Identity (GSContext c)) (GSState c) (Identity (GSState c)) (RWSTIO c)
+type GlobalState pv c =
+  GlobalStateM pv NoLogContext (GSContext c) (Identity (GSContext c)) (GSState c) (Identity (GSState c)) (RWSTIO c)
 
 
-getFinalizationState :: forall c timer . GlobalStateQuery c
-                     => Proxy c
+getFinalizationState :: forall pv c timer. GlobalStateQuery pv c
+                     => Proxy pv
+                     -> Proxy c
                      -- ^Dummy type to fix the type variable 'c' which does not appear in the result type
                      -- and is not uniquely determined by GSContext or GSState since they are non-injective
                      -- type families.
@@ -85,16 +88,19 @@ getFinalizationState :: forall c timer . GlobalStateQuery c
                      -> Maybe FinalizationInstance
                      -- ^Just finInst if active finalization, Nothing if keys are not available.
                      -> LogIO (FinalizationState timer)
-getFinalizationState Proxy (gsCtx, gsState) mInst = fst <$> evalRWST (runGlobalStateM comp) (Identity gsCtx) (Identity gsState)
-  where comp :: GlobalState c (FinalizationState timer)
+getFinalizationState _ _ (gsCtx, gsState) mInst = fst <$> evalRWST (runGlobalStateM comp) (Identity gsCtx) (Identity gsState)
+  where comp :: GlobalState pv c (FinalizationState timer)
         comp = recoverFinalizationState mInst
 
 -- |An instance @c@ of 'SkovConfiguration' defines a configuration for
 -- executing the 'SkovT' monad.
 class (
+        IsProtocolVersion (SkovProtocolVersion c),
         HasGlobalStateContext (SkovGSContext c) (SkovContext c),
         HasGlobalState (SkovGSState c) (SkovState c)
         ) => SkovConfiguration c where
+    -- |The protocol version for the configuration.
+    type SkovProtocolVersion c :: ProtocolVersion
     -- |The type of contexts (i.e. read only data) for the configuration type.
     data SkovContext c
     -- |The type of states for the configuration type.
@@ -183,8 +189,8 @@ newtype SkovT h c m a = SkovT { runSkovT' :: h -> SkovContext c -> StateT (SkovS
         via (ReaderT h (ReaderT (SkovContext c) (StateT (SkovState c) m)))
 
 -- GlobalStateM using config abstractions
-type SkovTGSM h c m = GlobalStateM (SkovLogContext c) (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)
-type SkovTTBM h c m = TreeStateBlockStateM (SkovGSState c) (SkovGSContext c) (SkovContext c) (SkovState c) (SkovT h c m)
+type SkovTGSM h c m = GlobalStateM (SkovProtocolVersion c) (SkovLogContext c) (SkovGSContext c) (SkovContext c) (SkovGSState c) (SkovState c) (SkovT h c m)
+type SkovTTBM h c m = TreeStateBlockStateM (SkovProtocolVersion c) (SkovGSState c) (SkovGSContext c) (SkovContext c) (SkovState c) (SkovT h c m)
 
 runSkovT :: SkovT h c m a -> h -> SkovContext c -> SkovState c -> m (a, SkovState c)
 runSkovT (SkovT a) h c = runStateT (a h c)
@@ -251,14 +257,15 @@ deriving via SkovTGSM h c' m
 
 deriving via SkovTGSM h c' m
     instance (Monad m,
-              TreeStateMonad (SkovTGSM h c' m))
-              => TreeStateMonad (SkovT h c' m)
+              IsProtocolVersion pv,
+              TreeStateMonad pv (SkovTGSM h c' m))
+              => TreeStateMonad pv (SkovT h c' m)
 
 deriving via SkovQueryMonadT (SkovT h c m) instance (
-        Monad m,
+        IsProtocolVersion pv,
         BlockStateQuery (SkovT h c m),
-        TreeStateMonad (SkovT h c m)
-        ) => SkovQueryMonad (SkovT h c m)
+        TreeStateMonad pv (SkovT h c m)
+        ) => SkovQueryMonad pv (SkovT h c m)
 
 instance (
         Monad m,
@@ -266,9 +273,10 @@ instance (
         MonadLogger m,
         OnSkov (SkovT h c m),
         BlockStateStorage (SkovT h c m),
-        TreeStateMonad (SkovT h c m),
-        FinalizationMonad (SkovT h c m))
-        => SkovMonad (SkovT h c m) where
+        TreeStateMonad pv (SkovT h c m),
+        FinalizationMonad (SkovT h c m),
+        pv ~ SkovProtocolVersion c)
+        => SkovMonad pv (SkovT h c m) where
     {- - INLINE storeBlock - -}
     storeBlock = doStoreBlock
     {- - INLINE receiveTransaction - -}
@@ -278,20 +286,20 @@ instance (
     {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
 
-class GlobalStateQuery gsconf => FinalizationConfig gsconf c | c -> gsconf where
+class GlobalStateQuery (SkovProtocolVersion c) gsconf => FinalizationConfig gsconf c | c -> gsconf where
     type FCContext c
     type FCState c
     initialiseFinalization :: c -> (GSContext gsconf, GSState gsconf) -> LogIO (FCContext c, FCState c)
 
-data SkovConfig gsconfig finconfig handlerconfig = SkovConfig gsconfig !finconfig !handlerconfig
+data SkovConfig (pv :: ProtocolVersion) gsconfig finconfig handlerconfig = SkovConfig gsconfig !finconfig !handlerconfig
 
 data NoFinalization (t :: Type) = NoFinalization
 
-instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf (NoFinalization t) hconf) where
-    type FCContext (SkovConfig gsconf (NoFinalization t) hconf) = ()
-    type FCState (SkovConfig gsconf (NoFinalization t) hconf) = FinalizationState t
+instance GlobalStateQuery pv gsconf => FinalizationConfig gsconf (SkovConfig pv gsconf (NoFinalization t) hconf) where
+    type FCContext (SkovConfig pv gsconf (NoFinalization t) hconf) = ()
+    type FCState (SkovConfig pv gsconf (NoFinalization t) hconf) = FinalizationState t
     initialiseFinalization (SkovConfig _ NoFinalization _) gs = do
-      ((),) <$> getFinalizationState (Proxy @ gsconf) gs Nothing
+      ((),) <$> getFinalizationState (Proxy @ pv) (Proxy @ gsconf) gs Nothing
     {- - INLINE initialiseFinalization - -}
 
 -- This provides an implementation of FinalizationOutputMonad that does nothing.
@@ -299,20 +307,20 @@ instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf
 -- finalization is expected.  However, in future, it would be nice if the type signatures
 -- in finalization meant that this instance is not required.
 instance (Monad m)
-        => FinalizationOutputMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m) where
+        => FinalizationOutputMonad (SkovT h (SkovConfig pv gc (NoFinalization t) hc) m) where
     broadcastFinalizationPseudoMessage _ = return ()
 
 data ActiveFinalization (t :: Type) = ActiveFinalization !FinalizationInstance
 
-instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf (ActiveFinalization t) hc) where
-    type FCContext (SkovConfig gsconf (ActiveFinalization t) hc) = FinalizationInstance
-    type FCState (SkovConfig gsconf (ActiveFinalization t) hc) = FinalizationState t
+instance GlobalStateQuery pv gsconf => FinalizationConfig gsconf (SkovConfig pv gsconf (ActiveFinalization t) hc) where
+    type FCContext (SkovConfig pv gsconf (ActiveFinalization t) hc) = FinalizationInstance
+    type FCState (SkovConfig pv gsconf (ActiveFinalization t) hc) = FinalizationState t
     initialiseFinalization (SkovConfig _ (ActiveFinalization finInst) _) gs = do
-      (finInst,) <$> getFinalizationState (Proxy @ gsconf) gs (Just finInst)
+      (finInst,) <$> getFinalizationState (Proxy @ pv) (Proxy @ gsconf) gs (Just finInst)
     {- - INLINE initialiseFinalization - -}
 
 instance (SkovFinalizationHandlers h m, Monad m)
-        => FinalizationOutputMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m) where
+        => FinalizationOutputMonad (SkovT h (SkovConfig pv gc (ActiveFinalization t) hc) m) where
     broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
 
 data BufferedFinalization (t :: Type) = BufferedFinalization !FinalizationInstance
@@ -331,16 +339,16 @@ instance FinalizationStateLenses (BufferedFinalizationState t) t where
 instance FinalizationBufferLenses (BufferedFinalizationState t) where
     finBuffer = bfsBuffer
 
-instance GlobalStateQuery gsconf => FinalizationConfig gsconf (SkovConfig gsconf (BufferedFinalization t) hc) where
-    type FCContext (SkovConfig gsconf (BufferedFinalization t) hc) = FinalizationInstance
-    type FCState (SkovConfig gsconf (BufferedFinalization t) hc) = BufferedFinalizationState t
+instance GlobalStateQuery pv gsconf => FinalizationConfig gsconf (SkovConfig pv gsconf (BufferedFinalization t) hc) where
+    type FCContext (SkovConfig pv gsconf (BufferedFinalization t) hc) = FinalizationInstance
+    type FCState (SkovConfig pv gsconf (BufferedFinalization t) hc) = BufferedFinalizationState t
     initialiseFinalization (SkovConfig _ (BufferedFinalization finInst) _) gs = do
-      finalizationState <- getFinalizationState (Proxy @ gsconf) gs (Just finInst)
+      finalizationState <- getFinalizationState (Proxy @ pv) (Proxy @ gsconf) gs (Just finInst)
       return (finInst, BufferedFinalizationState finalizationState emptyFinalizationBuffer)
     {- - INLINE initialiseFinalization - -}
 
-instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, MonadLogger m, SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m)
-        => FinalizationOutputMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m) where
+instance (SkovFinalizationHandlers h m, Monad m, TimeMonad m, MonadLogger m, SkovTimerHandlers h (SkovConfig pv gc (BufferedFinalization t) hc) m)
+        => FinalizationOutputMonad (SkovT h (SkovConfig pv gc (BufferedFinalization t) hc) m) where
     broadcastFinalizationMessage = bufferFinalizationMessage (\msg' -> SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h (FPMMessage msg')))
     broadcastFinalizationPseudoMessage (FPMMessage msg) = broadcastFinalizationMessage msg
     broadcastFinalizationPseudoMessage pmsg = SkovT (\h _ -> lift $ handleBroadcastFinalizationMessage h pmsg)
@@ -350,19 +358,19 @@ class HandlerConfig c where
     type HCState c
     initialiseHandler :: c -> (HCContext c, HCState c)
 
-class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
-    handleBlock :: SkovMonad m => BlockPointerType m -> m ()
-    handleFinalize :: SkovMonad m => FinalizationRecord -> BlockPointerType m -> m ()
+class (Monad m, HandlerConfig c, SkovMonad pv m) => HandlerConfigHandlers pv c m | m -> c pv where
+    handleBlock :: BlockPointerType m -> m ()
+    handleFinalize :: FinalizationRecord -> BlockPointerType m -> m ()
 
 -- |A handler that does nothing.
 data NoHandler = NoHandler
 
-instance HandlerConfig (SkovConfig gc fc NoHandler) where
-    type HCContext (SkovConfig gc fc NoHandler) = ()
-    type HCState (SkovConfig gc fc NoHandler) = ()
+instance HandlerConfig (SkovConfig pv gc fc NoHandler) where
+    type HCContext (SkovConfig pv gc fc NoHandler) = ()
+    type HCState (SkovConfig pv gc fc NoHandler) = ()
     initialiseHandler = \_ -> ((),())
 
-instance Monad m => HandlerConfigHandlers (SkovConfig gc fc NoHandler) (SkovT h (SkovConfig gc fc NoHandler) m) where
+instance (SkovMonad pv (SkovT h (SkovConfig pv gc fc NoHandler) m)) => HandlerConfigHandlers pv (SkovConfig pv gc fc NoHandler) (SkovT h (SkovConfig pv gc fc NoHandler) m) where
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ -> return ()
 
@@ -371,12 +379,12 @@ instance Monad m => HandlerConfigHandlers (SkovConfig gc fc NoHandler) (SkovT h 
 --  * logs an error if a protocol update has occurred.
 data LogUpdateHandler = LogUpdateHandler
 
-instance HandlerConfig (SkovConfig gc fc LogUpdateHandler) where
-    type HCContext (SkovConfig gc fc LogUpdateHandler) = ()
-    type HCState (SkovConfig gc fc LogUpdateHandler) = ()
+instance HandlerConfig (SkovConfig pv gc fc LogUpdateHandler) where
+    type HCContext (SkovConfig pv gc fc LogUpdateHandler) = ()
+    type HCState (SkovConfig pv gc fc LogUpdateHandler) = ()
     initialiseHandler = \_ -> ((),())
 
-instance Monad m => HandlerConfigHandlers (SkovConfig gc fc LogUpdateHandler) (SkovT h (SkovConfig gc fc LogUpdateHandler) m) where
+instance SkovMonad pv (SkovT h (SkovConfig pv gc fc LogUpdateHandler) m) => HandlerConfigHandlers pv (SkovConfig pv gc fc LogUpdateHandler) (SkovT h (SkovConfig pv gc fc LogUpdateHandler) m) where
     handleBlock = \_ -> return ()
     handleFinalize = \_ _ ->
         Skov.getProtocolUpdateStatus >>= \case
@@ -392,26 +400,28 @@ instance Monad m => HandlerConfigHandlers (SkovConfig gc fc LogUpdateHandler) (S
                 ++ Text.unpack puSpecificationURL ++ " (hash " ++ show puSpecificationHash ++ ")]"
 
 instance (
+        IsProtocolVersion pv,
         GlobalStateConfig gsconf,
-        Show (FCContext (SkovConfig gsconf finconf hconf)), Show (FCState (SkovConfig gsconf finconf hconf)),
-        FinalizationConfig gsconf (SkovConfig gsconf finconf hconf),
-        HandlerConfig (SkovConfig gsconf finconf hconf))
-        => SkovConfiguration (SkovConfig gsconf finconf hconf) where
-    data SkovContext (SkovConfig gsconf finconf hconf) = SkovContext {
+        Show (FCContext (SkovConfig pv gsconf finconf hconf)), Show (FCState (SkovConfig pv gsconf finconf hconf)),
+        FinalizationConfig gsconf (SkovConfig pv gsconf finconf hconf),
+        HandlerConfig (SkovConfig pv gsconf finconf hconf))
+        => SkovConfiguration (SkovConfig pv gsconf finconf hconf) where
+    type SkovProtocolVersion (SkovConfig pv gsconf finconf hconf) = pv
+    data SkovContext (SkovConfig pv gsconf finconf hconf) = SkovContext {
             scGSContext :: !(GSContext gsconf),
-            scFinContext :: !(FCContext (SkovConfig gsconf finconf hconf)),
-            scHandlerContext :: !(HCContext (SkovConfig gsconf finconf hconf))
+            scFinContext :: !(FCContext (SkovConfig pv gsconf finconf hconf)),
+            scHandlerContext :: !(HCContext (SkovConfig pv gsconf finconf hconf))
         }
-    data SkovState (SkovConfig gsconf finconf hconf) = SkovState {
+    data SkovState (SkovConfig pv gsconf finconf hconf) = SkovState {
             ssGSState :: !(GSState gsconf),
-            ssFinState :: !(FCState (SkovConfig gsconf finconf hconf)),
-            ssHandlerState :: !(HCState (SkovConfig gsconf finconf hconf)),
+            ssFinState :: !(FCState (SkovConfig pv gsconf finconf hconf)),
+            ssHandlerState :: !(HCState (SkovConfig pv gsconf finconf hconf)),
             scLogContext :: !(GSLogContext gsconf)
         }
-    type SkovGSState (SkovConfig gsconf finconf hconf) = GSState gsconf
-    type SkovGSContext (SkovConfig gsconf finconf hconf) = GSContext gsconf
+    type SkovGSState (SkovConfig pv gsconf finconf hconf) = GSState gsconf
+    type SkovGSContext (SkovConfig pv gsconf finconf hconf) = GSContext gsconf
 
-    type SkovLogContext (SkovConfig gsconf finconf hconf) = GSLogContext gsconf
+    type SkovLogContext (SkovConfig pv gsconf finconf hconf) = GSLogContext gsconf
 
     initialiseSkov conf@(SkovConfig gsc _ _) = do
         (c, s, logCtx) <- initialiseGlobalState gsc
@@ -422,42 +432,42 @@ instance (
         return (SkovContext c finctx hctx, SkovState s finst hst logCtx)
     shutdownSkov (SkovContext c _ _) (SkovState s _ _ logCtx) = liftIO $ shutdownGlobalState (Proxy :: Proxy gsconf) c s logCtx
 
-instance (FinalizationQueueLenses (FCState (SkovConfig gsconf finconf hconf)))
-        => FinalizationQueueLenses (SkovState (SkovConfig gsconf finconf hconf)) where
+instance (FinalizationQueueLenses (FCState (SkovConfig pv gsconf finconf hconf)))
+        => FinalizationQueueLenses (SkovState (SkovConfig pv gsconf finconf hconf)) where
     finQueue = lens ssFinState (\s fs -> s {ssFinState = fs}) . finQueue
     {- - INLINE finQueue - -}
 
-instance (FinalizationStateLenses (FCState (SkovConfig gsconf finconf hconf)) t)
-        => FinalizationStateLenses (SkovState (SkovConfig gsconf finconf hconf)) t where
+instance (FinalizationStateLenses (FCState (SkovConfig pv gsconf finconf hconf)) t)
+        => FinalizationStateLenses (SkovState (SkovConfig pv gsconf finconf hconf)) t where
     finState = lens ssFinState (\s fs -> s {ssFinState = fs}) . finState
     {- - INLINE finState - -}
 
-instance (FinalizationBufferLenses (FCState (SkovConfig gsconf finconf hconf)))
-        => FinalizationBufferLenses (SkovState (SkovConfig gsconf finconf hconf)) where
+instance (FinalizationBufferLenses (FCState (SkovConfig pv gsconf finconf hconf)))
+        => FinalizationBufferLenses (SkovState (SkovConfig pv gsconf finconf hconf)) where
     finBuffer = lens ssFinState (\s fs -> s {ssFinState = fs}) . finBuffer
     {- - INLINE finBuffer - -}
 
-instance (HasFinalizationInstance (FCContext (SkovConfig gsconf finconf hconf)))
-        => HasFinalizationInstance (SkovContext (SkovConfig gsconf finconf hconf)) where
+instance (HasFinalizationInstance (FCContext (SkovConfig pv gsconf finconf hconf)))
+        => HasFinalizationInstance (SkovContext (SkovConfig pv gsconf finconf hconf)) where
     finalizationInstance = finalizationInstance . scFinContext
     {- - INLINE finalizationInstance - -}
 
-instance GSLogContext gsconf ~ a => HasLogContext a (SkovState (SkovConfig gsconf finconf hconf)) where
+instance GSLogContext gsconf ~ a => HasLogContext a (SkovState (SkovConfig pv gsconf finconf hconf)) where
   logContext = lens scLogContext (\sc v -> sc{scLogContext = v })
   {- - INLINE logContext - -}
 
-instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig gsconf finconf hconf)) where
+instance (c ~ GSContext gsconf) => HasGlobalStateContext c (SkovContext (SkovConfig pv gsconf finconf hconf)) where
     globalStateContext = lens (scGSContext) (\sc v -> sc{scGSContext = v})
     {- - INLINE globalStateContext - -}
-instance (g ~ GSState gsconf) => HasGlobalState g (SkovState (SkovConfig gsconf finconf hconf)) where
+instance (g ~ GSState gsconf) => HasGlobalState g (SkovState (SkovConfig pv gsconf finconf hconf)) where
     globalState = lens (ssGSState) (\ss v -> ss {ssGSState = v})
     {- - INLINE globalState - -}
 
 instance (MonadIO m,
-          HandlerConfigHandlers (SkovConfig gsconf finconf hconf) (SkovT h (SkovConfig gsconf finconf hconf) m),
+          HandlerConfigHandlers pv (SkovConfig pv gsconf finconf hconf) (SkovT h (SkovConfig pv gsconf finconf hconf) m),
           SkovPendingLiveHandlers h m,
-          SkovMonad (SkovT h (SkovConfig gsconf finconf hconf) m))
-         => OnSkov (SkovT h (SkovConfig gsconf finconf hconf) m) where
+          SkovMonad pv (SkovT h (SkovConfig pv gsconf finconf hconf) m))
+         => OnSkov (SkovT h (SkovConfig pv gsconf finconf hconf) m) where
     onBlock bp = handleBlock bp
     onFinalize fr bp = handleFinalize fr bp
     onPendingLive = SkovT $ \h _ -> lift $ handlePendingLive h
@@ -465,23 +475,23 @@ instance (MonadIO m,
     {- - INLINE onFinalize - -}
     {- - INLINE onPendingLive - -}
 
-deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (NoFinalization t) hc)) (SkovState (SkovConfig gc (NoFinalization t) hc)) (SkovT h (SkovConfig gc (NoFinalization t) hc) m))
-    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),
-        TreeStateMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m),
-        SkovTimerHandlers h (SkovConfig gc (NoFinalization t) hc) m)
-        => FinalizationMonad (SkovT h (SkovConfig gc (NoFinalization t) hc) m)
+deriving via (ActiveFinalizationM pv (SkovContext (SkovConfig pv gc (NoFinalization t) hc)) (SkovState (SkovConfig pv gc (NoFinalization t) hc)) (SkovT h (SkovConfig pv gc (NoFinalization t) hc) m))
+    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad pv (SkovT h (SkovConfig pv gc (NoFinalization t) hc) m),
+        TreeStateMonad pv (SkovT h (SkovConfig pv gc (NoFinalization t) hc) m),
+        SkovTimerHandlers h (SkovConfig pv gc (NoFinalization t) hc) m)
+        => FinalizationMonad (SkovT h (SkovConfig pv gc (NoFinalization t) hc) m)
 
-deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (ActiveFinalization t) hc)) (SkovState (SkovConfig gc (ActiveFinalization t) hc)) (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m))
-    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
-        TreeStateMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m),
-        SkovTimerHandlers h (SkovConfig gc (ActiveFinalization t) hc) m, SkovFinalizationHandlers h m)
-        => FinalizationMonad (SkovT h (SkovConfig gc (ActiveFinalization t) hc) m)
+deriving via (ActiveFinalizationM pv (SkovContext (SkovConfig pv gc (ActiveFinalization t) hc)) (SkovState (SkovConfig pv gc (ActiveFinalization t) hc)) (SkovT h (SkovConfig pv gc (ActiveFinalization t) hc) m))
+    instance (t ~ SkovHandlerTimer h, MonadIO m, SkovMonad pv (SkovT h (SkovConfig pv gc (ActiveFinalization t) hc) m),
+        TreeStateMonad pv (SkovT h (SkovConfig pv gc (ActiveFinalization t) hc) m),
+        SkovTimerHandlers h (SkovConfig pv gc (ActiveFinalization t) hc) m, SkovFinalizationHandlers h m)
+        => FinalizationMonad (SkovT h (SkovConfig pv gc (ActiveFinalization t) hc) m)
 
-deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (BufferedFinalization t) hc)) (SkovState (SkovConfig gc (BufferedFinalization t) hc)) (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m))
-    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, MonadLogger m, SkovMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
-        TreeStateMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m),
-        SkovTimerHandlers h (SkovConfig gc (BufferedFinalization t) hc) m, SkovFinalizationHandlers h m)
-        => FinalizationMonad (SkovT h (SkovConfig gc (BufferedFinalization t) hc) m)
+deriving via (ActiveFinalizationM pv (SkovContext (SkovConfig pv gc (BufferedFinalization t) hc)) (SkovState (SkovConfig pv gc (BufferedFinalization t) hc)) (SkovT h (SkovConfig pv gc (BufferedFinalization t) hc) m))
+    instance (t ~ SkovHandlerTimer h, MonadIO m, TimeMonad m, MonadLogger m, SkovMonad pv (SkovT h (SkovConfig pv gc (BufferedFinalization t) hc) m),
+        TreeStateMonad pv (SkovT h (SkovConfig pv gc (BufferedFinalization t) hc) m),
+        SkovTimerHandlers h (SkovConfig pv gc (BufferedFinalization t) hc) m, SkovFinalizationHandlers h m)
+        => FinalizationMonad (SkovT h (SkovConfig pv gc (BufferedFinalization t) hc) m)
 -- If we require `C (SkovT ...)` for a specific class `C`, the compiler will complain
 -- because:
 -- 1. the instances for `SkovT` are derived from `GlobalStateM` setting the type
@@ -496,34 +506,36 @@ deriving via (ActiveFinalizationM (SkovContext (SkovConfig gc (BufferedFinalizat
 -- using the intermediate monad `M`, we will instead require `C (M)` setting the type variables
 -- to the names provided by `SkovConfiguration` as this will automatically trigger `C (SkovT ...)`.
 
-type BlockStateConfigM h c m = BlockStateM
+type BlockStateConfigM pv h c m = BlockStateM
+               pv
                (SkovGSContext c)
                (SkovContext c)
                (SkovGSState c)
                (SkovState c)
                (SkovT h c m)
 
-type TreeStateConfigM h c m = TreeStateM
+type TreeStateConfigM pv h c m = TreeStateM
                (SkovGSState c)
                (BlockStateM
+                pv
                 (SkovGSContext c)
                 (SkovContext c)
                 (SkovGSState c)
                 (SkovState c)
                 (SkovT h c m))
 
-type SkovConfigMonad h c m = (SkovConfiguration c,
+type SkovConfigMonad pv h c m = (SkovConfiguration c,
         OnSkov (SkovT h c m),
-        BlockStateStorage (BlockStateConfigM h c m),
-        GlobalStateTypes (TreeStateConfigM h c m),
-        TreeStateMonad (TreeStateConfigM h c m),
-        BlockPointerMonad (TreeStateConfigM h c m),
+        BlockStateStorage (BlockStateConfigM pv h c m),
+        GlobalStateTypes (TreeStateConfigM pv h c m),
+        TreeStateMonad pv (TreeStateConfigM pv h c m),
+        BlockPointerMonad (TreeStateConfigM pv h c m),
         BlockFields ~ BlockFieldType (BlockPointerType (SkovTGSM h c m)),
-        BlockPointerType (TreeStateConfigM h c m) ~ BlockPointerType (SkovT h c m))
+        BlockPointerType (TreeStateConfigM pv h c m) ~ BlockPointerType (SkovT h c m))
 
-type SkovQueryConfigMonad c m =
-    (BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM () c m)),
-     TreeStateMonad (SkovTGSM () c m),
+type SkovQueryConfigMonad pv c m =
+    (BlockFields ~ BlockFieldType (BlockPointerType (TreeStateConfigM pv () c m)),
+     TreeStateMonad pv (SkovTGSM () c m),
      BlockPointerMonad (SkovTGSM () c m),
-     BlockStateStorage (BlockStateConfigM () c m)
+     BlockStateStorage (BlockStateConfigM pv () c m)
     )

@@ -3,7 +3,8 @@
     ScopedTypeVariables,
     TypeFamilies,
     CPP,
-    MonoLocalBinds #-}
+    MonoLocalBinds,
+    UndecidableInstances #-}
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))
@@ -24,7 +25,6 @@ import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Statistics as Stat
 import qualified Concordium.GlobalState.Parameters as Parameters
-import qualified Concordium.Types.SeedState as SeedState
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.Types as T
 import qualified Concordium.Wasm as Wasm
@@ -54,24 +54,27 @@ import qualified Data.Vector as Vector
 import Control.Monad
 import Data.Foldable (foldrM)
 
-class SkovQueryMonad m => SkovStateQueryable z m | z -> m where
+class SkovQueryMonad (SkovStateProtocolVersion z) m => SkovStateQueryable z m | z -> m where
+    type SkovStateProtocolVersion z :: ProtocolVersion
     runStateQuery :: z -> m a -> IO a
 
-instance (SkovConfiguration c, SkovQueryMonad (SkovT () c IO))
+instance (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (SkovT () c IO))
         => SkovStateQueryable (SkovContext c, IORef (SkovState c)) (SkovT () c IO) where
+    type SkovStateProtocolVersion (SkovContext c, IORef (SkovState c)) = SkovProtocolVersion c
     runStateQuery (ctx, st) a = readIORef st >>= evalSkovT a () ctx
 
-instance (SkovConfiguration c, SkovQueryMonad (SkovT () c IO))
+instance (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (SkovT () c IO))
         => SkovStateQueryable (SkovContext c, MVar (SkovState c)) (SkovT () c IO) where
+    type SkovStateProtocolVersion (SkovContext c, MVar (SkovState c)) = SkovProtocolVersion c
     runStateQuery (ctx, st) a = readMVar st >>= evalSkovT a () ctx
 
 hsh :: (HashableTo BlockHash a) => a -> String
 hsh x = show (getHash x :: BlockHash)
 
-getBestBlockState :: (BlockPointerMonad m, SkovQueryMonad m) => m (BlockState m)
+getBestBlockState :: (BlockPointerMonad m, SkovQueryMonad pv m) => m (BlockState m)
 getBestBlockState = queryBlockState =<< bestBlock
 
-getLastFinalState :: SkovQueryMonad m => m (BlockState m)
+getLastFinalState :: SkovQueryMonad pv m => m (BlockState m)
 getLastFinalState = queryBlockState =<< lastFinalizedBlock
 
 getTransactionStatus :: SkovStateQueryable z m => AT.TransactionHash -> z -> IO Value
@@ -178,13 +181,13 @@ getBlockSummary hash sfsRef = runStateQuery sfsRef $
         "updates" .= updates
         ]
 
-withBlockState :: SkovQueryMonad m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
+withBlockState :: SkovQueryMonad pv m => BlockHash -> (BlockState m -> m a) -> m (Maybe a)
 withBlockState hash f =
   resolveBlock hash >>=
     \case Nothing -> return Nothing
           Just bp -> fmap Just . f =<< queryBlockState bp
 
-withBlockStateJSON :: SkovQueryMonad m => BlockHash -> (BlockState m -> m Value) -> m Value
+withBlockStateJSON :: SkovQueryMonad pv m => BlockHash -> (BlockState m -> m Value) -> m Value
 withBlockStateJSON hash f =
   resolveBlock hash >>=
     \case Nothing -> return Null
@@ -314,7 +317,7 @@ getModuleSource hash sfsRef mhash = runStateQuery sfsRef $
             st <- queryBlockState bp
             BS.getModule st mhash
 
-getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad m) => z -> IO Value
+getConsensusStatus :: (SkovStateQueryable z m, TS.TreeStateMonad pv m) => z -> IO Value
 getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         bb <- bestBlock
         lfb <- lastFinalizedBlock
@@ -324,13 +327,13 @@ getConsensusStatus sfsRef = runStateQuery sfsRef $ do
         let -- for now we'll use the genesis epoch length even though that is a bit less
             -- than optimal with respect to future changes.
             -- When all of these parameters are dynamic we need to revisit.
-            slotDuration = Parameters.genesisSlotDuration genData
-            epochDuration = fromIntegral (SeedState.epochLength (Parameters.genesisSeedState genData)) * slotDuration
+            slotDuration = Parameters.gdSlotDuration genData
+            epochDuration = fromIntegral (Parameters.gdEpochLength genData) * slotDuration
         return $ object [
                 "bestBlock" .= hsh bb,
                 "genesisBlock" .= hsh genesis,
                 -- time of the genesis block as UTC time (accurate to 1s)
-                "genesisTime" .= timestampToUTCTime (Parameters.genesisTime genData),
+                "genesisTime" .= timestampToUTCTime (Parameters.gdGenesisTime genData),
                 -- duration of a slot in milliseconds
                 "slotDuration" .= durationMillis slotDuration,
                 -- duration of an epoch in milliseconds
@@ -420,7 +423,7 @@ getAncestors sfsRef blockHash count = case readMaybe blockHash of
                          a' <- f a
                          go (a:acc) (n-1) a'
 
-getBranches :: forall z m. (SkovStateQueryable z m, TS.TreeStateMonad m)
+getBranches :: forall pv z m. (SkovStateQueryable z m, TS.TreeStateMonad pv m)
             => z -> IO Value
 getBranches sfsRef = runStateQuery sfsRef $ do
             brs <- branchesFromTop :: m [[BlockPointerType m]]
@@ -433,7 +436,7 @@ getBranches sfsRef = runStateQuery sfsRef $ do
                                     parent <- bpParent b :: m (BlockPointerType m)
                                     return $ (at parent . non [] %~ (object ["blockHash" .= hsh b, "children" .= (Map.findWithDefault [] b childrenMap :: [Value])] :)) ma) Map.empty
 
-getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad m)
+getBlockFinalization :: (SkovStateQueryable z m, TS.TreeStateMonad pv m)
                      => z -> BlockHash -> IO (Maybe FinalizationRecord)
 getBlockFinalization sfsRef bh = runStateQuery sfsRef $ do
             bs <- TS.getBlockStatus bh

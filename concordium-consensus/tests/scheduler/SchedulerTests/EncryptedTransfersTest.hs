@@ -70,8 +70,10 @@ import Test.Hspec
 --- |                                  | incomingAmounts |        [] |            [] |
 --- |----------------------------------+-----------------+-----------+---------------|
 
+-- |Protocol version
+type PV = 'P0
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
     10000000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
