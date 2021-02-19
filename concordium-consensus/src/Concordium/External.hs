@@ -64,7 +64,7 @@ jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
 withBlockReference :: BlockHash -> (BlockReference -> IO a) -> IO a
-withBlockReference (BlockHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
+withBlockReference (BlockHash (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 
 -- |Use a 'TransactionHash' as a 'Ptr Word8'. The pointer may not be valid after
 -- the function has returned.
@@ -74,7 +74,7 @@ withTxReference (TransactionHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.
 blockReferenceToBlockHash :: BlockReference -> IO BlockHash
-blockReferenceToBlockHash src = BlockHashV0 <$> Hash.Hash <$> FBS.create cp 
+blockReferenceToBlockHash src = BlockHash . Hash.Hash <$> FBS.create cp 
     where
         cp dest = copyBytes dest src (FBS.fixedLength (undefined :: Hash.DigestSize))
 
@@ -186,10 +186,10 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
 
 -- |Broadcast a consensus message. This can be either a block,, finalization record, or finalization (pseudo) message.
 -- All messages are serialized with a version.
-broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
-                                                        (SkovConfig gs finconf hconf)
+broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig pv gs finconf hconf) LogIO)
+                                                        (SkovConfig pv gs finconf hconf)
                                                         (LoggerT IO))))
-                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
+                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig pv gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
@@ -214,17 +214,17 @@ foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStat
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
+type TreeConfig = DiskTreeDiskBlockConfig 'P0
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData 'P0 -> TreeConfig
 makeGlobalStateConfig rt genData = DTDBConfig rt genData
 
-type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig
-makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteString -> TreeConfigWithLog
+type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig 'P0
+makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData 'P0 -> BS.ByteString -> TreeConfigWithLog
 makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData
 
 
-type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) LogUpdateHandler
-type PassiveConfig gs = SkovConfig gs (NoFinalization ()) LogUpdateHandler
+type ActiveConfig gs = SkovConfig 'P0 gs (BufferedFinalization ThreadTimer) LogUpdateHandler
+type PassiveConfig gs = SkovConfig 'P0 gs (NoFinalization ()) LogUpdateHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
@@ -247,8 +247,8 @@ consensusLogMethod BakerRunnerWithLog{bakerSyncRunnerWithLog=SyncRunner{syncLogM
 consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
 runWithConsensus :: ConsensusRunner
-                 -> (forall h f gs. TS.TreeStateMonad (SkovT h (SkovConfig gs f LogUpdateHandler) LogIO)
-                     => SkovT h (SkovConfig gs f LogUpdateHandler) LogIO a) -> IO a
+                 -> (forall pv h f gs. TS.TreeStateMonad pv (SkovT h (SkovConfig pv gs f LogUpdateHandler) LogIO)
+                     => SkovT h (SkovConfig pv gs f LogUpdateHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
 runWithConsensus BakerRunnerWithLog{..} = runSkovTransaction bakerSyncRunnerWithLog
@@ -595,7 +595,7 @@ receiveTransaction bptr tdata len = do
                 BakerRunnerWithLog{..} -> syncReceiveTransaction bakerSyncRunnerWithLog tr
                 PassiveRunnerWithLog{..} -> syncPassiveReceiveTransaction passiveSyncRunnerWithLog tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, MonadState s m, MonadLogger m) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad (Get.SkovStateProtocolVersion z) m, MonadState s m, MonadLogger m) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
 runConsensusQuery PassiveRunner{..} f = f passiveSyncRunner
 runConsensusQuery BakerRunnerWithLog{..} f = f bakerSyncRunnerWithLog

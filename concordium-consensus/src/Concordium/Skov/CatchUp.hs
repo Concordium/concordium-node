@@ -62,7 +62,7 @@ merge Proxy = go
 
 -- |Produce a catchup response and a new catchup status for the peer.
 -- The list of messages (blocks or finalization records) is versioned
-doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadLogger m)
+doHandleCatchUp :: forall pv m. (TreeStateMonad pv m, SkovQueryMonad pv m, FinalizationMonad m, MonadLogger m)
                 => CatchUpStatus
                 -> Int -- ^How many blocks + finalization records should be sent.
                 -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)

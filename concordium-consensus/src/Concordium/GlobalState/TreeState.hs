@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.TreeState(
     module Concordium.GlobalState.Classes,
     module Concordium.GlobalState.Types,
@@ -81,8 +82,9 @@ class (Eq (BlockPointerType m),
        BlockStateStorage m,
        BlockPointerMonad m,
        PerAccountDBOperations m,
-       Monad m)
-      => TreeStateMonad m where
+       Monad m,
+       IsProtocolVersion pv)
+      => TreeStateMonad pv m | m -> pv where
 
     -- * 'PendingBlock' operations
     -- |Create and sign a 'PendingBlock`.
@@ -141,7 +143,7 @@ class (Eq (BlockPointerType m),
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
     -- |Get the 'GenesisData'.
-    getGenesisData :: m GenesisData
+    getGenesisData :: m (GenesisData pv)
     -- * Operations on the finalization list
     -- |Get the last finalized block.
     getLastFinalized :: m (BlockPointerType m, FinalizationRecord)
@@ -325,7 +327,7 @@ class (Eq (BlockPointerType m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
@@ -407,8 +409,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
 
-deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
+deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)
 
 data ImportingResult a = SerializationFail | Success | OtherError a deriving (Show)
 

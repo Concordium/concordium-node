@@ -13,3 +13,6 @@ getResults = map (\(x, r) -> (x, tsResult r))
 -- * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
 simpleTransferCost :: Energy
 simpleTransferCost = Cost.checkHeader (Types.transactionHeaderSize + 42) 1
+
+-- |Protocol version
+type PV = 'Types.P0

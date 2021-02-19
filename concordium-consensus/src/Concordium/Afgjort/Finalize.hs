@@ -188,7 +188,7 @@ makeLenses ''FinalizationState
 -- finalization round is constructed.
 -- NB: This function should for now only be used in a tree state that has no branches,
 -- and will raise an exception otherwise.
-recoverFinalizationState :: (MonadIO m, SkovQueryMonad m, BlockPointerMonad m)
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad pv m, BlockPointerMonad m)
                          => Maybe FinalizationInstance
                          -> m (FinalizationState timer)
 recoverFinalizationState mfinInstance = do
@@ -363,7 +363,7 @@ getFinalizationInstance = asks finalizationInstance
 
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad r s m = (BlockPointerMonad m, SkovMonad m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+type FinalizationBaseMonad pv r s m = (BlockPointerMonad m, SkovMonad pv m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
@@ -376,7 +376,7 @@ finalizationReplayStaggerDelay = 5
 
 -- |Reset the finalization catch-up timer.  This is called when progress is
 -- made in finalization (i.e. we produce a message).
-doResetTimer :: (FinalizationBaseMonad r s m) => m ()
+doResetTimer :: (FinalizationBaseMonad pv r s m) => m ()
 doResetTimer = do
         oldTimer <- finCatchUpTimer <<.= Nothing
         forM_ oldTimer cancelTimer
@@ -395,7 +395,7 @@ doResetTimer = do
                     finCatchUpTimer ?= timer
             in spawnTimer
 
-tryNominateBlock :: (FinalizationBaseMonad r s m, FinalizationMonad m) => m ()
+tryNominateBlock :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => m ()
 tryNominateBlock = do
     curRound <- use finCurrentRound
     onActiveCurrentRound curRound $ \r@FinalizationRound{..} ->
@@ -408,7 +408,7 @@ tryNominateBlock = do
                 finCurrentRound .= ActiveCurrentRound (r {roundInput = RoundInput nomBlock})
                 simpleWMVBA $ startWMVBA nomBlock
 
-nextRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationIndex -> BlockHeight -> m ()
+nextRound :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationIndex -> BlockHeight -> m ()
 nextRound oldFinIndex oldDelta = do
     curFinIndex <- use finIndex
     when (curFinIndex == oldFinIndex) $ do
@@ -430,7 +430,7 @@ pendingToFinMsg sessId finIx delta (PendingMessage src msg sig) =
          }
      in FinalizationMessage (msgHdr src) msg sig
 
-newRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> Party -> m ()
+newRound :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => BlockHeight -> Party -> m ()
 newRound newDelta me = do
         finCurrentRound .= ActiveCurrentRound FinalizationRound {
             roundInput = NoInput,
@@ -460,7 +460,7 @@ newRound newDelta me = do
         tryNominateBlock
 
 -- TODO (MR) If this code is correct, consider reducing duplication with `receiveFinalizationMessage`
-newPassiveRound :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockHeight -> m ()
+newPassiveRound :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => BlockHeight -> m ()
 newPassiveRound newDelta = do
     fHeight       <- use finHeight
     finCom        <- use finCommittee
@@ -494,7 +494,7 @@ newPassiveRound newDelta = do
     finCurrentRound .= let passiveRound = (PassiveFinalizationRound $ passiveWitnesses initialPassiveFinalizationRound & at' newDelta ?~ passiveStates) in (PassiveCurrentRound passiveRound)
     forM_ mProof (handleFinalizationProof sessionId finInd newDelta finCom)
 
-handleWMVBAOutputEvents :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
+handleWMVBAOutputEvents :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationInstance -> [WMVBAOutputEvent Sig.Signature] -> m ()
 handleWMVBAOutputEvents FinalizationInstance{..} evs = do
         FinalizationState{..} <- use finState
         onActiveCurrentRound _finsCurrentRound $ \FinalizationRound{..} -> do
@@ -544,12 +544,12 @@ handleWMVBAOutputEvents FinalizationInstance{..} evs = do
 --  * Notify Skov of finalization ('trustedFinalize').
 --  * If the finalized block is known to Skov, handle this new finalization ('finalizationBlockFinal').
 --  * If the block is not known, add the finalization to the queue ('addQueuedFinalization').
-handleFinalizationProof :: (FinalizationMonad m, SkovMonad m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
+handleFinalizationProof :: (FinalizationMonad m, SkovMonad pv m, MonadState s m, FinalizationQueueLenses s) => FinalizationSessionId -> FinalizationIndex -> BlockHeight -> FinalizationCommittee -> (Val, ([Party], Bls.Signature)) -> m ()
 handleFinalizationProof sessId fIndex delta committee (finB, (parties, sig)) = do
         let finRec = FinalizationRecord {
             finalizationIndex = fIndex,
             finalizationBlockPointer = finB,
-            finalizationProof = FinalizationProof (parties, sig),
+            finalizationProof = FinalizationProof parties sig,
             finalizationDelay = delta
         }
         finRes <- trustedFinalize finRec
@@ -557,7 +557,7 @@ handleFinalizationProof sessId fIndex delta committee (finB, (parties, sig)) = d
             Left _ -> addQueuedFinalization sessId committee finRec
             Right finBlock -> finalizationBlockFinal finRec finBlock
 
-triggerWMVBA :: (FinalizationBaseMonad r s m, FinalizationMonad m)
+triggerWMVBA :: (FinalizationBaseMonad pv r s m, FinalizationMonad m)
     => FinalizationSessionId
     -> FinalizationIndex
     -> BlockHeight
@@ -572,7 +572,7 @@ triggerWMVBA sessId finIx delta act = do
                 | roundDelta finRound == delta -> simpleWMVBA (triggerWMVBAAction act)
             _ -> return ()
 
-liftWMVBA :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationInstance -> WMVBA Sig.Signature a -> m a
+liftWMVBA :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationInstance -> WMVBA Sig.Signature a -> m a
 liftWMVBA fininst@FinalizationInstance{..} a = do
     FinalizationState{..} <- use finState
     case _finsCurrentRound of
@@ -591,13 +591,13 @@ liftWMVBA fininst@FinalizationInstance{..} a = do
             handleWMVBAOutputEvents fininst evs
             return r
 
-simpleWMVBA :: (FinalizationBaseMonad r s m, FinalizationMonad m) => WMVBA Sig.Signature () -> m ()
+simpleWMVBA :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => WMVBA Sig.Signature () -> m ()
 simpleWMVBA a = getFinalizationInstance >>= \case
     Just inst -> liftWMVBA inst a
     Nothing -> logEvent Afgjort LLError $ "Finalization keys missing, but this node appears to be participating in finalization."
 
 -- |Determine if a message references blocks requiring Skov to catch up.
-messageRequiresCatchUp :: (FinalizationBaseMonad r s m, FinalizationMonad m) => WMVBAMessage -> m Bool
+messageRequiresCatchUp :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => WMVBAMessage -> m Bool
 messageRequiresCatchUp msg = case messageValues msg of
         Nothing -> return False
         Just b -> resolveBlock b >>= \case
@@ -611,7 +611,7 @@ messageRequiresCatchUp msg = case messageValues msg of
                     -- TODO: possibly we should also check if it is justified even when we are not active in finalization
                     _ -> return False
 
-savePendingMessage :: (FinalizationBaseMonad r s m) => FinalizationIndex -> BlockHeight -> PendingMessage -> m Bool
+savePendingMessage :: (FinalizationBaseMonad pv r s m) => FinalizationIndex -> BlockHeight -> PendingMessage -> m Bool
 savePendingMessage finIx finDelta pmsg = do
     pmsgs <- use finPendingMessages
     case Map.lookup finIx pmsgs of
@@ -629,7 +629,7 @@ savePendingMessage finIx finDelta pmsg = do
                     return False
 
 -- |Called when a finalization message is received.
-receiveFinalizationMessage :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationMessage -> m UpdateResult
+receiveFinalizationMessage :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationMessage -> m UpdateResult
 receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessageHeader{..},..} = do
         FinalizationState{..} <- use finState
         -- Check this is the right session
@@ -691,7 +691,7 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader=FinalizationMessage
                 return ResultIncorrectFinalizationSession
 
 -- |Called when a finalization pseudo-message is received.
-receiveFinalizationPseudoMessage :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationPseudoMessage -> m UpdateResult
+receiveFinalizationPseudoMessage :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationPseudoMessage -> m UpdateResult
 receiveFinalizationPseudoMessage (FPMMessage msg) = receiveFinalizationMessage msg
 receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
         FinalizationState{..} <- use finState
@@ -749,7 +749,7 @@ receiveFinalizationPseudoMessage (FPMCatchUp cu@CatchUpMessage{..}) = do
 --
 -- If the record is for a future finalization index (that is not next), 'ResultUnverifiable' is returned
 -- and the record is discarded.
-receiveFinalizationRecord :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m) => Bool -> FinalizationRecord -> m UpdateResult
+receiveFinalizationRecord :: (SkovMonad pv m, MonadState s m, FinalizationQueueLenses s, FinalizationMonad m) => Bool -> FinalizationRecord -> m UpdateResult
 receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
         nextFinIx <- nextFinalizationIndex
         case compare finalizationIndex nextFinIx of
@@ -781,7 +781,7 @@ receiveFinalizationRecord validateDuplicate finRec@FinalizationRecord{..} = do
 -- |It is possible to have a validated finalization proof for a block that is
 -- not currently known.  This function detects when such a block arrives and
 -- triggers it to be finalized.
-notifyBlockArrivalForPending :: (SkovMonad m, MonadState s m, FinalizationQueueLenses s, BlockPointerData bp, FinalizationMonad m) => bp -> m ()
+notifyBlockArrivalForPending :: (SkovMonad pv m, MonadState s m, FinalizationQueueLenses s, BlockPointerData bp, FinalizationMonad m) => bp -> m ()
 notifyBlockArrivalForPending b = do
     nfi <- nextFinalizationIndex
     getQueuedFinalizationTrivial nfi >>= \case
@@ -794,7 +794,7 @@ notifyBlockArrivalForPending b = do
         _ -> return ()
 
 -- |Called to notify the finalization routine when a new block arrives.
-notifyBlockArrival :: (FinalizationBaseMonad r s m, FinalizationMonad m) => BlockPointerType m -> m ()
+notifyBlockArrival :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => BlockPointerType m -> m ()
 notifyBlockArrival b = do
     notifyBlockArrivalForPending b
     FinalizationState{..} <- use finState
@@ -808,7 +808,7 @@ notifyBlockArrival b = do
 -- |Determine what index we have in the finalization committee.
 -- This simply finds the first party in the committee whose
 -- public keys match ours.
-getMyParty :: (FinalizationBaseMonad r s m) => m (Maybe Party)
+getMyParty :: (FinalizationBaseMonad pv r s m) => m (Maybe Party)
 getMyParty = getFinalizationInstance >>= \case
     Nothing -> return Nothing
     Just finInst -> findInstanceInCommittee finInst <$> use finCommittee
@@ -832,7 +832,7 @@ findInstanceInCommittee finInst committee =
 -- completed.  (In the case where we have reached that round,
 -- 'getOutputWitnesses' should be called on the WMVBA instance for that round
 -- instead.)
-pendingToOutputWitnesses :: (FinalizationBaseMonad r s m)
+pendingToOutputWitnesses :: (FinalizationBaseMonad pv r s m)
     => FinalizationSessionId
     -> FinalizationIndex
     -> BlockHeight
@@ -863,7 +863,7 @@ pendingToOutputWitnesses sessId finIx delta finBlock = do
 
 -- |Called to notify the finalization routine when a new block is finalized.
 -- (NB: this should never be called with the genesis block.)
-notifyBlockFinalized :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationRecord -> BlockPointerType m -> m ()
+notifyBlockFinalized :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationRecord -> BlockPointerType m -> m ()
 notifyBlockFinalized fr@FinalizationRecord{..} bp = do
         -- Reset catch-up timer
         oldTimer <- finCatchUpTimer <<.= Nothing
@@ -960,7 +960,7 @@ verifyFinalProof :: FinalizationSessionId -> FinalizationCommittee -> Finalizati
 verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
         sigWeight finParties > corruptWeight && checkProofSignature
     where
-        FinalizationProof (finParties, sig) = finalizationProof
+        FinalizationProof finParties sig = finalizationProof
         toSign = witnessMessage (roundBaid sid finalizationIndex finalizationDelay) finalizationBlockPointer
         mpks = sequence ((fmap partyBlsKey . toPartyInfo com) <$> finParties)
         checkProofSignature = case mpks of
@@ -971,7 +971,7 @@ verifyFinalProof sid com@FinalizationCommittee{..} FinalizationRecord{..} =
 -- |Determine the finalization session ID and finalization committee used for finalizing
 -- at the given index i. Note that the finalization committee is determined based on the block state
 -- at index i-1.
-getFinalizationContext :: (SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+getFinalizationContext :: (SkovQueryMonad pv m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 getFinalizationContext FinalizationRecord{..} = do
         genHash <- bpHash <$> genesisBlock
         let finSessId = FinalizationSessionId genHash 0 -- FIXME: Don't hard-code this!
@@ -981,7 +981,7 @@ getFinalizationContext FinalizationRecord{..} = do
 
 -- |Check a finalization proof, returning the session id and finalization committee if
 -- successful.
-checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
+checkFinalizationProof :: (MonadState s m, FinalizationQueueLenses s, SkovQueryMonad pv m) => FinalizationRecord -> m (Maybe (FinalizationSessionId, FinalizationCommittee))
 checkFinalizationProof finRec =
     getQueuedFinalizationTrivial (finalizationIndex finRec) >>= \case
         Just (finSessId, finCom, altFinRec) -> return $ if finRec == altFinRec || verifyFinalProof finSessId finCom finRec then Just (finSessId, finCom) else Nothing
@@ -1012,7 +1012,7 @@ finalizationCatchUpMessage FinalizationInstance{..} s =
 
 -- |Process a 'FinalizationSummary', handling any new messages and returning a result indicating
 -- whether the summary is behind, and whether we should initiate Skov catch-up.
-processFinalizationSummary :: (FinalizationBaseMonad r s m, FinalizationMonad m) => FinalizationSummary -> m CatchUpResult
+processFinalizationSummary :: (FinalizationBaseMonad pv r s m, FinalizationMonad m) => FinalizationSummary -> m CatchUpResult
 processFinalizationSummary FinalizationSummary{..} =
         use finCurrentRound >>= \case
             PassiveCurrentRound _ -> return mempty -- TODO: actually do something with these
@@ -1060,21 +1060,21 @@ processFinalizationSummary FinalizationSummary{..} =
 
 -- |Given an existing block, returns a 'FinalizationRecord' that can be included in
 -- a child of that block, if available.
-nextFinalizationRecord :: (FinalizationMonad m, SkovMonad m) => BlockPointerType m -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
+nextFinalizationRecord :: (FinalizationMonad m, SkovMonad pv m) => BlockPointerType m -> m (Maybe (FinalizationSessionId, FinalizationCommittee, FinalizationRecord))
 nextFinalizationRecord parentBlock = do
     lfi <- blockLastFinalizedIndex parentBlock
     finalizationUnsettledRecordAt (lfi + 1)
 
 -- |'ActiveFinalizationM' provides an implementation of 'FinalizationMonad' that
 -- actively participates in finalization.
-newtype ActiveFinalizationM r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
-    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad, SkovMonad, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad)
+newtype ActiveFinalizationM (pv :: ProtocolVersion) r s m a = ActiveFinalizationM {runActiveFinalizationM :: m a}
+    deriving (Functor, Applicative, Monad, MonadState s, MonadReader r, TimerMonad, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage, BlockPointerMonad, PerAccountDBOperations, TreeStateMonad pv, SkovMonad pv, TimeMonad, MonadLogger, MonadIO, FinalizationOutputMonad, SkovQueryMonad pv)
 
-deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM r s m)
-deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM r s m)
+deriving instance (BlockPointerData (BlockPointerType m)) => GlobalStateTypes (ActiveFinalizationM pv r s m)
+deriving instance (CanExtend (ATIStorage m), CanRecordFootprint (Footprint (ATIStorage m))) => ATITypes (ActiveFinalizationM pv r s m)
 
 
-instance (FinalizationBaseMonad r s m) => FinalizationMonad (ActiveFinalizationM r s m) where
+instance (FinalizationBaseMonad pv r s m) => FinalizationMonad (ActiveFinalizationM pv r s m) where
     finalizationBlockArrival = notifyBlockArrival
     finalizationBlockFinal fr b = notifyBlockFinalized fr b
     finalizationReceiveMessage = unlessShutDown . receiveFinalizationPseudoMessage

@@ -1,6 +1,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Block(
     BlockFinalizationData,
@@ -22,8 +23,13 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.GlobalState.Finalization
 
-hashGenesisData :: GenesisData -> Hash
-hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
+-- |The block version associated with a protocol version.
+protocolBlockVersion :: SProtocolVersion pv -> Version
+protocolBlockVersion SP0 = 1
+{-# INLINE protocolBlockVersion #-}
+
+hashGenesisData :: SProtocolVersion pv -> GenesisData pv -> BlockHash
+hashGenesisData SP0 (GDP0 genData) = BlockHash . Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
 
 instance HashableTo BlockHash BakedBlock where
     getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
@@ -40,7 +46,7 @@ generateBlockHash :: Slot         -- ^Block slot (must be non-zero)
     -> TransactionOutcomesHash     -- ^TransactionOutcomesHash of block.
     -> BlockHash
 generateBlockHash slot parent baker bakerKey proof bnonce finData transactions stateHash transactionOutcomesHash 
-    = BlockHashV0 topHash
+    = BlockHash topHash
     where
         topHash = Hash.hashOfHashes transactionOutcomes h1
         transactionOutcomes = v0TransactionOutcomesHash transactionOutcomesHash
@@ -59,9 +65,14 @@ generateBlockHash slot parent baker bakerKey proof bnonce finData transactions s
             mapM_ putBlockItemV0 $ transactions
 
 
-instance HashableTo BlockHash Block where
-    getHash (GenesisBlock genData) = BlockHashV0 (hashGenesisData genData)
-    getHash (NormalBlock bb) = getHash bb
+-- |Hash a block according to protocol version 0.
+hashBlockP0 :: Block 'P0 -> BlockHash
+hashBlockP0 (GenesisBlock genData) = hashGenesisData SP0 genData
+hashBlockP0 (NormalBlock bb) = getHash bb
+
+instance IsProtocolVersion pv => HashableTo BlockHash (Block pv) where
+    getHash = case protocolVersion :: SProtocolVersion pv of
+        SP0 -> hashBlockP0
 
 -- * Block type classes
 
@@ -219,7 +230,7 @@ instance BlockData BakedBlock where
     {-# INLINE blockTransactionOutcomesHash #-}
     blockTransactions = bbTransactions
     blockSignature = Just . bbSignature
-    verifyBlockSignature b = Sig.verify (bfBlockBakerKey (bbFields b)) (Hash.hashToByteString (v0BlockHash (getHash b))) (bbSignature b)
+    verifyBlockSignature b = Sig.verify (bfBlockBakerKey (bbFields b)) (Hash.hashToByteString (blockHash (getHash b))) (bbSignature b)
     {-# INLINE putBlockV1 #-}
     putBlockV1 = putBakedBlockV1
 
@@ -230,22 +241,52 @@ instance BlockData BakedBlock where
 putBakedBlockV1 :: BakedBlock -> Put
 putBakedBlockV1 b = blockBodyV1 b >> put (bbSignature b)
 
+-- |Deserialized a normal (non-genesis) block according to the V1 format,
+-- except for the initial slot number, which is provided as a parameter.
+-- The arrival time for the transactions is also provided as a parameter.
+getBakedBlockV1AtSlot :: Slot -> TransactionTime -> Get BakedBlock
+getBakedBlockV1AtSlot sl arrivalTime = do
+        bfBlockPointer <- get
+        bfBlockBaker <- get
+        bfBlockBakerKey <- get
+        bfBlockProof <- get
+        bfBlockNonce <- get
+        bfBlockFinalizationData <- get
+        bbStateHash <- get
+        bbTransactionOutcomesHash <- get
+        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
+        bbSignature <- get
+        return BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..}
+
+-- |Deserialized a normal (non-genesis) block according to the V1 format.
+-- The arrival time for the transactions is provided as a parameter.
+getBakedBlockV1 :: TransactionTime -> Get BakedBlock
+getBakedBlockV1 arrivalTime = do
+        sl <- get
+        if sl == genesisSlot then
+            fail "Unexpected genesis block"
+        else
+            getBakedBlockV1AtSlot sl arrivalTime
+
+
 -- |Representation of a block
 --
 -- All instances of this type will implement automatically:
 --
 -- * BlockFieldType & BlockTransactionType
 -- * BlockData
-data Block
-    = GenesisBlock !GenesisData
+data Block (pv :: ProtocolVersion)
+    = GenesisBlock !(GenesisData pv)
     -- ^A genesis block
     | NormalBlock !BakedBlock
     -- ^A baked (i.e. non-genesis) block
-    deriving (Show)
+--     deriving (Show)
 
-type instance BlockFieldType Block = BlockFieldType BakedBlock
+deriving instance Show (GenesisData pv) => Show (Block pv)
 
-instance BlockData Block where
+type instance BlockFieldType (Block pv) = BlockFieldType BakedBlock
+
+instance IsProtocolVersion pv => BlockData (Block pv) where
     blockSlot GenesisBlock{} = 0
     blockSlot (NormalBlock bb) = blockSlot bb
 
@@ -269,8 +310,11 @@ instance BlockData Block where
     verifyBlockSignature GenesisBlock{} = True
     verifyBlockSignature (NormalBlock bb) = verifyBlockSignature bb
 
-    putBlockV1 (GenesisBlock gd) = put genesisSlot <> put gd
-    putBlockV1 (NormalBlock bb) = putBakedBlockV1 bb
+    putBlockV1 = case protocolVersion :: SProtocolVersion pv of
+        SP0 -> \case
+            GenesisBlock (GDP0 gd) -> put genesisSlot <> put gd
+            NormalBlock bb -> putBakedBlockV1 bb
+
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
@@ -343,32 +387,22 @@ instance HashableTo BlockHash PendingBlock where
 -- remaining data based on the version.
 --
 -- Currently only supports version 1
-getExactVersionedBlock :: TransactionTime -> Get Block
+getExactVersionedBlock :: IsProtocolVersion pv => TransactionTime -> Get (Block pv)
 getExactVersionedBlock time = do
     version <- get :: Get Version
     case version of
       1 -> getBlockV1 time
-      n -> fail $ "Unsupported block version: " ++ (show n)
+      n -> fail $ "Unsupported block version: " ++ show n
 
 -- |Deserialize a block according to the version 1 format.
 --
 -- NB: This does not check transaction signatures.
-getBlockV1 :: TransactionTime -> Get Block
-getBlockV1 arrivalTime = do
+getBlockV1 :: forall pv. IsProtocolVersion pv => TransactionTime -> Get (Block pv)
+getBlockV1 arrivalTime = case protocolVersion :: SProtocolVersion pv of
+  SP0 -> do
     sl <- get
-    if sl == 0 then GenesisBlock <$> get
-    else do
-        bfBlockPointer <- get
-        bfBlockBaker <- get
-        bfBlockBakerKey <- get
-        bfBlockProof <- get
-        bfBlockNonce <- get
-        bfBlockFinalizationData <- get
-        bbStateHash <- get
-        bbTransactionOutcomesHash <- get
-        bbTransactions <- getListOf (getBlockItemV0 arrivalTime)
-        bbSignature <- get
-        return $ NormalBlock (BakedBlock{bbSlot = sl, bbFields = BlockFields{..}, ..})
+    if sl == 0 then GenesisBlock . GDP0 <$> getGenesisDataV2
+    else NormalBlock <$> getBakedBlockV1AtSlot sl arrivalTime
 
 makePendingBlock :: BakedBlock -> UTCTime -> PendingBlock
 makePendingBlock pbBlock pbReceiveTime = PendingBlock{pbHash = getHash pbBlock,..}
@@ -390,7 +424,7 @@ signBlock key slot parent baker proof bnonce finData transactions stateHash tran
     | slot == 0 = error "Only the genesis block may have slot 0"
     | otherwise = do
         -- Generate hash on the unsigned block, and sign the hash
-        let sig = Sig.sign key (Hash.hashToByteString (v0BlockHash preBlockHash))
+        let sig = Sig.sign key (Hash.hashToByteString (blockHash preBlockHash))
         preBlock $! sig
     where
         bakerKey = Sig.verifyKey key
@@ -399,14 +433,18 @@ signBlock key slot parent baker proof bnonce finData transactions stateHash tran
 
 deserializeExactVersionedPendingBlock :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializeExactVersionedPendingBlock blockBS rectime =
-    case runGet (getExactVersionedBlock (utcTimeToTransactionTime rectime)) blockBS of
+    case runGet getEVPB blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
-        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
-        Right (NormalBlock block1) -> Right $! makePendingBlock block1 rectime
+        Right block1 -> Right $! makePendingBlock block1 rectime
+    where
+        getEVPB = do
+            version <- get :: Get Version
+            case version of
+                1 -> getBakedBlockV1 (utcTimeToTransactionTime rectime)
+                n -> fail $ "Unsupported block version: " ++ show n
 
 deserializePendingBlockV1 :: ByteString.ByteString -> UTCTime -> Either String PendingBlock
-deserializePendingBlockV1 blockBS rectime =
-    case runGet (getBlockV1 (utcTimeToTransactionTime rectime)) blockBS of
+deserializePendingBlockV1 blockBS rectime = 
+    case runGet (getBakedBlockV1 (utcTimeToTransactionTime rectime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
-        Right (GenesisBlock {}) -> Left $ "Block deserialization failed: unexpected genesis block"
-        Right (NormalBlock block1) -> Right $! makePendingBlock block1 rectime
+        Right block1 -> Right $! makePendingBlock block1 rectime

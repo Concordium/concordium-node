@@ -11,6 +11,7 @@ import Concordium.Birk.Bake
 import Concordium.Logger
 import Concordium.Skov.MonadImplementations
 import Concordium.Startup
+import Concordium.Types.ProtocolVersion
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -26,15 +27,18 @@ import Test.Hspec
 -- Test that 'recoverFinalizationState' recovers the initial finalization state
 -- when initialized from genesis state.
 
+-- |Protocol version
+type PV = 'P0
+
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
--- type TreeConfig = DiskTreeDiskBlockConfig
-type TreeConfig = MemoryTreeMemoryBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- type TreeConfig = DiskTreeDiskBlockConfig PV
+type TreeConfig = MemoryTreeMemoryBlockConfig PV
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
-genesis :: Word -> (GenesisData, [(BakerIdentity, FullBakerInfo)])
+genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)])
 genesis nBakers =
     makeGenesisData
     0
@@ -54,7 +58,7 @@ makeFinalizationInstance bid = FinalizationInstance (bakerSignKey bid) (bakerEle
 
 setup :: Word -> IO [(FinalizationState (), FinalizationState ())]
 setup nBakers = do
-  let (genData@GenesisDataV2{..}, bakers) = genesis nBakers
+  let (genData@(GDP0 gd@GenesisDataV2{..}), bakers) = genesis nBakers
   let fbi = Vec.fromList (snd <$> bakers)
   let fullBakers = FullBakers {
           fullBakerInfos = fbi,
@@ -66,17 +70,17 @@ setup nBakers = do
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
         fullBakers
-        (genesisTotalGTU genData)
+        (genesisTotalGTU gd)
   let initialPassiveState =
         initialPassiveFinalizationState
         (getHash (GenesisBlock genData))
         genesisFinalizationParameters
         fullBakers
-        (genesisTotalGTU genData)
+        (genesisTotalGTU gd)
   let finInstances = map (makeFinalizationInstance . fst) bakers
   (gsc, gss, _) <- runSilentLogger( initialiseGlobalState =<< (liftIO $ makeGlobalStateConfig defaultRuntimeParameters genData))
-  active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
-  passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
+  active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) (Just inst)))
+  passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState (Proxy :: Proxy PV) (Proxy :: Proxy TreeConfig) (gsc, gss) Nothing)
   return $ passive:active
 
 test :: Spec

@@ -54,12 +54,12 @@ import           System.IO
 import           Concordium.GlobalState.TreeState (ImportingResult(..), readBlocksV1)
 
 data ReadEnv = ReadEnv
-    { _db         :: DatabaseHandlers (BlockStatePointer PersistentBlockState)
+    { _db         :: DatabaseHandlers 'P0 (BlockStatePointer (PersistentBlockState 'P0))
     , _exportFile :: Handle
     }
 makeLenses ''ReadEnv
 
-initialDatabase :: FilePath -> IO (DatabaseHandlers (BlockStatePointer PersistentBlockState))
+initialDatabase :: FilePath -> IO (DatabaseHandlers 'P0 (BlockStatePointer (PersistentBlockState 'P0)))
 initialDatabase p = makeDatabaseHandlers p True
 
 initialHandle :: FilePath -> IO Handle

@@ -29,7 +29,7 @@ import SchedulerTests.Helpers
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount 200000000000 Acc.emptyAccounts
 
 baker :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)

@@ -1,7 +1,7 @@
 {-# LANGUAGE
     OverloadedStrings,
     TypeFamilies,
-    CPP #-}
+    TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -43,11 +43,14 @@ import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
 
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- |Protocol version
+type PV = 'P0
+
+type TreeConfig = DiskTreeDiskBlockConfig PV
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
+type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
 newtype Peer = Peer {
     peerChan :: Chan (InMessage Peer)
@@ -113,7 +116,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're connected, relay the message as required
             if connected then case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getExactVersionedBlock now) blockBS of
+                    case runGet (getExactVersionedBlock @ PV now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
@@ -143,7 +146,7 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're not connected, don't relay, but still send to the monitor channel
             else case msg of
                 MsgNewBlock blockBS ->
-                    case runGet (getExactVersionedBlock now) blockBS of
+                    case runGet (getExactVersionedBlock @ PV now) blockBS of
                         Right (NormalBlock block) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)

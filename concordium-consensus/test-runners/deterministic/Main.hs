@@ -55,30 +55,31 @@ import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 import System.Directory
 
+-- |Protocol version
+type PV = 'P0
+
+type TreeConfig = DiskTreeDiskBlockConfig PV
+
+-- |Construct the global state configuration.
+-- Can be customised if changing the configuration.
+makeGlobalStateConfig :: RuntimeParameters -> (GenesisData PV) -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+
+{-
+type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
+makeGlobalStateConfig rp genData =
+   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+-}
+
 -- |A timer is represented as an integer identifier.
 -- Timers are issued with increasing identifiers.
 newtype DummyTimer = DummyTimer Integer
     deriving (Num, Eq, Ord)
 
-
--- |Construct the global state configuration.
--- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-
-
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
-
-{-
-type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
-makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
--}
-
 -- |Configuration to use for bakers.
 -- Can be customised for different global state configurations (disk/memory/paired)
 -- or to enable/disable finalization buffering.
-type BakerConfig = SkovConfig TreeConfig (BufferedFinalization DummyTimer) NoHandler
+type BakerConfig = SkovConfig PV TreeConfig (BufferedFinalization DummyTimer) NoHandler
 
 -- |The identity providers to use.
 dummyIdentityProviders :: IdentityProviders
@@ -316,7 +317,7 @@ broadcastEvent curTime ev = ssEvents %= \e -> foldr addEvent e [PEvent curTime (
 displayBakerEvent :: (MonadIO m) => Int -> Event -> m ()
 displayBakerEvent i ev = liftIO $ putStrLn $ show i ++ "> " ++ show ev
 
-bpBlock :: TS.BlockPointerType BakerM -> Block
+bpBlock :: TS.BlockPointerType BakerM -> Block PV
 -- bpBlock (PairBlockData (l, _)) = BS._bpBlock l
 bpBlock = BS._bpBlock
 

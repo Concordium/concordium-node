@@ -40,6 +40,9 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.DummyData
 
+-- |Protocol version
+type PV = 'Types.P0
+
 iterateLimitM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateLimitM n f = go 0 where
   go m x | m == n = return []
@@ -47,7 +50,7 @@ iterateLimitM n f = go 0 where
              y <- f x
              (x:) <$> go (m+1) y
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
     10000000000
     (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000000) Acc.emptyAccounts)
@@ -80,7 +83,7 @@ createSecToPubTransferData =
   makeSecToPubAmountTransferData (initialBlockState ^. blockCryptographicParameters . unhashed)
 
 -- Helper for checking the encrypted balance of an account.
-checkEncryptedBalance :: AccountEncryptedAmount -> AccountAddress -> BlockState -> SpecWith ()
+checkEncryptedBalance :: AccountEncryptedAmount -> AccountAddress -> BlockState PV -> SpecWith ()
 checkEncryptedBalance accEncAmount acc bs =
   specify ("Correct final balance on " ++ show acc) $
     case Acc.getAccount acc (bs ^. blockAccounts) of
@@ -117,13 +120,13 @@ allTxsIO = do
 -- considers that transferred amounts are added to the incoming amounts and
 -- after that it checks that the initial incoming amounts are being
 -- automatically aggregated.
-transactionsIO :: IO ([(Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))],
+transactionsIO :: IO ([(Runner.TransactionJSON, (TResultSpec, BlockState PV -> Spec))],
                      [(EncryptedAmountTransferData, Amount)])
 transactionsIO = do
   allTxs <- allTxsIO
   let (normal, interesting) = splitAt maxNumIncoming allTxs
    -- A normal transaction is a transfer before maxNumIncoming amounts have been received.
-  let makeNormalTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))
+  let makeNormalTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (Runner.TransactionJSON, (TResultSpec, BlockState PV -> Spec))
       makeNormalTransaction x idx = makeTransaction x idx $
         \bs -> do
           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount x} alesAccount bs -- Ales amount should be the remaining amount on the transaction
@@ -133,7 +136,7 @@ transactionsIO = do
             } thomasAccount bs
 
       -- An interesting transaction is a transfer after maxNumIncoming amounts have been received.
-      makeInterestingTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))
+      makeInterestingTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (Runner.TransactionJSON, (TResultSpec, BlockState PV -> Spec))
       makeInterestingTransaction x idx = makeTransaction x idx $
         \bs -> do
           checkEncryptedBalance initialAccountEncryptedAmount{_selfAmount = eatdRemainingAmount x} alesAccount bs -- Ales amount should be the remaining amount on the transaction
@@ -143,7 +146,7 @@ transactionsIO = do
                                                               _incomingEncryptedAmounts =  kept, -- the list of incoming amounts will hold the `rest` of the amounts
                                                               _aggregatedAmount = Just (combinedAmount, fromIntegral (idx - fromIntegral maxNumIncoming + 1)) -- the combined amount goes into the `_aggregatedAmount` field together with the number of aggregated amounts until this point.
                                                              } thomasAccount bs
-      makeTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (BlockState -> Spec) -> (Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))
+      makeTransaction :: EncryptedAmountTransferData -> EncryptedAmountAggIndex -> (BlockState PV -> Spec) -> (Runner.TransactionJSON, (TResultSpec, BlockState PV -> Spec))
       makeTransaction x@EncryptedAmountTransferData{..} idx checks =
         ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount x -- create an encrypted transfer to Thomas
                       , metadata = makeDummyHeader alesAccount (fromIntegral idx + 1) 100000 -- from Ales with nonce idx + 1
@@ -174,7 +177,7 @@ mkSecToPubTransferData transactions = fromJust <$> createSecToPubTransferData th
 
 ------------------------------------- Test -------------------------------------
 
-testCases :: [(Runner.TransactionJSON, (TResultSpec, BlockState -> Spec))] -> [TestCase]
+testCases :: [(Runner.TransactionJSON, (TResultSpec, BlockState PV -> Spec))] -> [TestCase]
 testCases transactions =
   [ TestCase
     { tcName = "Makes an encrypted transfer"

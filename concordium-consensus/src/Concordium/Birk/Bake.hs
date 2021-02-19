@@ -75,8 +75,8 @@ instance FromJSON BakerIdentity where
     return BakerIdentity{..}
 
 processTransactions
-    :: (TreeStateMonad m,
-        SkovMonad m)
+    :: (TreeStateMonad pv m,
+        SkovMonad pv m)
     => Slot
     -> SeedState
     -> BlockPointerType m
@@ -96,7 +96,7 @@ processTransactions slot ss bh mfinInfo bid = do
 -- |Re-establish all the invariants among the transaction table, pending table,
 -- account non-finalized table
 maintainTransactions ::
-  (TreeStateMonad m)
+  (TreeStateMonad pv m)
   => BlockPointerType m
   -> FilteredTransactions
   -> m ()
@@ -194,7 +194,7 @@ validateBakerKeys BakerInfo{..} ident =
   && _bakerSignatureVerifyKey == bakerSignPublicKey ident
   && _bakerAggregationVerifyKey == bakerAggregationPublicKey ident
 
-doBakeForSlot :: forall m. (FinalizationMonad m, SkovMonad m, TreeStateMonad m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+doBakeForSlot :: forall pv m. (FinalizationMonad m, SkovMonad pv m, TreeStateMonad pv m, MonadIO m, OnSkov m) => BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
     -- Do not bake if consensus is shut down
     shutdown <- isShutDown
@@ -253,7 +253,7 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
 
     return newbp
 
-class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
+class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- |Create a block pointer for the given slot.
     -- This function is in charge of accumulating the pending transactions and
     -- credential deployments, construct the block and update the transaction table,
@@ -261,6 +261,6 @@ class (SkovMonad m, FinalizationMonad m) => BakerMonad m where
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
-instance (FinalizationMonad (SkovT h c m), MonadIO m, SkovMonad (SkovT h c m), TreeStateMonad (SkovT h c m), OnSkov (SkovT h c m)) =>
-        BakerMonad (SkovT h c m) where
+instance (FinalizationMonad (SkovT h c m), MonadIO m, SkovMonad pv (SkovT h c m), TreeStateMonad pv (SkovT h c m), OnSkov (SkovT h c m)) =>
+        BakerMonad pv (SkovT h c m) where
     bakeForSlot = doBakeForSlot

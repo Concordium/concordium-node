@@ -28,7 +28,7 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 initialAmount :: Types.Amount
 initialAmount = 0
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 transactionsInput :: [Types.CredentialDeploymentWithMeta]
