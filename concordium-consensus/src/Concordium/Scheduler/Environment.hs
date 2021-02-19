@@ -141,14 +141,14 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- FIXME: This method should not be here, but rather in the transaction monad.
   -- |Add account credential to an account address.
   -- Precondition: The account with this address exists in the block state.
-  addAccountCredential :: Account m -> ID.AccountCredential -> m ()
+  addAccountCredentials :: Account m -> Map.Map ID.KeyIndex ID.AccountCredential -> m ()
 
   -- |Create and add an empty account with the given public key, address and credential.
   -- If an account with the given address already exists, @Nothing@ is returned.
   -- Otherwise, the new account is returned, and the credential is added to the known credentials.
   --
   -- It is not checked if the account's credential is a duplicate.
-  createAccount :: CryptographicParameters -> ID.AccountKeys -> AccountAddress -> ID.AccountCredential -> m (Maybe (Account m))
+  createAccount :: CryptographicParameters -> AccountAddress -> ID.AccountCredential -> m (Maybe (Account m))
 
   -- |Notify energy used by the current execution.
   -- Add to the current running total of energy used.
@@ -947,7 +947,7 @@ logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId $ cred) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
@@ -958,7 +958,7 @@ logInvalidTransaction WithMetadata{..} fk =
 
 logInvalidCredential :: SchedulerMonad m => CredentialDeploymentWithMeta -> FailureKind -> m ()
 logInvalidCredential WithMetadata{..} fk =
-  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.regId $ wmdData) ++ " was invalid with reason " ++ show fk
+  logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId $ wmdData) ++ " was invalid with reason " ++ show fk
 
 logInvalidChainUpdate :: SchedulerMonad m => WithMetadata UpdateInstruction -> FailureKind -> m ()
 logInvalidChainUpdate WithMetadata{..} fk =

@@ -231,6 +231,15 @@ recordRegId rid accts0 = do
                 accountRegIdHistory = RegIdHistory (rid:l) r
                 }
 
+recordRegIds :: MonadBlobStore m => [ID.CredentialRegistrationID] -> Accounts -> m Accounts
+recordRegIds rids accts0 = do
+        (regids, accts1) <- loadRegIds accts0
+        let (RegIdHistory l r) = accountRegIdHistory accts1
+        return $! accts1 {
+                accountRegIds = Some (Set.union regids (Set.fromAscList rids)),
+                accountRegIdHistory = RegIdHistory (rids++l) r
+                }
+
 -- |Perform an update to an account with the given address.
 -- Does nothing (returning @Nothing@) if the account does not exist.
 -- This should not be used to alter the address of an account (which is
@@ -278,13 +287,14 @@ updateAccount !upd !acc = do
   bkrHash <- hashAccountBaker (acc ^. accountBaker)
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
   let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount releaseScheduleHash pdata bkrHash
-  case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
+  case (upd ^. auCredentials, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
-        (mNewCred, mKeyUpd, mNewThreshold) -> do
-            let newPData = updateCredential mNewCred (updateAccountKeys mKeyUpd mNewThreshold pData)
-            newPDataRef <- makeBufferedRef newPData
-            return $ newAccWithoutHash & persistingData .~ newPDataRef
-                                    & hashUpdate newPData
+        _ -> return $ newAccWithoutHash & hashUpdate pData
+        -- (mNewCred, mKeyUpd, mNewThreshold) -> do
+        --     let newPData = updateCredential mNewCred (updateAccountKeys mKeyUpd mNewThreshold pData)
+        --     newPDataRef <- makeBufferedRef newPData
+        --     return $ newAccWithoutHash & persistingData .~ newPDataRef
+        --                             & hashUpdate newPData
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 
