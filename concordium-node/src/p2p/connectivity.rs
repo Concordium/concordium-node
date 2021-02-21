@@ -260,7 +260,7 @@ impl P2PNode {
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
                         self.register_conn_change(ConnChange::RemovalByToken(conn.token));
                     } else {
-                        self.register_conn_change(ConnChange::Expulsion(conn.token));
+                        self.register_conn_change(ConnChange::ExpulsionByToken(conn.token));
                     }
                     return;
                 }
@@ -272,7 +272,7 @@ impl P2PNode {
                             if let Ok(_io_err) = e.downcast::<io::Error>() {
                                 self.register_conn_change(ConnChange::RemovalByToken(conn.token));
                             } else {
-                                self.register_conn_change(ConnChange::Expulsion(conn.token));
+                                self.register_conn_change(ConnChange::ExpulsionByToken(conn.token));
                             }
                             return;
                         }
