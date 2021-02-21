@@ -7,6 +7,7 @@ import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Maybe
+import Data.Foldable
 import Data.Serialize
 import Lens.Micro.Platform
 
@@ -189,11 +190,6 @@ makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseSc
 makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put ars >> put pd >> put abh
 
-{-# INLINE addCredentials #-}
-addCredentials :: HasPersistingAccountData d => (Map.Map KeyIndex AccountCredential) -> d -> d
-addCredentials creds = (accountCredentials %~ Map.union creds)
-  . (accountMaxCredentialValidTo %~ max (maximum (validTo <$> creds)))
-
 -- {-# INLINE setKey #-}
 -- -- |Set a at a given index to a given value. The value of 'Nothing' will remove the key.
 -- setKey :: HasPersistingAccountData d => KeyIndex -> Maybe VerifyKey -> d -> d
@@ -230,6 +226,13 @@ data AccountKeysUpdate =
   | SetKeys !(Map.Map KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
   deriving(Eq)
 
+data CredentialsUpdate = CredentialsUpdate {
+  -- |Remove credentials with these indices.
+  cuRemove :: ![KeyIndex],
+  -- |Add credentials with these indices.
+  cuAdd :: !(Map.Map KeyIndex AccountCredential)
+  } deriving(Eq)
+
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
   -- |Address of the affected account.
@@ -241,11 +244,12 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally an update the encrypted amount.
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally a new credential.
-  ,_auCredentials :: !(Maybe (Map.Map KeyIndex AccountCredential))
+  ,_auCredentials :: !(Maybe CredentialsUpdate)
   -- |Optionally an update to the account keys
   ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
-  -- |Optionally update the signature threshold
-  ,_auSignThreshold :: !(Maybe SignatureThreshold)
+  -- |Optionally update the account signature threshold,
+  -- i.e., how many credentials need to sign the transaction.
+  ,_auAccountThreshold :: !(Maybe AccountThreshold)
   -- |Optionally update the locked stake on the account.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving(Eq)
@@ -255,9 +259,11 @@ emptyAccountUpdate :: AccountAddress -> AccountUpdate
 emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 -- |Optionally add a credential to an account.
-{-# INLINE updateCredential #-}
-updateCredential :: (HasPersistingAccountData d) => Maybe (Map.Map KeyIndex AccountCredential) -> d -> d
-updateCredential = maybe id addCredentials
+updateCredentials :: (HasPersistingAccountData d) => Maybe CredentialsUpdate -> d -> d
+updateCredentials Nothing = id
+updateCredentials (Just CredentialsUpdate{..}) = (accountCredentials %~ Map.union cuAdd . removeKeys)
+    . (accountMaxCredentialValidTo %~ max (maximum (validTo <$> cuAdd))) -- FIXME:  This line is not correct since we've removed some data.
+  where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
 
 -- |Optionally update the verification keys and signature threshold for an account.
 -- {-# INLINE updateAccountKeys #-}
