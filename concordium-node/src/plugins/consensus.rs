@@ -403,7 +403,7 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
             }
         } else {
             // Connection no longer exists
-            debug!("Catch-up-in-progress peer {:016x} no longer exists", id);
+            debug!("Connection to catch-up-in-progress peer {:016x} no longer exists", id);
             let peers = &mut write_or_die!(node.peers);
             peers.catch_up_peer = None;
             peers.peer_states.remove(&id);
@@ -453,7 +453,23 @@ fn update_peer_states(
                     }
                 }
             }
-            _ => {}
+            ConsensusFfiResponse::InvalidResult => {
+                // Remove the peer since it is incompatible with us.
+                debug!(
+                    "Catching up with peer {:016x} resulted in incompatible globalstates, \
+                     dropping and soft-banning",
+                    source_peer
+                );
+                node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
+            }
+            ConsensusFfiResponse::DeserializationError => {
+                debug!(
+                    "The peer {:016x} sent a malformed catchup message, dropping and soft-banning",
+                    source_peer
+                );
+                node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
+            }
+            e => error!("Unexpected return from `receiveCatchUpStatus`: {:?}", e),
         }
     } else if [Block, FinalizationRecord].contains(&request.variant) {
         match request.distribution_mode() {
