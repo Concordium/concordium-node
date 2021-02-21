@@ -818,7 +818,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         (_, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
         accts2 <- case _auCredentials of
-            Just creds -> Accounts.recordRegIds (Map.elems $ ID.credId <$> creds) accts1
+            Just creds -> Accounts.recordRegIds (Map.elems $ ID.credId <$> cuAdd creds) accts1
             Nothing -> return accts1
         storePBS pbs (bsp {bspAccounts = accts2})
     where

@@ -139,9 +139,18 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   increaseAccountNonce :: Account m -> m ()
 
   -- FIXME: This method should not be here, but rather in the transaction monad.
-  -- |Add account credential to an account address.
-  -- Precondition: The account with this address exists in the block state.
-  addAccountCredentials :: Account m -> Map.Map ID.KeyIndex ID.AccountCredential -> m ()
+  -- |Update account credentials.
+  -- Preconditions:
+  -- - The account exists in the block state.
+  -- - The account threshold is reasonable.
+  updateAccountCredentials :: Account m
+                        -> [ID.KeyIndex]
+                        -- ^ The indices of credentials to remove from the account.
+                        -> ID.AccountThreshold
+                        -- ^ The new account threshold
+                        -> Map.Map ID.KeyIndex ID.AccountCredential
+                        -- ^ The new credentials.
+                        -> m ()
 
   -- |Create and add an empty account with the given public key, address and credential.
   -- If an account with the given address already exists, @Nothing@ is returned.

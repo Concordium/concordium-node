@@ -104,7 +104,7 @@ updateAccount !upd
     = updateNonce
       . updateReleaseSchedule
       . updateAmount
-      . updateCredential (upd ^. auCredentials)
+      . updateCredentials (upd ^. auCredentials)
       . updateEncryptedAmount
       -- . updateAccountKeys (upd ^. auKeysUpdate) (upd ^. auSignThreshold)
   where

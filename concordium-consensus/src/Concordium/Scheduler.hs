@@ -1347,7 +1347,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
 handleUpdateCredentials :: 
   SchedulerMonad m
     => WithDepositContext m
-    -> (OrdMap.Map ID.KeyIndex ID.CredentialDeploymentInformation)
+    -> OrdMap.Map ID.KeyIndex ID.CredentialDeploymentInformation
     -> [ID.CredentialRegistrationID]
     -> ID.AccountThreshold
     -> m (Maybe TransactionSummary)
@@ -1362,32 +1362,86 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       cryptoParams <- getCryptoParams
+      existingCredentials <- getAccountCredentials senderAccount
+      -- check that all credentials that are to be removed actually exist.
+      -- This is either Nothing if there is a credential id in the list to remove
+      -- which does not exist on the account now or Just kis where `kis` is a list of key indices
+      -- to remove.
+      let (nonExistingRegIds, indicesToRemove) =
+            -- Here we do not care whether the list of credentials to remove has unique elements
+            -- or not. As long as the lists are limited in length this should not matter, i.e.,
+            -- this is not an abusable property.
+            -- Because we should never have duplicate regids on the chain, each of them will only
+            -- map to the unique key index. Thus the following map is well-defined.
+            let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
+            in foldl' (\(nonExisting, existing) rid ->
+                         case rid `OrdMap.lookup` existingCredIds of
+                           Nothing -> (rid:nonExisting, existing)
+                           Just ki -> (nonExisting, Set.insert ki existing)
+                      ) ([], Set.empty) removeRegIds
+
+      -- check that the indices after removal are disjoint from the indices that we are about to add
+      let removalCheck = not (null nonExistingRegIds) &&
+                         let existingIndices = OrdMap.keysSet existingCredentials
+                             newIndices = OrdMap.keysSet cdis
+                         in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
+                         
+      -- check that the new threshold is no more than the number of credentials
+      -- 
+      let thresholdCheck = toInteger (OrdMap.size existingCredentials) + toInteger (OrdMap.size cdis) >= toInteger (Set.size indicesToRemove) + toInteger threshold
+
+      -- TODO: Check that the first credential is not removed.
+
+      -- make sure that the credentials that are being added have not yet been used on the chain.
+      -- This is a list of credential registration ids that already exist. The list is used for error
+      -- reporting.
+      (existingCredIds, _) <- foldM (\(acc, newRids) cdi -> do
+                                       let rid = ID.cdvCredId . ID.cdiValues $ cdi
+                                       exists <- accountRegIdExists rid
+                                       if exists || Set.member rid newRids then
+                                         return (rid:acc, rid `Set.insert` newRids)
+                                       else return (acc, rid `Set.insert` newRids)
+                                    ) ([], Set.empty) cdis
+
       let getIP cdi = getIPInfo $ ID.ipId $ ID.NormalACWP cdi
-      let getAR cdi = getArInfos $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
-      let checkCDI cdi =
-            do 
+          getAR cdi = getArInfos $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
+          -- verify the cryptographic proofs
+          checkCDI cdi = do
               ip <- getIP cdi
               ar <- getAR cdi
               case ip of
                 Nothing -> return False 
                 Just ipInfo -> case ar of
                   Nothing -> return False 
-                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) Nothing 
-      let cdiList = OrdMap.elems cdis
-      let cdiChecks = map checkCDI cdiList
-      let checkAll = foldl' (...) True cdiChecks
-
-      check <- checkCDI (cdis OrdMap.! 0)
-      if check then do -- check if stuff is correct
-        let creds = fmap (fromJust . ID.values . ID.NormalACWP) cdis
-        _ <- addAccountCredentials senderAccount creds
-        return (TxSuccess [CredentialsAdded {
-                  caNewCredIds = removeRegIds,
-                  caRemovedCredIds = removeRegIds,
-                  caNewThreshold = threshold
-              }], energyCost, usedEnergy)
+                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) Nothing
+      -- check all the credential proofs.
+      -- This is only done if all the previous checks have succeeded since this is by far the most computationally expensive part.
+      checkProofs <- foldM (\check cdi -> if check then checkCDI cdi else return False) (thresholdCheck && removalCheck && null existingCredIds) cdis
+      if checkProofs then do -- check if stuff is correct
+        let creds = traverse (ID.values . ID.NormalACWP) cdis
+        case creds of
+          Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
+          Just newCredentials -> do
+            _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials -- TODO: Also remove and add 
+            senderAddress <- getAccountAddress senderAccount
+            return (TxSuccess [CredentialsUpdated {
+                                  cuAccount = senderAddress,
+                                  cuNewCredIds = removeRegIds,
+                                  cuRemovedCredIds = removeRegIds,
+                                  cuNewThreshold = threshold
+                                  }], energyCost, usedEnergy)
       else
-        return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
+        -- try to provide a more fine-grained error by analyzing what went wrong
+        -- at some point we should refine the scheduler monad to support cleaner error
+        -- handling by adding MonadError capability to it. Until that is done this
+        -- is a pretty clean alternative to avoid deep nesting.
+        if not (null nonExistingRegIds) then
+          return (TxReject (NonExistentCredIDs nonExistingRegIds), energyCost, usedEnergy)
+        else if not removalCheck then
+          return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
+        else if not (null existingCredIds) then
+          return (TxReject (DuplicateCredIDs existingCredIds), energyCost, usedEnergy)
+        else return (TxReject InvalidCredentials, energyCost, usedEnergy)
 
 
 -- * Exposed methods.

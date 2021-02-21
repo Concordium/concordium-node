@@ -391,7 +391,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
              Nothing -> bs & blockAccounts %~ Accounts.putAccount updatedAccount
              Just creds ->
                bs & blockAccounts %~ Accounts.putAccount updatedAccount
-                                   . Accounts.recordRegIds (Map.elems $ credId <$> creds))
+                                   . Accounts.recordRegIds (Map.elems $ credId <$> cuAdd creds))
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account

@@ -287,11 +287,11 @@ updateAccount !upd !acc = do
   bkrHash <- hashAccountBaker (acc ^. accountBaker)
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
   let hashUpdate pdata = accountHash .~ makeAccountHash _accountNonce _accountAmount baseEncryptedAmount releaseScheduleHash pdata bkrHash
-  case (upd ^. auCredentials, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
+  case (upd ^. auCredentials, upd ^. auKeysUpdate, upd ^. auAccountThreshold) of
         (Nothing, Nothing, Nothing) -> return $ newAccWithoutHash & hashUpdate pData
         _ -> return $ newAccWithoutHash & hashUpdate pData
         -- (mNewCred, mKeyUpd, mNewThreshold) -> do
-        --     let newPData = updateCredential mNewCred (updateAccountKeys mKeyUpd mNewThreshold pData)
+        --     let newPData = updateCredentials mNewCred (updateAccountKeys mKeyUpd mNewThreshold pData)
         --     newPDataRef <- makeBufferedRef newPData
         --     return $ newAccWithoutHash & persistingData .~ newPDataRef
         --                             & hashUpdate newPData
