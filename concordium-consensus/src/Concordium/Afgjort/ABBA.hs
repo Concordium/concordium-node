@@ -330,8 +330,8 @@ handleCSSEvents phase (SendCSSMessage m : evs) = sendABBAMessage (liftMsg m) >> 
         liftMsg (Input _) = undefined -- Should not happen
         liftMsg (Seen ns) = CSSSeen phase ns
         liftMsg (DoneReporting cs) = CSSDoneReporting phase cs
-handleCSSEvents phase (SelectCoreSet cs : evs) = delayThen (phase+1) (HandleCoreSet phase cs) >> handleCSSEvents phase evs
-handleCSSEvents phase (WaitThenFinishReporting : evs) = delayThen (phase+1) (CSSFinishReporting phase) >> handleCSSEvents phase evs
+handleCSSEvents phase (SelectCoreSet cs : evs) = delayThen phase (HandleCoreSet phase cs) >> handleCSSEvents phase evs
+handleCSSEvents phase (WaitThenFinishReporting : evs) = delayThen phase (CSSFinishReporting phase) >> handleCSSEvents phase evs
 
 -- |Generate my lottery ticket for the given phase.
 makeTicket :: (ABBAMonad sig m) => Phase -> m TicketProof
@@ -478,7 +478,7 @@ handleCoreSet phase cs = do
                             [] -> error "Finalization failure: no lottery ticket could be verified" -- This should not be possible under standard assumptions
             tkt <- makeTicket (phase + 1)
             sendABBAMessage (Justified (phase+1) nextBit $! tkt)
-            delayThen (phase + 1) (CompletePhase phase nextBit newGrade)
+            delayThen phase (CompletePhase phase nextBit newGrade)
 
 --------------------------------------------------------------------------------
 -- Summary

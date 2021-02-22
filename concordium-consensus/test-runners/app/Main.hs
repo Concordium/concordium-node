@@ -204,10 +204,8 @@ main = do
     let (gen, bis) = makeGenesisData now n 200
                      defaultFinalizationParameters{
                          finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
-                         -- finalizationOldStyleSkip = True, finalizationSkipShrinkFactor = 0.5,
-                         finalizationOldStyleSkip = False, finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,
-                         finalizationAllowZeroDelay = True,
-                         finalizationIgnoreFirstWait = True
+                         finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,
+                         finalizationAllowZeroDelay = True
                      }
                      Dummy.dummyCryptographicParameters
                      dummyIdentityProviders

@@ -71,8 +71,7 @@ async fn main() -> Fallible<()> {
     // Signal handling closure. so we shut down cleanly
     let signal_closure = |signal_handler_node: &Arc<P2PNode>,
                           shutdown_handler_state: &Arc<AtomicBool>| {
-        if !shutdown_handler_state.load(Ordering::SeqCst) {
-            shutdown_handler_state.store(true, Ordering::SeqCst);
+        if !shutdown_handler_state.compare_and_swap(false, true, Ordering::SeqCst) {
             info!("Signal received attempting to shutdown node cleanly");
             if !signal_handler_node.close() {
                 error!("Can't shutdown node properly!");

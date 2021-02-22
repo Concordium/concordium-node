@@ -1,27 +1,23 @@
 #!/usr/bin/env bash
 
-# Enable all errors
-set -e
+set -euxo pipefail
 
-# Retrieve genesis data sha
-if [ -n "$1" ]; then
-    GENESIS_VERSION=$1
+if [ "$#" -eq 1 ]; then
+    genesis_version="$1"
 else
-    GENESIS_VERSION=$(cat scripts/GENESIS_DATA_VERSION)
+    genesis_version="$(cat scripts/GENESIS_DATA_VERSION)"
 fi
 
-echo "Downloading genesis data SHA $GENESIS_VERSION"
-
-# Setup directory we expect them to be in
 mkdir -p genesis-data
+cd genesis-data
 
-# Download all files in archive and the benchmark bundles
-(
-    cd genesis-data &&
-    curl -s https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/finbench-bakers-${GENESIS_VERSION}.tar.gz > finbench-bakers.tar.gz
-    curl -s https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/tps-bakers-${GENESIS_VERSION}.tar.gz > tps-bakers.tar.gz
-    curl -s https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/catchup-bakers-${GENESIS_VERSION}.tar.gz > catchup-bakers.tar.gz
-    curl -s https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/CONTENTS-${GENESIS_VERSION} | while read BAKER_SIZE; do
-        curl -s https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com/${BAKER_SIZE}-bakers-${GENESIS_VERSION}.tar.gz > ${BAKER_SIZE}-bakers.tar.gz
-    done
-)
+s3_bucket_url="https://s3-eu-west-1.amazonaws.com/genesis-data.concordium.com"
+
+#curl -sSf "$s3_bucket_url/finbench-bakers-${genesis_version}.tar.gz" > finbench-bakers.tar.gz
+curl -sSf "$s3_bucket_url/tps-bakers-${genesis_version}.tar.gz" > tps-bakers.tar.gz
+curl -sSf "$s3_bucket_url/catchup-bakers-${genesis_version}.tar.gz" > catchup-bakers.tar.gz
+
+curl -sSf "$s3_bucket_url/CONTENTS-${genesis_version}" |
+	while read baker_size; do
+		curl -sSf "$s3_bucket_url/${baker_size}-bakers-${genesis_version}.tar.gz" > "${baker_size}-bakers.tar.gz"
+	done

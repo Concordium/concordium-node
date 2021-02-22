@@ -437,7 +437,7 @@ elif [ "$MODE" == "local_collector" ]; then
     fi
     for i in `seq 1 $NUM_BAKERS`
     do
-        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host http://baker_$i:10000 --node-name baker_$i"
+        COLLECTOR_NODE_URLS="$COLLECTOR_NODE_URLS --grpc-host http://docker-compose_baker_$i:10000 --node-name baker_$i"
     done
     ARGS="$ARGS $COLLECTOR_NODE_URLS"
     /node-collector $ARGS
@@ -498,12 +498,6 @@ elif [ "$MODE" == "local_wallet_proxy" ]; then
         ARGS="$ARGS --drop-account $WALLET_PROXY_ACCOUNT_FILE"
     else
         ARGS="$ARGS --drop-account /genesis-complementary-bundle/additional_accounts/gtu-drop-account-0.json"
-    fi
-    if [ -n "$WALLET_PROXY_GLOBAL_JSON" ]; 
-    then
-        ARGS="$ARGS --global $WALLET_PROXY_GLOBAL_JSON"
-    else
-        ARGS="$ARGS --global /genesis-complementary-bundle/global.json"
     fi
     if [ -n "$WALLET_PROXY_IPS_METADATA_JSON" ]; 
     then

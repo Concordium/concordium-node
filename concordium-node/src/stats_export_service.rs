@@ -465,8 +465,8 @@ impl StatsExportService {
 
     /// Starts the statistics server.
     #[cfg(feature = "instrumentation")]
-    pub async fn start_server(&self, listen_addr: SocketAddr) -> impl std::future::Future {
-        gotham::plain::init_server(listen_addr, self.router())
+    pub async fn start_server(&self, listen_addr: SocketAddr) -> Result<(), ()> {
+        gotham::plain::init_server(listen_addr, self.router()).await
     }
 
     #[cfg(feature = "instrumentation")]

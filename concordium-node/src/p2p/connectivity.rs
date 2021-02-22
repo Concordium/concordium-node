@@ -14,10 +14,7 @@ use crate::{
     configuration as config,
     connection::{ConnChange, Connection, MessageSendingPriority},
     lock_or_die, netmsg,
-    network::{
-        Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
-        PacketDestination,
-    },
+    network::{Handshake, NetworkId, NetworkPacket, NetworkRequest, PacketDestination},
     only_fbs,
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
     read_or_die, write_or_die,
@@ -27,7 +24,7 @@ use crate::{
 use std::cmp;
 use std::{
     io,
-    net::SocketAddr,
+    net::{IpAddr, SocketAddr},
     sync::{atomic::Ordering, Arc},
     time::{Duration, Instant},
 };
@@ -35,54 +32,33 @@ use std::{
 /// The poll token of the node's socket server.
 pub const SELF_TOKEN: Token = Token(0);
 
-// a convenience macro to send an object to all connections
-macro_rules! send_to_all {
-    ($foo_name:ident, $object_type:ty, $req_type:ident) => {
-        #[doc = "Send a specified network request to all peers"]
-        #[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused_variables))]
-        pub fn $foo_name(&self, object: $object_type) {
-            let request = NetworkRequest::$req_type(object);
-            let message = netmsg!(NetworkRequest, request);
-            let filter = |_: &Connection| true;
-
-            only_fbs!({if let Err(e) = {
-                let mut buf = Vec::with_capacity(256);
-                message.serialize(&mut buf)
-                    .map(|_| buf)
-                    .map(|buf| self.send_over_all_connections(&buf, &filter))
-            } {
-                error!("A network message couldn't be forwarded: {}", e);
-            }});
-        }
-    }
-}
-
-/// A macro used to find a connection by the id of its node.
-#[macro_export]
-macro_rules! find_conn_by_id {
-    ($node:expr, $id:expr) => {{
-        crate::read_or_die!($node.connections()).values().find(|conn| conn.remote_id() == Some($id))
-    }};
-}
-
-/// A macro used to find connections by an IP address.
-#[macro_export]
-macro_rules! find_conns_by_ip {
-    ($node:expr, $ip:expr) => {{
-        crate::read_or_die!($node.connections())
-            .values()
-            .filter(|conn| conn.remote_peer.addr.ip() == $ip)
-    }};
-}
-
 impl P2PNode {
-    send_to_all!(send_ban, BanId, BanNode);
+    /// Broadcast a request to join a network.
+    /// Note that this needs a write lock on the node's connections object.
+    pub fn send_join_network(&self, id: NetworkId) {
+        self.broadcast_network_request(NetworkRequest::JoinNetwork(id))
+    }
 
-    send_to_all!(send_unban, BanId, UnbanNode);
+    /// Broadcast a request to leave the network.
+    /// Note that this needs a write lock on the node's connections object.
+    pub fn send_leave_network(&self, id: NetworkId) {
+        self.broadcast_network_request(NetworkRequest::LeaveNetwork(id))
+    }
 
-    send_to_all!(send_joinnetwork, NetworkId, JoinNetwork);
-
-    send_to_all!(send_leavenetwork, NetworkId, LeaveNetwork);
+    /// Send a network change request to all the peers.
+    /// Note that this needs a write lock on the node's connections object.
+    pub fn broadcast_network_request(&self, request: NetworkRequest) {
+        let message = netmsg!(NetworkRequest, request);
+        only_fbs!({
+            let mut serialized = Vec::with_capacity(256);
+            if let Err(e) = message.serialize(&mut serialized) {
+                error!("Could not serialize a network request message: {}", e)
+            } else {
+                let filter = |_: &Connection| true;
+                self.send_over_all_connections(&serialized, &filter);
+            }
+        });
+    }
 
     /// Send a `data` message to all connections adhering to the specified
     /// filter. Returns the number of sent messages.
@@ -119,37 +95,73 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
-    /// Shut down connection with the given poll token.
-    pub fn remove_connection(&self, token: Token) -> Option<Connection> {
-        let removed_cand = lock_or_die!(self.conn_candidates()).remove(&token);
-        let removed_conn = write_or_die!(self.connections()).remove(&token);
+    /// Find a connection token of the connection to the given peer, if such a
+    /// connection exists.
+    /// NB: This acquires and releases a read lock on the node's connections.
+    pub fn find_conn_token_by_id(&self, id: P2PNodeId) -> Option<Token> {
+        read_or_die!(self.connections()).values().find_map(|conn| {
+            if conn.remote_id() == Some(id) {
+                Some(conn.token)
+            } else {
+                None
+            }
+        })
+    }
 
-        if removed_cand.is_some() {
-            removed_cand
-        } else if removed_conn.is_some() {
-            self.bump_last_peer_update();
-            removed_conn
+    /// Find connection tokens for all connections to the given ip address.
+    /// This acquires a read lock on the node's connections and
+    /// connection_candidates objects.
+    pub fn find_conn_tokens_by_ip(&self, ip_addr: IpAddr) -> Vec<Token> {
+        lock_or_die!(self.conn_candidates())
+            .values()
+            .chain(read_or_die!(self.connections()).values())
+            .filter_map(|conn| {
+                if conn.remote_peer.addr.ip() == ip_addr {
+                    Some(conn.token)
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Shut down connection with the given poll token.
+    /// Returns the remote peer, i.e., the other end, of the just closed
+    /// connection, if it exists. None is only returned if no connection
+    /// with the given token exists.
+    pub fn remove_connection(&self, token: Token) -> Option<RemotePeer> {
+        // First attempt to remove connection in the handshake phase.
+        if let Some(removed_cand) = lock_or_die!(self.conn_candidates()).remove(&token) {
+            Some(removed_cand.remote_peer)
         } else {
-            None
+            // otherwise try to remove a full peer
+            let removed_conn = write_or_die!(self.connections()).remove(&token)?;
+            self.bump_last_peer_update();
+            Some(removed_conn.remote_peer)
         }
     }
 
     /// Shut down connections with the given poll tokens.
-    pub fn remove_connections(&self, tokens: &[Token]) {
+    /// Returns `true` if any connections were removed, and `false` otherwise.
+    pub fn remove_connections(&self, tokens: &[Token]) -> bool {
+        // This is not implemented as a simple iteration using remove_connection because
+        // that would require more lock acquisitions and calls to bump_last_peer_update.
         let conn_candidates = &mut lock_or_die!(self.conn_candidates());
         let connections = &mut write_or_die!(self.connections());
 
-        let mut removed = 0;
+        let mut removed_peers = false;
+        let mut removed_candidates = false;
         for token in tokens {
             if conn_candidates.remove(&token).is_some() {
-                continue;
+                removed_candidates = true;
             } else if connections.remove(&token).is_some() {
-                removed += 1;
+                removed_peers = true;
             }
         }
-        if removed > 0 {
+        if removed_peers {
             self.bump_last_peer_update();
         }
+        removed_candidates || removed_peers
     }
 
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
@@ -246,7 +258,7 @@ impl P2PNode {
                 {
                     error!("[sending to {}] {}", conn, e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
-                        self.register_conn_change(ConnChange::Removal(conn.token));
+                        self.register_conn_change(ConnChange::RemovalByToken(conn.token));
                     } else {
                         self.register_conn_change(ConnChange::Expulsion(conn.token));
                     }
@@ -258,7 +270,7 @@ impl P2PNode {
                         Err(e) => {
                             error!("[receiving from {}] {}", conn, e);
                             if let Ok(_io_err) = e.downcast::<io::Error>() {
-                                self.register_conn_change(ConnChange::Removal(conn.token));
+                                self.register_conn_change(ConnChange::RemovalByToken(conn.token));
                             } else {
                                 self.register_conn_change(ConnChange::Expulsion(conn.token));
                             }
@@ -267,7 +279,7 @@ impl P2PNode {
                         Ok(false) => {
                             // The connection was closed by the peer.
                             debug!("Connection to {} closed by peer", conn);
-                            self.register_conn_change(ConnChange::Removal(conn.token));
+                            self.register_conn_change(ConnChange::RemovalByToken(conn.token));
                             return;
                         }
                         Ok(true) => {}
@@ -285,7 +297,7 @@ impl P2PNode {
                     // and might catch a failure sooner in the case where we do not currently have
                     // anything to write.
                     debug!("Closing connection to {}", conn);
-                    self.register_conn_change(ConnChange::Removal(conn.token));
+                    self.register_conn_change(ConnChange::RemovalByToken(conn.token));
                 }
             })
     }
@@ -354,8 +366,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
         peer_type: PeerType::Node,
     };
 
-    let mut conn = Connection::new(node, socket, token, remote_peer, false);
-    node.register_conn(&mut conn)?;
+    let conn = Connection::new(node, socket, token, remote_peer, false)?;
     candidates_lock.insert(conn.token, conn);
 
     Ok(token)
@@ -437,8 +448,7 @@ pub fn connect(
                 peer_type,
             };
 
-            let mut conn = Connection::new(node, socket, token, remote_peer, true);
-            node.register_conn(&mut conn)?;
+            let conn = Connection::new(node, socket, token, remote_peer, true)?;
             candidates_lock.insert(conn.token, conn);
 
             if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
@@ -596,7 +606,7 @@ fn send_message_over_network(
     // TODO: Remove surrounding block expr once cargo fmt has been updated in
     // pipeline.
     #[cfg(feature = "malicious_testing")]
-    let _: () = {
+    {
         if let Some((btype, btgt, blvl)) = &node.config.breakage {
             if btype == "fuzz" && (message[0] == *btgt || *btgt == 99) {
                 fuzz_packet(&mut message[1..], *blvl);

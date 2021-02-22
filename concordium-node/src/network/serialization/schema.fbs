@@ -38,8 +38,10 @@ table IpAddr {
 
 // network request
 
+// the 3 and 4 variants used to be BanNode and UnbanNode which are now
+// deprecated as network messages.
 enum RequestVariant: uint8 {
-    Ping, GetPeers, Handshake, BanNode, UnbanNode, JoinNetwork, LeaveNetwork
+    Ping = 0, GetPeers = 1, Handshake = 2, JoinNetwork = 5, LeaveNetwork = 6
 }
 
 table NodeId { id: uint64; }
