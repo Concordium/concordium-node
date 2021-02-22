@@ -24,8 +24,10 @@ use gotham::{
 use hyper::{body::HttpBody, Body, Response, StatusCode};
 use std::{
     collections::HashMap,
+    fs,
     hash::BuildHasherDefault,
     io::Cursor,
+    path::PathBuf,
     sync::{Arc, RwLock},
     thread,
     time::Duration,
@@ -70,6 +72,13 @@ struct ConfigCli {
         help = "Versions that are banned from publishing to the collector backend"
     )]
     pub banned_versions: Vec<String>,
+    #[structopt(
+        long = "banned-node-names-file",
+        env = "COLLECTOR_BACKEND_BANNED_NODE_NAMES_FILE",
+        help = "Path to file containing node names that are banned from publishing to the \
+                collector backend. Node names should be separated by line breaks."
+    )]
+    pub banned_node_names_file: Option<PathBuf>,
     #[structopt(flatten)]
     validation_config: ValidationConfig,
 }
@@ -154,15 +163,21 @@ type NodeInfoMap = Arc<RwLock<HashMap<NodeId, NodeInfo, BuildHasherDefault<XxHas
 
 #[derive(Clone, StateData)]
 struct CollectorStateData {
-    pub nodes:           NodeInfoMap,
-    pub banned_versions: Vec<String>,
+    pub nodes:             NodeInfoMap,
+    pub banned_versions:   Vec<String>,
+    pub banned_node_names: Vec<String>,
 }
 
 impl CollectorStateData {
-    fn new(nodes: NodeInfoMap, banned_versions: Vec<String>) -> Self {
+    fn new(
+        nodes: NodeInfoMap,
+        banned_versions: Vec<String>,
+        banned_node_names: Vec<String>,
+    ) -> Self {
         Self {
             nodes,
             banned_versions,
+            banned_node_names,
         }
     }
 }
@@ -193,6 +208,12 @@ pub fn main() -> Fallible<()> {
         concordium_node::VERSION
     );
 
+    let banned_node_names: Vec<String> = if let Some(file) = conf.banned_node_names_file {
+        fs::read_to_string(file)?.lines().map(|s| s.to_string()).collect()
+    } else {
+        vec![]
+    };
+
     let node_info_map: NodeInfoMap =
         Arc::new(RwLock::new(HashMap::with_capacity_and_hasher(1500, Default::default())));
 
@@ -213,7 +234,10 @@ pub fn main() -> Fallible<()> {
     let addr = format!("{}:{}", conf.host, conf.port);
     info!("Listening for requests at http://{}", addr);
 
-    gotham::start(addr, router(node_info_map, conf.banned_versions, conf.validation_config));
+    gotham::start(
+        addr,
+        router(node_info_map, conf.banned_versions, banned_node_names, conf.validation_config),
+    );
     Ok(())
 }
 
@@ -283,7 +307,7 @@ fn nodes_staging_users_info(state: State) -> (State, JSONStringResponse) {
 
 async fn nodes_post_handler_wrapper(state: &mut State) -> Result<Response<Body>, HandlerError> {
     nodes_post_handler(state).await.map_err(|e| {
-        info!("Bad request: {}", e);
+        warn!("Bad request: {}", e);
         HandlerError::from(e).with_status(StatusCode::BAD_REQUEST)
     })
 }
@@ -333,6 +357,10 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
     );
     let state_data = CollectorStateData::borrow_from(&state);
     ensure!(!state_data.banned_versions.contains(&nodes_info.client), "node version is banned");
+    ensure!(
+        !state_data.banned_node_names.contains(&nodes_info.nodeName.trim().to_string()),
+        "node name is banned"
+    );
 
     // Check the best block height and finalized block height against the average,
     // if state contains information from enough nodes.
@@ -373,9 +401,10 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
 pub fn router(
     node_info_map: NodeInfoMap,
     banned_versions: Vec<String>,
+    banned_node_names: Vec<String>,
     validation_config: ValidationConfig,
 ) -> Router {
-    let state_data = CollectorStateData::new(node_info_map, banned_versions);
+    let state_data = CollectorStateData::new(node_info_map, banned_versions, banned_node_names);
     let validation_config_middleware = StateMiddleware::new(validation_config);
     let collector_state_middleware = StateMiddleware::new(state_data);
     let (chain, pipelines) = single_pipeline(
