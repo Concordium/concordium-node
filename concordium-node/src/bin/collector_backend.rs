@@ -340,6 +340,10 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
         .context("Can't parse client data")?;
 
     ensure!(!nodes_info.nodeName.is_empty(), "nodeName cannot be empty");
+    ensure!(
+        nodes_info.nodeName.lines().count() == 1,
+        "nodeName is not allowed to contain line breaks"
+    );
     ensure!(!nodes_info.nodeId.is_empty(), "nodeId cannot be empty");
     ensure!(
         nodes_info.nodeName.len() <= validation_conf.valid_node_name_lenght,
