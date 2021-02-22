@@ -270,8 +270,8 @@ dispatch msg = do
                      handleTransferToPublic (mkWTC TTTransferToPublic) ttpData
 
                    TransferWithSchedule{..} ->
-                     handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule  
- 
+                     handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule
+
                    UpdateCredentials{..} ->
                      handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
 
@@ -1344,17 +1344,18 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       else
         return (TxInvalid IncorrectSignature)
 
-handleUpdateCredentials :: 
+handleUpdateCredentials ::
   SchedulerMonad m
     => WithDepositContext m
     -> OrdMap.Map ID.KeyIndex ID.CredentialDeploymentInformation
     -> [ID.CredentialRegistrationID]
     -> ID.AccountThreshold
     -> m (Maybe TransactionSummary)
-handleUpdateCredentials wtc cdis removeRegIds threshold = 
+handleUpdateCredentials wtc cdis removeRegIds threshold =
   withDeposit wtc c k
   where
-    c = tickEnergy 1
+    credentialcost = toInteger (length cdis) * toInteger (Cost.deployCredential ID.Normal)
+    c = tickEnergy $ Energy $ fromInteger credentialcost
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
@@ -1363,6 +1364,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       chargeExecutionCost txHash senderAccount energyCost
       cryptoParams <- getCryptoParams
       existingCredentials <- getAccountCredentials senderAccount
+      senderAddress <- getAccountAddress senderAccount
       -- check that all credentials that are to be removed actually exist.
       -- This is either Nothing if there is a credential id in the list to remove
       -- which does not exist on the account now or Just kis where `kis` is a list of key indices
@@ -1385,17 +1387,18 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                          let existingIndices = OrdMap.keysSet existingCredentials
                              newIndices = OrdMap.keysSet cdis
                          in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
-                         
+
       -- check that the new threshold is no more than the number of credentials
       -- 
       let thresholdCheck = toInteger (OrdMap.size existingCredentials) + toInteger (OrdMap.size cdis) >= toInteger (Set.size indicesToRemove) + toInteger threshold
 
       -- TODO: Check that the first credential is not removed.
+      let firstCredNotRemoved = 0 `notElem` indicesToRemove
 
       -- make sure that the credentials that are being added have not yet been used on the chain.
       -- This is a list of credential registration ids that already exist. The list is used for error
       -- reporting.
-      (existingCredIds, _) <- foldM (\(acc, newRids) cdi -> do
+      (existingCredIds, newCredIds) <- foldM (\(acc, newRids) cdi -> do
                                        let rid = ID.cdvCredId . ID.cdiValues $ cdi
                                        exists <- accountRegIdExists rid
                                        if exists || Set.member rid newRids then
@@ -1410,23 +1413,22 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
               ip <- getIP cdi
               ar <- getAR cdi
               case ip of
-                Nothing -> return False 
+                Nothing -> return False
                 Just ipInfo -> case ar of
-                  Nothing -> return False 
-                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) Nothing
+                  Nothing -> return False
+                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) (Just senderAddress)
       -- check all the credential proofs.
       -- This is only done if all the previous checks have succeeded since this is by far the most computationally expensive part.
-      checkProofs <- foldM (\check cdi -> if check then checkCDI cdi else return False) (thresholdCheck && removalCheck && null existingCredIds) cdis
+      checkProofs <- foldM (\check cdi -> if check then checkCDI cdi else return False) (firstCredNotRemoved && thresholdCheck && removalCheck && null existingCredIds) cdis
       if checkProofs then do -- check if stuff is correct
         let creds = traverse (ID.values . ID.NormalACWP) cdis
         case creds of
           Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
           Just newCredentials -> do
             _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials -- TODO: Also remove and add 
-            senderAddress <- getAccountAddress senderAccount
             return (TxSuccess [CredentialsUpdated {
                                   cuAccount = senderAddress,
-                                  cuNewCredIds = removeRegIds,
+                                  cuNewCredIds = Set.toList newCredIds,
                                   cuRemovedCredIds = removeRegIds,
                                   cuNewThreshold = threshold
                                   }], energyCost, usedEnergy)
@@ -1435,7 +1437,9 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         -- at some point we should refine the scheduler monad to support cleaner error
         -- handling by adding MonadError capability to it. Until that is done this
         -- is a pretty clean alternative to avoid deep nesting.
-        if not (null nonExistingRegIds) then
+        if not firstCredNotRemoved then
+          return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
+        else if not (null nonExistingRegIds) then
           return (TxReject (NonExistentCredIDs nonExistingRegIds), energyCost, usedEnergy)
         else if not removalCheck then
           return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
