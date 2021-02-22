@@ -14,14 +14,11 @@ use crate::{
 
 use failure::Fallible;
 
-use std::sync::Arc;
-
 impl Connection {
     /// Processes a network message based on its type.
     pub fn handle_incoming_message(
         &mut self,
         msg: NetworkMessage,
-        bytes: Arc<[u8]>,
         conn_stats: &[PeerStats],
     ) -> Fallible<()> {
         // the handshake should be the first incoming network message
@@ -62,14 +59,6 @@ impl Connection {
                 debug!("Got a LeaveNetwork request from peer {}", peer_id);
                 self.remove_remote_end_network(network)
             }
-            NetworkPayload::NetworkRequest(NetworkRequest::BanNode(peer_to_ban), ..) => {
-                debug!("Got a Ban request from peer {}", peer_id);
-                self.handle_ban(peer_to_ban, bytes)
-            }
-            NetworkPayload::NetworkRequest(NetworkRequest::UnbanNode(peer_to_unban), ..) => {
-                debug!("Got an Unban request from peer {}", peer_id);
-                self.handle_unban(peer_to_unban)
-            }
             NetworkPayload::NetworkPacket(pac, ..) => {
                 // packet receipt is logged later, along with its contents
                 self.handle_incoming_packet(pac, peer_id)
@@ -109,40 +98,6 @@ impl Connection {
     }
 
     fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
-
-    fn handle_ban(&self, peer_to_ban: BanId, msg: Arc<[u8]>) -> Fallible<()> {
-        self.handler.ban_node(peer_to_ban)?;
-
-        if !self.handler.config.no_trust_bans {
-            let conn_filter = |conn: &Connection| {
-                conn != self
-                    && match peer_to_ban {
-                        BanId::NodeId(id) => {
-                            conn.remote_peer.peer().map_or(true, |peer| peer.id != id)
-                        }
-                        BanId::Ip(addr) => conn.remote_peer.addr.ip() != addr,
-                        _ => unimplemented!("Socket address bans don't propagate"),
-                    }
-            };
-
-            self.handler.send_over_all_connections(&msg, &conn_filter);
-        }
-
-        Ok(())
-    }
-
-    fn handle_unban(&self, peer: BanId) -> Fallible<()> {
-        let is_self_unban = match peer {
-            BanId::NodeId(id) => Some(id) == self.remote_id(),
-            BanId::Ip(addr) => addr == self.remote_addr().ip(),
-            _ => unimplemented!("Socket address bans don't propagate"),
-        };
-        if is_self_unban {
-            bail!("Rejecting a self-unban attempt");
-        }
-
-        self.handler.unban_node(peer)
-    }
 
     fn handle_incoming_packet(&self, pac: NetworkPacket, peer_id: P2PNodeId) -> Fallible<()> {
         let is_broadcast = match pac.destination {

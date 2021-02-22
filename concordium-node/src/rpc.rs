@@ -2,7 +2,7 @@
 //! calls.
 
 use crate::{
-    common::{P2PNodeId, PeerType},
+    common::{grpc_api::*, P2PNodeId, PeerType},
     configuration,
     connection::ConnChange,
     failure::Fallible,
@@ -27,7 +27,6 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-tonic::include_proto!("concordium");
 use p2p_server::*;
 
 /// The object used to initiate a gRPC server.
@@ -253,7 +252,7 @@ impl P2p for RpcServerImpl {
             if id > 0 && id < 100_000 {
                 info!("Attempting to join network {}", id);
                 let network_id = NetworkId::from(id as u16);
-                self.node.send_joinnetwork(network_id);
+                self.node.send_join_network(network_id);
                 Ok(Response::new(BoolResponse {
                     value: true,
                 }))
@@ -275,7 +274,7 @@ impl P2p for RpcServerImpl {
             if id > 0 && id < 100_000 {
                 info!("Attempting to leave network {}", id);
                 let network_id = NetworkId::from(id as u16);
-                self.node.send_leavenetwork(network_id);
+                self.node.send_leave_network(network_id);
                 Ok(Response::new(BoolResponse {
                     value: true,
                 }))
@@ -373,8 +372,19 @@ impl P2p for RpcServerImpl {
                     consensus_running: true,
                     consensus_type: consensus.consensus_type.to_string(),
                     consensus_baker_committee: match consensus_baking_committee_status {
-                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => true,
-                        _ => false,
+                        ConsensusIsInBakingCommitteeResponse::ActiveInCommittee(_) => {
+                            node_info_response::IsInBakingCommittee::ActiveInCommittee.into()
+                        }
+                        ConsensusIsInBakingCommitteeResponse::AddedButNotActiveInCommittee => {
+                            node_info_response::IsInBakingCommittee::AddedButNotActiveInCommittee
+                                .into()
+                        }
+                        ConsensusIsInBakingCommitteeResponse::AddedButWrongKeys => {
+                            node_info_response::IsInBakingCommittee::AddedButWrongKeys.into()
+                        }
+                        ConsensusIsInBakingCommitteeResponse::NotInCommittee => {
+                            node_info_response::IsInBakingCommittee::NotInCommittee.into()
+                        }
                     },
                     consensus_finalizer_committee: consensus.in_finalization_committee(),
                     staging_net_username,
@@ -393,7 +403,8 @@ impl P2p for RpcServerImpl {
                 consensus_baker_running: false,
                 consensus_running: false,
                 consensus_type: "Inactive".to_owned(),
-                consensus_baker_committee: false,
+                consensus_baker_committee: node_info_response::IsInBakingCommittee::NotInCommittee
+                    as i32,
                 consensus_finalizer_committee: false,
                 staging_net_username,
                 consensus_baker_id: None,
@@ -797,7 +808,7 @@ impl P2p for RpcServerImpl {
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{P2PNodeId, PeerType},
+        common::{grpc_api, P2PNodeId, PeerType},
         p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
@@ -808,11 +819,7 @@ mod tests {
     use failure::Fallible;
     use tonic::{metadata::MetadataValue, transport::channel::Channel, Code, Request};
 
-    pub mod proto {
-        tonic::include_proto!("concordium");
-    }
-
-    use proto::p2p_client::P2pClient;
+    use grpc_api::p2p_client::P2pClient;
 
     use std::sync::Arc;
 
@@ -834,7 +841,7 @@ mod tests {
         let addr: &'static str =
             Box::leak(format!("http://127.0.0.1:{}", rpc_port).into_boxed_str());
         let channel = Channel::from_static(addr).connect().await?;
-        let client = proto::p2p_client::P2pClient::new(channel);
+        let client = grpc_api::p2p_client::P2pClient::new(channel);
 
         Ok((client, node))
     }
@@ -843,7 +850,7 @@ mod tests {
     async fn test_grpc_noauth() -> Fallible<()> {
         let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
-        match client.peer_version(req_with_auth!(proto::Empty {}, "derp")).await {
+        match client.peer_version(req_with_auth!(grpc_api::Empty {}, "derp")).await {
             Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
             _ => panic!("Wrong rejection"),
         };
@@ -856,7 +863,7 @@ mod tests {
         let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert_eq!(
             client
-                .peer_version(req_with_auth!(proto::Empty {}, TOKEN))
+                .peer_version(req_with_auth!(grpc_api::Empty {}, TOKEN))
                 .await
                 .unwrap()
                 .get_ref()
@@ -871,7 +878,7 @@ mod tests {
         let t0 = Utc::now().timestamp_millis() as u64;
         let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
-        let req = || req_with_auth!(proto::Empty {}, TOKEN);
+        let req = || req_with_auth!(grpc_api::Empty {}, TOKEN);
 
         let t1 = Utc::now().timestamp_millis() as u64;
         let nt1 = client.peer_uptime(req()).await.unwrap().get_ref().value;
@@ -893,7 +900,7 @@ mod tests {
         await_handshakes(&node);
         await_handshakes(&node2);
         let _rcv = client
-            .peer_total_received(req_with_auth!(proto::Empty {}, TOKEN))
+            .peer_total_received(req_with_auth!(grpc_api::Empty {}, TOKEN))
             .await
             .unwrap()
             .get_ref()
@@ -910,7 +917,7 @@ mod tests {
         await_handshakes(&node);
         await_handshakes(&node2);
         let _sent = client
-            .peer_total_sent(req_with_auth!(proto::Empty {}, TOKEN))
+            .peer_total_sent(req_with_auth!(grpc_api::Empty {}, TOKEN))
             .await
             .unwrap()
             .get_ref()
@@ -925,7 +932,7 @@ mod tests {
         let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
         let _sent = client
             .peer_connect(req_with_auth!(
-                proto::PeerConnectRequest {
+                grpc_api::PeerConnectRequest {
                     ip:   Some(node2.internal_addr().ip().to_string()),
                     port: Some(node2.internal_addr().port() as i32),
                 },
@@ -951,7 +958,7 @@ mod tests {
         await_handshakes(&node);
         await_handshakes(&node2);
         let ncr = req_with_auth!(
-            proto::NetworkChangeRequest {
+            grpc_api::NetworkChangeRequest {
                 network_id: Some(10),
             },
             TOKEN
@@ -969,7 +976,7 @@ mod tests {
         await_handshakes(&node);
         await_handshakes(&node2);
         let ncr = req_with_auth!(
-            proto::NetworkChangeRequest {
+            grpc_api::NetworkChangeRequest {
                 network_id: Some(100),
             },
             TOKEN
@@ -987,7 +994,7 @@ mod tests {
         await_handshakes(&node);
         await_handshakes(&node2);
         let req = req_with_auth!(
-            proto::PeersRequest {
+            grpc_api::PeersRequest {
                 include_bootstrappers: false,
             },
             TOKEN
@@ -1008,7 +1015,7 @@ mod tests {
         await_handshakes(&node);
         await_handshakes(&node2);
         let req = req_with_auth!(
-            proto::PeersRequest {
+            grpc_api::PeersRequest {
                 include_bootstrappers: false,
             },
             TOKEN
@@ -1029,7 +1036,7 @@ mod tests {
     async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
         let (mut client, _) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
         let req = req_with_auth!(
-            proto::PeersRequest {
+            grpc_api::PeersRequest {
                 include_bootstrappers: true,
             },
             TOKEN
@@ -1043,7 +1050,7 @@ mod tests {
     async fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
-        let reply = client.node_info(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap();
+        let reply = client.node_info(req_with_auth!(grpc_api::Empty {}, TOKEN)).await.unwrap();
         let reply = reply.get_ref();
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
@@ -1072,7 +1079,12 @@ mod tests {
     async fn test_shutdown() -> Fallible<()> {
         let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert!(
-            client.shutdown(req_with_auth!(proto::Empty {}, TOKEN)).await.unwrap().get_ref().value
+            client
+                .shutdown(req_with_auth!(grpc_api::Empty {}, TOKEN))
+                .await
+                .unwrap()
+                .get_ref()
+                .value
         );
         Ok(())
     }

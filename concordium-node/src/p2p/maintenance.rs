@@ -68,7 +68,6 @@ pub struct NodeConfig {
     pub bootstrapping_interval: u64,
     pub print_peers: bool,
     pub bootstrapper_wait_minimum_peers: u16,
-    pub no_trust_bans: bool,
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
     pub hard_connection_limit: u16,
@@ -305,7 +304,6 @@ impl P2PNode {
                 PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
                 PeerType::Node => 0,
             },
-            no_trust_bans: conf.common.no_trust_bans,
             data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
@@ -401,17 +399,6 @@ impl P2PNode {
     /// A convenience method for accessing the collection of  node's buckets.
     #[inline]
     pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
-
-    /// It registers a connection's socket with the poll.
-    pub fn register_conn(&self, conn: &mut Connection) -> Fallible<()> {
-        self.poll_registry
-            .register(
-                &mut conn.low_level.socket,
-                conn.token,
-                Interest::READABLE | Interest::WRITABLE,
-            )
-            .map_err(|e| e.into())
-    }
 
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
@@ -513,8 +500,17 @@ impl P2PNode {
 
     /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> bool {
+        // First notify the maintenance thread to stop processing new connections or
+        // network packets.
         self.is_terminated.store(true, Ordering::Relaxed);
-        CALLBACK_QUEUE.stop().is_ok()
+        // Then process all messages we still have in the Consensus queues.
+        let queues_stopped = CALLBACK_QUEUE.stop().is_ok();
+        // Finally close all connections
+        // Make sure to drop connections so that the peers or peer candidates can
+        // quickly free up their endpoints.
+        lock_or_die!(self.conn_candidates()).clear();
+        write_or_die!(self.connections()).clear();
+        queues_stopped
     }
 
     /// Joins the threads spawned by the node.
@@ -550,7 +546,16 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
         let poll_interval = Duration::from_millis(node.config.poll_interval);
 
-        loop {
+        // Process network events until signalled to terminate.
+        // For each loop iteration do the following in sequence
+        // - check whether ther are any incoming connection requests
+        // - then process any connection changes, e.g., drop connections, promote to
+        //   initial connections to peers, ...
+        // - then read from all existing connections in parallel, using the above
+        //   allocated thread pool
+        // - occassionally (dictated by the housekeeping_interval) do connection
+        //   housekeeping, checking whether peers and connections are active.
+        while !node.is_terminated.load(Ordering::Relaxed) {
             // check for new events or wait
             if let Err(e) = poll.poll(&mut events, Some(poll_interval)) {
                 error!("{}", e);
@@ -591,12 +596,6 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                     panic!("the test timed out: no valid connections available");
                 }
 
-                // Check the termination switch
-                if node.is_terminated.load(Ordering::Relaxed) {
-                    info!("Shutting down");
-                    break;
-                }
-
                 connection_housekeeping(&node);
                 if node.peer_type() != PeerType::Bootstrapper {
                     node.measure_connection_latencies();
@@ -618,6 +617,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 last_buckets_cleaned = now;
             }
         }
+        info!("Shutting down");
     });
 
     // Register info about thread into P2PNode.
@@ -666,8 +666,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             }
         }
         ConnChange::Expulsion(token) => {
-            if let Some(conn) = node.remove_connection(token) {
-                let ip = conn.remote_addr().ip();
+            if let Some(remote_peer) = node.remove_connection(token) {
+                let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
                 write_or_die!(node.connection_handler.soft_bans).insert(
                     BanId::Ip(ip),
@@ -675,8 +675,17 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 );
             }
         }
-        ConnChange::Removal(token) => {
+        ConnChange::RemovalByToken(token) => {
+            trace!("Removing connection with token {:?}", token);
             node.remove_connection(token);
+        }
+        ConnChange::RemovalByNodeId(remote_id) => {
+            trace!("Removing connection to {} by node id.", remote_id);
+            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
+        }
+        ConnChange::RemovalByIp(ip_addr) => {
+            trace!("Removing all connections to IP {}", ip_addr);
+            node.remove_connections(&node.find_conn_tokens_by_ip(ip_addr));
         }
     }
 }

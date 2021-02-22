@@ -16,7 +16,6 @@ use crate::{
         Handshake, NetworkId, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest,
         NetworkResponse, PacketDestination,
     },
-    p2p::bans::BanId,
 };
 
 use std::{
@@ -180,40 +179,6 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
                 })))
             } else {
                 bail!("missing handshake payload")
-            }
-        }
-        network::RequestVariant::BanNode | network::RequestVariant::UnbanNode => {
-            if let Some(id) = request.payload().map(network::BanUnban::init_from_table) {
-                let tgt = if let Some(id) = id.id_as_node_id().map(|id| id.id()) {
-                    BanId::NodeId(P2PNodeId(id))
-                } else if let Some(ip) = id.id_as_ip_addr() {
-                    if let Some(mut octets) = ip.octets() {
-                        match ip.variant() {
-                            network::IpVariant::V4 => {
-                                let mut addr = [0u8; 4];
-                                octets.read_exact(&mut addr)?;
-                                BanId::Ip(IpAddr::from(addr))
-                            }
-                            network::IpVariant::V6 => {
-                                let mut addr = [0u8; 16];
-                                octets.read_exact(&mut addr)?;
-                                BanId::Ip(IpAddr::from(addr))
-                            }
-                        }
-                    } else {
-                        bail!("missing ban ip in a ban/unban request")
-                    }
-                } else {
-                    bail!("missing ban id/ip in a ban/unban request")
-                };
-
-                Ok(NetworkPayload::NetworkRequest(match request.variant() {
-                    network::RequestVariant::BanNode => NetworkRequest::BanNode(tgt),
-                    network::RequestVariant::UnbanNode => NetworkRequest::UnbanNode(tgt),
-                    _ => unreachable!(),
-                }))
-            } else {
-                bail!("missing ban target in a ban/unban request")
             }
         }
         network::RequestVariant::JoinNetwork | network::RequestVariant::LeaveNetwork => {
@@ -381,51 +346,6 @@ fn serialize_request(
                 network::RequestPayload::Handshake,
                 Some(offset.as_union_value()),
             )
-        }
-        NetworkRequest::BanNode(id) | NetworkRequest::UnbanNode(id) => {
-            let ban_unban = match request {
-                NetworkRequest::BanNode(_) => network::RequestVariant::BanNode,
-                NetworkRequest::UnbanNode(_) => network::RequestVariant::UnbanNode,
-                _ => unreachable!(),
-            };
-
-            let (id_type, id_offset) = match id {
-                BanId::NodeId(id) => {
-                    let offset = network::NodeId::create(builder, &network::NodeIdArgs {
-                        id: id.as_raw(),
-                    })
-                    .as_union_value();
-
-                    (network::BanId::NodeId, offset)
-                }
-                BanId::Ip(ip) => {
-                    let (variant, octets) = match ip {
-                        IpAddr::V4(ip) => (network::IpVariant::V4, ip.octets().to_vec()),
-                        IpAddr::V6(ip) => (network::IpVariant::V6, ip.octets().to_vec()),
-                    };
-
-                    let octets_len = octets.len();
-                    builder.start_vector::<u8>(octets_len);
-                    for byte in octets.into_iter().rev() {
-                        builder.push(byte);
-                    }
-                    let octets = Some(builder.end_vector(octets_len));
-
-                    let ip_offset = network::IpAddr::create(builder, &network::IpAddrArgs {
-                        variant,
-                        octets,
-                    });
-
-                    (network::BanId::IpAddr, ip_offset.as_union_value())
-                }
-                _ => unimplemented!("Socket address bans don't propagate"),
-            };
-            let offset = network::BanUnban::create(builder, &network::BanUnbanArgs {
-                id_type,
-                id: Some(id_offset),
-            });
-
-            (ban_unban, network::RequestPayload::BanUnban, Some(offset.as_union_value()))
         }
         NetworkRequest::JoinNetwork(id) => {
             let offset = network::NetworkId::create(builder, &network::NetworkIdArgs {

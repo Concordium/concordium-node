@@ -29,6 +29,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.ID.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
@@ -585,15 +586,25 @@ receiveTransaction bptr tdata len = do
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
-            case wmdData tr of
-              NormalTransaction _ -> logm External LLTrace $ "Received normal transaction."
-              CredentialDeployment _ -> logm External LLTrace $ "Received credential."
-              ChainUpdate _ -> logm External LLTrace $ "Received chain update."
-            case c of
-                BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
-                PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
-                BakerRunnerWithLog{..} -> syncReceiveTransaction bakerSyncRunnerWithLog tr
-                PassiveRunnerWithLog{..} -> syncPassiveReceiveTransaction passiveSyncRunnerWithLog tr
+            expired <- case wmdData tr of
+              NormalTransaction t -> do
+                logm External LLTrace $ "Received normal transaction."
+                return $ now > thExpiry (atrHeader t)
+              CredentialDeployment _ -> do
+                logm External LLTrace $ "Received credential."
+                return False
+              ChainUpdate t -> do
+                logm External LLTrace $ "Received chain update."
+                return $ now > updateTimeout (uiHeader t)
+            if expired then do
+              logm External LLTrace $ "Transaction already expired"
+              return ResultStale
+            else
+              case c of
+                  BakerRunner{..} -> syncReceiveTransaction bakerSyncRunner tr
+                  PassiveRunner{..} -> syncPassiveReceiveTransaction passiveSyncRunner tr
+                  BakerRunnerWithLog{..} -> syncReceiveTransaction bakerSyncRunnerWithLog tr
+                  PassiveRunnerWithLog{..} -> syncPassiveReceiveTransaction passiveSyncRunnerWithLog tr
 
 runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad (Get.SkovStateProtocolVersion z) m, MonadState s m, MonadLogger m) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
