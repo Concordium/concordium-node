@@ -28,8 +28,8 @@ fn main() -> Result<(), Error> {
     let regenesis_arc = Arc::new(RwLock::new(
         conf.bootstrapper
             .regenesis_block_hashes
-            .expect("Bootstrapper can't run without specifying genesis hashes")
-            .clone(),
+            .clone()
+            .expect("Bootstrapper can't run without specifying genesis hashes"),
     ));
 
     ensure!(

@@ -33,7 +33,7 @@ table NetworkPacket {
     /// instance.
     destination: Destination;
     /// the network Id in which the packet has to be considered.
-    networkId: uint16;
+    network_id: uint16;
     /// the payload of the packet. First byte will be read by the code that
     /// connects the network and the consensus layers. Will be interpreted
     /// following this table:
@@ -68,33 +68,33 @@ table Version { version: [uint8]; }
 
 /// A BlockHash is a list of bytes.
 /// This is mainly an adapter for creating vectors of BlockHashes.
-table BlockHash { genesisBlock: [uint8]; }
+table BlockHash { genesis_block: [uint8]; }
 
 table Handshake {
     /// the version of this message. Later versions are expected to append new
     /// fields at the end so messages should still be understood to some extent.
     version: uint8;
     /// the node id of the sender.
-    nodeId: uint64;
+    node_id: uint64;
     /// the port of the sender.
     port: uint16;
     /// the network ids in which the sender node participates.
-    networkIds: [uint16];
+    network_ids: [uint16];
     /// the version of the node that the sender is running. Deprecated and
     /// incompatible versions will be rejected on handshake.
-    nodeVersion: Version;
+    node_version: Version;
     /// the version of the messaging protocol that the sender is
     /// running. Incompatible versions will be rejected on handshake as they are
     /// assumed to use new messsages or expect a different behavior from the
     /// other party.
-    wireVersions: [uint8];
+    wire_versions: [uint8];
     /// the list of genesis block hash and later regenesis blocks hashes that are
     /// known by the sender's consensus layer. If running a bootstrapper node,
     /// this list will be provided by a CLI flag as there is no consensus
     /// container running. Only when the sender's list of a prefix of the
     /// receiver's list or viceversa, handshake will succeed as both nodes belong
     /// to the same network.
-    genesisBlocks: [BlockHash];
+    genesis_blocks: [BlockHash];
     /// a zero knowledge proof provided by the sender. Currently unused.
     zk: [uint8];
 }
