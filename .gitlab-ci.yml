@@ -178,7 +178,7 @@ stages:
     - echo "Running clippy with without extra features"
     - cargo clippy --manifest-path concordium-node/Cargo.toml --color=always --all -- -Dclippy::all
     - echo "Running clippy with network dump, instrumentation, collector and staging net features"
-    - cargo clippy --manifest-path concordium-node/Cargo.toml --features=bootstrapper,instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
+    - cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,staging_net,database_emitter --color=always --all -- -Dclippy::all
     - echo "Running clippy with s11n features"
     - cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_capnp --color=always --all -- -Dclippy::all
     - cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_cbor --color=always --all -- -Dclippy::all
@@ -332,8 +332,8 @@ stages:
   script:
     - echo "Running tests without extra features"
     - cargo test --manifest-path concordium-node/Cargo.toml --all --color=always
-    - echo "Running tests with bootstrapper, network dump, instrumentation, and collector features"
-    - cargo test --manifest-path concordium-node/Cargo.toml --all --color=always --features=bootstrapper,instrumentation,collector,network_dump
+    - echo "Running tests with network dump, instrumentation, and collector features"
+    - cargo test --manifest-path concordium-node/Cargo.toml --all --color=always --features=instrumentation,collector,network_dump
 
 
 
