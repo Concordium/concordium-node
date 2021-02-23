@@ -195,10 +195,8 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
                     genesis_blocks
                         .iter()
                         .map(|wv| {
-                            wv.genesis_block().map_or_else(
-                                || bail!("Missing block hash"),
-                                |w| Ok(BlockHash::new(w)),
-                            )
+                            wv.genesis_block()
+                                .map_or_else(|| bail!("Missing block hash"), |w| BlockHash::new(w))
                         })
                         .collect::<Result<Vec<BlockHash>, failure::Error>>()?
                 } else {

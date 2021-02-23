@@ -85,12 +85,8 @@ impl Connection {
         }
         if is_compatible_wire_version(&handshake.wire_versions).is_none() {
             bail!(
-                "Rejecting handshake: incompatible wire protocol version ([{}{}]).",
-                handshake.wire_versions.iter().take(1).next().unwrap(),
-                handshake.wire_versions.iter().skip(1).fold(String::new(), |mut s, elem| {
-                    s.push_str(&format!(", {}", elem));
-                    s
-                })
+                "Rejecting handshake: incompatible wire protocol versions ({:?}).",
+                handshake.wire_versions
             );
         }
         if handshake.networks.len() > MAX_PEER_NETWORKS {

@@ -571,7 +571,7 @@ pub struct BootstrapperConfig {
         long = "regenesis-block-hashes",
         help = "List with the hashes of regenesis blocks."
     )]
-    pub regenesis_block_hashes: Option<Vec<BlockHash>>,
+    pub regenesis_block_hashes: Vec<BlockHash>,
 }
 
 /// The main configuration object.
