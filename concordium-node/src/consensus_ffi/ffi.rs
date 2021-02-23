@@ -1,5 +1,6 @@
 use crate::{
     consensus_ffi::{
+        blockchain_types::BlockHash,
         catch_up::*,
         consensus::*,
         helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
@@ -23,7 +24,6 @@ use std::{
     },
 };
 
-use super::blockchain_types::BlockHash;
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
     pub fn hs_init_with_rtsopts(argc: &c_int, argv: *const *const *const c_char);
@@ -869,8 +869,10 @@ pub unsafe extern "C" fn regenesis_callback(
     block_hash: *const u8,
 ) {
     trace!("Regenesis callback hit");
-    write_or_die!(Arc::from_raw(arc))
-        .push(BlockHash::new(std::slice::from_raw_parts(block_hash, 32)));
+    write_or_die!(Arc::from_raw(arc)).push(
+        BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
+            .expect("The slice is exactly 32 bytes so ::new must succeed."),
+    );
 }
 
 /// A callback to free the regenesis Arc.

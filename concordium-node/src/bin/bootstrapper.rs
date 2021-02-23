@@ -25,16 +25,11 @@ fn main() -> Result<(), Error> {
     let data_dir_path = app_prefs.get_user_app_dir();
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
-    let regenesis_arc = Arc::new(RwLock::new(
-        conf.bootstrapper
-            .regenesis_block_hashes
-            .clone()
-            .expect("Bootstrapper can't run without specifying genesis hashes"),
-    ));
+    let regenesis_arc = Arc::new(RwLock::new(conf.bootstrapper.regenesis_block_hashes.clone()));
 
     ensure!(
         regenesis_arc.read().unwrap().len() > 0,
-        "Bootstrapper can't run without specifying genesis hashes"
+        "Bootstrapper can't run without specifying genesis hashes."
     );
 
     let id = match conf.common.id {

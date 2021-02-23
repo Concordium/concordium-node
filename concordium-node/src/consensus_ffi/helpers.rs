@@ -1,7 +1,11 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
-use failure::{format_err, Fallible};
-
-use std::{convert::TryFrom, fmt, ops::Deref, str::FromStr};
+use failure::{format_err, Fallible, ResultExt};
+use std::{
+    convert::{TryFrom, TryInto},
+    fmt,
+    ops::Deref,
+    str::FromStr,
+};
 
 /// # Serialization packets
 /// Benchmark of each serialization requires to enable it on features
@@ -59,11 +63,12 @@ pub const SHA256: u8 = 32;
 pub struct HashBytes([u8; SHA256 as usize]);
 
 impl HashBytes {
-    pub fn new(bytes: &[u8]) -> Self {
-        let mut buf = [0u8; SHA256 as usize];
-        buf.copy_from_slice(bytes);
-
-        HashBytes(buf)
+    /// Construct HashBytes from a slice.
+    /// This will succeed if and only if the length of the slice is 32.
+    pub fn new(bytes: &[u8]) -> Fallible<Self> {
+        let buf: Result<[u8; 32], _> = bytes.try_into();
+        let buf = buf.context("HashBytes::new passed slice of incorrect length.")?;
+        Ok(HashBytes(buf))
     }
 }
 
@@ -85,9 +90,8 @@ impl FromStr for HashBytes {
     type Err = failure::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        hex::decode(s)
-            .map(|x| HashBytes::new(&x))
-            .map_err(|e| failure::Error::from_boxed_compat(Box::new(e)))
+        let hex_decoded = hex::decode(s)?;
+        HashBytes::new(&hex_decoded)
     }
 }
 

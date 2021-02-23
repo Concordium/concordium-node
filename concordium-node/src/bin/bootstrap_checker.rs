@@ -30,16 +30,11 @@ fn main() -> Result<(), Error> {
     let pager_duty_svcid = env::var("PD_SVCID")?;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
-    let regenesis_arc = Arc::new(RwLock::new(
-        conf.bootstrapper
-            .regenesis_block_hashes
-            .clone()
-            .expect("Bootstrapper can't run without specifying genesis hashes"),
-    ));
+    let regenesis_arc = Arc::new(RwLock::new(conf.bootstrapper.regenesis_block_hashes.clone()));
 
     ensure!(
         regenesis_arc.read().unwrap().len() > 0,
-        "Bootstrapper can't run without specifying genesis hashes"
+        "Bootstrapper can't run without specifying genesis hashes."
     );
 
     let (node, poll) = P2PNode::new(
