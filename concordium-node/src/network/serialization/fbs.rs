@@ -122,7 +122,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
         bail!("missing direction on network packet");
     };
 
-    let network_id = NetworkId::from(packet.networkId());
+    let network_id = NetworkId::from(packet.network_id());
 
     let payload = if let Some(payload) = packet.payload() {
         payload.to_vec()
@@ -169,32 +169,33 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
                         HANDSHAKE_MESSAGE_VERSION
                     );
                 }
-                let remote_id = P2PNodeId(handshake.nodeId());
+                let remote_id = P2PNodeId(handshake.node_id());
                 let remote_port = handshake.port();
-                let networks = if let Some(networks) = handshake.networkIds() {
+                let networks = if let Some(networks) = handshake.network_ids() {
                     networks.safe_slice().iter().copied().map(NetworkId::from).collect()
                 } else {
                     bail!("missing network ids in a Handshake")
                 };
 
-                let node_version =
-                    if let Some(node_version) = handshake.nodeVersion().and_then(|x| x.version()) {
-                        Version::parse(std::str::from_utf8(node_version)?)?
-                    } else {
-                        bail!("missing node version in a Handshake")
-                    };
+                let node_version = if let Some(node_version) =
+                    handshake.node_version().and_then(|x| x.version())
+                {
+                    Version::parse(std::str::from_utf8(node_version)?)?
+                } else {
+                    bail!("missing node version in a Handshake")
+                };
 
-                let wire_versions = if let Some(wire_versions) = handshake.wireVersions() {
+                let wire_versions = if let Some(wire_versions) = handshake.wire_versions() {
                     wire_versions.to_vec()
                 } else {
                     bail!("missing wire version in a Handshake")
                 };
 
-                let genesis_blocks = if let Some(genesis_blocks) = handshake.genesisBlocks() {
+                let genesis_blocks = if let Some(genesis_blocks) = handshake.genesis_blocks() {
                     genesis_blocks
                         .iter()
                         .map(|wv| {
-                            wv.genesisBlock().map_or_else(
+                            wv.genesis_block().map_or_else(
                                 || bail!("Missing block hash"),
                                 |w| Ok(BlockHash::new(w)),
                             )
@@ -320,7 +321,7 @@ fn serialize_packet(
 
     let packet_offset = network::NetworkPacket::create(builder, &network::NetworkPacketArgs {
         destination: Some(destination_offset),
-        networkId:   packet.network_id.id,
+        network_id:  packet.network_id.id,
         payload:     Some(payload_offset),
     })
     .as_union_value();
@@ -384,7 +385,7 @@ fn serialize_request(
                     }
                     let block_offset = Some(builder.end_vector(32));
                     network::BlockHash::create(builder, &network::BlockHashArgs {
-                        genesisBlock: block_offset,
+                        genesis_block: block_offset,
                     })
                 })
                 .collect::<Vec<flatbuffers::WIPOffset<network::BlockHash>>>();
@@ -396,14 +397,14 @@ fn serialize_request(
             let genesis_blocks_offset = Some(builder.end_vector(genesis_blocks.len()));
 
             let offset = network::Handshake::create(builder, &network::HandshakeArgs {
-                version:       0,
-                nodeId:        handshake.remote_id.as_raw(),
-                port:          handshake.remote_port,
-                networkIds:    nets_offset,
-                nodeVersion:   Some(node_version_offset),
-                wireVersions:  wire_version_offset,
-                genesisBlocks: genesis_blocks_offset,
-                zk:            None,
+                version:        0,
+                node_id:        handshake.remote_id.as_raw(),
+                port:           handshake.remote_port,
+                network_ids:    nets_offset,
+                node_version:   Some(node_version_offset),
+                wire_versions:  wire_version_offset,
+                genesis_blocks: genesis_blocks_offset,
+                zk:             None,
             });
             (
                 network::RequestVariant::Handshake,
