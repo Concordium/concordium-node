@@ -19,6 +19,7 @@ import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import System.IO.Error
+import System.IO
 
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
@@ -455,10 +456,12 @@ importingResultToUpdateResult :: Monad m
                               -> m (ImportingResult UpdateResult)
 importingResultToUpdateResult logm logLvl = \case
   ResultSuccess -> return Success
+  ResultDuplicate -> return Success
   ResultSerializationFail -> return SerializationFail
-  e@ResultPendingBlock -> do
-    logm logLvl LLWarning $ "Imported pending block."
-    return $ OtherError e
+  ResultPendingBlock -> return Success
+  -- e@ResultPendingBlock -> do
+  --   logm logLvl LLWarning $ "Imported pending block."
+  --   return $ OtherError e
   e -> return $ OtherError e
 
 updateResultToImportingResult :: ImportingResult UpdateResult -> UpdateResult
@@ -475,13 +478,11 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
                  -> IO UpdateResult
 syncImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    -- NB: It is very important to use lazy a bytestring here since we are
-    -- loading the whole file into it. We need to do that lazily.
-    lbs <- LBS.readFile filepath
+    handle <- openFile filepath ReadMode
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV1 handle now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -492,12 +493,10 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
                         -> IO UpdateResult
 syncPassiveImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    -- NB: It is very important to use lazy a bytestring here since we are
-    -- loading the whole file into it. We need to do that lazily.
-    lbs <- LBS.readFile filepath
+    handle <- openFile filepath ReadMode
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV1 handle now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner
