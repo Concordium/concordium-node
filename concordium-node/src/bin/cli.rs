@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use std::alloc::System;
+use std::{alloc::System, sync::RwLock};
 #[global_allocator]
 static A: System = System;
 
@@ -19,6 +19,7 @@ use concordium_node::{
     common::{P2PNodeId, PeerType},
     configuration as config,
     consensus_ffi::{
+        blockchain_types::BlockHash,
         consensus::{
             ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
             CONSENSUS_QUEUE_DEPTH_OUT_HI,
@@ -64,9 +65,11 @@ async fn main() -> Fallible<()> {
     }
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let regenesis_arc = Arc::new(RwLock::new(vec![]));
 
     // The P2PNode thread
-    let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
+    let (node, poll) =
+        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone());
 
     // Signal handling closure. so we shut down cleanly
     let signal_closure = |signal_handler_node: &Arc<P2PNode>,
@@ -168,6 +171,7 @@ async fn main() -> Fallible<()> {
         },
         &database_directory,
         &consensus_database_url,
+        regenesis_arc,
     )?;
     info!("Consensus layer started");
 
@@ -229,6 +233,7 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
+    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 ) -> (Arc<P2PNode>, Poll) {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
@@ -268,7 +273,14 @@ fn instantiate_node(
 
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    P2PNode::new(node_id, &conf, PeerType::Node, stats_export_service, Some(data_dir_path))
+    P2PNode::new(
+        node_id,
+        &conf,
+        PeerType::Node,
+        stats_export_service,
+        Some(data_dir_path),
+        regenesis_arc,
+    )
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {
