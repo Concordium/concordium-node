@@ -7,6 +7,7 @@ use crate::{
     configuration::{self, MAX_CATCH_UP_TIME},
     connection::ConnChange,
     consensus_ffi::{
+        blockchain_types::BlockHash,
         catch_up::{PeerList, PeerStatus},
         consensus::{self, ConsensusContainer, CALLBACK_QUEUE},
         ffi,
@@ -31,7 +32,7 @@ use std::{
     fs::OpenOptions,
     io::{Cursor, Read},
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 const FILE_NAME_GENESIS_DATA: &str = "genesis.dat";
@@ -44,6 +45,7 @@ pub fn start_consensus_layer(
     max_logging_level: consensus::ConsensusLogLevel,
     appdata_dir: &PathBuf,
     database_connection_url: &str,
+    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 ) -> Fallible<ConsensusContainer> {
     info!("Starting up the consensus thread");
 
@@ -70,6 +72,7 @@ pub fn start_consensus_layer(
         max_logging_level,
         appdata_dir,
         database_connection_url,
+        regenesis_arc,
     )
 }
 

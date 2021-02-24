@@ -5,7 +5,7 @@ use crate::{
     network::{
         Handshake, NetworkId, NetworkMessage, NetworkPayload, NetworkRequest, NetworkResponse,
     },
-    test_utils::create_random_packet,
+    test_utils::{create_random_packet, dummy_regenesis_blocks},
 };
 
 use std::{
@@ -41,11 +41,13 @@ test_s11n!(
 test_s11n!(
     s11n_req_handshake,
     NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
-        remote_id:   P2PNodeId(77),
-        remote_port: 1234,
-        networks:    [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
-        version:     Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-        proof:       Vec::new(),
+        remote_id:      P2PNodeId(77),
+        remote_port:    1234,
+        networks:       [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
+        node_version:   Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+        wire_versions:  vec![0],
+        genesis_blocks: dummy_regenesis_blocks(),
+        proof:          Vec::new(),
     }))
 );
 test_s11n!(

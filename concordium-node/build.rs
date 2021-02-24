@@ -22,7 +22,9 @@ fn main() -> std::io::Result<()> {
         .run()
         .expect("Can't compile the Cap'n'Proto schema");
 
+    let cargo_dir = env!("CARGO_MANIFEST_DIR");
     // Compile the flatbuffers schema
+    println!("cargo:rerun-if-changed={}/src/network/serialization/schema.fbs", cargo_dir);
     flatc_rust::run(flatc_rust::Args {
         inputs: &[Path::new("src/network/serialization/schema.fbs")],
         out_dir: Path::new("target/"),
@@ -38,7 +40,7 @@ fn main() -> std::io::Result<()> {
     println!("cargo:rustc-link-lib={}=unbound", mode);
 
     // Build GRPC
-    let cargo_dir = env!("CARGO_MANIFEST_DIR");
+
     let proto_root_input = format!("{}/../concordium-grpc-api", cargo_dir);
     let proto = format!("{}/concordium_p2p_rpc.proto", proto_root_input);
 
