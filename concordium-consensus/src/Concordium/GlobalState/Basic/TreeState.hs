@@ -6,7 +6,7 @@ module Concordium.GlobalState.Basic.TreeState where
 
 import Lens.Micro.Platform
 import Concordium.Utils
-import Data.List as List
+import Data.List (intercalate, partition)
 import Data.Foldable
 import Control.Monad.State
 import Control.Exception
@@ -232,7 +232,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
-              CredentialDeployment{..} -> do
+              CredentialDeployment{} -> do
                 transactionTable . ttHashMap . at' trHash ?= (bi, Received slot)
                 return (TS.Added bi)
               ChainUpdate cu -> do
@@ -274,7 +274,7 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                                   _ -> error "Transaction should be in committed state when finalized."
                         -- Update the non-finalized transactions for the sender
                         transactionTable . ttNonFinalizedTransactions . at' sender ?= (anft & (anftMap . at' nonce .~ Nothing) & (anftNextNonce .~ nonce + 1))
-            finTrans WithMetadata{wmdData=CredentialDeployment{..},..} = do
+            finTrans WithMetadata{wmdData=CredentialDeployment{},..} = do
               transactionTable . ttHashMap . singular (ix wmdHash) . _2 %=
                             \case Committed{..} -> Finalized{_tsSlot=slot,tsBlockHash=bh,tsFinResult=tsResults HM.! bh,..}
                                   _ -> error "Transaction should be in committed state when finalized."
