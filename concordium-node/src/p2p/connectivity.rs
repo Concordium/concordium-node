@@ -14,7 +14,10 @@ use crate::{
     configuration as config,
     connection::{ConnChange, Connection, MessageSendingPriority},
     lock_or_die, netmsg,
-    network::{Handshake, NetworkId, NetworkPacket, NetworkRequest, PacketDestination},
+    network::{
+        Handshake, NetworkId, NetworkPacket, NetworkRequest, PacketDestination,
+        WIRE_PROTOCOL_VERSION,
+    },
     only_fbs,
     p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
     read_or_die, write_or_die,
@@ -307,11 +310,13 @@ impl P2PNode {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
-                remote_id:   self.self_peer.id,
-                remote_port: self.self_peer.port(),
-                networks:    read_or_die!(self.networks()).iter().copied().collect(),
-                version:     Version::parse(env!("CARGO_PKG_VERSION"))?,
-                proof:       vec![],
+                remote_id:      self.self_peer.id,
+                remote_port:    self.self_peer.port(),
+                networks:       read_or_die!(self.networks()).iter().copied().collect(),
+                node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,
+                wire_versions:  vec![WIRE_PROTOCOL_VERSION],
+                genesis_blocks: self.config.regenesis_arc.read().expect("").clone(),
+                proof:          vec![],
             })
         );
         let mut serialized = Vec::with_capacity(128);
