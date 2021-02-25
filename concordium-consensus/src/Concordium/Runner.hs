@@ -459,9 +459,9 @@ importingResultToUpdateResult logm logLvl = \case
   ResultDuplicate -> return Success
   ResultSerializationFail -> return SerializationFail
   ResultPendingBlock -> return Success
-  -- e@ResultPendingBlock -> do
-  --   logm logLvl LLWarning $ "Imported pending block."
-  --   return $ OtherError e
+  e@ResultPendingBlock -> do
+    logm logLvl LLWarning "Imported pending block."
+    return $ OtherError e
   e -> return $ OtherError e
 
 updateResultToImportingResult :: ImportingResult UpdateResult -> UpdateResult
