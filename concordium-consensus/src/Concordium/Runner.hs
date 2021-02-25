@@ -13,7 +13,6 @@ import Control.Concurrent
 import Control.Monad
 import Control.Exception
 import Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize
 import Data.IORef
 import Control.Monad.IO.Class
@@ -458,7 +457,6 @@ importingResultToUpdateResult logm logLvl = \case
   ResultSuccess -> return Success
   ResultDuplicate -> return Success
   ResultSerializationFail -> return SerializationFail
-  ResultPendingBlock -> return Success
   e@ResultPendingBlock -> do
     logm logLvl LLWarning "Imported pending block."
     return $ OtherError e
@@ -478,11 +476,11 @@ syncImportBlocks :: (SkovMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
                  -> IO UpdateResult
 syncImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    handle <- openFile filepath ReadMode
+    h <- openFile filepath ReadMode
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 handle now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV1 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -493,10 +491,10 @@ syncPassiveImportBlocks :: (SkovMonad (SkovT (SkovPassiveHandlers c LogIO) c Log
                         -> IO UpdateResult
 syncPassiveImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    handle <- openFile filepath ReadMode
+    h <- openFile filepath ReadMode
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 handle now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV1 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner
