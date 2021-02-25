@@ -76,7 +76,12 @@ instance HashableTo Hash.Hash Account where
 
 
 -- |Create an empty account with the given public key, address and credentials.
-newAccountMultiCredential :: GlobalContext -> AccountThreshold -> AccountAddress -> Map.Map CredentialIndex AccountCredential -> Account
+newAccountMultiCredential ::
+  GlobalContext  -- ^Cryptographic parameters, needed to derive the encryption key from the credentials.
+  -> AccountThreshold -- ^The account threshold, how many credentials need to sign..
+  -> AccountAddress -- ^Address of the account to be created.
+  -> Map.Map CredentialIndex AccountCredential -- ^Initial credentials on the account. NB: It is assumed that this map has a value at index 0.
+  -> Account
 newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountPersisting = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! 0)),

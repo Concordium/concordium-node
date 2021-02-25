@@ -190,16 +190,6 @@ makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseSc
 makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put ars >> put pd >> put abh
 
--- {-# INLINE setKey #-}
--- -- |Set a at a given index to a given value. The value of 'Nothing' will remove the key.
--- setKey :: HasPersistingAccountData d => KeyIndex -> Maybe VerifyKey -> d -> d
--- setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at' idx .~ key })
-
--- {-# INLINE setThreshold #-}
--- -- |Set the signature threshold.
--- setThreshold :: HasPersistingAccountData d => SignatureThreshold -> d -> d
--- setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })
-
 data EncryptedAmountUpdate =
   -- |Replace encrypted amounts less than the given index,
   -- by appending the new amount at the end of the list of encrypted amounts.
@@ -221,7 +211,7 @@ data EncryptedAmountUpdate =
     }
   deriving(Eq, Show)
 
-data CredentialKeysUpdate = SetKeys !CredentialIndex !CredentialPublicKeys -- Replace keys with new set of credential keys, including new signature threshold. 
+data CredentialKeysUpdate = SetKeys !CredentialIndex !CredentialPublicKeys -- Replace keys with new set of credential keys, including new signature threshold.
   deriving(Eq)
 
 data CredentialsUpdate = CredentialsUpdate {
@@ -260,8 +250,8 @@ emptyAccountUpdate :: AccountAddress -> AccountUpdate
 emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
 updateAccountInformation :: AccountThreshold -> Map.Map CredentialIndex AccountCredential -> [CredentialIndex] -> AccountInformation -> AccountInformation
-updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) = 
-  let addCredKeys = fmap credPubKeys addCreds 
+updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) =
+  let addCredKeys = fmap credPubKeys addCreds
       removeKeys = flip (foldl' (flip Map.delete)) remove
       newCredKeys = Map.union addCredKeys . removeKeys $ oldCredKeys
   in
@@ -274,22 +264,25 @@ updateAccountInformation threshold addCreds remove (AccountInformation oldCredKe
 updateCredentials :: (HasPersistingAccountData d) => Maybe CredentialsUpdate -> d -> d
 updateCredentials Nothing d = d
 updateCredentials (Just CredentialsUpdate{..}) d =
-  d' & (accountMaxCredentialValidTo %~ max (maximum (validTo <$> allCredentials))) -- FIXME:  This line is not correct since we've removed some data.
+  -- maximum is safe here since there must always be at least one credential on the account.
+  d' & (accountMaxCredentialValidTo %~ max (maximum (validTo <$> allCredentials)))
   where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
         d' = d & (accountCredentials %~ Map.union cuAdd . removeKeys)
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
         allCredentials = Map.elems (d' ^. accountCredentials)
 
+-- |Update the keys of the given account credential.
 updateCredKeyInAccountCredential :: AccountCredential -> CredentialPublicKeys -> AccountCredential
 updateCredKeyInAccountCredential (InitialAC icdv) keys = InitialAC (icdv{icdvAccount=keys})
 updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPublicKeys=keys}) comms
 
 -- |Optionally update the verification keys and signature threshold for an account.
 -- Precondition: The credential with given credential index exists.
--- {-# INLINE updateCredentialKeys #-}
 updateCredentialKeys :: (HasPersistingAccountData d) => Maybe CredentialKeysUpdate -> d -> d
 updateCredentialKeys Nothing d = d
 updateCredentialKeys (Just (SetKeys credIndex credKeys)) d =
-  d & (accountCredentials %~ update)
-  where oldCred = (d ^. accountCredentials) Map.! credIndex -- Maybe use `Map.lookup` instead
-        update = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)
+  case Map.lookup credIndex (d ^. accountCredentials) of
+    Just oldCred ->
+      let update = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)
+      in d & (accountCredentials %~ update)
+    Nothing -> d -- do nothing. This is safe, but should not happen if the precondition is satisfied.

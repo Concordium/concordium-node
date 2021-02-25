@@ -138,6 +138,8 @@ regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
 recordRegId :: ID.CredentialRegistrationID -> Accounts -> Accounts
 recordRegId rid accs = accs { accountRegIds = Set.insert rid (accountRegIds accs) }
 
+-- |Record multiple registration ids as used. This implementation is marginally
+-- more efficient than repeatedly calling `recordRegId`.
 recordRegIds :: [ID.CredentialRegistrationID] -> Accounts -> Accounts
 recordRegIds rids accs = accs { accountRegIds = Set.union (accountRegIds accs) (Set.fromAscList rids) }
 
