@@ -103,7 +103,7 @@ pub struct ValidationConfig {
         long = "valid-node-average-ping",
         env = "COLLECTOR_BACKEND_VALID_NODE_AVERAGE_PING",
         help = "Maximum average ping allowed in milliseconds",
-        default_value = "30000"
+        default_value = "150000"
     )]
     pub valid_node_average_ping: f64,
     #[structopt(
@@ -120,6 +120,15 @@ pub struct ValidationConfig {
         default_value = "20"
     )]
     pub validate_against_average_at: u64,
+    #[structopt(
+        long = "percentage-used-for-averages",
+        env = "COLLECTOR_BACKEND_PERCENTAGE_USED_FOR_AVERAGES",
+        help = "A whole number representing the percentage of node data to use when calculating \
+                averages. The fraction leftout is taken from the highest and lower values, making \
+                the average more resilient to outliers.",
+        default_value = "60"
+    )]
+    pub percentage_used_for_averages: usize,
     #[structopt(
         long = "valid-additional-best-block-height",
         env = "COLLECTOR_BACKEND_VALID_ADDITIONAL_BEST_BLOCK_HEIGHT",
@@ -367,19 +376,18 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
     );
 
     // Check the best block height and finalized block height against the average,
-    // if state contains information from enough nodes.
+    // But only if the state contains information from enough nodes.
     {
         let nodes = read_or_die!(state_data.nodes);
         let len = nodes.len() as u64;
         if len >= validation_conf.validate_against_average_at {
-            let mut sum_best_block_height: u64 = 0;
-            let mut sum_finalized_block_height: u64 = 0;
-            for node in nodes.values() {
-                sum_best_block_height += node.bestBlockHeight;
-                sum_finalized_block_height += node.finalizedBlockHeight;
-            }
-            let avg_best_block_height = sum_best_block_height / len;
-            let avg_finalized_block_height = sum_finalized_block_height / len;
+            let number_of_nodes_to_include =
+                (nodes.len() * validation_conf.percentage_used_for_averages) / 100;
+
+            let avg_best_block_height = average_without_outer_values(
+                nodes.values().map(|n| n.bestBlockHeight).collect(),
+                number_of_nodes_to_include,
+            );
 
             ensure!(
                 nodes_info.bestBlockHeight
@@ -387,6 +395,10 @@ async fn nodes_post_handler(state: &mut State) -> gotham::anyhow::Result<Respons
                 "bestBlockHeight is too high above average to be considered valid",
             );
 
+            let avg_finalized_block_height = average_without_outer_values(
+                nodes.values().map(|n| n.finalizedBlockHeight).collect(),
+                number_of_nodes_to_include,
+            );
             ensure!(
                 nodes_info.finalizedBlockHeight
                     <= avg_finalized_block_height
@@ -425,4 +437,15 @@ pub fn router(
         route.post("/nodes/post").to_async_borrowing(nodes_post_handler_wrapper);
         route.post("/post/nodes").to_async_borrowing(nodes_post_handler_wrapper);
     })
+}
+
+/// Calculates the average, but only from a part of the values. The omitted are
+/// taken from the highest and lowest values.
+fn average_without_outer_values(mut values: Vec<u64>, number_to_include: usize) -> u64 {
+    values.sort();
+    let omitting = values.len() - number_to_include;
+    let start = omitting / 2;
+    let end = start + number_to_include;
+
+    values[start..end].iter().sum::<u64>() / number_to_include as u64
 }
