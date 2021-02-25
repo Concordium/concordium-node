@@ -40,6 +40,7 @@ import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
 import Data.Word
 import Foreign.Storable(sizeOf)
+import Data.Bits
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -423,6 +424,14 @@ data ImportingResult a = SerializationFail | Success | OtherError a deriving (Sh
 readHeader :: ByteString -> Either String Version
 readHeader = S.runGet S.get
 
+getVersionBytes :: Handle -> IO ByteString
+getVersionBytes h = do
+  b <- hGet h 1
+  if testBit (Data.ByteString.head b) 7
+    then
+    append b <$> getVersionBytes h
+    else
+    return b
 
 readBlocksV1 :: (Show a) => Handle
            -> UTCTime
@@ -431,7 +440,7 @@ readBlocksV1 :: (Show a) => Handle
            -> (PendingBlock -> IO (ImportingResult a))
            -> IO (ImportingResult a)
 readBlocksV1 h tm logm logLvl continuation = do
-  v <- hGet h (sizeOf (undefined :: Word8))
+  v <- getVersionBytes h
   case readHeader v of
       Left err -> do
         logm logLvl LLError $ "Error deserializing header: " ++ err
@@ -446,7 +455,7 @@ readBlocksV1 h tm logm logLvl continuation = do
           if isEof
             then return Success
             else do
-            len <- S.runGet S.getWord64be <$> hGet h (sizeOf (undefined :: Word64))
+            len <- S.runGet S.getWord64be <$> hGet h 8
             case len of
               Left _ -> return SerializationFail
               Right l -> do
