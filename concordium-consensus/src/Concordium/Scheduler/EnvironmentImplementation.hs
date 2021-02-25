@@ -192,8 +192,8 @@ instance (MonadReader ContextState m,
   updateAccountCredentials !acc !idcs !threshold !creds = do
     s <- use schedulerBlockState
     addr <- getAccountAddress acc
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredentials ?~ CredentialsUpdate idcs creds
-                                                           & auAccountThreshold ?~ threshold))
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredentials ?~ CredentialsUpdate idcs creds threshold --  & auAccountThreshold ?~ threshold
+                                                          ))
     schedulerBlockState .= s'
 
   {-# INLINE commitChanges #-}
@@ -275,25 +275,25 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
     return r
 
-  {-# INLINE updateAccountKeys #-}
-  updateAccountKeys accAddr newKeys = do
+  {-# INLINE updateCredentialKeys #-}
+  updateCredentialKeys accAddr credIndex newKeys = do
     s <- use schedulerBlockState
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ SetKeys newKeys))
+    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auCredentialKeysUpdate ?~ SetKeys credIndex newKeys))
     schedulerBlockState .= s'
 
-  {-# INLINE addAccountKeys #-}
-  addAccountKeys accAddr newKeys threshold = do
-    s <- use schedulerBlockState
-    -- TODO: This needs revision.
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ SetKeys newKeys))
-    schedulerBlockState .= s'
+  -- {-# INLINE addAccountKeys #-}
+  -- addAccountKeys accAddr newKeys threshold = do
+  --   s <- use schedulerBlockState
+  --   -- TODO: This needs revision.
+  --   s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ SetKeys newKeys))
+  --   schedulerBlockState .= s'
 
-  {-# INLINE removeAccountKeys #-}
-  removeAccountKeys accAddr keyIdxs threshold = do
-    s <- use schedulerBlockState
-    -- TODO: This needs revision.
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ RemoveKeys keyIdxs))
-    schedulerBlockState .= s'
+  -- {-# INLINE removeAccountKeys #-}
+  -- removeAccountKeys accAddr keyIdxs threshold = do
+  --   s <- use schedulerBlockState
+  --   -- TODO: This needs revision.
+  --   s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auKeysUpdate ?~ RemoveKeys keyIdxs))
+  --   schedulerBlockState .= s'
 
   {-# INLINE getIPInfo #-}
   getIPInfo ipId = do

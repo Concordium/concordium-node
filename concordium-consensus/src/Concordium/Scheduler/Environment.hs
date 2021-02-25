@@ -144,11 +144,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   -- - The account exists in the block state.
   -- - The account threshold is reasonable.
   updateAccountCredentials :: Account m
-                        -> [ID.KeyIndex]
+                        -> [ID.CredentialIndex]
                         -- ^ The indices of credentials to remove from the account.
                         -> ID.AccountThreshold
                         -- ^ The new account threshold
-                        -> Map.Map ID.KeyIndex ID.AccountCredential
+                        -> Map.Map ID.CredentialIndex ID.AccountCredential
                         -- ^ The new credentials.
                         -> m ()
 
@@ -272,28 +272,11 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- *Operations on account keys
 
-  -- |Replaces the account verification keys at the indices specified by the map
-  -- with the ones specified by the map
+  -- | Updates the credential verification keys 
   -- Preconditions:
   -- * The account exists
   -- * The account has keys defined at the specified indices
-  updateAccountKeys :: AccountAddress -> Map.Map ID.KeyIndex AccountVerificationKey -> m ()
-
-  -- |Removes the account verification keys at the given indices from the
-  -- account's keys and optinally updates the signing threshold.
-  -- Preconditions:
-  -- * The account exists
-  -- * The account has keys defined at the specified indicies
-  -- * The new total amount of keys is at least the (potentially new) signature threshold
-  removeAccountKeys :: AccountAddress -> Set.Set ID.KeyIndex -> Maybe ID.SignatureThreshold -> m ()
-
-  -- |Adds the account verification keys to the account at the indices specified
-  -- by the map
-  -- Preconditions:
-  -- * The account exists
-  -- * The account does not have keys defined at the indices specified by the map
-  -- * The new threshold does not exceed the new total number of keys
-  addAccountKeys :: AccountAddress -> Map.Map ID.KeyIndex AccountVerificationKey ->  Maybe ID.SignatureThreshold -> m ()
+  updateCredentialKeys :: AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m ()
 
   -- *Other metadata.
 

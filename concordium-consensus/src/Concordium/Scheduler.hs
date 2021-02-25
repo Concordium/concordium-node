@@ -251,14 +251,8 @@ dispatch msg = do
                    UpdateBakerKeys{..} ->
                      handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
 
-                  --  UpdateAccountKeys{..} ->
-                  --    handleUpdateAccountKeys (mkWTC TTUpdateAccountKeys) uakKeys
-
-                  --  AddAccountKeys{..} ->
-                  --    handleAddAccountKeys (mkWTC TTAddAccountKeys) aakKeys aakThreshold
-
-                  --  RemoveAccountKeys{..} ->
-                  --    handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndices rakThreshold
+                   UpdateCredentialKeys{..} ->
+                     handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
 
                    EncryptedAmountTransfer{..} ->
                      handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData
@@ -1182,112 +1176,38 @@ handleDeployCredential cdi cdiHash = do
                                 mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                               else return $ Just (TxInvalid AccountCredentialInvalid)
 
--- -- |Updates the account keys. For each (index, key) pair, updates the key at
--- -- the specified index to the specified key. Is valid when the given indices all point
--- -- to an existing key.
--- handleUpdateAccountKeys ::
---   SchedulerMonad m
---     => WithDepositContext m
---     -> OrdMap.Map ID.KeyIndex AccountVerificationKey
---     -> m (Maybe TransactionSummary)
--- handleUpdateAccountKeys wtc keys =
---   withDeposit wtc cost k
---   where
---     senderAccount = wtc ^. wtcSenderAccount
---     txHash = wtc ^. wtcTransactionHash
---     meta = wtc ^. wtcTransactionHeader
---     cost = tickEnergy $ Cost.updateAccountKeys $ length keys
---     k ls _ = do
---       accountKeys <- getAccountVerificationKeys senderAccount
---       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
---       chargeExecutionCost txHash senderAccount energyCost
---       if Set.isSubsetOf (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then do
---         senderAddr <- getAccountAddress senderAccount
---         updateAccountKeys senderAddr keys
---         return (TxSuccess [AccountKeysUpdated], energyCost, usedEnergy)
---       else
---         return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
+-- |Updates the credential keys in the credential with the given Credential ID. 
+-- It rejects if there is no credential with the given Credential ID.
+handleUpdateCredentialKeys ::
+  SchedulerMonad m
+    => WithDepositContext m
+    -> ID.CredentialRegistrationID 
+    -> ID.CredentialPublicKeys
+    -> TransactionSignature
+    -> m (Maybe TransactionSummary)
+handleUpdateCredentialKeys wtc cid keys sigs =
+  withDeposit wtc cost k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    cost = tickEnergy $ Cost.updateCredentialKeys $ length $ ID.credKeys keys
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      existingCredentials <- getAccountCredentials senderAccount
+      let credIndex = fst <$> find (\(ki, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
+      case credIndex of 
+        Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
+        Just index -> do 
+          let check = OrdMap.member index $ tsSignatures sigs
+          if check then do
+            senderAddr <- getAccountAddress senderAccount
+            updateCredentialKeys senderAddr index keys
+            return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
+          else
+            return (TxReject CredentialHolderDidNotSign, energyCost, usedEnergy)
 
-
--- -- |Removes the account keys at the supplied indices and, optionally, updates
--- -- the signature threshold. Is valid when the indices supplied are already in use
--- -- and the new threshold does not exceed the new total amount of keys.
--- handleRemoveAccountKeys ::
---   SchedulerMonad m
---     => WithDepositContext m
---     -> Set.Set ID.KeyIndex
---     -> Maybe ID.SignatureThreshold
---     -> m (Maybe TransactionSummary)
--- handleRemoveAccountKeys wtc indices threshold =
---   withDeposit wtc cost k
---   where
---     senderAccount = wtc ^. wtcSenderAccount
---     txHash = wtc ^. wtcTransactionHash
---     meta = wtc ^. wtcTransactionHeader
---     cost = tickEnergy $ Cost.removeAccountKeys $ length indices
---     k ls _ = do
---       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
---       chargeExecutionCost txHash senderAccount energyCost
---       accountKeys <- getAccountVerificationKeys senderAccount
---       let numOfKeys = length (ID.akKeys accountKeys)
---       let currentThreshold = ID.akThreshold accountKeys
---       if Set.isSubsetOf indices (ID.getKeyIndices accountKeys) then
---         case threshold of
---           Just newThreshold ->
---             -- the subtraction is safe here because we have checked that indices is a subset of keys.
---             if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
---               senderAddr <- getAccountAddress senderAccount
---               removeAccountKeys senderAddr indices threshold
---               return (TxSuccess [AccountKeysRemoved, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
---             else
---               return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
---           Nothing -> do
---             if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
---               senderAddr <- getAccountAddress senderAccount
---               removeAccountKeys senderAddr indices Nothing
---               return (TxSuccess [AccountKeysRemoved], energyCost, usedEnergy)
---             else
---               return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
---       else return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
-
-
--- -- |Adds keys to the account at the supplied indices and, optionally, updates
--- -- the signature threshold. Is valid when the indices supplied are not already in use
--- -- and the new threshold doesn’t exceed the new total amount of keys.
--- handleAddAccountKeys ::
---   SchedulerMonad m
---     => WithDepositContext m
---     -> OrdMap.Map ID.KeyIndex AccountVerificationKey
---     -> Maybe ID.SignatureThreshold
---     -> m (Maybe TransactionSummary)
--- handleAddAccountKeys wtc keys threshold =
---   withDeposit wtc cost k
---   where
---     senderAccount = wtc ^. wtcSenderAccount
---     txHash = wtc ^. wtcTransactionHash
---     meta = wtc ^. wtcTransactionHeader
---     cost = tickEnergy $ Cost.addAccountKeys $ length keys
---     k ls _ = do
---       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
---       chargeExecutionCost txHash senderAccount energyCost
---       -- all the keys must be new.
---       accountKeys <- getAccountVerificationKeys senderAccount
---       let numOfKeys = length (ID.akKeys accountKeys)
---       if Set.disjoint (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then
---         case threshold of
---           Just newThreshold ->
---             if newThreshold <= fromIntegral (numOfKeys + (length keys)) then do
---               senderAddr <- getAccountAddress senderAccount
---               addAccountKeys senderAddr keys threshold
---               return (TxSuccess [AccountKeysAdded, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
---             else
---               return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
---           Nothing -> do
---             senderAddr <- getAccountAddress senderAccount
---             addAccountKeys senderAddr keys Nothing
---             return (TxSuccess [AccountKeysAdded], energyCost, usedEnergy)
---       else
---         return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
 
 -- * Chain updates
 
@@ -1347,7 +1267,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
 handleUpdateCredentials ::
   SchedulerMonad m
     => WithDepositContext m
-    -> OrdMap.Map ID.KeyIndex ID.CredentialDeploymentInformation
+    -> OrdMap.Map ID.CredentialIndex ID.CredentialDeploymentInformation
     -> [ID.CredentialRegistrationID]
     -> ID.AccountThreshold
     -> m (Maybe TransactionSummary)
@@ -1425,7 +1345,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         case creds of
           Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
           Just newCredentials -> do
-            _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials -- TODO: Also remove and add 
+            _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials
             return (TxSuccess [CredentialsUpdated {
                                   cuAccount = senderAddress,
                                   cuNewCredIds = Set.toList newCredIds,

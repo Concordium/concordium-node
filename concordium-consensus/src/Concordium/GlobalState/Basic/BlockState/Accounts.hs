@@ -106,7 +106,7 @@ updateAccount !upd
       . updateAmount
       . updateCredentials (upd ^. auCredentials)
       . updateEncryptedAmount
-      -- . updateAccountKeys (upd ^. auKeysUpdate) (upd ^. auSignThreshold)
+      . updateCredentialKeys (upd ^. auCredentialKeysUpdate)
   where
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
