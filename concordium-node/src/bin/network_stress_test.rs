@@ -10,7 +10,10 @@ use concordium_node::{
     connection::Connection,
     network::NetworkId,
     p2p::{connectivity::send_broadcast_message, P2PNode},
-    test_utils::{connect, generate_random_data, make_node_and_sync, next_available_port},
+    test_utils::{
+        connect, dummy_regenesis_blocks, generate_random_data, make_node_and_sync,
+        next_available_port,
+    },
 };
 
 use std::{sync::Arc, thread, time::Duration};
@@ -35,8 +38,18 @@ fn main() -> Fallible<()> {
     log_builder.init();
 
     // create 2 nodes and connect them as peers
-    let node_1 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
-    let node_2 = make_node_and_sync(next_available_port(), vec![100], PeerType::Node)?;
+    let node_1 = make_node_and_sync(
+        next_available_port(),
+        vec![100],
+        PeerType::Node,
+        dummy_regenesis_blocks(),
+    )?;
+    let node_2 = make_node_and_sync(
+        next_available_port(),
+        vec![100],
+        PeerType::Node,
+        dummy_regenesis_blocks(),
+    )?;
     connect(&node_1, &node_2);
 
     // send fuzzed packets from node 2
@@ -67,8 +80,13 @@ fn main() -> Fallible<()> {
         let mut faulty_nodes = vec![];
 
         for i in 0..5 {
-            let faulty_node =
-                make_node_and_sync(next_available_port(), vec![100], PeerType::Node).unwrap();
+            let faulty_node = make_node_and_sync(
+                next_available_port(),
+                vec![100],
+                PeerType::Node,
+                dummy_regenesis_blocks(),
+            )
+            .unwrap();
             if i % 2 == 0 {
                 connect(&node_1_ref, &faulty_node);
             } else {

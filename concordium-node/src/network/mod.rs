@@ -8,9 +8,20 @@ use semver::Version;
 
 pub use self::buckets::Buckets;
 
-use crate::common::{p2p_peer::P2PPeer, P2PNodeId};
+use crate::{
+    common::{p2p_peer::P2PPeer, P2PNodeId},
+    consensus_ffi::blockchain_types::BlockHash,
+};
 
 use std::collections::HashSet;
+
+pub type WireProtocolVersion = u8;
+
+/// The Wire protocol version. Incompatible versions (checked in
+/// `configuration::is_compatible_wire_version`) will be rejected as it is
+/// assumed they will use different messages or expect a different communcation
+/// flow. This value is sent in the Handshake request.
+pub const WIRE_PROTOCOL_VERSION: WireProtocolVersion = 0;
 
 /// Identifies a network.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,11 +78,13 @@ pub enum NetworkPayload {
 #[derive(Debug, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct Handshake {
-    pub remote_id:   P2PNodeId,
-    pub remote_port: u16,
-    pub networks:    Networks,
-    pub version:     Version,
-    pub proof:       Vec<u8>,
+    pub remote_id:      P2PNodeId,
+    pub remote_port:    u16,
+    pub networks:       Networks,
+    pub node_version:   Version,
+    pub wire_versions:  Vec<WireProtocolVersion>,
+    pub genesis_blocks: Vec<BlockHash>,
+    pub proof:          Vec<u8>,
 }
 
 /// A network message serving a specified purpose.

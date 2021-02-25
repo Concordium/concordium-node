@@ -19,6 +19,7 @@ use crate::{
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
+        blockchain_types::BlockHash,
         catch_up::PeerList,
         consensus::{ConsensusContainer, CALLBACK_QUEUE},
     },
@@ -92,6 +93,7 @@ pub struct NodeConfig {
     pub socket_so_linger: Option<u16>,
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
+    pub regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 }
 
 /// The collection of connections to peer nodes.
@@ -209,6 +211,7 @@ impl P2PNode {
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         data_dir_path: Option<PathBuf>,
+        regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
     ) -> (Arc<Self>, Poll) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
@@ -338,6 +341,7 @@ impl P2PNode {
             socket_so_linger: conf.connection.socket_so_linger,
             events_queue_size: conf.connection.events_queue_size,
             deduplication_hashing_algorithm: conf.connection.deduplication_hashing_algorithm,
+            regenesis_arc,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
