@@ -21,7 +21,6 @@ import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmo
 import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import Concordium.ID.Types
 import Concordium.ID.Parameters
-import Concordium.Types.Transactions(getAccountInformation)
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.Persistent.BlobStore

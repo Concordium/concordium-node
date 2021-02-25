@@ -17,7 +17,7 @@ import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
-import Concordium.Types.Transactions(AccountInformation)
+import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
@@ -32,7 +32,7 @@ data PersistingAccountData = PersistingAccountData {
   _accountAddress :: !AccountAddress
   ,_accountEncryptionKey :: !AccountEncryptionKey
   ,_accountVerificationKeys :: !AccountInformation
-  ,_accountCredentials :: !(Map.Map KeyIndex AccountCredential)
+  ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
   ,_accountInstances :: !(Set.Set ContractAddress)
@@ -221,16 +221,17 @@ data EncryptedAmountUpdate =
     }
   deriving(Eq, Show)
 
-data AccountKeysUpdate =
-    RemoveKeys !(Set.Set KeyIndex) -- Removes the keys at the specified indexes from the account
-  | SetKeys !(Map.Map KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
+data CredentialKeysUpdate = SetKeys !CredentialIndex !CredentialPublicKeys -- Replace keys with new set of credential keys, including new signature threshold. 
   deriving(Eq)
 
 data CredentialsUpdate = CredentialsUpdate {
   -- |Remove credentials with these indices.
-  cuRemove :: ![KeyIndex],
+  cuRemove :: ![CredentialIndex],
   -- |Add credentials with these indices.
-  cuAdd :: !(Map.Map KeyIndex AccountCredential)
+  cuAdd :: !(Map.Map CredentialIndex AccountCredential),
+  -- |Optionally update the account signature threshold,
+  -- i.e., how many credentials need to sign the transaction.
+  cuAccountThreshold :: !AccountThreshold
   } deriving(Eq)
 
 -- |An update to an account state.
@@ -246,7 +247,7 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally a new credential.
   ,_auCredentials :: !(Maybe CredentialsUpdate)
   -- |Optionally an update to the account keys
-  ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
+  ,_auCredentialKeysUpdate :: !(Maybe CredentialKeysUpdate)
   -- |Optionally update the account signature threshold,
   -- i.e., how many credentials need to sign the transaction.
   ,_auAccountThreshold :: !(Maybe AccountThreshold)
@@ -258,22 +259,37 @@ makeLenses ''AccountUpdate
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
 emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
+updateAccountInformation :: AccountThreshold -> Map.Map CredentialIndex AccountCredential -> [CredentialIndex] -> AccountInformation -> AccountInformation
+updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) = 
+  let addCredKeys = fmap credPubKeys addCreds 
+      removeKeys = flip (foldl' (flip Map.delete)) remove
+      newCredKeys = Map.union addCredKeys . removeKeys $ oldCredKeys
+  in
+  AccountInformation {
+    aiCredentials = newCredKeys,
+    aiThreshold = threshold
+  }
+
 -- |Optionally add a credential to an account.
 updateCredentials :: (HasPersistingAccountData d) => Maybe CredentialsUpdate -> d -> d
-updateCredentials Nothing = id
-updateCredentials (Just CredentialsUpdate{..}) = (accountCredentials %~ Map.union cuAdd . removeKeys)
-    . (accountMaxCredentialValidTo %~ max (maximum (validTo <$> cuAdd))) -- FIXME:  This line is not correct since we've removed some data.
+updateCredentials Nothing d = d
+updateCredentials (Just CredentialsUpdate{..}) d =
+  d' & (accountMaxCredentialValidTo %~ max (maximum (validTo <$> allCredentials))) -- FIXME:  This line is not correct since we've removed some data.
   where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
+        d' = d & (accountCredentials %~ Map.union cuAdd . removeKeys)
+               & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
+        allCredentials = Map.elems (d' ^. accountCredentials)
+
+updateCredKeyInAccountCredential :: AccountCredential -> CredentialPublicKeys -> AccountCredential
+updateCredKeyInAccountCredential (InitialAC icdv) keys = InitialAC (icdv{icdvAccount=keys})
+updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPublicKeys=keys}) comms
 
 -- |Optionally update the verification keys and signature threshold for an account.
--- {-# INLINE updateAccountKeys #-}
--- updateAccountKeys :: (HasPersistingAccountData d) => Maybe AccountKeysUpdate -> Maybe SignatureThreshold -> d -> d
--- updateAccountKeys Nothing Nothing = id
--- updateAccountKeys mKeysUpd mNewThreshold = accountVerificationKeys %~ \AccountKeys{..} ->
---     AccountKeys {
---       akKeys = maybe akKeys (update akKeys) mKeysUpd,
---       akThreshold = fromMaybe akThreshold mNewThreshold
---     }
---   where
---     update oldKeys (RemoveKeys indices) = Set.foldl' (flip Map.delete) oldKeys indices
---     update oldKeys (SetKeys keys) = Map.foldlWithKey (\m idx key -> Map.insert idx key m) oldKeys keys
+-- Precondition: The credential with given credential index exists.
+-- {-# INLINE updateCredentialKeys #-}
+updateCredentialKeys :: (HasPersistingAccountData d) => Maybe CredentialKeysUpdate -> d -> d
+updateCredentialKeys Nothing d = d
+updateCredentialKeys (Just (SetKeys credIndex credKeys)) d =
+  d & (accountCredentials %~ update)
+  where oldCred = (d ^. accountCredentials) Map.! credIndex -- Maybe use `Map.lookup` instead
+        update = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)

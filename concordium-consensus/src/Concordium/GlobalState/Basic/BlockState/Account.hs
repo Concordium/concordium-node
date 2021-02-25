@@ -27,7 +27,6 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.Types
-import Concordium.Types.Transactions(getAccountInformation)
 
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data Account = Account {
@@ -77,7 +76,7 @@ instance HashableTo Hash.Hash Account where
 
 
 -- |Create an empty account with the given public key, address and credentials.
-newAccountMultiCredential :: GlobalContext -> AccountThreshold -> AccountAddress -> Map.Map KeyIndex AccountCredential -> Account
+newAccountMultiCredential :: GlobalContext -> AccountThreshold -> AccountAddress -> Map.Map CredentialIndex AccountCredential -> Account
 newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountPersisting = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! 0)),
