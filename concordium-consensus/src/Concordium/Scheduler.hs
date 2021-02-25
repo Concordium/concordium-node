@@ -614,7 +614,7 @@ handleInitContract wtc initAmount modref initName param =
             senderCredentials <- getAccountCredentials senderAccount
             let initCtx = Wasm.InitContext{
                   initOrigin = thSender meta,
-                  icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toDescList senderCredentials)
+                  icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                }
             result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
                        `rejectingWith'` wasmRejectToRejectReason
@@ -1181,9 +1181,12 @@ handleDeployCredential cdi cdiHash = do
 handleUpdateCredentialKeys ::
   SchedulerMonad m
     => WithDepositContext m
-    -> ID.CredentialRegistrationID 
+    -> ID.CredentialRegistrationID
+    -- ^Registration ID of the credential we are updating.
     -> ID.CredentialPublicKeys
+    -- ^New public keys of the credential..
     -> TransactionSignature
+    -- ^Signatures on the transaction. This is needed to check that a specific credential signed.
     -> m (Maybe TransactionSummary)
 handleUpdateCredentialKeys wtc cid keys sigs =
   withDeposit wtc cost k
@@ -1199,7 +1202,8 @@ handleUpdateCredentialKeys wtc cid keys sigs =
       let credIndex = fst <$> find (\(ki, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
       case credIndex of 
         Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
-        Just index -> do 
+        Just index -> do
+          -- We check that the credential whose keys we are updating has indeed signed this transaction.
           let check = OrdMap.member index $ tsSignatures sigs
           if check then do
             senderAddr <- getAccountAddress senderAccount
@@ -1312,7 +1316,6 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       -- 
       let thresholdCheck = toInteger (OrdMap.size existingCredentials) + toInteger (OrdMap.size cdis) >= toInteger (Set.size indicesToRemove) + toInteger threshold
 
-      -- TODO: Check that the first credential is not removed.
       let firstCredNotRemoved = 0 `notElem` indicesToRemove
 
       -- make sure that the credentials that are being added have not yet been used on the chain.
