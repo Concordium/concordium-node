@@ -138,7 +138,7 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                  | InitContract { amount :: Amount
                                 , version :: Word32
                                 , moduleName :: FilePath
-                                , contractName :: Text -- TODO (MRA) This should be renamed to "initFunctionName"
+                                , initFunctionName :: Text
                                 , parameter :: BSS.ShortByteString }
                  | Update { amount :: Amount
                           , address :: ContractAddress
