@@ -14,7 +14,7 @@ import Control.Monad
 
 import Data.Serialize
 import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
-import Data.List
+import Data.List (foldl')
 
 import Concordium.Types
 
