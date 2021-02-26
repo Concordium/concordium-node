@@ -11,7 +11,6 @@ import Data.Word
 import Control.Monad
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
-import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
