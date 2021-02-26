@@ -1525,7 +1525,7 @@ filterTransactions maxSize groups0 = do
                      (newFts, rest) <- validTs t summary fp currentFts ts
                      runTransactionGroup csize newFts rest
                    -- The transaction failed, add it to the list of failed transactions and
-                   -- determine whether following transaction have to fail as well.
+                   -- determine whether the following transactions have to fail as well.
                    (Just (TxInvalid reason), _) ->
                      let (newFts, rest) = invalidTs t reason currentFts ts
                      in runTransactionGroup currentSize newFts rest
