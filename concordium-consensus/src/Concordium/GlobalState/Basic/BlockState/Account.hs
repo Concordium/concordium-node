@@ -14,7 +14,6 @@ module Concordium.GlobalState.Basic.BlockState.Account(
 ) where
 
 import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.Set as Set
 import qualified Data.Serialize as S
 import Lens.Micro.Platform
 
