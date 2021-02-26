@@ -42,7 +42,6 @@ import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Map as Map
-import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 import Data.Word

@@ -28,7 +28,6 @@ import Data.Foldable
 import Data.Maybe
 import Data.Word
 import Lens.Micro.Platform
-import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
