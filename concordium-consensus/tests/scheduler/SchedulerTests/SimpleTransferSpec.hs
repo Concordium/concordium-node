@@ -37,19 +37,19 @@ testCases =
     , tcTransactions =
       [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/send-tokens-test.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000
-                , keys = [(0, alesKP)]
+                , keys = [(0, [(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
       , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/send-tokens-test.wasm" "init_send" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
-                , keys = [(0, alesKP)]
+                , keys = [(0, [(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
       , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "send.receive" ""
                 , metadata = makeDummyHeader alesAccount 3 70000
-                , keys = [(0, alesKP)]
+                , keys = [(0, [(0, alesKP)])]
                 }
         , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
                                    , euInstigator = Types.AddressAccount alesAccount

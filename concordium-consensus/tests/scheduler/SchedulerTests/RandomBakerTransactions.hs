@@ -86,7 +86,7 @@ updateBaker m0 = do
         let toTJSON p = TJSON {
             payload = p,
             metadata = makeDummyHeader bkrAcct nonce energy,
-            keys = [(0, kp)]
+            keys = [(0,[(0, kp)])]
         }
         let changeStakeFail = case currentlyBaker of
                 Baker _ -> id
@@ -171,7 +171,7 @@ simpleTransfer m0 = do
         return (TJSON {
             payload = Transfer {toaddress = destAcct, amount = amt},
             metadata = makeDummyHeader srcAcct srcN energy,
-            keys = [(0, srcKp)]
+            keys = [(0,[(0, srcKp)])]
         }, m0 & mAccounts . ix srcAcct . _2 %~ (+1))
 
 -- |Generate the transactions and a lits of those that should be rejected.
