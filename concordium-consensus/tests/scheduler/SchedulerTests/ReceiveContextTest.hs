@@ -24,6 +24,7 @@ import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
+import qualified Data.Map.Strict as Map
 
 import SchedulerTests.Helpers
 
@@ -38,17 +39,17 @@ transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
       payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
-      keys = [(0, alesKP)]
+      keys = [(0, [(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
       payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
-      keys = [(0, alesKP)]
+      keys = [(0, [(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 3 100000,
       payload = Update 9 (Types.ContractAddress 0 0) "receive_context" "",
-      keys = [(0, alesKP)]
+      keys = [(0, [(0, alesKP)])]
       }
   ]
 
@@ -83,7 +84,7 @@ checkReceiveResult (suc, fails, instances) = do
         selfBalance = 9, -- balance it was initialized with
         sender = Types.AddressAccount alesAccount,
         owner = alesAccount,
-        rcSenderPolicies = map mkSenderPolicy $ (mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials)
+        rcSenderPolicies = map (mkSenderPolicy . snd) $ Map.toAscList (mkAccount alesVK alesAccount 0 ^. accountPersisting . accountCredentials)
         }
   let expectedState = Types.encodeChainMeta chainMeta <> encodeReceiveContext receiveCtx
   assertEqual "Instance model is the chain metadata + receive context." model expectedState
