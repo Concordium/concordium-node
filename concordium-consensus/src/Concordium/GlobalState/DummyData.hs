@@ -3,7 +3,6 @@
 
 module Concordium.GlobalState.DummyData where
 
-import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map

@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
@@ -26,7 +25,6 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 
 import Prelude hiding(mod, exp)
 import Concordium.Crypto.EncryptedTransfers
