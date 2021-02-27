@@ -11,13 +11,10 @@ import Data.Foldable
 import Data.Serialize
 import Lens.Micro.Platform
 
-import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
-import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
