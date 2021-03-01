@@ -3,7 +3,6 @@
 
 module Concordium.GlobalState.DummyData where
 
-import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
@@ -231,10 +230,12 @@ mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParamete
 -- The keys are indexed in ascending order starting from 0
 -- The list of keys should be non-empty.
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
-mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> AccountAddress -> Amount -> Account
-mkAccountMultipleKeys keys addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount
+mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
+mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountPersisting . accountVerificationKeys .~ ai
+
   where
     cred = dummyCredential dummyCryptographicParameters addr (head keys) dummyMaxValidTo dummyCreatedAt
+    ai = AccountInformation (Map.singleton 0 $ makeCredentialPublicKeys keys threshold) 1
 
 -- |Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
