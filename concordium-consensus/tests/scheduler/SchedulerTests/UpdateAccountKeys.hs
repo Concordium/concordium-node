@@ -19,7 +19,6 @@ import            Concordium.Scheduler.DummyData
 import qualified  Concordium.Scheduler.Runner as Runner
 import            Concordium.Scheduler.Types
 import            Concordium.Types.DummyData
-import qualified  Data.Set as Set
 import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
 
@@ -201,7 +200,7 @@ testCases =
 -- Checks that the keys in the AccountKeys matches the ones in the list, that there isn't
 -- any other keys than these in the AccountKeys and that the signature threshold matches.
 checkAccountKeys :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.CredentialPublicKeys -> HUnit.Assertion
-checkAccountKeys keys threshold actualKeys@ID.CredentialPublicKeys{..} = do
+checkAccountKeys keys threshold ID.CredentialPublicKeys{..} = do
   HUnit.assertEqual "Signature Threshold Matches" threshold credThreshold
   HUnit.assertEqual "Account keys should have same number of keys" (length keys) (length credKeys)
   forM_ keys (\(idx, key) -> case Map.lookup idx (credKeys) of
