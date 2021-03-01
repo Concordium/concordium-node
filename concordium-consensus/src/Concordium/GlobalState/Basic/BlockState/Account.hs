@@ -13,8 +13,6 @@ module Concordium.GlobalState.Basic.BlockState.Account(
   module Concordium.GlobalState.Basic.BlockState.Account
 ) where
 
--- import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.Set as Set
 import qualified Data.Serialize as S
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
@@ -87,7 +85,6 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! 0)),
         _accountCredentials = cs,
         _accountMaxCredentialValidTo = maximum (validTo <$> cs),
-        _accountInstances = Set.empty,
         _accountVerificationKeys = getAccountInformation threshold cs,
         ..
         },

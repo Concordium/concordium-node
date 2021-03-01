@@ -112,6 +112,27 @@ Environment variables only apply to the default build. This links with shared Ha
 ## Installing genesis data
 Unpack the relevant set of genesis data and private baker data from [genesis-data/](/genesis-data) to the correct OS folder (e.g. on Linux this would be `$HOME/.local/share/concordium`). This determines how many bakers you need to run for the network to be able to work properly.
 
+## Running a bootstrapper node
+
+The bootstrapper node uses a configuration closely similar to the one of a
+normal node. Using `--help` will show all the available flags.
+
+There is one mandatory parameter that must be set:
+`--regenesis-block-hashes`. This parameter accepts a list of block hashes that
+will be shared when performing a handshake with a node to only accept nodes
+whose list of regenesis block hashes is a prefix of the one from the
+bootstrapper, or viceversa, indicating that both nodes belong to the same network.
+
+As the bootstrapper node doesn't have a running consensus inside, it will not
+update the regenesis block hashes list, so it should be updated whenever the
+bootstrapper node is restarted (and there had been a protocol update).
+
+The format would be the following:
+
+```
+p2p_boostrapper-cli ... --regenesis-block-hashes 0e8a30009f9cf7c7ab76929cf6bad057a20b7002fee6fe0be48682d32b331b91 c8ebf79db99dec96e5f32a09dbcdfd31744a88526e70bb3305837dcb8147241a ...
+```
+
 # Running all tests
 ```console
 $> cargo test --all

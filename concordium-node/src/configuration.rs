@@ -1,6 +1,10 @@
 //! The client's parameters and constants used by other modules.
 
-use crate::connection::DeduplicationHashAlgorithm;
+use crate::{
+    connection::DeduplicationHashAlgorithm,
+    consensus_ffi::blockchain_types::BlockHash,
+    network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
+};
 use app_dirs2::*;
 use failure::Fallible;
 use preferences::{Preferences, PreferencesMap};
@@ -23,7 +27,18 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
 pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
-    other.major == 0 && other.minor == 4 && other.patch >= 8
+    other.major == 0 && other.minor == 5
+}
+
+/// Check that the other wire version is compatible with ours. See
+/// `network::WIRE_PROTOCOL_VERSION`. For now it only checks if there is a
+/// matching version because we only have version 0. In the future, a node
+/// should support several versions and it should find the highest matching
+/// version that can be used.
+pub(crate) fn is_compatible_wire_version(
+    other: &[WireProtocolVersion],
+) -> Option<WireProtocolVersion> {
+    other.iter().find(|x| **x == WIRE_PROTOCOL_VERSION).copied()
 }
 
 /// The maximum size of objects accepted from the network.
@@ -551,6 +566,12 @@ pub struct BootstrapperConfig {
         default_value = "10"
     )]
     pub peer_list_size: usize,
+
+    #[structopt(
+        long = "regenesis-block-hashes",
+        help = "List with the hashes of regenesis blocks."
+    )]
+    pub regenesis_block_hashes: Vec<BlockHash>,
 }
 
 /// The main configuration object.

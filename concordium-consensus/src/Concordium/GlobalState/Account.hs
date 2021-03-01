@@ -32,7 +32,6 @@ data PersistingAccountData = PersistingAccountData {
   ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
-  ,_accountInstances :: !(Set.Set ContractAddress)
 } deriving (Show, Eq)
 
 makeClassy ''PersistingAccountData
@@ -96,9 +95,8 @@ addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 instance Serialize PersistingAccountData where
   put PersistingAccountData{..} = put _accountAddress <>
                                   put _accountEncryptionKey <>
-                                  -- put _accountVerificationKeys <>
-                                  put _accountCredentials <> -- The order is significant for hash computation
-                                  put (Set.toAscList _accountInstances)
+                                  put _accountVerificationKeys <>
+                                  put _accountCredentials -- The order is significant for hash computation
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
@@ -106,7 +104,6 @@ instance Serialize PersistingAccountData where
     _accountCredentials <- get
     when (null _accountCredentials) $ fail "Account has no credentials"
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
-    _accountInstances <- Set.fromList <$> get
     return PersistingAccountData{..}
 
 
