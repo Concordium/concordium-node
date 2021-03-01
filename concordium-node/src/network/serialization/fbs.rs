@@ -4,7 +4,7 @@ use failure::{Error, Fallible};
 use flatbuffers::FlatBufferBuilder;
 use semver::Version;
 
-use crate::flatbuffers_shim::network;
+use crate::{consensus_ffi::blockchain_types::BlockHash, flatbuffers_shim::network};
 
 use crate::{
     common::{
@@ -23,6 +23,12 @@ use std::{
     net::{IpAddr, SocketAddr},
     panic,
 };
+
+/// The HANDSHAKE message version. In order to make the handshake robust, we
+/// need to version the message itself. Higher versions are assumed to append
+/// new fields at the end of the message so it should be still deserializable
+/// even if the new fields are not understood, but a warning will be emitted.
+pub const HANDSHAKE_MESSAGE_VERSION: u8 = 0;
 
 impl NetworkMessage {
     // FIXME: remove the unwind once the verifier is available
@@ -105,19 +111,18 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
         bail!("missing network message payload (expected a packet)")
     };
 
-    let destination = match packet.destination().map(|x| x.variant()) {
-        Some(network::Direction::Direct) => {
-            if let Some(direct) = packet.destination().and_then(|x| x.payload()) {
-                PacketDestination::Direct(P2PNodeId(direct.target_id()))
-            } else {
-                bail!("missing target_id in direct message")
+    let destination = if let Some(destination) = packet.destination() {
+        match destination.variant() {
+            network::Direction::Direct => {
+                PacketDestination::Direct(P2PNodeId(destination.target()))
             }
+            network::Direction::Broadcast => PacketDestination::Broadcast(Vec::new()),
         }
-        Some(network::Direction::Broadcast) => PacketDestination::Broadcast(Vec::new()),
-        _ => bail!("missing direction on network packet"),
+    } else {
+        bail!("missing direction on network packet");
     };
 
-    let network_id = NetworkId::from(packet.networkId());
+    let network_id = NetworkId::from(packet.network_id());
 
     let payload = if let Some(payload) = packet.payload() {
         payload.to_vec()
@@ -156,25 +161,55 @@ fn deserialize_request(root: &network::NetworkMessage) -> Fallible<NetworkPayloa
         }
         network::RequestVariant::Handshake => {
             if let Some(handshake) = request.payload().map(network::Handshake::init_from_table) {
-                let remote_id = P2PNodeId(handshake.nodeId());
+                if handshake.version() != HANDSHAKE_MESSAGE_VERSION {
+                    warn!(
+                        "Received handshake version ({}) is higher than our version ({}). \
+                         Attempting to parse.",
+                        handshake.version(),
+                        HANDSHAKE_MESSAGE_VERSION
+                    );
+                }
+                let remote_id = P2PNodeId(handshake.node_id());
                 let remote_port = handshake.port();
-                let networks = if let Some(networks) = handshake.networkIds() {
+                let networks = if let Some(networks) = handshake.network_ids() {
                     networks.safe_slice().iter().copied().map(NetworkId::from).collect()
                 } else {
                     bail!("missing network ids in a Handshake")
                 };
 
-                let version = if let Some(version) = handshake.version() {
-                    Version::parse(std::str::from_utf8(version)?)?
+                let node_version = if let Some(node_version) =
+                    handshake.node_version().and_then(|x| x.version())
+                {
+                    Version::parse(std::str::from_utf8(node_version)?)?
                 } else {
-                    bail!("missing network ids in a Handshake")
+                    bail!("missing node version in a Handshake")
+                };
+
+                let wire_versions = if let Some(wire_versions) = handshake.wire_versions() {
+                    wire_versions.to_vec()
+                } else {
+                    bail!("missing wire version in a Handshake")
+                };
+
+                let genesis_blocks = if let Some(genesis_blocks) = handshake.genesis_blocks() {
+                    genesis_blocks
+                        .iter()
+                        .map(|wv| {
+                            wv.genesis_block()
+                                .map_or_else(|| bail!("Missing block hash"), |w| BlockHash::new(w))
+                        })
+                        .collect::<Result<Vec<BlockHash>, failure::Error>>()?
+                } else {
+                    bail!("missing genesis blocks in a Handshake")
                 };
 
                 Ok(NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
                     remote_id,
                     remote_port,
                     networks,
-                    version,
+                    node_version,
+                    wire_versions,
+                    genesis_blocks,
                     proof: Vec::new(),
                 })))
             } else {
@@ -267,20 +302,15 @@ fn serialize_packet(
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
     let destination_offset = match packet.destination {
         PacketDestination::Direct(target_id) => {
-            let payload_offset =
-                network::DirectPayload::create(builder, &network::DirectPayloadArgs {
-                    target_id: target_id.as_raw(),
-                });
-
             network::Destination::create(builder, &network::DestinationArgs {
                 variant: network::Direction::Direct,
-                payload: Some(payload_offset),
+                target:  target_id.as_raw(),
             })
         }
         PacketDestination::Broadcast(..) => {
             network::Destination::create(builder, &network::DestinationArgs {
                 variant: network::Direction::Broadcast,
-                payload: None,
+                target:  Default::default(),
             })
         }
     };
@@ -289,7 +319,7 @@ fn serialize_packet(
 
     let packet_offset = network::NetworkPacket::create(builder, &network::NetworkPacketArgs {
         destination: Some(destination_offset),
-        networkId:   packet.network_id.id,
+        network_id:  packet.network_id.id,
         payload:     Some(payload_offset),
     })
     .as_union_value();
@@ -327,19 +357,52 @@ fn serialize_request(
             }
             let nets_offset = Some(builder.end_vector(handshake.networks.len()));
 
-            let version = handshake.version.to_string().into_bytes();
-            builder.start_vector::<u8>(version.len());
-            for byte in version.iter().rev() {
+            let node_version = handshake.node_version.to_string().into_bytes();
+            builder.start_vector::<u8>(node_version.len());
+            for byte in node_version.iter().rev() {
                 builder.push(*byte);
             }
-            let version_offset = Some(builder.end_vector(version.len()));
+            let node_version = Some(builder.end_vector(node_version.len()));
+            let node_version_offset = network::Version::create(builder, &network::VersionArgs {
+                version: node_version,
+            });
+
+            builder.start_vector::<u8>(handshake.wire_versions.len());
+            for byte in handshake.wire_versions.iter().rev() {
+                builder.push(*byte);
+            }
+            let wire_version_offset = Some(builder.end_vector(handshake.wire_versions.len()));
+
+            let genesis_blocks = handshake
+                .genesis_blocks
+                .iter()
+                .map(|x| {
+                    builder.start_vector::<u8>(32);
+                    for byte in x.iter().rev() {
+                        builder.push(*byte);
+                    }
+                    let block_offset = Some(builder.end_vector(32));
+                    network::BlockHash::create(builder, &network::BlockHashArgs {
+                        genesis_block: block_offset,
+                    })
+                })
+                .collect::<Vec<flatbuffers::WIPOffset<network::BlockHash>>>();
+            builder
+                .start_vector::<flatbuffers::WIPOffset<network::BlockHash>>(genesis_blocks.len());
+            for offset in genesis_blocks.iter() {
+                builder.push(*offset);
+            }
+            let genesis_blocks_offset = Some(builder.end_vector(genesis_blocks.len()));
 
             let offset = network::Handshake::create(builder, &network::HandshakeArgs {
-                nodeId:     handshake.remote_id.as_raw(),
-                port:       handshake.remote_port,
-                networkIds: nets_offset,
-                version:    version_offset,
-                zk:         None,
+                version:        0,
+                node_id:        handshake.remote_id.as_raw(),
+                port:           handshake.remote_port,
+                network_ids:    nets_offset,
+                node_version:   Some(node_version_offset),
+                wire_versions:  wire_version_offset,
+                genesis_blocks: genesis_blocks_offset,
+                zk:             None,
             });
             (
                 network::RequestVariant::Handshake,
