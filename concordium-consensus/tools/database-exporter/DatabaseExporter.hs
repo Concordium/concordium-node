@@ -44,7 +44,6 @@ import           Concordium.Types
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.ByteString as BS hiding (putStrLn, tail, last, sort)
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
 import           Data.Time.Clock
 import           Lens.Micro.Platform

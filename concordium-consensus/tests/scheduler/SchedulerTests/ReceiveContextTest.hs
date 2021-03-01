@@ -13,23 +13,20 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 
-import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState.Accounts
-import Concordium.Wasm
 import Concordium.ID.Types (AccountAddress(..), accountAddressSize)
 
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.Crypto.DummyData
-import qualified Data.Map.Strict as Map
 
 import SchedulerTests.Helpers
 
+alesAccount, thomasAccount :: AccountAddress
 alesAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 1
 thomasAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 2
 
