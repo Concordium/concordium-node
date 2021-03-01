@@ -9,7 +9,6 @@ module Concordium.Startup {-# WARNING "This module should not be used in product
 import System.Random
 import Lens.Micro.Platform
 import Data.Maybe
-import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -26,7 +25,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Birk.Bake
 import Concordium.Types
 import Concordium.Types.Updates
-import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
+import Concordium.ID.Types(randomAccountAddress)
 import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
