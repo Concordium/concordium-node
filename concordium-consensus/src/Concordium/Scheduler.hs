@@ -46,7 +46,6 @@ import Concordium.Scheduler.Environment
 
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
-import Data.Word
 
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
@@ -1139,7 +1138,6 @@ handleDeployCredential cdi cdiHash = do
                      if AH.verifyInitialAccountCreation ipInfo (S.encode icdi) then do
                        -- Create the account with the credential, but don't yet add it to the state
                        cryptoParams <- getCryptoParams
-                       let initialAccountInfo = ID.icdvAccount (ID.icdiValues icdi)
                        -- Creation is guaranteed to succeed since an account with the address
                        -- does not already exist.
                        _ <- createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi))
@@ -1199,7 +1197,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       existingCredentials <- getAccountCredentials senderAccount
-      let credIndex = fst <$> find (\(ki, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
+      let credIndex = fst <$> find (\(_, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
       case credIndex of 
         Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
         Just index -> do
