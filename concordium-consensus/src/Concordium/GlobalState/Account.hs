@@ -11,13 +11,10 @@ import Data.Foldable
 import Data.Serialize
 import Lens.Micro.Platform
 
-import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
-import Concordium.Types.Transactions
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
@@ -281,8 +278,10 @@ updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPu
 updateCredentialKeys :: (HasPersistingAccountData d) => Maybe CredentialKeysUpdate -> d -> d
 updateCredentialKeys Nothing d = d
 updateCredentialKeys (Just (SetKeys credIndex credKeys)) d =
-  case Map.lookup credIndex (d ^. accountCredentials) of
-    Just oldCred ->
-      let update = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)
-      in d & (accountCredentials %~ update)
-    Nothing -> d -- do nothing. This is safe, but should not happen if the precondition is satisfied.
+  case (Map.lookup credIndex (d ^. accountCredentials), Map.lookup credIndex (aiCredentials (d ^. accountVerificationKeys))) of
+    (Just oldCred, Just _) ->
+      let updateCred = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)
+          updateKeys = Map.insert credIndex credKeys
+          updateAi ai@AccountInformation{..} = ai{aiCredentials = updateKeys aiCredentials}
+      in d & (accountCredentials %~ updateCred) & (accountVerificationKeys %~ updateAi)
+    _ -> d -- do nothing. This is safe, but should not happen if the precondition is satisfied.
