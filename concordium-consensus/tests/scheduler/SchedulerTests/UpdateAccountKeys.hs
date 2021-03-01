@@ -25,12 +25,12 @@ import            SchedulerTests.TestUtils
 
 initialBlockState :: BlockState
 initialBlockState = createBlockState $
-                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] alesAccount 10000000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
 initialBlockState2 :: BlockState
 initialBlockState2 = createBlockState $
-                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] alesAccount 10000000000)
+                    Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
 -- Makes a random ED25519 keypair, using the integer to feed the randomization.
@@ -53,42 +53,33 @@ alesCid = dummyRegId globalContext alesAccount
 testCases :: [TestCase]
 testCases =
   [ TestCase
-    { tcName = "Account key updates"
+    { tcName = "Credential key updates"
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions = [
         -- correctly update a keypair
-        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ Map.fromList [(0, vk kp2)],
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp2, vk kp1] 2,
                           metadata = makeDummyHeader alesAccount 1 10000,
-                          keys = [(0, kp0), (1, kp1)]
+                          keys = [(0, [(0, kp0), (1, kp1)])]
                         }
         , ( SuccessE [CredentialKeysUpdated alesCid]
           , checkKeys [(0, vk kp2), (1, vk kp1)] 2
           )
         )
       , -- Now, using the old keys should fail, since they were updated
-        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ Map.fromList [(0, vk kp0), (1, vk kp1)],
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1] 2,
                           metadata = makeDummyHeader alesAccount 2 10000,
-                          keys = [(0, kp0), (1, kp1)] -- wrong signing keys
+                          keys = [(0, [(0, kp0), (1, kp1)])] -- wrong signing keys
                         }
         , ( Fail IncorrectSignature
           , checkKeys [(0, vk kp2), (1, vk kp1)] 2
           )
         )
       , -- Using the new keys should work
-        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ Map.fromList [(0, vk kp3), (1, vk kp4)],
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp3, vk kp4] 2,
                           metadata = makeDummyHeader alesAccount 2 10000,
-                          keys = [(0, kp2), (1, kp1)]
+                          keys = [(0, [(0, kp2), (1, kp1)])]
                         }
         , ( SuccessE [CredentialKeysUpdated alesCid]
-          , checkKeys [(0, vk kp3), (1, vk kp4)] 2
-          )
-        )
-      , -- Updating a key index that is not in use should fail
-        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ Map.fromList [(2, vk kp0)], -- keyindex not in use
-                          metadata = makeDummyHeader alesAccount 3 10000,
-                          keys = [(0, kp3), (1, kp4)]
-                        }
-        , ( Reject $ NonExistentCredentialID
           , checkKeys [(0, vk kp3), (1, vk kp4)] 2
           )
         )
@@ -213,11 +204,11 @@ checkAccountKeys :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThres
 checkAccountKeys keys threshold actualKeys@ID.CredentialPublicKeys{..} = do
   HUnit.assertEqual "Signature Threshold Matches" threshold credThreshold
   HUnit.assertEqual "Account keys should have same number of keys" (length keys) (length credKeys)
-  forM_ keys (\(idx, key) -> case Map.lookup idx (credKeys actualKeys) of
+  forM_ keys (\(idx, key) -> case Map.lookup idx (credKeys) of
     Nothing -> HUnit.assertFailure $ "Found no key at index " ++ show idx
     Just actualKey -> HUnit.assertEqual ("Key at index " ++ (show idx) ++ " should be equal") key actualKey)
 
 
 tests :: Spec
-tests = describe "UpdateElectionDifficulty" $
+tests = describe "UpdateCredentialKeys" $
   mkSpecs testCases
