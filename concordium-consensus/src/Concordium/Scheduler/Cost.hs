@@ -175,7 +175,7 @@ updateBakerRestakeEarnings = 0
 updateBakerKeys :: Energy
 updateBakerKeys = 2980
 
--- |Cost to update existing credential keys. Parametrised by amount of keys to update
+-- |Cost to update existing credential keys. Parametrised by amount of new keys.
 -- The cost of this transaction is the cost of deserializing Ed25519 verification keys
 -- which means checking that it decodes to a point on the curve.
 updateCredentialKeys :: Int -> Energy
