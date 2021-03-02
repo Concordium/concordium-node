@@ -12,6 +12,7 @@ import Concordium.Logger
 import Concordium.Skov.MonadImplementations
 import Concordium.Startup
 import Concordium.Types.ProtocolVersion
+import Concordium.Genesis.Data.P0
 
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -58,7 +59,7 @@ makeFinalizationInstance bid = FinalizationInstance (bakerSignKey bid) (bakerEle
 
 setup :: Word -> IO [(FinalizationState (), FinalizationState ())]
 setup nBakers = do
-  let (genData@(GDP0 gd@GenesisDataV2{..}), bakers) = genesis nBakers
+  let (genData@(GDP0 gd@GenesisDataP0{..}), bakers) = genesis nBakers
   let fbi = Vec.fromList (snd <$> bakers)
   let fullBakers = FullBakers {
           fullBakerInfos = fbi,

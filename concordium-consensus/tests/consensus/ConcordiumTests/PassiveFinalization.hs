@@ -31,6 +31,7 @@ import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
+import Concordium.Genesis.Data.P0
 
 import Concordium.Logger
 
@@ -93,7 +94,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account PV)
 
 -- This test has the following set up:
 -- There are two bakers, baker1 and baker2, and a finalization-committee member, finMember.
@@ -194,7 +195,14 @@ runTest firstBlocks
                         successfulFins = length $ filter (\(_, r) -> r `elem` [ResultSuccess, ResultPendingFinalization]) receivedIndicesAndExpectedResults
                     mapM (\(i, b) -> bakeVerify (fromIntegral firstBlocks + i) b $ fromIntegral i) $ zip [1..] $ take (fromIntegral successfulFins) blocks
                 ) dummyHandlers fi2 fs2
-        where receiveFM block ind res (fmId, _, SkovState TS.SkovData{..} FinalizationState{..} _ _) =
+        where
+            receiveFM :: (FinalizationMonad m, MonadIO m, MonadFail m)
+                => BakedBlock
+                -> FinalizationIndex
+                -> UpdateResult
+                -> (BakerIdentity, b, SkovState (Config DummyTimer))
+                -> m ()
+            receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _ _) =
                 case _finsCurrentRound of
                     ActiveCurrentRound FinalizationRound{..} ->
                         receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res
@@ -276,7 +284,7 @@ createInitStates additionalFinMembers = do
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GDP0 GenesisDataV2 {
+        gen = GDP0 GenesisDataP0 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
                 genesisSeedState = seedState,

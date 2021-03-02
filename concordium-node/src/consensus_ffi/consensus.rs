@@ -1,4 +1,5 @@
 use crate::consensus_ffi::{
+    blockchain_types::BlockHash,
     ffi::{consensus_runner, get_consensus_ptr, startBaker, stopBaker, stopConsensus},
     helpers::{QueueReceiver, QueueSyncSender, RelayOrStopSenderHelper},
     messaging::ConsensusMessage,
@@ -11,7 +12,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, AtomicPtr, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
 };
 
@@ -234,6 +235,7 @@ impl ConsensusContainer {
         max_log_level: ConsensusLogLevel,
         appdata_dir: &PathBuf,
         database_connection_url: &str,
+        regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
     ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
 
@@ -253,6 +255,7 @@ impl ConsensusContainer {
             max_log_level,
             appdata_dir,
             database_connection_url,
+            regenesis_arc,
         ) {
             Ok(consensus_ptr) => Ok(Self {
                 max_block_size,

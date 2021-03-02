@@ -9,7 +9,7 @@ import Lens.Micro.Platform
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
-import Data.List
+import Data.List (stripPrefix)
 
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS

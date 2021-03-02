@@ -5,7 +5,9 @@ use crate::{
     consensus_ffi::helpers::PacketType,
     network::NetworkId,
     p2p::connectivity::send_broadcast_message,
-    test_utils::{await_handshakes, connect, make_node_and_sync, next_available_port},
+    test_utils::{
+        await_handshakes, connect, dummy_regenesis_blocks, make_node_and_sync, next_available_port,
+    },
 };
 
 use std::sync::Arc;
@@ -18,7 +20,15 @@ fn basic_connectivity() {
     // start up test nodes
     let mut nodes = Vec::with_capacity(NODE_COUNT);
     for _ in 0..NODE_COUNT {
-        nodes.push(make_node_and_sync(next_available_port(), vec![NID], PeerType::Node).unwrap());
+        nodes.push(
+            make_node_and_sync(
+                next_available_port(),
+                vec![NID],
+                PeerType::Node,
+                dummy_regenesis_blocks(),
+            )
+            .unwrap(),
+        );
     }
 
     // obtain a list of possible connections

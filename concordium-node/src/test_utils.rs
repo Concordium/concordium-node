@@ -9,7 +9,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     connection::ConnChange,
-    consensus_ffi::helpers::PacketType,
+    consensus_ffi::{blockchain_types::BlockHash, helpers::PacketType},
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkPacket, PacketDestination},
     p2p::{maintenance::spawn, P2PNode},
@@ -21,9 +21,10 @@ use crypto_common::Serial;
 use std::{
     io::Write,
     net::TcpListener,
+    str::FromStr,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Once,
+        Arc, Once, RwLock,
     },
     thread,
     time::Duration,
@@ -85,20 +86,27 @@ pub fn setup_logger() {
     });
 }
 
+pub fn dummy_regenesis_blocks() -> Vec<BlockHash> {
+    vec![FromStr::from_str("0e8a30009f9cf7c7ab76929cf6bad057a20b7002fee6fe0be48682d32b331b91")
+        .unwrap()]
+}
+
 /// Creates a `P2PNode` for test purposes
 pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
+    regenesis_blocks: Vec<BlockHash>,
 ) -> Fallible<Arc<P2PNode>> {
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
     config.cli.no_network = true;
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
+    let regenesis_arc = Arc::new(RwLock::new(regenesis_blocks));
 
     let stats = Arc::new(StatsExportService::new().unwrap());
-    let (node, poll) = P2PNode::new(None, &config, node_type, stats, None);
+    let (node, poll) = P2PNode::new(None, &config, node_type, stats, None, regenesis_arc);
 
     spawn(&node, poll, None);
     Ok(node)

@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use std::alloc::System;
+use std::{alloc::System, sync::RwLock};
 #[global_allocator]
 static A: System = System;
 
@@ -19,6 +19,7 @@ use concordium_node::{
     common::{P2PNodeId, PeerType},
     configuration as config,
     consensus_ffi::{
+        blockchain_types::BlockHash,
         consensus::{
             ConsensusContainer, ConsensusLogLevel, CALLBACK_QUEUE, CONSENSUS_QUEUE_DEPTH_IN_HI,
             CONSENSUS_QUEUE_DEPTH_OUT_HI,
@@ -64,9 +65,11 @@ async fn main() -> Fallible<()> {
     }
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let regenesis_arc = Arc::new(RwLock::new(vec![]));
 
     // The P2PNode thread
-    let (node, poll) = instantiate_node(&conf, &mut app_prefs, stats_export_service);
+    let (node, poll) =
+        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone());
 
     // Signal handling closure. so we shut down cleanly
     let signal_closure = |signal_handler_node: &Arc<P2PNode>,
@@ -168,6 +171,7 @@ async fn main() -> Fallible<()> {
         },
         &database_directory,
         &consensus_database_url,
+        regenesis_arc,
     )?;
     info!("Consensus layer started");
 
@@ -204,14 +208,21 @@ async fn main() -> Fallible<()> {
     // Wait for the P2PNode to close
     node.join().expect("The node thread panicked!");
 
-    // Shut down the consensus layer
-    consensus.stop();
-    ffi::stop_haskell();
-
     // Wait for the consensus queue threads to stop
     for consensus_queue_thread in consensus_queue_threads {
         consensus_queue_thread.join().expect("A consensus queue thread panicked");
     }
+
+    // Shut down the consensus layer
+    consensus.stop();
+    // And finally stop the haskell runtime. It is important that this is the last
+    // action after the consensus queues have been stopped and __no__ calls will
+    // be made to any Haskell functions. Otherwise this will likely lead to
+    // undefined behaviour and/or panics.
+    // This will stop any outstanding Haskell threads.
+    // It will wait for all blocking FFI calls to terminate, but any interruptible
+    // Haskell code, including interruptible FFI calls, will be forcibly stopped.
+    ffi::stop_haskell();
 
     info!("P2PNode gracefully closed.");
 
@@ -222,6 +233,7 @@ fn instantiate_node(
     conf: &config::Config,
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
+    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 ) -> (Arc<P2PNode>, Poll) {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
@@ -261,7 +273,14 @@ fn instantiate_node(
 
     let data_dir_path = app_prefs.get_user_app_dir();
 
-    P2PNode::new(node_id, &conf, PeerType::Node, stats_export_service, Some(data_dir_path))
+    P2PNode::new(
+        node_id,
+        &conf,
+        PeerType::Node,
+        stats_export_service,
+        Some(data_dir_path),
+        regenesis_arc,
+    )
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {

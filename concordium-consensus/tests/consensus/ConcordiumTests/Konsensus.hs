@@ -45,6 +45,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
+import Concordium.Genesis.Data.P0
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -531,7 +532,7 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
     where
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
-        gen = GDP0 GenesisDataV2 {
+        gen = GDP0 GenesisDataP0 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
                 genesisSeedState = seedState,
