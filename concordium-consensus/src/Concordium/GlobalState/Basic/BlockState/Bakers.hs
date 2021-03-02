@@ -57,16 +57,16 @@ instance HashableTo H.Hash EpochBakers where
         hashVec v = H.hash $ runPut $ mapM_ put v
 
 -- |Serialize 'EpochBakers' in V0 format.
-putEpochBakersV0 :: Putter EpochBakers
-putEpochBakersV0 EpochBakers{..} = do
+putEpochBakers :: Putter EpochBakers
+putEpochBakers EpochBakers{..} = do
     assert (Vec.length _bakerInfos == Vec.length _bakerStakes) $
         putLength (Vec.length _bakerInfos)
     mapM_ put _bakerInfos
     mapM_ put _bakerStakes
 
 -- |Deserialize 'EpochBakers' in V0 format.
-getEpochBakersV0 :: Get EpochBakers
-getEpochBakersV0 = do
+getEpochBakers :: Get EpochBakers
+getEpochBakers = do
     bakers <- getLength
     _bakerInfos <- Vec.replicateM bakers get
     _bakerStakes <- Vec.replicateM bakers get

@@ -299,7 +299,7 @@ instance GlobalStateQuery pv gsconf => FinalizationConfig gsconf (SkovConfig pv 
     type FCContext (SkovConfig pv gsconf (NoFinalization t) hconf) = ()
     type FCState (SkovConfig pv gsconf (NoFinalization t) hconf) = FinalizationState t
     initialiseFinalization (SkovConfig _ NoFinalization _) gs = do
-      ((),) <$> getFinalizationState (Proxy @ pv) (Proxy @ gsconf) gs Nothing
+      ((),) <$> getFinalizationState (Proxy @pv) (Proxy @ gsconf) gs Nothing
     {- - INLINE initialiseFinalization - -}
 
 -- This provides an implementation of FinalizationOutputMonad that does nothing.
@@ -316,7 +316,7 @@ instance GlobalStateQuery pv gsconf => FinalizationConfig gsconf (SkovConfig pv 
     type FCContext (SkovConfig pv gsconf (ActiveFinalization t) hc) = FinalizationInstance
     type FCState (SkovConfig pv gsconf (ActiveFinalization t) hc) = FinalizationState t
     initialiseFinalization (SkovConfig _ (ActiveFinalization finInst) _) gs = do
-      (finInst,) <$> getFinalizationState (Proxy @ pv) (Proxy @ gsconf) gs (Just finInst)
+      (finInst,) <$> getFinalizationState (Proxy @pv) (Proxy @ gsconf) gs (Just finInst)
     {- - INLINE initialiseFinalization - -}
 
 instance (SkovFinalizationHandlers h m, Monad m)
@@ -343,7 +343,7 @@ instance GlobalStateQuery pv gsconf => FinalizationConfig gsconf (SkovConfig pv 
     type FCContext (SkovConfig pv gsconf (BufferedFinalization t) hc) = FinalizationInstance
     type FCState (SkovConfig pv gsconf (BufferedFinalization t) hc) = BufferedFinalizationState t
     initialiseFinalization (SkovConfig _ (BufferedFinalization finInst) _) gs = do
-      finalizationState <- getFinalizationState (Proxy @ pv) (Proxy @ gsconf) gs (Just finInst)
+      finalizationState <- getFinalizationState (Proxy @pv) (Proxy @ gsconf) gs (Just finInst)
       return (finInst, BufferedFinalizationState finalizationState emptyFinalizationBuffer)
     {- - INLINE initialiseFinalization - -}
 

@@ -1,5 +1,6 @@
 module Concordium.GlobalState.Persistent.MonadicRecursive where
 
+import Data.Fix
 import Data.Functor.Foldable
 
 class Monad m => MRecursive m t where

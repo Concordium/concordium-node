@@ -225,7 +225,6 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               amount <- BS.getAccountAmount acc
               creds <- BS.getAccountCredentials acc
               baker <- BS.getAccountBaker acc
-              instances <- BS.getAccountInstances acc
               encrypted <- BS.getAccountEncryptedAmount acc
               encryptionKey <- BS.getAccountEncryptionKey acc
               releaseSchedule <- BS.getAccountReleaseSchedule acc
@@ -234,7 +233,6 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
                               , "accountReleaseSchedule" .= releaseSchedule
                                 -- credentials, most recent first
                               ,"accountCredentials" .= map (Versioned 0) creds
-                              ,"accountInstances" .= S.toList instances
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
                               ] <> renderBaker baker

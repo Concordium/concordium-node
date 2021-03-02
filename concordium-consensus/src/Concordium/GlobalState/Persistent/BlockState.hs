@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Persistent.BlockState (
     PersistentBlockState,
@@ -258,7 +259,7 @@ type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockSta
 -- those components themselves should be parametrised by the protocol
 -- version.
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
-    bspAccounts :: !Accounts.Accounts,
+    bspAccounts :: !(Accounts.Accounts pv),
     bspInstances :: !Instances.Instances,
     bspModules :: !(HashedBufferedRef Modules.Modules),
     bspBank :: !(Hashed Rewards.BankStatus),
@@ -285,8 +286,8 @@ hashBlockState hpbsPointers = do
         hpbsHash <- getHashM bsp
         return HashedPersistentBlockState{..}
 
-hashBlockStatePointersP0 :: (MonadBlobStore m) => BlockStatePointers 'P0 -> m StateHash
-hashBlockStatePointersP0 BlockStatePointers{..} = do
+instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m StateHash (BlockStatePointers pv) where
+    getHashM BlockStatePointers{..} = do
         bshBirkParameters <- getHashM bspBirkParameters
         bshCryptographicParameters <- getHashM bspCryptographicParameters
         bshIdentityProviders <- getHashM bspIdentityProviders
@@ -298,10 +299,6 @@ hashBlockStatePointersP0 BlockStatePointers{..} = do
         bshUpdates <- getHashM bspUpdates
         let bshEpochBlocks = getHash bspEpochBlocks
         return $ makeBlockStateHash BlockStateHashInputs{..}
-
-instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m StateHash (BlockStatePointers pv) where
-    getHashM = case protocolVersion :: SProtocolVersion pv of
-        SP0 -> hashBlockStatePointersP0
 
 instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStatePointers pv) where
     storeUpdate bsp0@BlockStatePointers{..} = do
@@ -367,7 +364,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BlockStateP
             bspEpochBlocks <- mEpochBlocks
             return $! BlockStatePointers{..}
 
-instance (MonadBlobStore m) => Cacheable m (BlockStatePointers pv) where
+instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (BlockStatePointers pv) where
     cache BlockStatePointers{..} = do
         accts <- cache bspAccounts
         insts <- cache bspInstances
@@ -429,7 +426,7 @@ makePersistent Basic.BlockState{..} = do
 initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              => SeedState
              -> CryptographicParameters
-             -> [TransientAccount.Account]
+             -> [TransientAccount.Account pv]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> Authorizations
@@ -571,7 +568,7 @@ doGetSlotBakers pbs slot = do
                     bakerTotalStake = sum (_bakerStake <$> futureBakers)
                 }
 
-doGetBakerAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (Maybe PersistentAccount)
+doGetBakerAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> BakerId -> m (Maybe (PersistentAccount pv))
 doGetBakerAccount pbs (BakerId ai) = do
         bsp <- loadPBS pbs
         Accounts.indexedAccount ai (bspAccounts bsp)
@@ -655,7 +652,7 @@ doAddBaker pbs aaddr BakerAdd{..} = do
             Nothing -> return (BAInvalidAccount, pbs)
             -- Account is already a baker
             Just (ai, PersistentAccount{_accountBaker = Some _}) -> return (BAAlreadyBaker (BakerId ai), pbs)
-            Just (ai, PersistentAccount{..}) -> do
+            Just (ai, PersistentAccount{}) -> do
                     let bid = BakerId ai
                     pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
                     let updAgg Nothing = return (True, Trie.Insert ())
@@ -822,7 +819,7 @@ doRewardFoundationAccount pbs reward = do
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = newAccounts})
 
-doGetFoundationAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m PersistentAccount
+doGetFoundationAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentAccount pv)
 doGetFoundationAccount pbs = do
         bsp <- loadPBS pbs
         foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
@@ -844,7 +841,7 @@ doMint pbs mint = do
         (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc foundationAccount (bspAccounts bsp)
         storePBS pbs (bsp {bspBank = newBank, bspAccounts = newAccounts})
 
-doGetAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe PersistentAccount)
+doGetAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (PersistentAccount pv))
 doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccount addr (bspAccounts bsp)
@@ -864,7 +861,7 @@ doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> ID.AccountKeys -> AccountAddress -> ID.AccountCredential ->  m (Maybe PersistentAccount, PersistentBlockState pv)
+doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> ID.AccountKeys -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
 doCreateAccount pbs cryptoParams verifKeys acctAddr credential = do
         acct <- newAccount cryptoParams verifKeys acctAddr credential
         bsp <- loadPBS pbs
@@ -902,20 +899,24 @@ doContractInstanceList pbs = do
         insts <- Instances.allInstances (bspInstances bsp)
         mapM Instances.fromPersistentInstance insts
 
-doPutNewInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> (ContractAddress -> Instance) -> m (ContractAddress, PersistentBlockState pv)
+doPutNewInstance :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> (ContractAddress -> Instance) -> m (ContractAddress, PersistentBlockState pv)
 doPutNewInstance pbs fnew = do
         bsp <- loadPBS pbs
         mods <- refLoad (bspModules bsp)
         -- Create the instance
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
         let ca = instanceAddress (instanceParameters inst)
-        -- Update the owner account's set of instances
-        let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
-        (_, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
-        (ca,) <$> storePBS pbs bsp{
+        case protocolVersion @pv of
+            SP0 -> do
+                -- Update the owner account's set of instances
+                let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
+                (_, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
+                (ca,) <$> storePBS pbs bsp{
                             bspInstances = insts,
                             bspAccounts = accts
                         }
+            _ -> (ca,) <$> storePBS pbs bsp{bspInstances = insts}
+        
     where
         fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do
             params <- makeBufferedRef $ PersistentInstanceParameters {
@@ -1153,7 +1154,7 @@ type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (Block
 instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BlockState (PersistentBlockStateMonad pv r m) = HashedPersistentBlockState pv
     type UpdatableBlockState (PersistentBlockStateMonad pv r m) = PersistentBlockState pv
-    type Account (PersistentBlockStateMonad pv r m) = PersistentAccount
+    type Account (PersistentBlockStateMonad pv r m) = PersistentAccount pv
 
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -1181,7 +1182,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (Persist
     getProtocolUpdateStatus = doGetProtocolUpdateStatus . hpbsPointers
     getCryptographicParameters = doGetCryptoParams . hpbsPointers
 
-instance PersistentState r m => AccountOperations (PersistentBlockStateMonad pv r m) where
+instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (PersistentBlockStateMonad pv r m) where
 
   getAccountAddress acc = acc ^^. accountAddress
 
@@ -1200,8 +1201,6 @@ instance PersistentState r m => AccountOperations (PersistentBlockStateMonad pv 
   getAccountEncryptionKey acc = acc ^^. accountEncryptionKey
 
   getAccountReleaseSchedule acc = loadPersistentAccountReleaseSchedule =<< loadBufferedRef (acc ^. accountReleaseSchedule)
-
-  getAccountInstances acc = acc ^^. accountInstances
 
   getAccountBaker acc = case acc ^. accountBaker of
         Null -> return Nothing

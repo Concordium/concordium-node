@@ -122,7 +122,7 @@ deriving via PureBlockStateMonad pv m
              => BlockStateQuery (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
-    instance Monad m
+    instance (Monad m, IsProtocolVersion pv)
              => AccountOperations (MemoryBlockStateM pv r g s m)
 
 deriving via PureBlockStateMonad pv m
@@ -204,11 +204,10 @@ deriving via PureTreeStateMonad pv bs m
     instance Monad m => PerAccountDBOperations (MemoryTreeStateM pv bs m)
 
 deriving via PureTreeStateMonad pv bs m
-    instance (IsProtocolVersion pv) => GlobalStateTypes (MemoryTreeStateM pv bs m)
+    instance GlobalStateTypes (MemoryTreeStateM pv bs m)
 
 deriving via PureTreeStateMonad pv bs m
     instance (Monad m,
-              IsProtocolVersion pv,
               BlockPointerMonad (PureTreeStateMonad pv bs m))
              => BlockPointerMonad (MemoryTreeStateM pv bs m)
 
@@ -229,12 +228,10 @@ deriving via PersistentTreeStateMonad pv ati bs m
            => PerAccountDBOperations (PersistentTreeStateM pv ati bs m)
 
 deriving via PersistentTreeStateMonad pv ati bs m
-    instance (IsProtocolVersion pv)
-        => GlobalStateTypes (PersistentTreeStateM pv ati bs m)
+    instance GlobalStateTypes (PersistentTreeStateM pv ati bs m)
 
 deriving via PersistentTreeStateMonad pv ati bs m
     instance (Monad m,
-              IsProtocolVersion pv,
               BlockPointerMonad (PersistentTreeStateMonad pv ati bs m))
              => BlockPointerMonad (PersistentTreeStateM pv ati bs m)
 

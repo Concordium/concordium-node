@@ -111,8 +111,8 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
             now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getExactVersionedBlock @ PV now) blockBS of
-                        Right (NormalBlock !block) -> do
+                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
+                        Right !(block :: BakedBlock) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))

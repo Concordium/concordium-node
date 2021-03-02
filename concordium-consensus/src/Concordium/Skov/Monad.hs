@@ -73,7 +73,8 @@ data UpdateResult
     -- ^The message was not processed because consensus has been shut down
     deriving (Eq, Show)
 
-class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv) => SkovQueryMonad pv m | m -> pv where
+class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)
+        => SkovQueryMonad pv m | m -> pv where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointerType m))
     -- |Determine if a block has been finalized.

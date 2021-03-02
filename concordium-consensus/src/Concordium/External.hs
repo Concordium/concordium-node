@@ -3,7 +3,8 @@
     ScopedTypeVariables,
     OverloadedStrings,
     RankNTypes,
-    GADTs
+    GADTs,
+    TypeApplications
     #-}
 module Concordium.External where
 
@@ -187,15 +188,16 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
 
 -- |Broadcast a consensus message. This can be either a block,, finalization record, or finalization (pseudo) message.
 -- All messages are serialized with a version.
-broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig pv gs finconf hconf) LogIO)
-                                                        (SkovConfig pv gs finconf hconf)
-                                                        (LoggerT IO))))
+broadcastCallback :: forall pv gs finconf hconf.
+    (EncodeBlock pv (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig pv gs finconf hconf) LogIO)
+                                          (SkovConfig pv gs finconf hconf)
+                                          (LoggerT IO))))
                      => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig pv gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putVersionedBlockV1 block
+            let blockbs = runPut $ putVersionedBlock (protocolVersion @pv) block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -320,7 +322,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
             }
-        case (runGet getExactVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
+        case (runGet getVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
               let
                   finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
@@ -389,7 +391,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
             }
-        case runGet getExactVersionedGenesisData gdata of
+        case runGet getVersionedGenesisData gdata of
             Right genData -> do
               let finconfig = NoFinalization
                   hconfig = LogUpdateHandler
@@ -514,7 +516,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case (deserializeExactVersionedPendingBlock blockBS now) of
+        case deserializeExactVersionedPendingBlock SP0 blockBS now of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail

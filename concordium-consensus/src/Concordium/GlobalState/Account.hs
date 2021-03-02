@@ -1,5 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Account where
 
 import Control.Monad
@@ -29,18 +32,60 @@ import Concordium.GlobalState.BakerInfo
 maxNumIncoming :: Int
 maxNumIncoming = 32
 
+-- |Type family for the instances stored as part of an account's
+-- persisting data. As of 'P1', this is no longer stored and is
+-- the '()'.
+type family AccountInstances (pv :: ProtocolVersion) where
+  AccountInstances 'P0 = Set.Set ContractAddress
+  AccountInstances _ = ()
+
+emptyAccountInstances :: SProtocolVersion pv -> AccountInstances pv
+emptyAccountInstances pv = case pv of
+  SP0 -> Set.empty
+  SP1 -> ()
+
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
-data PersistingAccountData = PersistingAccountData {
+data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   _accountAddress :: !AccountAddress
   ,_accountEncryptionKey :: !AccountEncryptionKey
   ,_accountVerificationKeys :: !AccountKeys
   ,_accountCredentials :: !(NonEmpty AccountCredential)
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
-  ,_accountInstances :: !(Set.Set ContractAddress)
-} deriving (Show, Eq)
+  ,_accountInstances :: !(AccountInstances pv)
+}
 
 makeClassy ''PersistingAccountData
+
+instance (IsProtocolVersion pv) => Eq (PersistingAccountData pv) where
+  pad1 == pad2 =
+    _accountAddress pad1 == _accountAddress pad2
+    && _accountEncryptionKey pad1 == _accountEncryptionKey pad2
+    && _accountVerificationKeys pad1 == _accountVerificationKeys pad2
+    && _accountCredentials pad1 == _accountCredentials pad2
+    && _accountMaxCredentialValidTo pad1 == _accountMaxCredentialValidTo pad2
+    && case protocolVersion :: SProtocolVersion pv of
+        SP0 -> _accountInstances pad1 == _accountInstances pad2
+        _ -> True
+
+instance (IsProtocolVersion pv) => Show (PersistingAccountData pv) where
+  show PersistingAccountData{..} = "PersistingAccountData {" ++
+    "_accountAddress = " ++ show _accountAddress ++ ", " ++
+    "_accountEncryptionKey = " ++ show _accountEncryptionKey ++ ", " ++
+    "_accountVerificationKeys = " ++ show _accountVerificationKeys ++ ", " ++
+    "_accountCredentials = " ++ show _accountCredentials ++ "}"
+
+type PersistingAccountDataHash = Hash.Hash
+
+instance HashableTo PersistingAccountDataHash (PersistingAccountData pv) where
+  getHash PersistingAccountData{..} = Hash.hashLazy $ runPutLazy $ do
+    put _accountAddress
+    put _accountEncryptionKey
+    put _accountVerificationKeys
+    putLength (NE.length _accountCredentials)
+    mapM_ put _accountCredentials
+
+instance Monad m => MHashableTo m PersistingAccountDataHash (PersistingAccountData pv)
 
 -- | Add an encrypted amount to the end of the list.
 -- This is used when an incoming transfer is added to the account. If this would
@@ -98,13 +143,19 @@ replaceUpTo newIndex newAmount AccountEncryptedAmount{..} =
 addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> AccountEncryptedAmount
 addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 
-instance Serialize PersistingAccountData where
-  put PersistingAccountData{..} = put _accountAddress <>
-                                  put _accountEncryptionKey <>
-                                  put _accountVerificationKeys <>
-                                  putLength (length _accountCredentials) <>
-                                  mapM_ put _accountCredentials <> -- The order is significant for hash computation
-                                  put (Set.toAscList _accountInstances)
+-- |Serialization for 'PersistingAccountData'. This is mainly to support
+-- the (derived) 'BlobStorable' instance, but is also used in the 'P0'
+-- account hashing. V0 account serialization does not use this.
+instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
+  put PersistingAccountData{..} = do
+    put _accountAddress
+    put _accountEncryptionKey
+    put _accountVerificationKeys
+    putLength (length _accountCredentials)
+    mapM_ put _accountCredentials
+    case protocolVersion @pv of
+      SP0 -> put (Set.toAscList _accountInstances)
+      _ -> return ()
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
@@ -113,9 +164,10 @@ instance Serialize PersistingAccountData where
     when (numCredentials < 1) $ fail "Account has no credentials"
     _accountCredentials <- (:|) <$> get <*> replicateM (numCredentials - 1) get
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
-    _accountInstances <- Set.fromList <$> get
+    _accountInstances <- case protocolVersion @pv of
+      SP0 -> Set.fromList <$> get
+      SP1 -> return ()
     return PersistingAccountData{..}
-
 
 -- |Pending changes to the baker associated with an account.
 -- Changes are effective on the actual bakers, two epochs after the specified epoch,
@@ -190,23 +242,32 @@ nullAccountBakerHash = Hash.hash ""
 
 -- TODO To avoid recomputing the hash for the persisting account data each time we update an account
 -- we might want to explicitly store its hash, too.
-makeAccountHash :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountData -> AccountBakerHash -> Hash.Hash
-makeAccountHash n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
+makeAccountHashP0 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountData 'P0 -> AccountBakerHash -> Hash.Hash
+makeAccountHashP0 n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
   put n >> put a >> put eas >> put ars >> put pd >> put abh
 
+makeAccountHashP1 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountDataHash -> AccountBakerHash -> Hash.Hash
+makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do
+  put n
+  put a
+  put eas
+  put arsh
+  put padh
+  put abh
+
 {-# INLINE addCredential #-}
-addCredential :: HasPersistingAccountData d => AccountCredential -> d -> d
+addCredential :: HasPersistingAccountData d pv => AccountCredential -> d -> d
 addCredential cdv = (accountCredentials %~ NE.cons cdv)
   . (accountMaxCredentialValidTo %~ max (validTo cdv))
 
 {-# INLINE setKey #-}
 -- |Set a at a given index to a given value. The value of 'Nothing' will remove the key.
-setKey :: HasPersistingAccountData d => KeyIndex -> Maybe VerifyKey -> d -> d
+setKey :: HasPersistingAccountData d pv => KeyIndex -> Maybe VerifyKey -> d -> d
 setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at' idx .~ key })
 
 {-# INLINE setThreshold #-}
 -- |Set the signature threshold.
-setThreshold :: HasPersistingAccountData d => SignatureThreshold -> d -> d
+setThreshold :: HasPersistingAccountData d pv => SignatureThreshold -> d -> d
 setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })
 
 data EncryptedAmountUpdate =
@@ -261,12 +322,12 @@ emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Not
 
 -- |Optionally add a credential to an account.
 {-# INLINE updateCredential #-}
-updateCredential :: (HasPersistingAccountData d) => Maybe AccountCredential -> d -> d
+updateCredential :: (HasPersistingAccountData d pv) => Maybe AccountCredential -> d -> d
 updateCredential = maybe id addCredential
 
 -- |Optionally update the verification keys and signature threshold for an account.
 {-# INLINE updateAccountKeys #-}
-updateAccountKeys :: (HasPersistingAccountData d) => Maybe AccountKeysUpdate -> Maybe SignatureThreshold -> d -> d
+updateAccountKeys :: (HasPersistingAccountData d pv) => Maybe AccountKeysUpdate -> Maybe SignatureThreshold -> d -> d
 updateAccountKeys Nothing Nothing = id
 updateAccountKeys mKeysUpd mNewThreshold = accountVerificationKeys %~ \AccountKeys{..} ->
     AccountKeys {

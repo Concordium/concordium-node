@@ -1,7 +1,10 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Account where
 
@@ -13,7 +16,6 @@ import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
-import qualified Data.Set as Set
 
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
@@ -24,6 +26,7 @@ import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmo
 import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import Concordium.ID.Types
 import Concordium.ID.Parameters
+import Concordium.Types.ProtocolVersion.TH
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
@@ -213,7 +216,40 @@ putAccountBakerV0 PersistentAccountBaker{..} = do
       put abi
       put _bakerPendingChange
 
-data PersistentAccount = PersistentAccount {
+-- |Type family for storing the account persisting data.
+-- From 'P1', this uses a 'HashedBufferedRef' since the
+-- hash is used when hashing the account. Protocol version
+-- 'P0' did not require this hash.
+type family APRef (pv :: ProtocolVersion) where
+  APRef 'P0 = BufferedRef
+  APRef _ = HashedBufferedRef
+
+newtype AccountPersistingRef (pv :: ProtocolVersion) a = APRef {unAPRef :: APRef pv a}
+
+instance (Monad m, BlobStorable m a, MHashableTo m Hash.Hash a, IsProtocolVersion pv) => Reference m (AccountPersistingRef pv) a where
+  refFlush = $(casePV [t|pv|] [|fmap (_1 %~ APRef) . refFlush . unAPRef|])
+  refCache = $(casePV [t|pv|] [|fmap (_2 %~ APRef) . refCache . unAPRef|])
+  refUncache = $(casePV [t|pv|] [|fmap APRef . refUncache . unAPRef|])
+  refLoad = $(casePV [t|pv|] [|refLoad . unAPRef|])
+  refMake = $(casePV [t|pv|] [|fmap APRef . refMake|])
+
+instance (BlobStorable m a, MHashableTo m Hash.Hash a, IsProtocolVersion pv) => BlobStorable m (AccountPersistingRef pv a) where
+  load = $(casePV [t|pv|] [|fmap (fmap APRef) load|])
+  store = $(casePV [t|pv|] [|store . unAPRef|])
+  storeUpdate = $(casePV [t|pv|] [|fmap (_2 %~ APRef) . storeUpdate . unAPRef|])
+
+instance (MHashableTo m Hash.Hash a, BlobStorable m a, Cacheable m a, IsProtocolVersion pv) => Cacheable m (AccountPersistingRef pv a) where
+  cache = $(casePV [t|pv|] [|fmap APRef . cache . unAPRef|])
+
+instance (MHashableTo m Hash.Hash a, BlobStorable m a, IsProtocolVersion pv) => MHashableTo m Hash.Hash (AccountPersistingRef pv a) where
+  getHashM = $(casePV [t|pv|] [|getHashM . unAPRef|])
+
+instance (IsProtocolVersion pv, Show a) => Show (AccountPersistingRef pv a) where
+  show = $(casePV [t|pv|] [|show . unAPRef|])
+
+type AccountPersisting (pv :: ProtocolVersion) = AccountPersistingRef pv (PersistingAccountData pv)
+
+data PersistentAccount (pv :: ProtocolVersion) = PersistentAccount {
   -- |Next available nonce for this account.
   _accountNonce :: !Nonce
   -- |Current public account balance.
@@ -224,19 +260,21 @@ data PersistentAccount = PersistentAccount {
   -- |Schedule of releases on the account.
   ,_accountReleaseSchedule :: !(BufferedRef AccountReleaseSchedule)
   -- |A pointer to account data that changes rarely
-  ,_persistingData :: !(BufferedRef PersistingAccountData)
+  ,_persistingData :: !(AccountPersisting pv)
   -- |The baker info
   ,_accountBaker :: !(Nullable (BufferedRef PersistentAccountBaker))
   -- |A hash of all account data. We store the hash explicitly here because we cannot compute the hash once
   -- the persisting account data is stored behind a pointer
   ,_accountHash :: !Hash.Hash
-  } deriving Show
+  }
 
 makeLenses ''PersistentAccount
 
-instance MonadBlobStore m => BlobStorable m PersistentAccount where
+deriving instance (IsProtocolVersion pv) => Show (PersistentAccount pv)
+
+instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentAccount pv) where
     storeUpdate PersistentAccount{..} = do
-        (pAccData, accData) <- storeUpdate _persistingData
+        (pAccData :: Put, accData) <- $(casePV [t|pv|] [|storeUpdate _persistingData|])
         (pEnc, encData) <- storeUpdate _accountEncryptedAmount
         (pSched, schedData) <- storeUpdate _accountReleaseSchedule
         (pBkr, bkrData) <- storeUpdate _accountBaker
@@ -259,47 +297,56 @@ instance MonadBlobStore m => BlobStorable m PersistentAccount where
     load = do
         _accountNonce <- get
         _accountAmount <- get
-        mAccDataPtr <- load
+        mAccDataPtr :: m (AccountPersisting pv) <- case protocolVersion @pv of
+          SP0 -> load
+          SP1 -> load
         mAccountEncryptedAmountPtr <- load
         mAccountReleaseSchedulePtr <- load
         mAccountBaker <- load
         return $ do
-          _persistingData <- cache =<< mAccDataPtr
+          _persistingData <- $(casePV [t|pv|] [|cache|]) =<< mAccDataPtr
           _accountEncryptedAmount <- cache =<< mAccountEncryptedAmountPtr
           _accountReleaseSchedule <- cache =<< mAccountReleaseSchedulePtr
           _accountBaker <- cache =<< mAccountBaker
-          pData <- loadBufferedRef _persistingData
+          
           eData <- loadBufferedRef _accountEncryptedAmount
           eData' <- loadPersistentAccountEncryptedAmount eData
-          sHash <- getHashM =<< loadBufferedRef _accountReleaseSchedule
+          (sHash :: Transient.AccountReleaseScheduleHash) <- getHashM =<< loadBufferedRef _accountReleaseSchedule
           bakerHash <- hashAccountBaker _accountBaker
-          let _accountHash = makeAccountHash _accountNonce _accountAmount eData' sHash pData bakerHash
+          _accountHash <- case protocolVersion @pv of
+            SP0 -> do
+              pData <- refLoad _persistingData
+              return $ makeAccountHashP0 _accountNonce _accountAmount eData' sHash pData bakerHash
+            SP1 -> do
+              pHash <- getHashM _persistingData
+              return $ makeAccountHashP1 _accountNonce _accountAmount eData' sHash pHash bakerHash
           return PersistentAccount {..}
 
-instance (MonadBlobStore m) => Cacheable m PersistentAccount where
+instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (PersistentAccount pv) where
     cache pa@PersistentAccount{..} = do
         _accountEncryptedAmount' <- cache _accountEncryptedAmount
-        _persistingData' <- cache _persistingData
+        _persistingData' <- $(casePV [t|pv|] [|cache|]) _persistingData
         return pa{
           _accountEncryptedAmount = _accountEncryptedAmount',
           _persistingData = _persistingData'
         }
 
-instance HashableTo Hash.Hash PersistentAccount where
+instance HashableTo Hash.Hash (PersistentAccount pv) where
   getHash = _accountHash
 
-instance Monad m => MHashableTo m Hash.Hash PersistentAccount
+instance Monad m => MHashableTo m Hash.Hash (PersistentAccount pv)
 
 -- |Create an empty account with the given public key, address and credential.
-newAccount :: MonadBlobStore m => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m PersistentAccount
+newAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv)
+    => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (PersistentAccount pv)
 newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   let newPData = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
         _accountCredentials = credential :| [],
         _accountMaxCredentialValidTo = validTo credential,
-        _accountInstances = Set.empty,
+        _accountInstances = emptyAccountInstances (protocolVersion @pv),
         ..
-        }
+        } :: PersistingAccountData pv
   _persistingData <- refMake newPData
   let _accountNonce = minNonce
       _accountAmount = 0
@@ -308,18 +355,22 @@ newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
   _accountEncryptedAmount <- makeBufferedRef accountEncryptedAmountData
   let relSched = emptyAccountReleaseSchedule
   _accountReleaseSchedule <- makeBufferedRef relSched
-  arsHash <- getHashM relSched
+  (arsHash :: Transient.AccountReleaseScheduleHash) <- getHashM relSched
+  _accountHash <- case protocolVersion @pv of
+        SP0 -> return $ makeAccountHashP0 _accountNonce _accountAmount baseEncryptedAmountData arsHash newPData nullAccountBakerHash
+        SP1 -> do
+          pdHash <- getHashM _persistingData
+          return $ makeAccountHashP1 _accountNonce _accountAmount baseEncryptedAmountData arsHash pdHash nullAccountBakerHash
   return PersistentAccount {
         _accountBaker = Null,
-        _accountHash = makeAccountHash _accountNonce _accountAmount baseEncryptedAmountData arsHash newPData nullAccountBakerHash,
         ..
     }
 
 -- |Make a 'PersistentAccount' from an 'Transient.Account'.
-makePersistentAccount :: MonadBlobStore m => Transient.Account -> m PersistentAccount
+makePersistentAccount :: (MonadBlobStore m, IsProtocolVersion pv) => Transient.Account pv -> m (PersistentAccount pv)
 makePersistentAccount tacc@Transient.Account{..} = do
   let _accountHash = getHash tacc
-  _persistingData <- makeBufferedRef _accountPersisting
+  _persistingData <- refMake (tacc ^. persistingAccountData)
   _accountEncryptedAmount' <- makeBufferedRef =<< storePersistentAccountEncryptedAmount _accountEncryptedAmount
   _accountReleaseSchedule' <- makeBufferedRef =<< storePersistentAccountReleaseSchedule _accountReleaseSchedule
   _accountBaker <- case _accountBaker of
@@ -329,33 +380,55 @@ makePersistentAccount tacc@Transient.Account{..} = do
       Some <$> makeBufferedRef PersistentAccountBaker{_accountBakerInfo = abiRef, ..}
   return PersistentAccount {_accountEncryptedAmount = _accountEncryptedAmount', _accountReleaseSchedule = _accountReleaseSchedule', ..}
 
+
+makeAccountHash :: (MonadBlobStore m) => SProtocolVersion pv -> Nonce -> Amount -> AccountEncryptedAmount -> Transient.AccountReleaseScheduleHash -> AccountPersisting pv -> AccountBakerHash -> m Hash.Hash
+makeAccountHash SP0 n a eas ars pd abh = do
+  pdata <- refLoad pd
+  return $ makeAccountHashP0 n a eas ars pdata abh
+makeAccountHash SP1 n a eas ars pd abh = do
+  pdHash <- getHashM pd
+  return $ makeAccountHashP1 n a eas ars pdHash abh
+
+
 -- |Recompute the hash of an account.
-rehashAccount :: MonadBlobStore m => PersistentAccount -> m PersistentAccount
+rehashAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv -> m (PersistentAccount pv)
 rehashAccount pac = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
   sdata <- refLoad (_accountReleaseSchedule pac)
   arsHash <- getHashM sdata
-  pdata <- refLoad (_persistingData pac)
   bkrHash <- hashAccountBaker (_accountBaker pac)
-  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac arsHash pdata bkrHash
+  newHash <- makeAccountHash
+      (protocolVersion @pv)
+      (_accountNonce pac)
+      (_accountAmount pac)
+      eac
+      arsHash
+      (_persistingData pac)
+      bkrHash
   return pac{_accountHash = newHash}
 
 -- |Set the baker of an account.
-setPersistentAccountBaker :: MonadBlobStore m => PersistentAccount -> Nullable PersistentAccountBaker -> m PersistentAccount
+setPersistentAccountBaker :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PersistentAccount pv-> Nullable PersistentAccountBaker -> m (PersistentAccount pv)
 setPersistentAccountBaker pac pab = do
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef (_accountEncryptedAmount pac)
   sdata <- refLoad (_accountReleaseSchedule pac)
   arsHash <- getHashM sdata
-  pdata <- refLoad (_persistingData pac)
   pabRef <- mapM refMake pab
   bkrHash <- hashAccountBaker pabRef
-  let newHash = makeAccountHash (_accountNonce pac) (_accountAmount pac) eac arsHash pdata bkrHash
+  newHash <- makeAccountHash
+      (protocolVersion @pv)
+      (_accountNonce pac)
+      (_accountAmount pac)
+      eac
+      arsHash
+      (_persistingData pac)
+      bkrHash
   return pac{_accountHash = newHash, _accountBaker = pabRef}
 
 -- |Checks whether the two arguments represent the same account. (Used for testing.)
-sameAccount :: MonadBlobStore m => Transient.Account -> PersistentAccount -> m Bool
+sameAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => Transient.Account pv -> PersistentAccount pv -> m Bool
 sameAccount bAcc pAcc@PersistentAccount{..} = do
-  _accountPersisting <- loadBufferedRef _persistingData
+  _accountPersisting <- Transient.makeAccountPersisting <$> refLoad _persistingData
   _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   _accountReleaseSchedule <- loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
   _accountBaker <- case _accountBaker of
@@ -368,43 +441,44 @@ sameAccount bAcc pAcc@PersistentAccount{..} = do
 
 -- |Checks whether the two arguments represent the same account by comparing the account hashes.
 -- (Used for testing.)
-sameAccountHash :: Transient.Account -> PersistentAccount -> Bool
+sameAccountHash :: IsProtocolVersion pv => Transient.Account pv -> PersistentAccount pv -> Bool
 sameAccountHash bAcc pAcc = getHash bAcc == _accountHash pAcc
 
 -- |Load a field from an account's 'PersistingAccountData' pointer. E.g., @acc ^^. accountAddress@ returns the account's address.
-(^^.) :: MonadBlobStore m
-      => PersistentAccount
-      -> Getting b PersistingAccountData b
+(^^.) :: (MonadBlobStore m, IsProtocolVersion pv)
+      => PersistentAccount pv
+      -> Getting b (PersistingAccountData pv) b
       -> m b
-acc ^^. l = (^. l) <$> loadBufferedRef (acc ^. persistingData)
+acc ^^. l = (^. l) <$> refLoad (acc ^. persistingData)
 
 {-# INLINE (^^.) #-}
 infixl 8 ^^.
 
 -- |Update a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- Used to implement '.~~' and '%~~'.
-setPAD :: MonadBlobStore m
-          => (PersistingAccountData -> PersistingAccountData)
-          -> PersistentAccount
-          -> m PersistentAccount
+setPAD :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv)
+          => (PersistingAccountData pv -> PersistingAccountData pv)
+          -> PersistentAccount pv
+          -> m (PersistentAccount pv)
 setPAD f acc@PersistentAccount{..} = do
-  pData <- loadBufferedRef (acc ^. persistingData)
+  pData <- refLoad (acc ^. persistingData)
   eac <- loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   rs <- getHashM =<< refLoad _accountReleaseSchedule
   let newPData = f pData
-  newPDataRef <- makeBufferedRef newPData
+  newPDataRef <- refMake newPData
   bkrHash <- hashAccountBaker _accountBaker
+  newAccountHash <- makeAccountHash (protocolVersion @pv) _accountNonce _accountAmount eac rs newPDataRef bkrHash
   return $ acc & persistingData .~ newPDataRef
-               & accountHash .~ makeAccountHash _accountNonce _accountAmount eac rs newPData bkrHash
+               & accountHash .~ newAccountHash
 
 -- |Set a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountStakeDelegate .~~ Nothing@ sets the
 -- account's stake delegate to 'Nothing'.
-(.~~) :: MonadBlobStore m
-      => ASetter PersistingAccountData PersistingAccountData a b
+(.~~) :: (MonadBlobStore m, IsProtocolVersion pv)
+      => ASetter (PersistingAccountData pv) (PersistingAccountData pv) a b
       -> b
-      -> PersistentAccount
-      -> m PersistentAccount
+      -> PersistentAccount pv
+      -> m (PersistentAccount pv)
 (.~~) l v = setPAD (l .~ v)
 
 {-# INLINE (.~~) #-}
@@ -412,11 +486,11 @@ infixr 4 .~~
 
 -- |Modify a field of an account's 'PersistingAccountData' pointer, creating a new pointer.
 -- E.g., @acc & accountInstances %~~ Set.insert i@ inserts an instance @i@ to the set of an account's instances.
-(%~~) :: MonadBlobStore m
-      => ASetter PersistingAccountData PersistingAccountData a b
+(%~~) :: (MonadBlobStore m, IsProtocolVersion pv)
+      => ASetter (PersistingAccountData pv) (PersistingAccountData pv) a b
       -> (a -> b)
-      -> PersistentAccount
-      -> m PersistentAccount
+      -> PersistentAccount pv
+      -> m (PersistentAccount pv)
 (%~~) l f = setPAD (l %~ f)
 
 {-# INLINE (%~~) #-}
@@ -497,7 +571,7 @@ addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
 -- of the same account.
 -- This format does not store the smart contract instances, which are
 -- implied by the instance table.
-putAccountV0 :: (MonadBlobStore m, MonadPut m) => GlobalContext -> PersistentAccount -> m ()
+putAccountV0 :: forall m pv. (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> PersistentAccount pv -> m ()
 putAccountV0 cryptoParams PersistentAccount{..} = do
     PersistingAccountData {..} <- refLoad _persistingData
     let

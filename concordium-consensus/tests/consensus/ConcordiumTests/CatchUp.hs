@@ -173,7 +173,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBHs = [getHash bp | (MessageBlock, runGet (B.getExactVersionedBlock @ PV 0) -> Right bp) <- l]
+                    let recBHs = [getHash bp | (MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right bp) <- l]
                     let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
@@ -184,7 +184,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                         testList knownBlocks knownFin ((MessageFinalizationRecord, runGet getExactVersionedFinalizationRecord -> Right finRec) : rs) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
-                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getExactVersionedBlock @ PV 0) -> Right (B.NormalBlock bp)) : rs) = do
+                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right (B.NormalBlock bp)) : rs) = do
                             checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
                             knownFin' <- case blockFinalizationData bp of
                                 NoFinalizationData -> return knownFin
