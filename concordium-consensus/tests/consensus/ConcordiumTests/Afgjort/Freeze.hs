@@ -6,7 +6,7 @@ import qualified Data.Set as Set
 import Control.Monad.RWS
 import Data.Either
 import Control.Monad.Identity
-import Data.List
+import Data.List (permutations)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Afgjort.Types

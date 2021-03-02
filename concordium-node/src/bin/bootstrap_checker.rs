@@ -1,7 +1,10 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
-use std::alloc::System;
+use std::{
+    alloc::System,
+    sync::{Arc, RwLock},
+};
 #[global_allocator]
 static A: System = System;
 
@@ -11,7 +14,7 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
-use failure::Error;
+use failure::{ensure, Error};
 
 use std::{env, process::Command, thread, time::Duration};
 
@@ -27,6 +30,12 @@ fn main() -> Result<(), Error> {
     let pager_duty_svcid = env::var("PD_SVCID")?;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
+    let regenesis_arc = Arc::new(RwLock::new(conf.bootstrapper.regenesis_block_hashes.clone()));
+
+    ensure!(
+        regenesis_arc.read().unwrap().len() > 0,
+        "Bootstrapper can't run without specifying genesis hashes."
+    );
 
     let (node, poll) = P2PNode::new(
         conf.common.id.clone(),
@@ -34,6 +43,7 @@ fn main() -> Result<(), Error> {
         PeerType::Node,
         stats_export_service,
         Some(data_dir_path),
+        regenesis_arc,
     );
 
     spawn(&node, poll, None);

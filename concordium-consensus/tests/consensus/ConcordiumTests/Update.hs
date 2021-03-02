@@ -23,7 +23,6 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 
 import qualified Concordium.Crypto.BlockSignature as Sig
-import Concordium.Crypto.SHA256
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -33,6 +32,7 @@ import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
 import qualified Concordium.Types.SeedState as SeedState
+import Concordium.Genesis.Data.P0
 
 import Concordium.Logger
 
@@ -91,7 +91,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account PV)
 
 -- |Create initial states for two bakers
 createInitStates :: IO (BakerState, BakerState)
@@ -101,7 +101,7 @@ createInitStates = do
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
         cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GDP0 GenesisDataV2 {
+        gen = GDP0 GenesisDataP0 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
                 genesisSeedState = seedState,

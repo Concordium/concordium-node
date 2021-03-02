@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "0.4.11" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "0.5.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium P2P Client"
 authors = ["Concordium AG <contact@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -67,6 +67,7 @@ sha2 = "0.9"
 lazy_static = "^1.2"
 base58check = "^0.1"
 serde = { version = "1.0", features = ["rc"] }
+hex = "0.4"
 
 
 # gRPC dependencies

@@ -44,7 +44,6 @@ import           Concordium.Types
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.ByteString as BS hiding (putStrLn, tail, last, sort)
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Serialize as S
 import           Data.Time.Clock
 import           Lens.Micro.Platform
@@ -116,9 +115,8 @@ readExportedDatabaseV1 :: Handle -> IO ()
 readExportedDatabaseV1 h = do
   liftIO $ do
     tm <- liftIO getCurrentTime
-    lbs <- LBS.hGetContents h -- file is automatically closed after EOF is reached
     putStrLn "Starting database processing"
-    result <- readBlocksV1 lbs tm (\_ src str-> putStrLn $ show src ++ ": " ++ str) GlobalState (const $ return Success) :: IO (ImportingResult ())
+    result <- readBlocksV1 h tm (\_ src str-> putStrLn $ show src ++ ": " ++ str) GlobalState (const $ return Success) :: IO (ImportingResult ())
     case result of
       SerializationFail -> putStrLn "Error."
       _ -> putStrLn "Done."

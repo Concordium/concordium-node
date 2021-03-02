@@ -19,6 +19,7 @@ use crate::{
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
+        blockchain_types::BlockHash,
         catch_up::PeerList,
         consensus::{ConsensusContainer, CALLBACK_QUEUE},
     },
@@ -92,6 +93,7 @@ pub struct NodeConfig {
     pub socket_so_linger: Option<u16>,
     pub events_queue_size: usize,
     pub deduplication_hashing_algorithm: DeduplicationHashAlgorithm,
+    pub regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 }
 
 /// The collection of connections to peer nodes.
@@ -209,6 +211,7 @@ impl P2PNode {
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         data_dir_path: Option<PathBuf>,
+        regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
     ) -> (Arc<Self>, Poll) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
             format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
@@ -338,6 +341,7 @@ impl P2PNode {
             socket_so_linger: conf.connection.socket_so_linger,
             events_queue_size: conf.connection.events_queue_size,
             deduplication_hashing_algorithm: conf.connection.deduplication_hashing_algorithm,
+            regenesis_arc,
         };
 
         let connection_handler = ConnectionHandler::new(conf, server);
@@ -665,7 +669,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 }
             }
         }
-        ConnChange::Expulsion(token) => {
+        ConnChange::ExpulsionByToken(token) => {
             if let Some(remote_peer) = node.remove_connection(token) {
                 let ip = remote_peer.addr.ip();
                 warn!("Soft-banning {} due to a breach of protocol", ip);
@@ -674,6 +678,14 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                 );
             }
+        }
+        ConnChange::ExpulsionById(remote_id) => {
+            warn!("Soft-banning remote id {} due to a breach of protocol", remote_id);
+            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
+            write_or_die!(node.connection_handler.soft_bans).insert(
+                BanId::NodeId(remote_id),
+                Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
+            );
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);

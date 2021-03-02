@@ -14,14 +14,15 @@ import Control.Concurrent
 import Control.Monad
 import Control.Exception
 import Data.ByteString as BS
-import qualified Data.ByteString.Lazy as LBS
 import Data.Serialize
 import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import System.IO.Error
+import System.IO
 
 import Concordium.GlobalState.Block
+import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Types
 import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
@@ -55,7 +56,11 @@ data SyncRunner c = SyncRunner {
     syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
     syncHandlePendingLive :: !(IO ()),
-    syncTransactionPurgingThread :: !(MVar ThreadId)
+    syncTransactionPurgingThread :: !(MVar ThreadId),
+    -- |Genesis block hashes will be used to check whether we are compatible
+    -- with other client that we are connecting to. This callback should update
+    -- the list of genesis blocks in the upper network layer.
+    syncRegenesisCallback :: !(BlockHash -> IO ())
 }
 
 instance (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)) => SkovStateQueryable (SyncRunner c) (SkovT () c LogIO) where
@@ -96,8 +101,9 @@ makeSyncRunner :: (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (
                   c ->
                   (SimpleOutMessage c -> IO ()) ->
                   (CatchUpStatus -> IO ()) ->
+                  (BlockHash -> IO ()) ->
                   IO (SyncRunner c)
-makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback = do
+makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback syncRegenesisCallback = do
         (syncContext, st0) <- runLoggerT (initialiseSkov config) syncLogMethod
         syncState <- newMVar st0
         syncTransactionPurgingThread <- newEmptyMVar
@@ -107,6 +113,7 @@ makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback =
         let
             syncHandlePendingLive = bufferedHandlePendingLive (runStateQuery sr (getCatchUpStatus False) >>= cusCallback) pendingLiveMVar
             sr = SyncRunner{..}
+        syncRegenesisCallback . bpHash =<< runStateQuery sr genesisBlock
         return sr
 
 -- |Run a computation, atomically using the state.  If the computation fails with an
@@ -258,7 +265,8 @@ data SyncPassiveRunner c = SyncPassiveRunner {
     syncPLogMethod :: LogMethod IO,
     syncPContext :: !(SkovContext c),
     syncPHandlers :: !(SkovPassiveHandlers c LogIO),
-    syncPTransactionPurgingThread :: !(MVar ThreadId)
+    syncPTransactionPurgingThread :: !(MVar ThreadId),
+    syncPRegenesisCallback:: !(BlockHash -> IO ())
 }
 
 instance (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)) => SkovStateQueryable (SyncPassiveRunner c) (SkovT () c LogIO) where
@@ -277,8 +285,9 @@ runSkovPassive SyncPassiveRunner{..} a = runWithStateLog syncPState syncPLogMeth
 makeSyncPassiveRunner :: (SkovConfiguration c, SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO), TreeStateMonad (SkovProtocolVersion c) (SkovT (SkovPassiveHandlers c LogIO) c LogIO)) => LogMethod IO ->
                         c ->
                         (CatchUpStatus -> IO ()) ->
+                        (BlockHash -> IO ()) ->
                         IO (SyncPassiveRunner c)
-makeSyncPassiveRunner syncPLogMethod config cusCallback = do
+makeSyncPassiveRunner syncPLogMethod config cusCallback syncPRegenesisCallback = do
         (syncPContext, st0) <- runLoggerT (initialiseSkov config) syncPLogMethod
         syncPState <- newMVar st0
         pendingLiveMVar <- newMVar Nothing
@@ -295,6 +304,7 @@ makeSyncPassiveRunner syncPLogMethod config cusCallback = do
               threadDelay delay
               loop
         putMVar syncPTransactionPurgingThread =<< forkIO loop
+        syncPRegenesisCallback . bpHash =<< runStateQuery spr genesisBlock
         return spr
 
 shutdownSyncPassiveRunner :: SkovConfiguration c => SyncPassiveRunner c -> IO ()
@@ -365,7 +375,7 @@ makeAsyncRunner logm bkr config = do
         inChan <- newChan
         outChan <- newChan
         let somHandler = writeChan outChan . simpleToOutMessage
-        sr <- makeSyncRunner logm bkr config somHandler (\_ -> logm Runner LLInfo "*** should send catch-up status to peers ***")
+        sr <- makeSyncRunner logm bkr config somHandler (\_ -> logm Runner LLInfo "*** should send catch-up status to peers ***") (const (return ()))
         startSyncRunner sr
         let
             msgLoop :: IO ()
@@ -452,9 +462,10 @@ importingResultToUpdateResult :: Monad m
                               -> m (ImportingResult UpdateResult)
 importingResultToUpdateResult logm logLvl = \case
   ResultSuccess -> return Success
+  ResultDuplicate -> return Success
   ResultSerializationFail -> return SerializationFail
   e@ResultPendingBlock -> do
-    logm logLvl LLWarning $ "Imported pending block."
+    logm logLvl LLWarning "Imported pending block."
     return $ OtherError e
   e -> return $ OtherError e
 
@@ -472,13 +483,11 @@ syncImportBlocks :: (SkovMonad (SkovProtocolVersion c) (SkovT (SkovHandlers Thre
                  -> IO UpdateResult
 syncImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    -- NB: It is very important to use lazy a bytestring here since we are
-    -- loading the whole file into it. We need to do that lazily.
-    lbs <- LBS.readFile filepath
+    h <- openFile filepath ReadMode
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV1 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -489,12 +498,10 @@ syncPassiveImportBlocks :: (SkovMonad (SkovProtocolVersion c) (SkovT (SkovPassiv
                         -> IO UpdateResult
 syncPassiveImportBlocks syncRunner filepath =
   handle (handleImportException logm) $ do
-    -- NB: It is very important to use lazy a bytestring here since we are
-    -- loading the whole file into it. We need to do that lazily.
-    lbs <- LBS.readFile filepath
+    h <- openFile filepath ReadMode
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 lbs now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV1 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner

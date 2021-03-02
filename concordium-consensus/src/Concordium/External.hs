@@ -80,21 +80,11 @@ blockReferenceToBlockHash src = BlockHash . Hash.Hash <$> FBS.create cp
     where
         cp dest = copyBytes dest src (FBS.fixedLength (undefined :: Hash.DigestSize))
 
-
--- |Callback for handling genesis data.
-type GenesisDataCallback = CString -> Int64 -> IO ()
-foreign import ccall "dynamic" invokeGenesisDataCallback :: FunPtr GenesisDataCallback -> GenesisDataCallback
-callGenesisDataCallback :: FunPtr GenesisDataCallback -> BS.ByteString -> IO ()
-callGenesisDataCallback cb bs = BS.useAsCStringLen bs $
-        \(cdata, clen) -> invokeGenesisDataCallback cb cdata (fromIntegral clen)
-
--- |Callback for handling a generated baker identity.
--- The first argument is the identity of the baker (TODO: this should really by a 'Word64').
--- The second argument is the pointer to the data, and the third is the length of the data.
-type BakerIdentityCallback = Int64 -> CString -> Int64 -> IO ()
-foreign import ccall "dynamic" invokeBakerIdentityCallback :: FunPtr BakerIdentityCallback -> BakerIdentityCallback
-callBakerIdentityCallback :: FunPtr BakerIdentityCallback -> Word64 -> BS.ByteString -> IO ()
-callBakerIdentityCallback cb bix bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeBakerIdentityCallback cb (fromIntegral bix) cdata (fromIntegral clen)
+type RegenesisCallback = Ptr () -> CString -> IO ()
+foreign import ccall "dynamic" invokeRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisCallback
+callRegenesisCallback :: FunPtr RegenesisCallback -> Ptr () -> BS.ByteString -> IO ()
+callRegenesisCallback  cb arc bs = BS.useAsCStringLen bs $
+       \(bh, _) -> invokeRegenesisCallback cb arc bh
 
 -- | External function that logs in Rust a message using standard Rust log output
 --
@@ -303,13 +293,16 @@ startConsensus ::
            -> CString -> Int64 -- ^Serialized baker identity (c string + len)
            -> FunPtr BroadcastCallback -- ^Handler for generated messages
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
+           -> Ptr () -- ^Rust arc for calling the regenesis callback
+           -> FunPtr (Ptr () -> IO ()) -- ^ free function for the regenesis arc
+           -> FunPtr RegenesisCallback -- ^Handler for notifying the node of new regenesis blocks
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -336,8 +329,10 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
                         connString
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
+                regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
                 bakerSyncRunnerWithLog <-
-                  makeSyncRunner logM bid config bakerBroadcast catchUpCallback
+                  makeSyncRunner logM bid config bakerBroadcast catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr BakerRunnerWithLog{..}
                 return (toStartResult StartSuccess)
               else do
@@ -347,7 +342,9 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
                         genData
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
-                bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback
+                regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
+                bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr BakerRunner{..}
                 return (toStartResult StartSuccess)
             (Left err, _) -> do
@@ -373,13 +370,16 @@ startConsensusPassive ::
            -> Word64 -- ^Number of seconds between transaction table purging runs
            -> CString -> Int64 -- ^Serialized genesis data (c string + len)
            -> FunPtr CatchUpStatusCallback -- ^Handler for sending catch-up status to peers
+           -> Ptr () -- ^Rust arc for calling the regenesis callback
+           -> FunPtr (Ptr () -> IO ()) -- ^Free function for regenesis arc
+           -> FunPtr RegenesisCallback -- ^Handler for notifying the node of new regenesis blocks
            -> Word8 -- ^Maximum log level (inclusive) (0 to disable logging).
            -> FunPtr LogCallback -- ^Handler for log events
            -> CString -> Int64 -- ^FilePath for the AppData directory
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         let runtimeParams = RuntimeParameters {
@@ -403,7 +403,9 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                         genData
                         connString
                     config = SkovConfig gsconfig finconfig hconfig
-                passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback
+                regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
+                passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr PassiveRunnerWithLog{..}
                 return (toStartResult StartSuccess)
               else do
@@ -412,7 +414,9 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                         runtimeParams
                         genData
                     config = SkovConfig gsconfig finconfig hconfig
-                passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback
+                regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
+                passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr PassiveRunner{..}
                 return (toStartResult StartSuccess)
             Left err -> do
@@ -1112,8 +1116,8 @@ importBlocks cptr cstr len = do
   logm External LLDebug "Done importing file."
   return ret
 
-foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
-foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()

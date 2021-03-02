@@ -138,7 +138,7 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                  | InitContract { amount :: Amount
                                 , version :: Word32
                                 , moduleName :: FilePath
-                                , contractName :: Text
+                                , initFunctionName :: Text
                                 , parameter :: BSS.ShortByteString }
                  | Update { amount :: Amount
                           , address :: ContractAddress

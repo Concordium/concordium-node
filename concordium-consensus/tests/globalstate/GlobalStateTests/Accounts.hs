@@ -3,6 +3,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.Accounts where
@@ -42,6 +44,8 @@ import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
 
+type PV = 'P1
+
 assertRight :: Either String a -> Assertion
 assertRight (Left e) = assertFailure e
 assertRight _ = return ()
@@ -57,7 +61,7 @@ checkBinaryM bop x y sbop sx sy = do
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore m, MonadFail m) => B.Accounts -> P.Accounts -> m ()
+checkEquivalent :: (MonadBlobStore m, MonadFail m) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
   pam <- Trie.toMap (P.accountMap pa)
   checkBinary (==) (B.accountMap ba) pam "==" "Basic account map" "Persistent account map"
@@ -74,7 +78,7 @@ checkEquivalent ba pa = do
     sameAccPair ::
       (MonadBlobStore m) =>
       Bool -> -- accumulator for the fold in 'sameAccList'
-      ((AccountIndex, BA.Account), (AccountIndex, PA.PersistentAccount)) -> -- the pairs to be compared
+      ((AccountIndex, BA.Account PV), (AccountIndex, PA.PersistentAccount PV)) -> -- the pairs to be compared
       m Bool
     sameAccPair b ((bInd, bAcc), (pInd, pAcc)) = do
       sameAcc <- PA.sameAccount bAcc pAcc
@@ -83,17 +87,17 @@ checkEquivalent ba pa = do
     sameAccList l1 l2 = foldM sameAccPair True $ zip l1 l2
 
 data AccountAction
-  = PutAccount Account
+  = PutAccount (Account PV)
   | Exists AccountAddress
   | GetAccount AccountAddress
-  | UpdateAccount AccountAddress (Account -> Account)
+  | UpdateAccount AccountAddress (Account PV -> Account PV)
   | UnsafeGetAccount AccountAddress
   | RegIdExists ID.CredentialRegistrationID
   | RecordRegId ID.CredentialRegistrationID
   | FlushPersistent
   | ArchivePersistent
 
-randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
+randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen (Account PV)
 randomizeAccount _accountAddress _accountVerificationKeys = do
   let vfKey = snd . head $ (OrdMap.toAscList (ID.akKeys _accountVerificationKeys))
   let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
@@ -184,9 +188,11 @@ randomActions = sized (ra Set.empty Set.empty)
           rid <- elements (Set.toList rids)
           (RecordRegId rid :) <$> ra s rids (n -1)
 
-makePureAccount :: (MonadBlobStore m) => PA.PersistentAccount -> m Account
+makePureAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PA.PersistentAccount pv -> m (Account pv)
 makePureAccount PA.PersistentAccount {..} = do
-  _accountPersisting <- loadBufferedRef _persistingData
+  (_accountPersisting :: AccountPersisting pv) <- case protocolVersion @pv of
+    SP0 -> refLoad _persistingData
+    SP1 -> makeHashed <$> refLoad _persistingData
   _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
   ab <- case _accountBaker of
@@ -202,7 +208,7 @@ makePureAccount PA.PersistentAccount {..} = do
       }
   return Account {_accountBaker = ab, ..}
 
-runAccountAction :: (MonadBlobStore m, MonadFail m) => AccountAction -> (B.Accounts, P.Accounts) -> m (B.Accounts, P.Accounts)
+runAccountAction :: (MonadBlobStore m, MonadFail m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
   let ba' = B.putAccount acct ba
   pAcct <- PA.makePersistentAccount acct
@@ -224,7 +230,7 @@ runAccountAction (GetAccount addr) (ba, pa) = do
 runAccountAction (UpdateAccount addr upd) (ba, pa) = do
   let ba' = ba & ix addr %~ upd
       -- Transform a function that updates in-memory accounts into a function that updates persistent accounts
-      liftP :: (MonadBlobStore m) => (Account -> Account) -> PA.PersistentAccount -> m PA.PersistentAccount
+      liftP :: (MonadBlobStore m) => (Account PV -> Account PV) -> PA.PersistentAccount PV -> m (PA.PersistentAccount PV)
       liftP f pAcc = do
         bAcc <- makePureAccount pAcc
         PA.makePersistentAccount $ f bAcc

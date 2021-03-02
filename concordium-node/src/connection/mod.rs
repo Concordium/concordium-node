@@ -293,8 +293,10 @@ impl ConnectionStats {
 
 /// Specifies the type of change to be applied to the list of connections.
 pub enum ConnChange {
-    /// To be soft-banned and removed from the list of connections.
-    Expulsion(Token),
+    /// To be soft-banned by ip and removed from the list of connections.
+    ExpulsionByToken(Token),
+    /// To be soft-banned by node id and removed from the list of connections.
+    ExpulsionById(P2PNodeId),
     /// Prospect node address to attempt to connect to.
     NewConn(SocketAddr, PeerType),
     /// Prospect peers to possibly connect to.

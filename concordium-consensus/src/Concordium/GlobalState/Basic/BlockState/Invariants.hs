@@ -1,4 +1,4 @@
-{-# LANGUAGE ViewPatterns, BangPatterns, TypeFamilies #-}
+{-# LANGUAGE ViewPatterns, TypeFamilies #-}
 -- |This module defines global state invariants.
 -- These are intended for testing purposes, but could also be used for
 -- auditing.

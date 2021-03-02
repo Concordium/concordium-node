@@ -43,7 +43,7 @@ testAccountCreation ::
     IO
     ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-     [Maybe Account],
+     [Maybe (Account PV)],
      Amount)
 testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
@@ -66,7 +66,7 @@ testAccountCreation = do
 checkAccountCreationResult ::
   ([(Types.BlockItem, Types.ValidResult)],
      [(Types.CredentialDeploymentWithMeta, Types.FailureKind)],
-     [Maybe Account],
+     [Maybe (Account PV)],
      Amount)
   -> Assertion
 checkAccountCreationResult (suc, fails, stateAccs, executionCost) = do
