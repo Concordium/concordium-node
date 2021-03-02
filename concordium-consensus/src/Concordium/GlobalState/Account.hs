@@ -3,7 +3,6 @@
 module Concordium.GlobalState.Account where
 
 import Control.Monad
-import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Maybe
