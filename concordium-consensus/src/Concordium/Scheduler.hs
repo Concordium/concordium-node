@@ -1198,9 +1198,11 @@ handleUpdateCredentialKeys wtc cid keys sigs =
       chargeExecutionCost txHash senderAccount energyCost
       existingCredentials <- getAccountCredentials senderAccount
       let credIndex = fst <$> find (\(_, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
+      -- check that the new threshold is no more than the number of credentials
+      let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
       case credIndex of 
         Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
-        Just index -> do
+        Just index -> if not thresholdCheck then return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy) else do
           -- We check that the credential whose keys we are updating has indeed signed this transaction.
           let check = OrdMap.member index $ tsSignatures sigs
           if check then do

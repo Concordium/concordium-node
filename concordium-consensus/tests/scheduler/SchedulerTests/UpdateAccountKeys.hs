@@ -85,111 +85,93 @@ testCases =
         )
       ]
     }
-  -- , TestCase
-  --   { tcName = "Adding account keys"
-  --   , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
-  --   , tcTransactions = [
-  --       -- Correctly add account key
-  --       ( Runner.TJSON  { payload = Runner.AddAccountKeys (Map.fromList [(2, vk kp2)]) Nothing,
-  --                         metadata = makeDummyHeader alesAccount 1 10000,
-  --                         keys = [(0, kp0), (1, kp1)]
-  --                       }
-  --       , ( SuccessE $ [AccountKeysAdded]
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
-  --         )
-  --       )
-  --     , -- Correctly add account key, signing with the one added in the previous transaction
-  --       -- and correctly update the signature threshold
-  --       ( Runner.TJSON  { payload = Runner.AddAccountKeys (Map.fromList [(3, vk kp3)]) (Just 3),
-  --                         metadata = makeDummyHeader alesAccount 2 10000,
-  --                         keys = [(0, kp0), (2, kp2)]
-  --                       }
-  --       , ( SuccessE $ [ AccountKeysAdded, AccountKeysSignThresholdUpdated]
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3)] 3
-  --         )
-  --       )
-  --     , -- Should fail to add an account key to an index that is already in use
-  --     ( Runner.TJSON  { payload = Runner.AddAccountKeys (Map.fromList [(3, vk kp4)]) (Just 3),
-  --                         metadata = makeDummyHeader alesAccount 3 10000,
-  --                         keys = [(0, kp0), (2, kp2), (1, kp1)]
-  --                       }
-  --       , ( Reject $ KeyIndexAlreadyInUse
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3)] 3
-  --         )
-  --       )
-  --     , -- Should allow updating the threshold past what is allowed given the current keys
-  --       -- if more keys are added as part of the transaction
-  --       ( Runner.TJSON  { payload = Runner.AddAccountKeys (Map.fromList [(4, vk kp4)]) (Just 5),
-  --                         metadata = makeDummyHeader alesAccount 4 10000,
-  --                         keys = [(0, kp0), (2, kp2), (1, kp1)]
-  --                       }
-  --       , ( SuccessE $ [ AccountKeysAdded, AccountKeysSignThresholdUpdated]
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3), (4, vk kp4)] 5
-  --         )
-  --       )
-  --     , -- Should fail to update the threshold in such a way that it exceeds the total number
-  --       -- of keys.
-  --       ( Runner.TJSON  { payload = Runner.AddAccountKeys Map.empty (Just 6),
-  --                         metadata = makeDummyHeader alesAccount 5 10000,
-  --                         keys = [(0, kp0), (1, kp1), (2, kp2), (3, kp3), (4, kp4)]
-  --                       }
-  --       , ( Reject $ InvalidAccountKeySignThreshold
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3), (4, vk kp4)] 5
-  --         )
-  --       )
-  --     ]
-  --   }
-  -- , TestCase
-  --   { tcName = "Removing account keys"
-  --   , tcParameters = defaultParams {tpInitialBlockState=initialBlockState2} -- ales has 5 keys in this one
-  --   , tcTransactions = [
-  --       -- Correctly remove keys 3 and 4.
-  --       ( Runner.TJSON  { payload = Runner.RemoveAccountKeys (Set.fromList [3, 4]) Nothing,
-  --                         metadata = makeDummyHeader alesAccount 1 10000,
-  --                         keys = [(0, kp0), (1, kp1)]
-  --                       }
-  --       , ( SuccessE $ [AccountKeysRemoved]
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
-  --         )
-  --       )
-  --     , -- Should fail to remove keys that makes the threshold exceed the total number of keys
-  --       ( Runner.TJSON  { payload = Runner.RemoveAccountKeys (Set.fromList [1, 2]) Nothing, -- removes more keys than allowed (threshold = 2)
-  --                         metadata = makeDummyHeader alesAccount 2 10000,
-  --                         keys = [(0, kp0), (2, kp2)]
-  --                       }
-  --       , ( Reject $ InvalidAccountKeySignThreshold
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
-  --         )
-  --       )
-  --     , -- Should allow updating the threshold so that it doesn't exceed the number of keys
-  --       ( Runner.TJSON  { payload = Runner.RemoveAccountKeys Set.empty (Just 3),
-  --                         metadata = makeDummyHeader alesAccount 3 10000,
-  --                         keys = [(0, kp0), (1, kp1)]
-  --                       }
-  --       , ( SuccessE $ [ AccountKeysRemoved, AccountKeysSignThresholdUpdated]
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 3
-  --         )
-  --       )
-  --     , -- Should fail to remove a key at an index for which no key is defined
-  --       ( Runner.TJSON  { payload = Runner.RemoveAccountKeys (Set.fromList [4]) (Just 1),
-  --                         metadata = makeDummyHeader alesAccount 4 10000,
-  --                         keys = [(0, kp0), (1, kp1), (2, kp2)]
-  --                       }
-  --       , ( Reject $ NonExistentAccountKey
-  --         , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 3
-  --         )
-  --       )
-  --     , -- Should succeed in reducing the threshold and removing a key in the same transaction
-  --       ( Runner.TJSON  { payload = Runner.RemoveAccountKeys (Set.fromList [0]) (Just 2),
-  --                         metadata = makeDummyHeader alesAccount 5 10000,
-  --                         keys = [(0, kp0), (1, kp1), (2, kp2)]
-  --                       }
-  --       , ( SuccessE $ [ AccountKeysRemoved, AccountKeysSignThresholdUpdated]
-  --         , checkKeys [(1, vk kp1), (2, vk kp2)] 2
-  --         )
-  --       )
-  --     ]
-  --   }
+  , TestCase
+    { tcName = "Adding account keys"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
+    , tcTransactions = [
+        -- Correctly add account key
+        ( Runner.TJSON  { payload =  Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1, vk kp2] 2,
+                          metadata = makeDummyHeader alesAccount 1 10000,
+                          keys = [(0, [(0, kp0), (1, kp1)])]
+                        }
+        , ( SuccessE [CredentialKeysUpdated alesCid]
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
+          )
+        )
+      , -- Correctly add account key, signing with the one added in the previous transaction
+        -- and correctly update the signature threshold
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1, vk kp2, vk kp3] 3,
+                          metadata = makeDummyHeader alesAccount 2 10000,
+                          keys = [(0, [(0, kp0), (2, kp2)])]
+                        }
+        , ( SuccessE [CredentialKeysUpdated alesCid]
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3)] 3
+          )
+        )
+      , -- Should allow updating the threshold past what is allowed given the current keys
+        -- if more keys are added as part of the transaction
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 5,
+                          metadata = makeDummyHeader alesAccount 3 10000,
+                          keys = [(0, [(0, kp0), (2, kp2), (1, kp1)])]
+                        }
+        , ( SuccessE $ [CredentialKeysUpdated alesCid]
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3), (4, vk kp4)] 5
+          )
+        )
+      , -- Should fail to update the threshold in such a way that it exceeds the total number
+        -- of keys.
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 6,
+                          metadata = makeDummyHeader alesAccount 4 10000,
+                          keys = [(0, [(0, kp0), (1, kp1), (2, kp2), (3, kp3), (4, kp4)])]
+                        }
+        , ( Reject $ InvalidAccountKeySignThreshold
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3), (4, vk kp4)] 5
+          )
+        )
+      ]
+    }
+  , TestCase
+    { tcName = "Removing account keys"
+    , tcParameters = defaultParams {tpInitialBlockState=initialBlockState2} -- ales has 5 keys in this one
+    , tcTransactions = [
+        -- Correctly remove keys 3 and 4.
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1, vk kp2] 2,
+                          metadata = makeDummyHeader alesAccount 1 10000,
+                          keys = [(0,[(0, kp0), (1, kp1)])]
+                        }
+        , ( SuccessE $ [CredentialKeysUpdated alesCid]
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
+          )
+        )
+      , -- Should fail to remove keys that makes the threshold exceed the total number of keys
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0] 2, -- removes more keys than allowed (threshold = 2)
+                          metadata = makeDummyHeader alesAccount 2 10000,
+                          keys = [(0,[(0, kp0), (2, kp2)])]
+                        }
+        , ( Reject $ InvalidAccountKeySignThreshold
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
+          )
+        )
+      , -- Should allow updating the threshold so that it doesn't exceed the number of keys
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ makeCredentialPublicKeys [vk kp0, vk kp1, vk kp2] 3,
+                          metadata = makeDummyHeader alesAccount 3 10000,
+                          keys = [(0,[(0, kp0), (1, kp1)])]
+                        }
+        , ( SuccessE $ [ CredentialKeysUpdated alesCid]
+          , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 3
+          )
+        )
+      , -- Should succeed in reducing the threshold and removing a key in the same transaction
+        ( Runner.TJSON  { payload = Runner.UpdateCredentialKeys alesCid $ CredentialPublicKeys (Map.fromList [(1, vk kp1), (2, vk kp2)]) 2,
+                          metadata = makeDummyHeader alesAccount 4 10000,
+                          keys = [(0,[(0, kp0), (1, kp1), (2, kp2)])]
+                        }
+        , ( SuccessE $ [ CredentialKeysUpdated alesCid]
+          , checkKeys [(1, vk kp1), (2, vk kp2)] 2
+          )
+        )
+      ]
+    }
   ]
     where
       -- Prompts the blockstate for ales account keys and checks that they match the expected ones.
