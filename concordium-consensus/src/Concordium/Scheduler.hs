@@ -1092,10 +1092,10 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
 handleDeployCredential ::
   SchedulerMonad m =>
   -- |Credentials to deploy.
-  ID.AccountCredentialWithProofs ->
+  AccountCreation ->
   TransactionHash ->
   m (Maybe TxResult)
-handleDeployCredential cdi cdiHash = do
+handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=cdi} cdiHash = do
     remainingEnergy <- getRemainingEnergy
     let cost = Cost.deployCredential (ID.credentialType cdi)
     if remainingEnergy < cost then return Nothing
@@ -1135,7 +1135,7 @@ handleDeployCredential cdi cdiHash = do
                    if accExistsAlready then
                      return $ Just (TxInvalid AccountCredentialInvalid)
                    else do
-                     if AH.verifyInitialAccountCreation ipInfo (S.encode icdi) then do
+                     if AH.verifyInitialAccountCreation ipInfo messageExpiry (S.encode icdi) then do
                        -- Create the account with the credential, but don't yet add it to the state
                        cryptoParams <- getCryptoParams
                        -- Creation is guaranteed to succeed since an account with the address
@@ -1166,7 +1166,7 @@ handleDeployCredential cdi cdiHash = do
                               -- this check is extremely unlikely to fail (it would amount to a hash collision since
                               -- we checked regIdEx above already).
                               accExistsAlready <- isJust <$> getAccount aaddr
-                              let check = AH.verifyCredential cryptoParams ipInfo arsInfos cdiBytes Nothing
+                              let check = AH.verifyCredential cryptoParams ipInfo arsInfos cdiBytes (Left messageExpiry)
                               if not accExistsAlready && check then do
                                 -- Add the account to the state, but only if the credential was valid and the account does not exist
                                 _ <- createAccount cryptoParams aaddr cdv
@@ -1339,7 +1339,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                 Nothing -> return False
                 Just ipInfo -> case ar of
                   Nothing -> return False
-                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) (Just senderAddress)
+                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) (Right senderAddress)
       -- check all the credential proofs.
       -- This is only done if all the previous checks have succeeded since this is by far the most computationally expensive part.
       checkProofs <- foldM (\check cdi -> if check then checkCDI cdi else return False) (firstCredNotRemoved && thresholdCheck && removalCheck && null existingCredIds) cdis
@@ -1511,7 +1511,7 @@ filterTransactions maxSize groups0 = do
             runCredential c@WithMetadata{..} = do
               totalEnergyUsed <- getUsedEnergy
               let csize = size + fromIntegral wmdSize
-                  energyCost = Cost.deployCredential (ID.credentialType wmdData)
+                  energyCost = Cost.deployCredential (ID.credentialType . credential $ wmdData)
                   cenergy = totalEnergyUsed + fromIntegral energyCost
               if 0 <= credLimit && csize <= maxSize && cenergy <= maxEnergy then
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
@@ -1524,7 +1524,7 @@ filterTransactions maxSize groups0 = do
                       let newFts = fts { ftAdded = (credentialDeployment c, summary) : ftAdded fts}
                       runNext maxEnergy csize (credLimit - 1) newFts groups
                     (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
-              else if Cost.deployCredential (ID.credentialType wmdData) > maxEnergy then
+              else if Cost.deployCredential (ID.credentialType . credential $ wmdData) > maxEnergy then
                 -- this case should not happen (it would mean we set the parameters of the chain wrong),
                 -- but we keep it just in case.
                  let newFts = fts { ftFailedCredentials = (c, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
