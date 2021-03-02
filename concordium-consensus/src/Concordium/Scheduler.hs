@@ -1307,7 +1307,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                       ) ([], Set.empty) removeRegIds
 
       -- check that the indices after removal are disjoint from the indices that we are about to add
-      let removalCheck = not (null nonExistingRegIds) &&
+      let removalCheck = null nonExistingRegIds &&
                          let existingIndices = OrdMap.keysSet existingCredentials
                              newIndices = OrdMap.keysSet cdis
                          in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
