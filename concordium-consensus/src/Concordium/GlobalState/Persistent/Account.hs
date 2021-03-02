@@ -11,7 +11,6 @@ import Data.Word
 import Control.Monad
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
-import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -261,7 +260,6 @@ newAccount cryptoParams _accountAddress credential = do
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
         _accountCredentials = creds,
         _accountMaxCredentialValidTo = validTo credential,
-        _accountInstances = Set.empty,
         _accountVerificationKeys = getAccountInformation 1 creds, 
         ..
         }

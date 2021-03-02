@@ -327,11 +327,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ars2 <- coerceBSMR (getAccountReleaseSchedule acc2)
         assert (ars1 == ars2) $ return ars1
 
-    getAccountInstances (acc1, acc2) = do
-        ais1 <- coerceBSML (getAccountInstances acc1)
-        ais2 <- coerceBSMR (getAccountInstances acc2)
-        assert (ais1 == ais2) $ return ais1
-
     getAccountBaker (acc1, acc2) = do
         ab1 <- coerceBSML (getAccountBaker acc1)
         ab2 <- coerceBSMR (getAccountBaker acc2)

@@ -1,8 +1,12 @@
-use crate::consensus_ffi::{
-    catch_up::*,
-    consensus::*,
-    helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
-    messaging::*,
+use crate::{
+    consensus_ffi::{
+        blockchain_types::BlockHash,
+        catch_up::*,
+        consensus::*,
+        helpers::{ConsensusFfiResponse, ConsensusIsInBakingCommitteeResponse, PacketType},
+        messaging::*,
+    },
+    write_or_die,
 };
 use byteorder::{NetworkEndian, ReadBytesExt};
 use crypto_common::Serial;
@@ -16,9 +20,10 @@ use std::{
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once,
+        Arc, Once, RwLock,
     },
 };
+
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
     pub fn hs_init_with_rtsopts(argc: &c_int, argv: *const *const *const c_char);
@@ -237,6 +242,8 @@ type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
     extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
+type RegenesisCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>, *const u8);
+type RegenesisFreeCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>);
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -251,6 +258,9 @@ extern "C" {
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
+        regenesis_arc: *const RwLock<Vec<BlockHash>>,
+        free_regenesis_arc: RegenesisFreeCallback,
+        regenesis_callback: RegenesisCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
         appdata_dir: *const u8,
@@ -267,6 +277,9 @@ extern "C" {
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
+        regenesis_arc: *const RwLock<Vec<BlockHash>>,
+        free_regenesis_arc: RegenesisFreeCallback,
+        regenesis_callback: RegenesisCallback,
         maximum_log_level: u8,
         log_callback: LogCallback,
         appdata_dir: *const u8,
@@ -403,6 +416,7 @@ pub fn get_consensus_ptr(
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &PathBuf,
     database_connection_url: &str,
+    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
@@ -428,6 +442,9 @@ pub fn get_consensus_ptr(
                     private_data_len as i64,
                     broadcast_callback,
                     catchup_status_callback,
+                    Arc::into_raw(regenesis_arc),
+                    free_regenesis_arc,
+                    regenesis_callback,
                     maximum_log_level as u8,
                     on_log_emited,
                     appdata_buf.as_ptr() as *const u8,
@@ -450,6 +467,9 @@ pub fn get_consensus_ptr(
                         c_string_genesis.as_ptr() as *const u8,
                         genesis_data_len as i64,
                         catchup_status_callback,
+                        Arc::into_raw(regenesis_arc),
+                        free_regenesis_arc,
+                        regenesis_callback,
                         maximum_log_level as u8,
                         on_log_emited,
                         appdata_buf.as_ptr() as *const u8,
@@ -834,6 +854,39 @@ pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
         msg_length,
         Some(PeerStatus::Pending)
     );
+}
+
+/// A callback function that will append a regenesis block to the list of known
+/// regenesis hashes.
+///
+/// # Safety
+///
+/// The first argument has to be an Arc<RwLock<Vec<BlockHash>>> which was
+/// converted into raw, as it will be casted into that type. The second argument
+/// has to be a pointer to a bytestring of length 32.
+pub unsafe extern "C" fn regenesis_callback(
+    arc: *const RwLock<Vec<BlockHash>>,
+    block_hash: *const u8,
+) {
+    trace!("Regenesis callback hit");
+    write_or_die!(Arc::from_raw(arc)).push(
+        BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
+            .expect("The slice is exactly 32 bytes so ::new must succeed."),
+    );
+}
+
+/// A callback to free the regenesis Arc.
+///
+/// # Safety
+///
+/// The given pointer must be an Arc<RwLock<Vec<BlockHash>>> which was converted
+/// into raw.
+pub unsafe extern "C" fn free_regenesis_arc(ptr: *const RwLock<Vec<BlockHash>>) {
+    if ptr.is_null() {
+        return;
+    }
+
+    Arc::from_raw(ptr);
 }
 
 /// Following the implementation of the log crate, error = 1, warning = 2, info

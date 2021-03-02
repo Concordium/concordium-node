@@ -2,7 +2,7 @@
 
 use crate::{
     common::{p2p_peer::PeerStats, P2PNodeId, PeerType},
-    configuration::{is_compatible_version, MAX_PEER_NETWORKS},
+    configuration::{is_compatible_version, is_compatible_wire_version, MAX_PEER_NETWORKS},
     connection::{ConnChange, Connection},
     network::{
         Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
@@ -10,6 +10,7 @@ use crate::{
     },
     p2p::bans::BanId,
     plugins::consensus::*,
+    read_or_die,
 };
 
 use failure::Fallible;
@@ -74,13 +75,39 @@ impl Connection {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
-            bail!("Rejecting handshake: banned node");
+            bail!("Rejecting handshake: banned node.");
         }
-        if !is_compatible_version(&handshake.version) {
-            bail!("Rejecting handshake: incompatible client");
+        if !is_compatible_version(&handshake.node_version) {
+            bail!("Rejecting handshake: incompatible client ({}).", handshake.node_version);
+        }
+        if handshake.wire_versions.is_empty() {
+            bail!("Rejecting handshake: Handshake message lacked wire versions.");
+        }
+        if is_compatible_wire_version(&handshake.wire_versions).is_none() {
+            bail!(
+                "Rejecting handshake: incompatible wire protocol versions ({:?}).",
+                handshake.wire_versions
+            );
         }
         if handshake.networks.len() > MAX_PEER_NETWORKS {
-            bail!("Rejecting handshake: too many networks");
+            bail!("Rejecting handshake: too many networks.");
+        }
+
+        {
+            let our_blocks = read_or_die!(self.handler.config.regenesis_arc);
+            // we will consider that the list of regenesis blocks is sorted
+            // by height, so we check sequentially.
+            let common_blocks = our_blocks
+                .iter()
+                .zip(handshake.genesis_blocks.iter())
+                .take_while(|(a, b)| a == b)
+                .count();
+            if common_blocks != our_blocks.len() && common_blocks != handshake.genesis_blocks.len()
+            {
+                bail!(
+                    "Rejecting handshake: Didn't find a common prefix on the genesis block hashes."
+                );
+            }
         }
 
         self.promote_to_post_handshake(
