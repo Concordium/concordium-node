@@ -259,7 +259,7 @@ updateCredentials :: (HasPersistingAccountData d) => Maybe CredentialsUpdate -> 
 updateCredentials Nothing d = d
 updateCredentials (Just CredentialsUpdate{..}) d =
   -- maximum is safe here since there must always be at least one credential on the account.
-  d' & (accountMaxCredentialValidTo %~ max (maximum (validTo <$> allCredentials)))
+  d' & (accountMaxCredentialValidTo .~ maximum (validTo <$> allCredentials))
   where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
         d' = d & (accountCredentials %~ Map.union cuAdd . removeKeys)
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
