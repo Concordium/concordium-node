@@ -32,7 +32,7 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 transactionsInput :: [Types.CredentialDeploymentWithMeta]
-transactionsInput = map (Types.fromCDI 0) $ [
+transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
   cdi1,
   cdi2,
   cdi3,
@@ -59,7 +59,7 @@ testAccountCreation = do
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
+    let accAddrs = map (accountAddressFromCredential . Types.credential) [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()

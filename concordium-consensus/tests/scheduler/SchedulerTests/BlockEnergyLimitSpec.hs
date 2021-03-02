@@ -71,7 +71,7 @@ testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
     -- block energy limit
-    let ts = Types.TGCredentialDeployment (Types.fromCDI 0 cdi1) : ts' -- dummy arrival time of 0
+    let ts = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 cdi1) : ts' -- dummy arrival time of 0
 
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
@@ -96,7 +96,7 @@ checkResult (valid, invalid, invalidCred, unproc, [t1, t3, t4]) =
             let (invalidTs, failures) = unzip invalid
             let (invalidCreds, credFailures) = unzip invalidCred
             assertEqual "The second and third transactions are invalid:" [t3] invalidTs
-            assertEqual "The credential deployment is invalid." [Types.fromCDI 0 cdi1] invalidCreds
+            assertEqual "The credential deployment is invalid." [Types.addMetadata Types.CredentialDeployment 0 cdi1] invalidCreds
             assertEqual "There is one normal transaction whose energy exceeds the block energy limit:"
                 (replicate 1 Types.ExceedsMaxBlockEnergy) failures
             assertEqual "There is one credential deployment whose energy exceeds the block energy limit:"
