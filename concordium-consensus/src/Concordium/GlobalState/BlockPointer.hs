@@ -150,7 +150,7 @@ instance Show (BlockPointer pv ati p s) where
 instance HashableTo BlockHash (BlockPointer pv ati p s) where
     getHash = getHash . _bpInfo
 
-instance IsProtocolVersion pv => BlockData (BlockPointer pv ati p s) where
+instance BlockData (BlockPointer pv ati p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
@@ -158,7 +158,6 @@ instance IsProtocolVersion pv => BlockData (BlockPointer pv ati p s) where
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature = verifyBlockSignature . _bpBlock
-    putBlockV1 = putBlockV1 . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
@@ -166,9 +165,11 @@ instance IsProtocolVersion pv => BlockData (BlockPointer pv ati p s) where
     {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
-    {-# INLINE putBlockV1 #-}
 
-instance IsProtocolVersion pv => BlockPointerData (BlockPointer pv ati p s) where
+instance IsProtocolVersion pv => EncodeBlock pv (BlockPointer pv ati p s) where
+    putBlock spv = putBlock spv . _bpBlock
+
+instance BlockPointerData (BlockPointer pv ati p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo

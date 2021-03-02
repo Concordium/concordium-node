@@ -1,5 +1,6 @@
 {-# LANGUAGE
     OverloadedStrings,
+    ScopedTypeVariables,
     TypeFamilies,
     TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
@@ -116,8 +117,8 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're connected, relay the message as required
             if connected then case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getExactVersionedBlock @ PV now) blockBS of
-                        Right (NormalBlock block) -> do
+                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
+                        Right (block :: BakedBlock) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
@@ -146,8 +147,8 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're not connected, don't relay, but still send to the monitor channel
             else case msg of
                 MsgNewBlock blockBS ->
-                    case runGet (getExactVersionedBlock @ PV now) blockBS of
-                        Right (NormalBlock block) -> do
+                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
+                        Right (block :: BakedBlock) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))

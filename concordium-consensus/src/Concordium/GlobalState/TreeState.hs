@@ -81,6 +81,7 @@ class (Eq (BlockPointerType m),
        BlockPointerData (BlockPointerType m),
        BlockStateStorage m,
        BlockPointerMonad m,
+       B.EncodeBlock pv (BlockPointerType m),
        PerAccountDBOperations m,
        Monad m,
        IsProtocolVersion pv)
@@ -465,7 +466,7 @@ importBlockV1 :: ByteString
               -> (PendingBlock -> IO (ImportingResult a))
               -> IO (ImportingResult a)
 importBlockV1 blockBS tm logm logLvl continuation =
-  case B.deserializePendingBlockV1 blockBS tm of
+  case B.deserializePendingBlock SP0 blockBS tm of
     Left err -> do
       logm logLvl LLError $ "Can't deserialize block: " ++ show err
       return SerializationFail

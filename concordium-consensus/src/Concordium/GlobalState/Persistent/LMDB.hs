@@ -71,12 +71,12 @@ data StoredBlock pv st = StoredBlock {
 instance (IsProtocolVersion pv, S.Serialize st) => S.Serialize (StoredBlock pv st) where
   put StoredBlock{..} = S.put sbFinalizationIndex <>
           S.put sbInfo <>
-          putBlockV1 sbBlock <>
+          putBlock (protocolVersion @pv) sbBlock <>
           S.put sbState
   get = do
           sbFinalizationIndex <- S.get
           sbInfo <- S.get
-          sbBlock <- getBlockV1 (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
+          sbBlock <- getBlock (protocolVersion @pv) (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
           sbState <- S.get
           return StoredBlock{..}
 

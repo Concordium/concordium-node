@@ -1013,7 +1013,7 @@ processFinalizationSummary FinalizationSummary{..} =
             ActiveCurrentRound _ -> getFinalizationInstance >>= \case
                 Nothing -> return mempty -- This should not happen, since it means that we seem to be participating in finalization
                                             -- but do not have keys to do so
-                Just finInst@(FinalizationInstance{..}) -> do
+                Just finInst@(FinalizationInstance{}) -> do
                     committee@FinalizationCommittee{..} <- use finCommittee
                     initDelta <- use finIndexInitialDelta
                     msgSessionId <- use finSessionId

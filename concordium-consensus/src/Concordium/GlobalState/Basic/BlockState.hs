@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -22,7 +23,10 @@ import Data.ByteString.Builder (hPutBuilder)
 import Control.Monad.IO.Class
 
 import Concordium.Types
+import Concordium.Types.ProtocolVersion.TH
 import Concordium.Types.Updates
+import qualified Concordium.Genesis.Data.P0 as P0
+import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.GlobalState.Types as GT
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
@@ -67,21 +71,21 @@ instance HashableTo H.Hash BasicBirkParameters where
         bpH1 = H.hashOfHashes (getHash _birkNextEpochBakers) (getHash _birkCurrentEpochBakers)
 
 -- |Serialize 'BasicBirkParameters' in V0 format.
-putBirkParametersV0 :: Putter BasicBirkParameters
-putBirkParametersV0 BasicBirkParameters{..} = do
+putBirkParameters :: Putter BasicBirkParameters
+putBirkParameters BasicBirkParameters{..} = do
     put _birkSeedState
-    putEpochBakersV0 (_unhashed _birkNextEpochBakers)
-    putEpochBakersV0 (_unhashed _birkCurrentEpochBakers)
+    putEpochBakers (_unhashed _birkNextEpochBakers)
+    putEpochBakers (_unhashed _birkCurrentEpochBakers)
 
 -- |Deserialize 'BasicBirkParameters' in V0 format.
 -- Since the active bakers are not stored in the serialization,
 -- the 'BasicBirkParameters' will have empty 'ActiveBakers',
 -- which should be corrected by processing the accounts table.
-getBirkParametersV0 :: Get BasicBirkParameters
-getBirkParametersV0 = do
+getBirkParameters :: Get BasicBirkParameters
+getBirkParameters = do
     _birkSeedState <- get
-    _birkNextEpochBakers <- makeHashed <$> getEpochBakersV0
-    _birkCurrentEpochBakers <- makeHashed <$> getEpochBakersV0
+    _birkNextEpochBakers <- makeHashed <$> getEpochBakers
+    _birkCurrentEpochBakers <- makeHashed <$> getEpochBakers
     let _birkActiveBakers = ActiveBakers Set.empty Set.empty
     return BasicBirkParameters{..}
 
@@ -98,7 +102,7 @@ makeBirkParameters _birkActiveBakers nextEpochBakers currentEpochBakers _birkSee
     _birkCurrentEpochBakers = makeHashed currentEpochBakers
 
 initialBirkParameters ::
-  [Account]
+  [Account pv]
   -- ^The accounts at genesis, in order
   -> SeedState
   -- ^The seed state
@@ -158,7 +162,7 @@ getHashedEpochBlocksV0 = do
     return $! foldr' consEpochBlock emptyHashedEpochBlocks blocks
 
 data BlockState (pv :: ProtocolVersion) = BlockState {
-    _blockAccounts :: !Accounts.Accounts,
+    _blockAccounts :: !(Accounts.Accounts pv),
     _blockInstances :: !Instances.Instances,
     _blockModules :: !Modules.Modules,
     _blockBank :: !(Hashed Rewards.BankStatus),
@@ -187,10 +191,10 @@ instance IsProtocolVersion pv => HasBlockState (HashedBlockState pv) pv where
 instance HashableTo StateHash (HashedBlockState pv) where
     getHash = _blockStateHash
 
--- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
--- has hard-coded initial values for amount of gtu in existence.
-emptyBlockStateP0 :: BasicBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> BlockState 'P0
-emptyBlockStateP0 _blockBirkParameters cryptographicParameters auths chainParams = BlockState
+-- |Construct a block state that is empty, except for the supplied 'BirkParameters',
+-- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
+emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> BlockState pv
+emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams = BlockState
           { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
             ..
           }
@@ -205,10 +209,6 @@ emptyBlockStateP0 _blockBirkParameters cryptographicParameters auths chainParams
       _blockUpdates = initialUpdates auths chainParams
       _blockReleaseSchedule = Map.empty
       _blockEpochBlocksBaked = emptyHashedEpochBlocks
-
-emptyBlockState :: forall pv. IsProtocolVersion pv => BasicBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> BlockState pv
-emptyBlockState = case protocolVersion :: SProtocolVersion pv of
-    SP0 -> emptyBlockStateP0
 
 -- |Convert a @BlockState 'P0@ to a @HashedBlockState 'P0@ by computing
 -- the state hash.
@@ -231,19 +231,41 @@ hashBlockStateP0 bs@BlockState{..} = HashedBlockState {
               bshEpochBlocks = getHash _blockEpochBlocksBaked
             }
 
+-- |Convert a @BlockState 'P1@ to a @HashedBlockState 'P1@ by computing
+-- the state hash.
+hashBlockStateP1 :: BlockState 'P1 -> HashedBlockState 'P1
+hashBlockStateP1 bs@BlockState{..} = HashedBlockState {
+        _unhashedBlockState = bs,
+        _blockStateHash = h
+      }
+    where
+        h = BS.makeBlockStateHash BS.BlockStateHashInputs {
+              bshBirkParameters = getHash _blockBirkParameters,
+              bshCryptographicParameters = getHash _blockCryptographicParameters,
+              bshIdentityProviders = getHash _blockIdentityProviders,
+              bshAnonymityRevokers = getHash _blockAnonymityRevokers,
+              bshModules = getHash _blockModules,
+              bshBankStatus = getHash _blockBank,
+              bshAccounts = getHash _blockAccounts,
+              bshInstances = getHash _blockInstances,
+              bshUpdates = getHash _blockUpdates,
+              bshEpochBlocks = getHash _blockEpochBlocksBaked
+            }
+
 hashBlockState :: forall pv. IsProtocolVersion pv => BlockState pv -> HashedBlockState pv
 hashBlockState = case protocolVersion :: SProtocolVersion pv of
   SP0 -> hashBlockStateP0
+  SP1 -> hashBlockStateP1
 
 instance IsProtocolVersion pv => HashableTo StateHash (BlockState pv) where
     getHash = _blockStateHash . hashBlockState
 
 
 -- |Serialize 'BlockState' in V0 format.
-putBlockStateV0 :: Putter (BlockState 'P0)
-putBlockStateV0 bs = do
+putBlockState :: IsProtocolVersion pv => Putter (BlockState pv)
+putBlockState bs = do
     -- BirkParameters
-    putBirkParametersV0 (bs ^. blockBirkParameters)
+    putBirkParameters (bs ^. blockBirkParameters)
     -- CryptographicParameters
     let cryptoParams = bs ^. blockCryptographicParameters . unhashed
     put cryptoParams
@@ -278,10 +300,10 @@ putBlockStateV0 bs = do
 --  * Accounts correctly record their instances.
 --
 -- Note that the transaction outcomes will always be empty.
-getBlockStateV0 :: Get (BlockState 'P0)
-getBlockStateV0 = do
+getBlockState :: forall pv. IsProtocolVersion pv => Get (BlockState pv)
+getBlockState = do
     -- BirkParameters
-    preBirkParameters <- getBirkParametersV0
+    preBirkParameters <- getBirkParameters
     -- CryptographicParameters
     cryptoParams <- get
     let _blockCryptographicParameters = makeHashed cryptoParams
@@ -293,20 +315,24 @@ getBlockStateV0 = do
     _blockModules <- Modules.getModulesV0
     -- BankStatus
     _blockBank <- makeHashed <$> get
-    accounts0 <- Accounts.getAccountsV0 cryptoParams
+    (accounts0 :: Accounts.Accounts pv) <- Accounts.getAccountsV0 cryptoParams
     let resolveModule modRef initName = do
             mi <- Modules.getInterface modRef _blockModules
             return (Wasm.miExposedReceive mi ^. at initName . non Set.empty, mi)
     _blockInstances <- Instances.getInstancesV0 resolveModule
     _blockUpdates <- getUpdatesV0 
     _blockEpochBlocksBaked <- getHashedEpochBlocksV0
-    -- Add references from accounts to their instances
-    let processInstance accounts inst = case Accounts.getAccountIndex (Instances.instanceOwner params) accounts of
-            Nothing -> fail "Instance has invalid owner"
-            Just aix -> return $! accounts & Accounts.indexedAccount aix . accountInstances %~ Set.insert (Instances.instanceAddress params)
-          where
-            params = Instances.instanceParameters inst
-    _blockAccounts <- foldM processInstance accounts0 (_blockInstances ^.. Instances.foldInstances)
+    -- For P0, accounts have references to their instances.
+    _blockAccounts <- case protocolVersion @pv of
+      SP0 -> do
+        -- Add references from accounts to their instances
+        let processInstance accounts inst = case Accounts.getAccountIndex (Instances.instanceOwner params) accounts of
+                Nothing -> fail "Instance has invalid owner"
+                Just aix -> return $! accounts & Accounts.indexedAccount aix . accountInstances %~ Set.insert (Instances.instanceAddress params)
+              where
+                params = Instances.instanceParameters inst
+        foldM processInstance accounts0 (_blockInstances ^.. Instances.foldInstances)
+      SP1 -> return accounts0
     -- Construct the release schedule and active bakers from the accounts
     let processAccount (rs,bkrs) account = do
           let rs' = case Map.minViewWithKey (account ^. accountReleaseSchedule . pendingReleases) of
@@ -337,7 +363,7 @@ type instance GT.BlockStatePointer (HashedBlockState pv) = ()
 instance GT.BlockStateTypes (PureBlockStateMonad pv m) where
     type BlockState (PureBlockStateMonad pv m) = HashedBlockState pv
     type UpdatableBlockState (PureBlockStateMonad pv m) = BlockState pv
-    type Account (PureBlockStateMonad pv m) = Account
+    type Account (PureBlockStateMonad pv m) = Account pv
 
 instance ATITypes (PureBlockStateMonad pv m) where
   type ATIStorage (PureBlockStateMonad pv m) = ()
@@ -450,7 +476,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getCryptographicParameters bs =
       return $! bs ^. blockCryptographicParameters . unhashed
 
-instance Monad m => BS.AccountOperations (PureBlockStateMonad pv m) where
+instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockStateMonad pv m) where
 
   getAccountAddress acc = return $ acc ^. accountAddress
 
@@ -469,8 +495,6 @@ instance Monad m => BS.AccountOperations (PureBlockStateMonad pv m) where
   getAccountEncryptionKey acc = return $ acc ^. accountEncryptionKey
 
   getAccountReleaseSchedule acc = return $ acc ^. accountReleaseSchedule
-
-  getAccountInstances acc = return $ acc ^. accountInstances
 
   getAccountBaker acc = return $ acc ^. accountBaker
 
@@ -511,8 +535,10 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             bs' = bs
                 -- Add the instance
                 & blockInstances .~ instances'
-                -- Update the owner account's set of instances
-                & blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
+                -- Update the owner account's set of instances (version P0 only)
+                & $(onPV [| case protocolVersion @pv of
+                    SP0 -> blockAccounts . ix instanceOwner . accountInstances %~ Set.insert instanceAddress
+                    _ -> id |])
 
     bsoPutNewModule bs iface = return $!
         case Modules.putInterface iface (bs ^. blockModules) of
@@ -593,7 +619,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         Nothing -> (BAInvalidAccount, bs)
         -- Account is already a baker
         Just (ai, Account{_accountBaker = Just _}) -> (BAAlreadyBaker (BakerId ai), bs)
-        Just (ai, Account{..})
+        Just (ai, Account{})
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
           -- All checks pass, add the baker
@@ -626,7 +652,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoUpdateBakerStake bs aaddr newStake = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..})
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
           -- We can make the change
@@ -643,7 +669,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoUpdateBakerRestakeEarnings bs aaddr newRestakeEarnings = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..}) ->
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}}) ->
           if newRestakeEarnings == _stakeEarnings
           -- No actual change
           then (BREUUpdated (BakerId ai), bs)
@@ -653,7 +679,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoRemoveBaker bs aaddr = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..})
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BRChangePending (BakerId ai), bs)
           -- We can make the change
@@ -806,17 +832,16 @@ instance (IsProtocolVersion pv, MonadIO m) => BS.BlockStateStorage (PureBlockSta
     cacheBlockState = return
 
     {-# INLINE serializeBlockState #-}
-    serializeBlockState = case protocolVersion :: SProtocolVersion pv of
-      SP0 -> return . runPutLazy . putBlockStateV0 . _unhashedBlockState
+    serializeBlockState = return . runPutLazy . putBlockState . _unhashedBlockState
 
     {-# INLINE writeBlockState #-}
-    writeBlockState h = case protocolVersion :: SProtocolVersion pv of
-      SP0 -> PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockStateV0 . _unhashedBlockState
+    writeBlockState h = PureBlockStateMonad . liftIO . hPutBuilder h . snd . runPutMBuilder . putBlockState . _unhashedBlockState
 
 -- |Initial block state.
-initialState :: SeedState
+initialState :: (IsProtocolVersion pv)
+             => SeedState
              -> CryptographicParameters
-             -> [Account]
+             -> [Account pv]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
              -> Authorizations
@@ -853,7 +878,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths 
 
 -- |Initial block state based on 'GenesisData'.
 genesisStateP0 :: GenesisData 'P0 -> BlockState 'P0
-genesisStateP0 (GDP0 GenesisDataV2{..}) = BlockState {..}
+genesisStateP0 (GDP0 P0.GenesisDataP0{..}) = BlockState {..}
   where
     mkAccount GenesisAccount{..} bid =
           case gaBaker of
@@ -888,19 +913,57 @@ genesisStateP0 (GDP0 GenesisDataV2{..}) = BlockState {..}
     _blockUpdates = initialUpdates genesisAuthorizations genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
-    _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
-              bshBirkParameters = getHash _blockBirkParameters,
-              bshCryptographicParameters = getHash _blockCryptographicParameters,
-              bshIdentityProviders = getHash _blockIdentityProviders,
-              bshAnonymityRevokers = getHash _blockAnonymityRevokers,
-              bshModules = getHash _blockModules,
-              bshBankStatus = getHash _blockBank,
-              bshAccounts = getHash _blockAccounts,
-              bshInstances = getHash _blockInstances,
-              bshUpdates = getHash _blockUpdates,
-              bshEpochBlocks = getHash _blockEpochBlocksBaked
-            }
+
+genesisStateP1 :: GenesisData 'P1 -> BlockState 'P1
+genesisStateP1 (GDP1 P1.GDP1Initial{
+    genesisCore=P1.CoreGenesisParameters{..},
+    genesisInitialState = P1.GenesisState{..}
+  }) = BlockState {..}
+  where
+    mkAccount GenesisAccount{..} bid =
+          case gaBaker of
+            Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
+            _ -> newAccountMultiCredential genesisCryptographicParameters gaVerifyKeys gaAddress gaCredentials
+                      & accountAmount .~ gaBalance
+                      & case gaBaker of
+                          Nothing -> id
+                          Just GenesisBaker{..} -> accountBaker ?~ AccountBaker {
+                            _stakedAmount = gbStake,
+                            _stakeEarnings = gbRestakeEarnings,
+                            _accountBakerInfo = BakerInfo {
+                                _bakerIdentity = bid,
+                                _bakerSignatureVerifyKey = gbSignatureVerifyKey,
+                                _bakerElectionVerifyKey = gbElectionVerifyKey,
+                                _bakerAggregationVerifyKey = gbAggregationVerifyKey
+                                },
+                            _bakerPendingChange = NoChange
+                            }
+    accounts = zipWith mkAccount (toList genesisAccounts) [0..]
+    genesisSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
+    _blockBirkParameters = initialBirkParameters accounts genesisSeedState
+    _blockCryptographicParameters = makeHashed genesisCryptographicParameters
+    _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts accounts
+    _blockInstances = Instances.emptyInstances
+    _blockModules = Modules.emptyModules
+    -- initial amount in the central bank is the amount on all genesis accounts combined
+    initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
+    _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
+    _blockIdentityProviders = makeHashed genesisIdentityProviders
+    _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
+    _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
+    _blockUpdates = initialUpdates genesisAuthorizations genesisChainParameters
+    _blockReleaseSchedule = Map.empty
+    _blockEpochBlocksBaked = emptyHashedEpochBlocks
+genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNewState of
+  Left err -> error $ "Could not deserialize genesis state: " ++ err
+  Right bs
+      | hbs ^. blockStateHash /= genesisStateHash -> error "Could not deserialize genesis state: state hash is incorrect"
+      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= P1.genesisEpochLength genesisCore -> error "Could not deserialize genesis state: epoch length mismatch"      
+      | otherwise -> bs
+    where
+      hbs = hashBlockState bs
 
 genesisState :: forall pv. (IsProtocolVersion pv) => GenesisData pv -> BlockState pv
 genesisState = case protocolVersion :: SProtocolVersion pv of
   SP0 -> genesisStateP0
+  SP1 -> genesisStateP1

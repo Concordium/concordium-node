@@ -29,6 +29,7 @@ import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
+import qualified Concordium.Genesis.Data.P0 as P0
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
 makeBakersByStake = mbs 0
@@ -127,7 +128,7 @@ makeGenesisData
         genesisMaxBlockEnergy
         genesisAuthorizations
         genesisChainParameters
-    = (GDP0 GenesisDataV2{..}, bakers)
+    = (GDP0 P0.GenesisDataP0{..}, bakers)
     where
         genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
         mbkrs = makeBakers nBakers

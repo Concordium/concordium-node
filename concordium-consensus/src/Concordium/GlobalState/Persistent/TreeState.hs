@@ -33,7 +33,7 @@ import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
-import Data.List as List hiding (map)
+import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Typeable
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -361,7 +361,7 @@ instance (MonadIO m, MonadState (SkovPersistentData pv DiskDump bs) m) => PerAcc
     PAAIConfig handle <- use logContext
     liftIO $ writeEntries handle bh ati sos
 
-instance (IsProtocolVersion pv) => GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
+instance GlobalStateTypes (PersistentTreeStateMonad pv ati bs m) where
     type BlockPointerType (PersistentTreeStateMonad pv ati bs m) = PersistentBlockPointer pv (ATIValues ati) bs
 
 instance HasLogContext PerAccountAffectIndex (SkovPersistentData pv DiskDump bs) where
@@ -412,8 +412,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
 constructBlock :: (MonadIO m,
                    BlockStateStorage m,
                    TS.BlockState m ~ bs,
-                   CanExtend (ATIStorage m),
-                   IsProtocolVersion pv)
+                   CanExtend (ATIStorage m))
                => StoredBlock pv (TS.BlockStatePointer bs) -> m (PersistentBlockPointer pv (ATIStorage m) bs)
 constructBlock StoredBlock{..} = do
   bstate <- loadBlockState (blockStateHash sbBlock) sbState
@@ -593,7 +592,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
-              CredentialDeployment{..} -> do
+              CredentialDeployment{} -> do
                 -- because we do not have nonce tracking for these transactions we need to check that
                 -- this transction does not already exist in the on-disk storage.
                 finalizedP <- memberTransactionTable trHash

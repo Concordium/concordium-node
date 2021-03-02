@@ -19,8 +19,7 @@ type BasicBlockPointer pv s = BlockPointer pv () Identity s
 -- |Make a 'BasicBlockPointer' from a 'PendingBlock'.
 -- The parent and last finalized block pointers must match the block data.
 makeBasicBlockPointer ::
-    IsProtocolVersion pv
-    => PendingBlock        -- ^Pending block
+    PendingBlock        -- ^Pending block
     -> BasicBlockPointer pv s    -- ^Parent block pointer
     -> BasicBlockPointer pv s    -- ^Last finalized block pointer
     -> s       -- ^Block state

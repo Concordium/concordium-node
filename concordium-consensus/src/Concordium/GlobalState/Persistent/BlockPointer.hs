@@ -69,7 +69,7 @@ makeGenesisPersistentBlockPointer :: forall pv m bs ati. (IsProtocolVersion pv, 
 makeGenesisPersistentBlockPointer genData _bpState _bpATI = liftIO $ do
   let _bpReceiveTime = timestampToUTCTime (gdGenesisTime genData)
       b = GenesisBlock genData
-      _bpHash = hashGenesisData (protocolVersion :: SProtocolVersion pv) genData
+      _bpHash = genesisBlockHash genData
   _bpParent <- emptyWeak
   _bpLastFinalized <- emptyWeak
   return $ BlockPointer {

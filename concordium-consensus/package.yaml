@@ -33,6 +33,7 @@ dependencies:
 - unordered-containers >= 0.2
 - hashable >= 1.0.1.1
 - containers >0.5.9.1
+- data-fix >= 0.3
 - time >=1.8
 - transformers >=0.5
 - microlens-platform >=0.3
@@ -61,6 +62,7 @@ default-extensions:
 - DataKinds
 - RecordWildCards
 - LambdaCase
+- KindSignatures
 - TupleSections
 - MultiParamTypeClasses
 - FlexibleContexts

@@ -85,7 +85,7 @@ exportBlockV1 finalizedHeight = do
   case mblock of
     Nothing -> return ()
     Just storedBlock -> do
-      let serializedBlock = S.runPut (putBlockV1 (sbBlock storedBlock))
+      let serializedBlock = S.runPut (putBlock SP0 (sbBlock storedBlock))
           len = BS.length serializedBlock
       export <- view exportFile
       liftIO $ do

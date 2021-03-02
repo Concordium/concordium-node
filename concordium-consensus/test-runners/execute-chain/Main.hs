@@ -1,10 +1,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Main where
 
-import Control.Exception
-import Control.Monad
+-- import Control.Exception
+-- import Control.Monad
 import Control.Monad.IO.Class
-import Control.Monad.Reader
+-- import Control.Monad.Reader
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.IORef
@@ -19,18 +19,18 @@ import System.Clock
 import Concordium.Logger
 import Concordium.TimerMonad
 import Concordium.Types.Execution (tsEnergyCost)
-import Concordium.Types.HashableTo
+-- import Concordium.Types.HashableTo
 import Concordium.Types.ProtocolVersion
 
 import Concordium.GlobalState
-import Concordium.GlobalState.Basic.BlockState (getBlockStateV0)
+-- import Concordium.GlobalState.Basic.BlockState (getBlockState)
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockState
 
 -- import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState (hpbsHash, makePersistent)
+-- import Concordium.GlobalState.Persistent.BlobStore
+-- import Concordium.GlobalState.Persistent.BlockState (hpbsHash, makePersistent)
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol (currentTimestamp)
 import Concordium.Kontrol.BestBlock
@@ -39,13 +39,13 @@ import Concordium.Skov
 -- |Protocol version
 type PV = 'P0
 
--- type TreeConfig = DiskTreeDiskBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
-
-type TreeConfig = MemoryTreeDiskBlockConfig PV
+type TreeConfig = DiskTreeDiskBlockConfig PV
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+
+-- type TreeConfig = MemoryTreeDiskBlockConfig PV
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
 
 -- type TreeConfig = MemoryTreeMemoryBlockConfig PV
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
@@ -62,7 +62,7 @@ type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) 
 parseArgs :: [String] -> IO (GenesisData PV, FilePath)
 parseArgs [gdPath, blocksPath] = do
     gdfile <- LBS.readFile gdPath
-    gd <- case runGetLazy getExactVersionedGenesisData gdfile of
+    gd <- case runGetLazy getVersionedGenesisData gdfile of
         Left err -> error err
         Right gd -> return gd
     -- blocks <- LBS.readFile blocksPath
@@ -90,7 +90,8 @@ main = do
     stateRef <- newIORef skovState0
     startTime <- getTime Monotonic
     -- cRef <- newIORef (0, startTime)
-    bracket (createBlobStore ("data/dummy-" ++ show now ++ ".dat")) destroyBlobStore $ \tempBS -> do
+    {- bracket (createBlobStore ("data/dummy-" ++ show now ++ ".dat")) destroyBlobStore $ \tempBS -> -}
+    do
         {-
         let importBlock pb = do
                 (c0, t0) <- readIORef cRef
@@ -166,7 +167,7 @@ readBlocks fp continuation = do
                         Left _ -> return SerializationFail
                         Right l -> do
                             bbs <- BS.hGet h (fromIntegral l)
-                            case deserializePendingBlockV1 bbs tm of
+                            case deserializePendingBlock SP0 bbs tm of
                                 Left _ -> return SerializationFail
                                 Right block -> continuation block >>= \case
                                     Success -> loop

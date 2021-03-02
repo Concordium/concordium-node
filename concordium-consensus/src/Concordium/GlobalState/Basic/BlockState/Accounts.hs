@@ -38,22 +38,22 @@ import Control.Monad
 -- Note that the operations *do not* enforce a correspondence between 'accountRegIds'
 -- and the credentials used by the accounts in 'accountTable'.
 -- The data integrity of accounts is also not enforced by these operations.
-data Accounts = Accounts {
+data Accounts (pv :: ProtocolVersion) = Accounts {
     -- |Unique index of accounts by 'AccountAddress'
     accountMap :: !(Map.Map AccountAddress AccountIndex),
     -- |Hashed Merkle-tree of the accounts.
-    accountTable :: !AT.AccountTable,
+    accountTable :: !(AT.AccountTable pv),
     -- |Set of 'ID.CredentialRegistrationID's that have been used for accounts.
     accountRegIds :: !(Set.Set ID.CredentialRegistrationID)
 }
 
-instance Show Accounts where
+instance IsProtocolVersion pv => Show (Accounts pv) where
     show Accounts{..} = "Accounts {\n" ++ Map.foldMapWithKey showAcct accountMap ++ "accountRegIds = " ++ show accountRegIds ++ "\n}"
         where
             showAcct addr ind = show addr ++ " => " ++ maybe "MISSING" show (accountTable ^? ix ind) ++ "\n"
 
 -- |An 'Accounts' with no accounts.
-emptyAccounts :: Accounts
+emptyAccounts :: Accounts pv
 emptyAccounts = Accounts Map.empty AT.Empty Set.empty
 
 -- |Add or modify a given account.
@@ -62,7 +62,7 @@ emptyAccounts = Accounts Map.empty AT.Empty Set.empty
 -- and recording it in 'accountMap'.
 -- If an account with the address already exists, 'accountTable' is updated
 -- to reflect the new state of the account.
-putAccount :: Account -> Accounts -> Accounts
+putAccount :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
 putAccount !acct Accounts{..} =
   case Map.lookup addr accountMap of
     Nothing -> let (i, newAccountTable) = AT.append acct accountTable
@@ -72,38 +72,38 @@ putAccount !acct Accounts{..} =
   where addr = acct ^. accountAddress
 
 -- |Equivalent to calling putAccount and recordRegId in sequence.
-putAccountWithRegIds :: Account -> Accounts -> Accounts
+putAccountWithRegIds :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
 putAccountWithRegIds !acct accts =
   foldl' (\accs currentAcc -> recordRegId (ID.regId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
 
 -- |Determine if an account with the given address exists.
-exists :: AccountAddress -> Accounts -> Bool
+exists :: AccountAddress -> Accounts pv -> Bool
 exists addr Accounts{..} = Map.member addr accountMap
 
 -- |Retrieve an account with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccount :: AccountAddress -> Accounts -> Maybe Account
+getAccount :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Maybe (Account pv)
 getAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> accountTable ^? ix i
 
-getAccountIndex :: AccountAddress -> Accounts -> Maybe AccountIndex
+getAccountIndex :: AccountAddress -> Accounts pv -> Maybe AccountIndex
 getAccountIndex addr Accounts{..} = Map.lookup addr accountMap
 
 -- |Retrieve an account and its index with the given address.
 -- Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: AccountAddress -> Accounts -> Maybe (AccountIndex, Account)
+getAccountWithIndex :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Maybe (AccountIndex, Account pv)
 getAccountWithIndex addr Accounts{..} = case Map.lookup addr accountMap of
                                  Nothing -> Nothing
                                  Just i -> (i, ) <$> accountTable ^? ix i
 
 -- |Traversal for accessing the account at a given index.
-indexedAccount :: AccountIndex -> Traversal' Accounts Account
+indexedAccount :: IsProtocolVersion pv => AccountIndex -> Traversal' (Accounts pv) (Account pv)
 indexedAccount ai = lens accountTable (\a v-> a{accountTable = v}) . ix ai
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: AccountUpdate -> Account -> Account
+updateAccount :: IsProtocolVersion pv => AccountUpdate -> Account pv -> Account pv
 updateAccount !upd
     = updateNonce
       . updateReleaseSchedule
@@ -127,7 +127,7 @@ updateAccount !upd
 
 -- |Retrieve an account with the given address.
 -- An account with the address is required to exist.
-unsafeGetAccount :: AccountAddress -> Accounts -> Account
+unsafeGetAccount :: IsProtocolVersion pv => AccountAddress -> Accounts pv -> Account pv
 unsafeGetAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                        Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
                                        Just i -> accountTable ^?! ix i
@@ -135,30 +135,30 @@ unsafeGetAccount addr Accounts{..} = case Map.lookup addr accountMap of
 -- |Check that an account registration ID is not already on the chain.
 -- See the foundation (Section 4.2) for why this is necessary.
 -- Return @True@ if the registration ID already exists in the set of known registration ids, and @False@ otherwise.
-regIdExists :: ID.CredentialRegistrationID -> Accounts -> Bool
+regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Bool
 regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
 
 -- |Record an account registration ID as used.
-recordRegId :: ID.CredentialRegistrationID -> Accounts -> Accounts
+recordRegId :: ID.CredentialRegistrationID -> Accounts pv -> Accounts pv
 recordRegId rid accs = accs { accountRegIds = Set.insert rid (accountRegIds accs) }
 
-instance HashableTo H.Hash Accounts where
+instance HashableTo H.Hash (Accounts pv) where
     getHash Accounts{..} = getHash accountTable
 
-type instance Index Accounts = AccountAddress
-type instance IxValue Accounts = Account
+type instance Index (Accounts pv) = AccountAddress
+type instance IxValue (Accounts pv) = (Account pv)
 
-instance Ixed Accounts where
+instance IsProtocolVersion pv => Ixed (Accounts pv) where
   ix addr f acc@(Accounts{..}) =
      case accountMap ^. at' addr of
        Nothing -> pure acc
        Just i -> (\atable -> acc { accountTable = atable }) <$> ix i f accountTable
 
-accountList :: Accounts -> [Account]
+accountList :: Accounts pv -> [Account pv]
 accountList = fmap snd . AT.toList . accountTable
 
 -- |Serialize 'Accounts' in V0 format.
-putAccountsV0 :: GlobalContext -> Putter Accounts
+putAccountsV0 :: IsProtocolVersion pv => GlobalContext -> Putter (Accounts pv)
 putAccountsV0 cryptoParams Accounts{..} = do
     putWord64be $ AT.size accountTable
     forM_ (AT.toList accountTable) $ \(_, acct) -> putAccountV0 cryptoParams acct
@@ -168,7 +168,7 @@ putAccountsV0 cryptoParams Accounts{..} = do
 --
 --  * Every baker account's 'BakerId' must match the account index.
 --  * 'CredentialRegistrationID's must not be used on more than one account.
-getAccountsV0 :: GlobalContext -> Get Accounts
+getAccountsV0 :: IsProtocolVersion pv => GlobalContext -> Get (Accounts pv)
 getAccountsV0 cryptoParams = do
     nAccounts <- getWord64be
     let loop i accts@Accounts{..}
@@ -181,10 +181,10 @@ getAccountsV0 cryptoParams = do
             let addRegId regids cred
                   | ID.regId cred `Set.member` regids = fail "Duplicate credential"
                   | otherwise = return $ Set.insert (ID.regId cred) regids
-            newRegIds <- foldM addRegId accountRegIds (_accountCredentials (_accountPersisting acct))
+            newRegIds <- foldM addRegId accountRegIds (acct ^. accountCredentials)
             loop (i+1)
               Accounts {
-                accountMap = Map.insert (_accountAddress (_accountPersisting acct)) acctId accountMap,
+                accountMap = Map.insert (acct ^. accountAddress) acctId accountMap,
                 accountTable = snd (AT.append acct accountTable),
                 accountRegIds = newRegIds
               }

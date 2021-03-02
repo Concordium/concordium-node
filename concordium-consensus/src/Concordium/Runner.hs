@@ -3,6 +3,7 @@
     BangPatterns,
     UndecidableInstances,
     ConstraintKinds,
+    TypeApplications,
     TypeFamilies
 #-}
 module Concordium.Runner where
@@ -372,7 +373,7 @@ makeAsyncRunner logm bkr config = do
                 MsgShutdown -> stopSyncRunner sr
                 MsgBlockReceived src blockBS -> do
                     now <- currentTime
-                    case deserializeExactVersionedPendingBlock blockBS now of
+                    case deserializeExactVersionedPendingBlock (protocolVersion @(SkovProtocolVersion c)) blockBS now of
                         Left err -> logm Runner LLWarning err
                         Right !block -> syncReceiveBlock sr block >>= handleResult src
                     msgLoop
@@ -416,7 +417,7 @@ makeAsyncRunner logm bkr config = do
         _ <- forkIO (msgLoop `catch` \(e :: SomeException) -> (logm Runner LLError ("Message loop exited with exception: " ++ show e) >> Prelude.putStrLn ("// **** " ++ show e)))
         return (inChan, outChan, sr)
     where
-        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putVersionedBlockV1 block
+        simpleToOutMessage (SOMsgNewBlock block) = MsgNewBlock $ runPut $ putVersionedBlock (protocolVersion @(SkovProtocolVersion c)) block
         simpleToOutMessage (SOMsgFinalization finMsg) = MsgFinalization $ runPut $ putVersionedFPMV0 finMsg
         simpleToOutMessage (SOMsgFinalizationRecord finRec) = MsgFinalizationRecord $ runPut $ putVersionedFinalizationRecordV0 finRec
 

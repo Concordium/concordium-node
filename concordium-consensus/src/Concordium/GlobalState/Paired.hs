@@ -123,7 +123,10 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
     verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) vbsl
         where
             vbsl = verifyBlockSignature l
-    putBlockV1 (PairBlockData (l, _)) = putBlockV1 l
+
+instance (EncodeBlock pv l) => EncodeBlock pv (PairBlockData l r) where
+    putBlock spv (PairBlockData (l, _)) = putBlock spv l
+    putVersionedBlock spv (PairBlockData (l, _)) = putVersionedBlock spv l
 
 instance (HashableTo BlockHash l, HashableTo BlockHash r) => HashableTo BlockHash (PairBlockData l r) where
     getHash (PairBlockData (l, r)) = assert ((getHash l :: BlockHash) == getHash r) $ getHash l
@@ -330,11 +333,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ars1 <- coerceBSML (getAccountReleaseSchedule acc1)
         ars2 <- coerceBSMR (getAccountReleaseSchedule acc2)
         assert (ars1 == ars2) $ return ars1
-
-    getAccountInstances (acc1, acc2) = do
-        ais1 <- coerceBSML (getAccountInstances acc1)
-        ais2 <- coerceBSMR (getAccountInstances acc2)
-        assert (ais1 == ais2) $ return ais1
 
     getAccountBaker (acc1, acc2) = do
         ab1 <- coerceBSML (getAccountBaker acc1)
