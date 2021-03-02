@@ -250,14 +250,8 @@ dispatch msg = do
                    UpdateBakerKeys{..} ->
                      handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
 
-                   UpdateAccountKeys{..} ->
-                     handleUpdateAccountKeys (mkWTC TTUpdateAccountKeys) uakKeys
-
-                   AddAccountKeys{..} ->
-                     handleAddAccountKeys (mkWTC TTAddAccountKeys) aakKeys aakThreshold
-
-                   RemoveAccountKeys{..} ->
-                     handleRemoveAccountKeys (mkWTC TTRemoveAccountKeys) rakIndices rakThreshold
+                   UpdateCredentialKeys{..} ->
+                     handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
 
                    EncryptedAmountTransfer{..} ->
                      handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData
@@ -270,6 +264,9 @@ dispatch msg = do
 
                    TransferWithSchedule{..} ->
                      handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule
+
+                   UpdateCredentials{..} ->
+                     handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
 
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
@@ -616,7 +613,7 @@ handleInitContract wtc initAmount modref initName param =
             senderCredentials <- getAccountCredentials senderAccount
             let initCtx = Wasm.InitContext{
                   initOrigin = thSender meta,
-                  icSenderPolicies = map Wasm.mkSenderPolicy senderCredentials
+                  icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                }
             result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
                        `rejectingWith'` wasmRejectToRejectReason
@@ -793,11 +790,11 @@ mkSenderAddrCredentials sender =
     case sender of
       Left (ownerAccount, istance) -> do
         credentials <- getAccountCredentials ownerAccount
-        return (AddressContract (instanceAddress (instanceParameters istance)), credentials)
+        return (AddressContract (instanceAddress (instanceParameters istance)), map snd (OrdMap.toAscList credentials))
       Right acc -> do
         addr <- AddressAccount <$> getAccountAddress acc
         credentials <- getAccountCredentials acc
-        return (addr, credentials)
+        return (addr, map snd (OrdMap.toAscList credentials))
 
 
 -- | Handle the transfer of an amount from an account or contract instance to an account.
@@ -940,7 +937,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
               BI.BAAlreadyBaker bid -> return (TxReject (AlreadyABaker bid), energyCost, usedEnergy)
               BI.BADuplicateAggregationKey -> return (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
           else return (TxReject InvalidProof, energyCost, usedEnergy)
-          
+
 -- |Remove the baker for an account. The logic is as follows:
 --
 --  * If the account is not a baker, the transaction fails ('NotABaker').
@@ -1118,12 +1115,12 @@ handleDeployCredential cdi cdiHash = do
       let expiry = ID.validTo cdi
 
       -- check that a registration id does not yet exist
-      let regId = ID.regId cdi
+      let regId = ID.credId cdi
       regIdEx <- accountRegIdExists regId
       if not (isTimestampBefore (slotTime cm) expiry) then
         return $ Just (TxInvalid AccountCredentialInvalid)
       else if regIdEx then
-        return $ Just (TxInvalid (DuplicateAccountRegistrationID (ID.regId cdi)))
+        return $ Just (TxInvalid (DuplicateAccountRegistrationID (ID.credId cdi)))
       else do
         -- We now look up the identity provider this credential is derived from.
         -- Of course if it does not exist we reject the transaction.
@@ -1141,11 +1138,9 @@ handleDeployCredential cdi cdiHash = do
                      if AH.verifyInitialAccountCreation ipInfo (S.encode icdi) then do
                        -- Create the account with the credential, but don't yet add it to the state
                        cryptoParams <- getCryptoParams
-                       let initialAccountInfo = ID.icdvAccount (ID.icdiValues icdi)
-                       let accountKeys = ID.makeAccountKeys (ID.icaKeys initialAccountInfo) (ID.icaThreshold initialAccountInfo)
                        -- Creation is guaranteed to succeed since an account with the address
                        -- does not already exist.
-                       _ <- createAccount cryptoParams accountKeys aaddr (ID.InitialAC (ID.icdiValues icdi))
+                       _ <- createAccount cryptoParams aaddr (ID.InitialAC (ID.icdiValues icdi))
                        mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                      else return $ Just (TxInvalid AccountCredentialInvalid)
 
@@ -1158,13 +1153,12 @@ handleDeployCredential cdi cdiHash = do
                   Just arsInfos -> do
                     cryptoParams <- getCryptoParams
                     -- we have two options. One is that we are deploying a credential on an existing account.
-                    case ID.cdvAccount ncdv of
-                      ID.NewAccount keys threshold ->
+                    case ID.cdvPublicKeys ncdv of
+                      ID.CredentialPublicKeys keys _ ->
                         -- account does not yet exist, so create it, but we need to be careful
                         if null keys || length keys > 255 then
                           return $ Just (TxInvalid AccountCredentialInvalid)
                         else do
-                          let accountKeys = ID.makeAccountKeys keys threshold
                           let aaddr = ID.addressFromRegId regId
                           case ID.values cdi of
                             Nothing -> return $ Just (TxInvalid AccountCredentialInvalid)
@@ -1172,120 +1166,52 @@ handleDeployCredential cdi cdiHash = do
                               -- this check is extremely unlikely to fail (it would amount to a hash collision since
                               -- we checked regIdEx above already).
                               accExistsAlready <- isJust <$> getAccount aaddr
-                              let check = AH.verifyCredential cryptoParams ipInfo arsInfos Nothing cdiBytes
+                              let check = AH.verifyCredential cryptoParams ipInfo arsInfos cdiBytes Nothing
                               if not accExistsAlready && check then do
                                 -- Add the account to the state, but only if the credential was valid and the account does not exist
-                                _ <- createAccount cryptoParams accountKeys aaddr cdv
+                                _ <- createAccount cryptoParams aaddr cdv
 
                                 mkSummary (TxSuccess [AccountCreated aaddr, CredentialDeployed{ecdRegId=regId,ecdAccount=aaddr}])
                               else return $ Just (TxInvalid AccountCredentialInvalid)
 
--- |Updates the account keys. For each (index, key) pair, updates the key at
--- the specified index to the specified key. Is valid when the given indices all point
--- to an existing key.
-handleUpdateAccountKeys ::
+-- |Updates the credential keys in the credential with the given Credential ID. 
+-- It rejects if there is no credential with the given Credential ID.
+handleUpdateCredentialKeys ::
   SchedulerMonad m
     => WithDepositContext m
-    -> OrdMap.Map ID.KeyIndex AccountVerificationKey
+    -> ID.CredentialRegistrationID
+    -- ^Registration ID of the credential we are updating.
+    -> ID.CredentialPublicKeys
+    -- ^New public keys of the credential..
+    -> TransactionSignature
+    -- ^Signatures on the transaction. This is needed to check that a specific credential signed.
     -> m (Maybe TransactionSummary)
-handleUpdateAccountKeys wtc keys =
+handleUpdateCredentialKeys wtc cid keys sigs =
   withDeposit wtc cost k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
-    cost = tickEnergy $ Cost.updateAccountKeys $ length keys
-    k ls _ = do
-      accountKeys <- getAccountVerificationKeys senderAccount
-      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
-      if Set.isSubsetOf (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then do
-        senderAddr <- getAccountAddress senderAccount
-        updateAccountKeys senderAddr keys
-        return (TxSuccess [AccountKeysUpdated], energyCost, usedEnergy)
-      else
-        return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
-
-
--- |Removes the account keys at the supplied indices and, optionally, updates
--- the signature threshold. Is valid when the indices supplied are already in use
--- and the new threshold does not exceed the new total amount of keys.
-handleRemoveAccountKeys ::
-  SchedulerMonad m
-    => WithDepositContext m
-    -> Set.Set ID.KeyIndex
-    -> Maybe ID.SignatureThreshold
-    -> m (Maybe TransactionSummary)
-handleRemoveAccountKeys wtc indices threshold =
-  withDeposit wtc cost k
-  where
-    senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
-    meta = wtc ^. wtcTransactionHeader
-    cost = tickEnergy $ Cost.removeAccountKeys $ length indices
+    cost = tickEnergy $ Cost.updateCredentialKeys $ length $ ID.credKeys keys
     k ls _ = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
-      accountKeys <- getAccountVerificationKeys senderAccount
-      let numOfKeys = length (ID.akKeys accountKeys)
-      let currentThreshold = ID.akThreshold accountKeys
-      if Set.isSubsetOf indices (ID.getKeyIndices accountKeys) then
-        case threshold of
-          Just newThreshold ->
-            -- the subtraction is safe here because we have checked that indices is a subset of keys.
-            if newThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
-              senderAddr <- getAccountAddress senderAccount
-              removeAccountKeys senderAddr indices threshold
-              return (TxSuccess [AccountKeysRemoved, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
-            else
-              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-          Nothing -> do
-            if currentThreshold <= (fromIntegral (numOfKeys - (length indices))) then do
-              senderAddr <- getAccountAddress senderAccount
-              removeAccountKeys senderAddr indices Nothing
-              return (TxSuccess [AccountKeysRemoved], energyCost, usedEnergy)
-            else
-              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-      else return (TxReject NonExistentAccountKey, energyCost, usedEnergy)
-
-
--- |Adds keys to the account at the supplied indices and, optionally, updates
--- the signature threshold. Is valid when the indices supplied are not already in use
--- and the new threshold doesn’t exceed the new total amount of keys.
-handleAddAccountKeys ::
-  SchedulerMonad m
-    => WithDepositContext m
-    -> OrdMap.Map ID.KeyIndex AccountVerificationKey
-    -> Maybe ID.SignatureThreshold
-    -> m (Maybe TransactionSummary)
-handleAddAccountKeys wtc keys threshold =
-  withDeposit wtc cost k
-  where
-    senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
-    meta = wtc ^. wtcTransactionHeader
-    cost = tickEnergy $ Cost.addAccountKeys $ length keys
-    k ls _ = do
-      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
-      -- all the keys must be new.
-      accountKeys <- getAccountVerificationKeys senderAccount
-      let numOfKeys = length (ID.akKeys accountKeys)
-      if Set.disjoint (OrdMap.keysSet keys) (ID.getKeyIndices accountKeys) then
-        case threshold of
-          Just newThreshold ->
-            if newThreshold <= fromIntegral (numOfKeys + (length keys)) then do
-              senderAddr <- getAccountAddress senderAccount
-              addAccountKeys senderAddr keys threshold
-              return (TxSuccess [AccountKeysAdded, AccountKeysSignThresholdUpdated], energyCost, usedEnergy)
-            else
-              return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy)
-          Nothing -> do
+      existingCredentials <- getAccountCredentials senderAccount
+      let credIndex = fst <$> find (\(_, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
+      -- check that the new threshold is no more than the number of credentials
+      let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
+      case credIndex of 
+        Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
+        Just index -> if not thresholdCheck then return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy) else do
+          -- We check that the credential whose keys we are updating has indeed signed this transaction.
+          let check = OrdMap.member index $ tsSignatures sigs
+          if check then do
             senderAddr <- getAccountAddress senderAccount
-            addAccountKeys senderAddr keys Nothing
-            return (TxSuccess [AccountKeysAdded], energyCost, usedEnergy)
-      else
-        return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
+            updateCredentialKeys senderAddr index keys
+            return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
+          else
+            return (TxReject CredentialHolderDidNotSign, energyCost, usedEnergy)
+
 
 -- * Chain updates
 
@@ -1342,6 +1268,107 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       else
         return (TxInvalid IncorrectSignature)
 
+handleUpdateCredentials ::
+  SchedulerMonad m
+    => WithDepositContext m
+    -> OrdMap.Map ID.CredentialIndex ID.CredentialDeploymentInformation
+    -> [ID.CredentialRegistrationID]
+    -> ID.AccountThreshold
+    -> m (Maybe TransactionSummary)
+handleUpdateCredentials wtc cdis removeRegIds threshold =
+  withDeposit wtc c k
+  where
+    credentialcost = toInteger (length cdis) * toInteger (Cost.deployCredential ID.Normal)
+    c = tickEnergy $ Energy $ fromInteger credentialcost
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      cryptoParams <- getCryptoParams
+      existingCredentials <- getAccountCredentials senderAccount
+      senderAddress <- getAccountAddress senderAccount
+      -- check that all credentials that are to be removed actually exist.
+      -- This is either Nothing if there is a credential id in the list to remove
+      -- which does not exist on the account now or Just kis where `kis` is a list of key indices
+      -- to remove.
+      let (nonExistingRegIds, indicesToRemove) =
+            -- Here we do not care whether the list of credentials to remove has unique elements
+            -- or not. As long as the lists are limited in length this should not matter, i.e.,
+            -- this is not an abusable property.
+            -- Because we should never have duplicate regids on the chain, each of them will only
+            -- map to the unique key index. Thus the following map is well-defined.
+            let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
+            in foldl' (\(nonExisting, existing) rid ->
+                         case rid `OrdMap.lookup` existingCredIds of
+                           Nothing -> (rid:nonExisting, existing)
+                           Just ki -> (nonExisting, Set.insert ki existing)
+                      ) ([], Set.empty) removeRegIds
+
+      -- check that the indices after removal are disjoint from the indices that we are about to add
+      let removalCheck = null nonExistingRegIds &&
+                         let existingIndices = OrdMap.keysSet existingCredentials
+                             newIndices = OrdMap.keysSet cdis
+                         in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
+
+      -- check that the new threshold is no more than the number of credentials
+      -- 
+      let thresholdCheck = toInteger (OrdMap.size existingCredentials) + toInteger (OrdMap.size cdis) >= toInteger (Set.size indicesToRemove) + toInteger threshold
+
+      let firstCredNotRemoved = 0 `notElem` indicesToRemove
+
+      -- make sure that the credentials that are being added have not yet been used on the chain.
+      -- This is a list of credential registration ids that already exist. The list is used for error
+      -- reporting.
+      (existingCredIds, newCredIds) <- foldM (\(acc, newRids) cdi -> do
+                                       let rid = ID.cdvCredId . ID.cdiValues $ cdi
+                                       exists <- accountRegIdExists rid
+                                       if exists || Set.member rid newRids then
+                                         return (rid:acc, rid `Set.insert` newRids)
+                                       else return (acc, rid `Set.insert` newRids)
+                                    ) ([], Set.empty) cdis
+
+      let getIP cdi = getIPInfo $ ID.ipId $ ID.NormalACWP cdi
+          getAR cdi = getArInfos $ OrdMap.keys $ ID.cdvArData $ ID.cdiValues cdi
+          -- verify the cryptographic proofs
+          checkCDI cdi = do
+              ip <- getIP cdi
+              ar <- getAR cdi
+              case ip of
+                Nothing -> return False
+                Just ipInfo -> case ar of
+                  Nothing -> return False
+                  Just arInfos -> return $ AH.verifyCredential cryptoParams ipInfo arInfos (S.encode cdi) (Just senderAddress)
+      -- check all the credential proofs.
+      -- This is only done if all the previous checks have succeeded since this is by far the most computationally expensive part.
+      checkProofs <- foldM (\check cdi -> if check then checkCDI cdi else return False) (firstCredNotRemoved && thresholdCheck && removalCheck && null existingCredIds) cdis
+      if checkProofs then do -- check if stuff is correct
+        let creds = traverse (ID.values . ID.NormalACWP) cdis
+        case creds of
+          Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
+          Just newCredentials -> do
+            _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials
+            return (TxSuccess [CredentialsUpdated {
+                                  cuAccount = senderAddress,
+                                  cuNewCredIds = Set.toList newCredIds,
+                                  cuRemovedCredIds = removeRegIds,
+                                  cuNewThreshold = threshold
+                                  }], energyCost, usedEnergy)
+      else
+        -- try to provide a more fine-grained error by analyzing what went wrong
+        -- at some point we should refine the scheduler monad to support cleaner error
+        -- handling by adding MonadError capability to it. Until that is done this
+        -- is a pretty clean alternative to avoid deep nesting.
+        if not firstCredNotRemoved then
+          return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
+        else if not (null nonExistingRegIds) then
+          return (TxReject (NonExistentCredIDs nonExistingRegIds), energyCost, usedEnergy)
+        else if not removalCheck then
+          return (TxReject KeyIndexAlreadyInUse, energyCost, usedEnergy)
+        else if not (null existingCredIds) then
+          return (TxReject (DuplicateCredIDs existingCredIds), energyCost, usedEnergy)
+        else return (TxReject InvalidCredentials, energyCost, usedEnergy)
 
 
 -- * Exposed methods.

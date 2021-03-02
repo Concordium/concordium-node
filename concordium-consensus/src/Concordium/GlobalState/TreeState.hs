@@ -38,8 +38,6 @@ import Concordium.Logger
 import Data.Serialize as S
 import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
-import Data.Word
-import Foreign.Storable(sizeOf)
 import Data.Bits
 
 data BlockStatus bp pb =
