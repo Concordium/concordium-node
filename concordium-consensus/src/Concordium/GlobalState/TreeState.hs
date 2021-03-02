@@ -14,6 +14,7 @@ import qualified Data.Set as Set
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Except
+import System.IO
 
 import Concordium.GlobalState.Block (BlockData(..), BlockPendingData (..), PendingBlock(..))
 import Concordium.GlobalState.BlockPointer (BlockPointerData(..))
@@ -32,12 +33,12 @@ import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 
-import qualified Data.ByteString.Lazy as LBS
 import Data.ByteString
 import Concordium.Logger
 import Data.Serialize as S
 import Concordium.Common.Version (Version)
 import qualified Concordium.GlobalState.Block as B
+import Data.Bits
 
 data BlockStatus bp pb =
     BlockAlive !bp
@@ -418,43 +419,51 @@ data ImportingResult a = SerializationFail | Success | OtherError a deriving (Sh
 -- - version number that determines the format of all the subsequent blocks in the file.
 --
 -- The function returns, if successfull, the version, and the unconsumed input.
-readHeader :: LBS.ByteString -> Either String (Version, LBS.ByteString)
-readHeader = S.runGetLazyState S.get
+readHeader :: ByteString -> Either String Version
+readHeader = S.runGet S.get
 
+getVersionBytes :: Handle -> IO ByteString
+getVersionBytes h = do
+  b <- hGet h 1
+  if testBit (Data.ByteString.head b) 7
+    then
+    append b <$> getVersionBytes h
+    else
+    return b
 
-readBlocksV1 :: (Show a) => LBS.ByteString
+readBlocksV1 :: (Show a) => Handle
            -> UTCTime
            -> LogMethod IO
            -> LogSource
            -> (PendingBlock -> IO (ImportingResult a))
            -> IO (ImportingResult a)
-readBlocksV1 lbs tm logm logLvl continuation = do
-  case readHeader lbs of
+readBlocksV1 h tm logm logLvl continuation = do
+  v <- getVersionBytes h
+  case readHeader v of
       Left err -> do
         logm logLvl LLError $ "Error deserializing header: " ++ err
         return SerializationFail
-      Right (version, rest)
-          | version == 1 -> loopV1 rest
+      Right version
+          | version == 1 -> loopV1
           | otherwise -> do
               logm logLvl LLError $ "Unsupported version: " ++ show version
               return SerializationFail
-  where loopV1 rest
-            | LBS.null rest = return Success -- we've reached the end of the file
-            | otherwise =
-                case S.runGetLazyState blockGetter rest of
-                  Left err -> do
-                    logm logLvl LLError $ "Error reading block bytes: " ++ err
-                    return SerializationFail
-                  Right (blockBS, remainingBS) -> do
-                    result <- importBlockV1 blockBS tm logm logLvl continuation
-                    case result of
-                      Success -> loopV1 remainingBS
-                      err -> do -- stop processing at first error that we encounter.
-                        logm External LLError $ "Error importing block: " ++ show err
-                        return err
-        blockGetter = do
-          len <- S.getWord64be
-          S.getByteString (fromIntegral len)
+  where loopV1 = do
+          isEof <- hIsEOF h
+          if isEof
+            then return Success
+            else do
+            len <- S.runGet S.getWord64be <$> hGet h 8
+            case len of
+              Left _ -> return SerializationFail
+              Right l -> do
+                blockBS <- hGet h (fromIntegral l)
+                result <- importBlockV1 blockBS tm logm logLvl continuation
+                case result of
+                  Success -> loopV1
+                  err -> do -- stop processing at first error that we encounter.
+                    logm External LLError $ "Error importing block: " ++ show err
+                    return err
 
 importBlockV1 :: ByteString
               -> UTCTime

@@ -812,7 +812,8 @@ mod tests {
         p2p::P2PNode,
         rpc::RpcServerImpl,
         test_utils::{
-            await_handshakes, connect, get_test_config, make_node_and_sync, next_available_port,
+            await_handshakes, connect, dummy_regenesis_blocks, get_test_config, make_node_and_sync,
+            next_available_port,
         },
     };
     use chrono::prelude::Utc;
@@ -827,7 +828,9 @@ mod tests {
 
     // The intended use is for spawning nodes for testing gRPC api.
     async fn create_test_rpc_node(nt: PeerType) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
-        let node = make_node_and_sync(next_available_port(), vec![100], nt).unwrap();
+        let node =
+            make_node_and_sync(next_available_port(), vec![100], nt, dummy_regenesis_blocks())
+                .unwrap();
 
         let rpc_port = next_available_port();
         let mut config = get_test_config(8888, vec![100]);
@@ -895,7 +898,7 @@ mod tests {
     async fn test_peer_total_received() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -912,7 +915,7 @@ mod tests {
     async fn test_peer_total_sent() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -929,7 +932,7 @@ mod tests {
     async fn test_peer_connect() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         let _sent = client
             .peer_connect(req_with_auth!(
                 grpc_api::PeerConnectRequest {
@@ -953,7 +956,7 @@ mod tests {
     async fn test_join_network() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -971,7 +974,7 @@ mod tests {
     async fn test_leave_network() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -989,7 +992,7 @@ mod tests {
     async fn test_peer_stats() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -1010,7 +1013,7 @@ mod tests {
     async fn test_peer_list() -> Fallible<()> {
         let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node)?;
+        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -1032,6 +1035,7 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(flag = "bootstrapper")]
     #[tokio::test]
     async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
         let (mut client, _) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
