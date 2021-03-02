@@ -93,11 +93,11 @@ data AccountAction
   | FlushPersistent
   | ArchivePersistent
 
-randomizeAccount :: AccountAddress -> ID.AccountKeys -> Gen Account
+randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen Account
 randomizeAccount _accountAddress _accountVerificationKeys = do
-  let vfKey = snd . head $ (OrdMap.toAscList (ID.akKeys _accountVerificationKeys))
+  let vfKey = snd . head $ (OrdMap.toAscList (ID.credKeys _accountVerificationKeys))
   let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
-  let a0 = newAccount dummyCryptographicParameters _accountVerificationKeys _accountAddress cred
+  let a0 = newAccount dummyCryptographicParameters _accountAddress cred
   nonce <- Nonce <$> arbitrary
   amt <- Amount <$> arbitrary
   return $ a0 & accountNonce .~ nonce & accountAmount .~ amt
@@ -111,9 +111,9 @@ randomActions = sized (ra Set.empty Set.empty)
     randAccount = do
       address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
       n <- choose (1, 255)
-      akKeys <- OrdMap.fromList . zip [0 ..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
-      akThreshold <- fromIntegral <$> choose (1, n)
-      return (ID.AccountKeys {..}, address)
+      credKeys <- OrdMap.fromList . zip [0 ..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
+      credThreshold <- fromIntegral <$> choose (1, n)
+      return (ID.CredentialPublicKeys {..}, address)
     ra _ _ 0 = return []
     ra s rids n =
       oneof $

@@ -42,7 +42,6 @@ import Data.Functor
 import qualified Data.Vector as Vec
 import Data.Serialize(Serialize)
 import qualified Data.Map as Map
-import Data.Set (Set)
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
 import Data.Word
@@ -69,7 +68,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialValidTo, AccountKeys)
+import Concordium.ID.Types (AccountCredential, CredentialValidTo)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |The hashes of the block state components, which are combined
@@ -130,13 +129,13 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
-  getAccountCredentials :: Account m -> m [AccountCredential]
+  getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
 
   -- |Get the last expiry time of a credential on the account.
   getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
 
-  -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
-  getAccountVerificationKeys :: Account m -> m ID.AccountKeys
+  -- -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
+  getAccountVerificationKeys :: Account m -> m ID.AccountInformation
 
   -- |Get the current encrypted amount on the account.
   getAccountEncryptedAmount :: Account m -> m AccountEncryptedAmount
@@ -291,7 +290,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- Otherwise, the new account is returned, and the credential is added to the known credentials.
   --
   -- It is not checked if the account's credential is a duplicate.
-  bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
+  bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
   -- |Add a new smart contract instance to the state.
   bsoPutNewInstance :: UpdatableBlockState m -> (ContractAddress -> Instance) -> m (ContractAddress, UpdatableBlockState m)
@@ -643,7 +642,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetAccountIndex s = lift . bsoGetAccountIndex s
   bsoGetInstance s = lift . bsoGetInstance s
   bsoRegIdExists s = lift . bsoRegIdExists s
-  bsoCreateAccount s gc accKeys accAddr cdv = lift $ bsoCreateAccount s gc accKeys accAddr cdv
+  bsoCreateAccount s gc accAddr cdv = lift $ bsoCreateAccount s gc accAddr cdv
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s

@@ -1,5 +1,4 @@
 {-# LANGUAGE DeriveGeneric #-}
-{-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.Runner where
 
 import GHC.Generics(Generic)
@@ -26,13 +25,12 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 
 import Prelude hiding(mod, exp)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |Sign a transaction with the given list of keys.
-signTx :: [(KeyIndex, KeyPair)] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
+signTx :: [(CredentialIndex, [(KeyIndex, KeyPair)])] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
 signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
     where header = Types.TransactionHeader{thPayloadSize=Types.payloadSize encPayload,..}
 
@@ -95,12 +93,8 @@ transactionHelper t =
         Just ubkProofSig <- liftIO $ Proofs.proveDlog25519KP challenge (Sig.KeyPairEd25519 bSignSecretKey bSignVerifyKey)
         ubkProofAggregation <- liftIO $ Bls.proveKnowledgeOfSK challenge bAggregateSecretKey -- TODO: Make sure enough context data is included that this proof can't be reused.
         return $ signTx keys meta (Types.encodePayload (Types.UpdateBakerKeys{..}))
-    (TJSON meta (UpdateAccountKeys keyUpdates) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.UpdateAccountKeys keyUpdates))
-    (TJSON meta (RemoveAccountKeys keyIdxs threshold) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.RemoveAccountKeys keyIdxs threshold))
-    (TJSON meta (AddAccountKeys newKeys threshold) keys) ->
-      return $ signTx keys meta (Types.encodePayload (Types.AddAccountKeys newKeys threshold))
+    (TJSON meta UpdateCredentialKeys{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload (Types.UpdateCredentialKeys{..}))
     (TJSON meta TransferToEncrypted{..} keys) ->
       return $ signTx keys meta (Types.encodePayload (Types.TransferToEncrypted tteAmount))
     (TJSON meta EncryptedAmountTransfer{..} keys) ->
@@ -109,6 +103,8 @@ transactionHelper t =
       return $ signTx keys meta (Types.encodePayload Types.TransferToPublic{..})
     (TJSON meta TransferWithSchedule{..} keys) ->
       return $ signTx keys meta (Types.encodePayload Types.TransferWithSchedule{..})
+    (TJSON meta UpdateCredentials{..} keys) ->
+      return $ signTx keys meta (Types.encodePayload Types.UpdateCredentials{..})
 
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON]  -> m [Types.AccountTransaction]
@@ -173,17 +169,11 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                     bAggregateVerifyKey :: BakerAggregationVerifyKey,
                     bAggregateSecretKey :: BakerAggregationPrivateKey
                     }
-                 | UpdateAccountKeys {
-                     uakUpdates :: !(Map.Map KeyIndex AccountVerificationKey)
-                     }
-                 | RemoveAccountKeys {
-                     rakIndices :: !(Set.Set KeyIndex),
-                     rakThreshold :: !(Maybe SignatureThreshold)
-                     }
-                 | AddAccountKeys {
-                     aakKeys :: !(Map.Map KeyIndex AccountVerificationKey),
-                     aakThreshold :: !(Maybe SignatureThreshold)
-                     }
+                 | UpdateCredentialKeys {
+                      -- | New set of credential keys to be replaced with the existing ones, including updating the threshold.
+                      uckCredId :: CredentialRegistrationID,
+                      uckKeys :: !CredentialPublicKeys
+                    }
                  | TransferToEncrypted {
                      tteAmount :: !Amount
                      }
@@ -197,6 +187,11 @@ data PayloadJSON = DeployModule { version :: Word32, moduleName :: FilePath }
                  | TransferWithSchedule {
                      twsTo :: !AccountAddress,
                      twsSchedule :: ![(Timestamp, Amount)]
+                     }
+                 | UpdateCredentials {
+                     ucNewCredInfos :: !(Map.Map CredentialIndex CredentialDeploymentInformation),
+                     ucRemoveCredIds :: ![CredentialRegistrationID],
+                     ucNewThreshold :: !AccountThreshold
                      }
                  deriving(Show, Generic)
 
@@ -213,6 +208,6 @@ data TransactionHeader = TransactionHeader {
 
 data TransactionJSON = TJSON { metadata :: TransactionHeader
                              , payload :: PayloadJSON
-                             , keys :: [(KeyIndex, KeyPair)]
+                             , keys :: [(CredentialIndex, [(KeyIndex, KeyPair)])]
                              }
   deriving(Show,Generic)
