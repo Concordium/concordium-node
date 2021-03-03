@@ -11,6 +11,7 @@ import Data.Word
 import Control.Monad
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
+import qualified Data.Map.Strict as Map
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
@@ -252,12 +253,14 @@ instance HashableTo Hash.Hash PersistentAccount where
 instance Monad m => MHashableTo m Hash.Hash PersistentAccount
 
 -- |Create an empty account with the given public key, address and credential.
-newAccount :: MonadBlobStore m => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m PersistentAccount
-newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
+newAccount :: MonadBlobStore m => GlobalContext -> AccountAddress -> AccountCredential -> m PersistentAccount
+newAccount cryptoParams _accountAddress credential = do
+  let creds = Map.singleton 0 credential
   let newPData = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
-        _accountCredentials = [credential],
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
+        _accountCredentials = creds,
         _accountMaxCredentialValidTo = validTo credential,
+        _accountVerificationKeys = getAccountInformation 1 creds,
         ..
         }
   _persistingData <- refMake newPData
