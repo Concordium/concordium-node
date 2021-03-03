@@ -13,7 +13,6 @@ module Concordium.GlobalState.Basic.BlockState.Account(
   module Concordium.GlobalState.Basic.BlockState.Account
 ) where
 
-import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Serialize as S
 import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform

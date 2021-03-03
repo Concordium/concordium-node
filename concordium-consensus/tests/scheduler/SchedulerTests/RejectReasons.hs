@@ -36,52 +36,52 @@ transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
       payload = DeployModule 0 "./testdata/contracts/reject-reasons.wasm",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
       payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_success" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 3 100000,
       payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_error_pos" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 4 100000,
       payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_fail_minus2" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 5 100000,
       payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_fail_big" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 6 100000,
       payload = Update 0 (Types.ContractAddress 0 0) "success.receive_error_no_action" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 7 100000,
       payload = Update 0 (Types.ContractAddress 0 0) "success.receive_success" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 8 100000,
       payload = Update 0 (Types.ContractAddress 0 0) "success.receive_error_pos" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 9 100000,
       payload = Update 0 (Types.ContractAddress 0 0) "success.receive_fail_minus5" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 10 100000,
       payload = Update 0 (Types.ContractAddress 0 0) "success.receive_fail_big" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       }
   ]
 

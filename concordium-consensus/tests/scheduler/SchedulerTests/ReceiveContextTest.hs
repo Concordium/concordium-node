@@ -17,7 +17,6 @@ import Concordium.GlobalState.Basic.BlockState
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState.Accounts
-import Concordium.Wasm
 import Concordium.ID.Types (AccountAddress(..), accountAddressSize)
 
 import Concordium.Scheduler.DummyData
