@@ -140,7 +140,9 @@ data PendingUpdates = PendingUpdates {
         -- |Updates to the transaction fee distribution.
         pTransactionFeeDistributionQueue :: !(HashedBufferedRef (UpdateQueue TransactionFeeDistribution)),
         -- |Updates to the GAS rewards.
-        pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue GASRewards))
+        pGASRewardsQueue :: !(HashedBufferedRef (UpdateQueue GASRewards)),
+        -- |Updates to the baker minimum threshold
+        pBakerMinimumThresholdQueue :: !(HashedBufferedRef (UpdateQueue Amount))
     }
 
 instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
@@ -154,6 +156,7 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
         hMintDistributionQueue <- H.hashToByteString <$> getHashM pMintDistributionQueue
         hTransactionFeeDistributionQueue <- H.hashToByteString <$> getHashM pTransactionFeeDistributionQueue
         hGASRewardsQueue <- H.hashToByteString <$> getHashM pGASRewardsQueue
+        hBakerMinimumThresholdQueue <- H.hashToByteString <$> getHashM pBakerMinimumThresholdQueue
         return $! H.hash $
             hAuthorizationQueue
             <> hProtocolQueue
@@ -164,6 +167,7 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
             <> hMintDistributionQueue
             <> hTransactionFeeDistributionQueue
             <> hGASRewardsQueue
+            <> hBakerMinimumThresholdQueue
 
 instance (MonadBlobStore m)
         => BlobStorable m PendingUpdates where
@@ -177,6 +181,7 @@ instance (MonadBlobStore m)
             (putMintDistributionQueue, newMintDistributionQueue) <- storeUpdate pMintDistributionQueue
             (putTransactionFeeDistributionQueue, newTransactionFeeDistributionQueue) <- storeUpdate pTransactionFeeDistributionQueue
             (putGASRewardsQueue, newGASRewardsQueue) <- storeUpdate pGASRewardsQueue
+            (putBakerMinimumThresholdQueue, newBakerMinimumThresholdQueue) <- storeUpdate pBakerMinimumThresholdQueue
             let newPU = PendingUpdates {
                     pAuthorizationQueue = aQ,
                     pProtocolQueue = prQ,
@@ -186,13 +191,15 @@ instance (MonadBlobStore m)
                     pFoundationAccountQueue = newFoundationAccountQueue,
                     pMintDistributionQueue = newMintDistributionQueue,
                     pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
-                    pGASRewardsQueue = newGASRewardsQueue
+                    pGASRewardsQueue = newGASRewardsQueue,
+                    pBakerMinimumThresholdQueue = newBakerMinimumThresholdQueue
                 }
             let putPU = pAQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ
                     >> putFoundationAccountQueue
                     >> putMintDistributionQueue
                     >> putTransactionFeeDistributionQueue
                     >> putGASRewardsQueue
+                    >> putBakerMinimumThresholdQueue
             return (putPU, newPU)
     store pu = fst <$> storeUpdate pu
     load = do
@@ -205,6 +212,7 @@ instance (MonadBlobStore m)
         mMintDistributionQueue <- label "Mint distribution update queue" load
         mTransactionFeeDistributionQueue <- label "Transaction fee distribution update queue" load
         mGASRewardsQueue <- label "GAS rewards update queue" load
+        mBakerMinimumThresholdQueue <- label "Baker minimum threshold update queue" load
         return $! do
             pAuthorizationQueue <- mAQ
             pProtocolQueue <- mPrQ
@@ -215,6 +223,7 @@ instance (MonadBlobStore m)
             pMintDistributionQueue <- mMintDistributionQueue
             pTransactionFeeDistributionQueue <- mTransactionFeeDistributionQueue
             pGASRewardsQueue <- mGASRewardsQueue
+            pBakerMinimumThresholdQueue <- mBakerMinimumThresholdQueue
             return PendingUpdates{..}
 
 instance (MonadBlobStore m) => Cacheable m PendingUpdates where
@@ -229,10 +238,11 @@ instance (MonadBlobStore m) => Cacheable m PendingUpdates where
             <*> cache pMintDistributionQueue
             <*> cache pTransactionFeeDistributionQueue
             <*> cache pGASRewardsQueue
+            <*> cache pBakerMinimumThresholdQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: forall m. (MonadBlobStore m) => m PendingUpdates
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
     where
         e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
@@ -249,6 +259,7 @@ makePersistentPendingUpdates Basic.PendingUpdates{..} = do
         pMintDistributionQueue <- refMake =<< makePersistentUpdateQueue _pMintDistributionQueue
         pTransactionFeeDistributionQueue <- refMake =<< makePersistentUpdateQueue _pTransactionFeeDistributionQueue
         pGASRewardsQueue <- refMake =<< makePersistentUpdateQueue _pGASRewardsQueue
+        pBakerMinimumThresholdQueue <- refMake =<< makePersistentUpdateQueue _pBakerMinimumThresholdQueue
         return PendingUpdates{..}
 
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'Basic.PendingUpdates'.
@@ -263,6 +274,7 @@ makeBasicPendingUpdates PendingUpdates{..} = do
         _pMintDistributionQueue <- makeBasicUpdateQueue =<< refLoad pMintDistributionQueue
         _pTransactionFeeDistributionQueue <- makeBasicUpdateQueue =<< refLoad pTransactionFeeDistributionQueue
         _pGASRewardsQueue <- makeBasicUpdateQueue =<< refLoad pGASRewardsQueue
+        _pBakerMinimumThresholdQueue <- makeBasicUpdateQueue =<< refLoad pBakerMinimumThresholdQueue
         return Basic.PendingUpdates{..}
 
 -- |Current state of updatable parameters and update queues.
@@ -565,6 +577,7 @@ lookupNextUpdateSequenceNumber uref uty = do
             UpdateMintDistribution -> uqNextSequenceNumber <$> refLoad (pMintDistributionQueue pendingUpdates)
             UpdateTransactionFeeDistribution -> uqNextSequenceNumber <$> refLoad (pTransactionFeeDistributionQueue pendingUpdates)
             UpdateGASRewards -> uqNextSequenceNumber <$> refLoad (pGASRewardsQueue pendingUpdates)
+            UpdateBakerMinimumThreshold -> uqNextSequenceNumber <$> refLoad (pBakerMinimumThresholdQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: (MonadBlobStore m) => TransactionTime -> UpdateValue -> BufferedRef Updates -> m (BufferedRef Updates)
@@ -580,6 +593,7 @@ enqueueUpdate effectiveTime payload uref = do
             UVMintDistribution v -> enqueue effectiveTime v pMintDistributionQueue <&> \newQ -> p {pMintDistributionQueue=newQ}
             UVTransactionFeeDistribution v -> enqueue effectiveTime v pTransactionFeeDistributionQueue <&> \newQ -> p {pTransactionFeeDistributionQueue=newQ}
             UVGASRewards v -> enqueue effectiveTime v pGASRewardsQueue <&> \newQ -> p {pGASRewardsQueue=newQ}
+            UVBakerMinimumThreshold v -> enqueue effectiveTime v pBakerMinimumThresholdQueue <&> \newQ -> p {pBakerMinimumThresholdQueue=newQ}
         refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Get the current EnergyRate.

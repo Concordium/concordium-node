@@ -126,6 +126,8 @@ data BakerStakeUpdateResult
   -- ^The specified baker was not valid.
   | BSUChangePending !BakerId
   -- ^A stake change is already pending, so the change could not be made.
+  | BSUStakeUnderThreshold
+  -- ^Tried to update the stake under the threshold specified in current chain parameters.
   deriving (Eq, Ord, Show)
 
 data BakerRestakeEarningsUpdateResult
@@ -153,6 +155,8 @@ data BakerAddResult
   -- ^The account is already registered as a baker.
   | BADuplicateAggregationKey
   -- ^The aggregation key already exists.
+  | BAStakeUnderThreshold
+  -- ^The stake is below the required threshold dictated by current chain parameters.
   deriving (Eq, Ord, Show)
 
 data BakerRemoveResult

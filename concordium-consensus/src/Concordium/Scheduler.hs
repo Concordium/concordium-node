@@ -935,6 +935,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                 return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
               BI.BAAlreadyBaker bid -> return (TxReject (AlreadyABaker bid), energyCost, usedEnergy)
               BI.BADuplicateAggregationKey -> return (TxReject (DuplicateAggregationKey abAggregationVerifyKey), energyCost, usedEnergy)
+              BI.BAStakeUnderThreshold -> return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
           else return (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- |Remove the baker for an account. The logic is as follows:
@@ -1004,6 +1005,8 @@ handleUpdateBakerStake wtc newStake =
             return (TxSuccess [], energyCost, usedEnergy)
           BI.BSUInvalidBaker -> -- Since we resolved the account already, this happens only if the account is not a baker.
             return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
+          BI.BSUStakeUnderThreshold ->
+            return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
 
 handleUpdateBakerRestakeEarnings ::
   SchedulerMonad m
@@ -1243,6 +1246,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
           TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
           GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
+          BakerMinimumThresholdPayload u -> checkSigAndUpdate $ UVBakerMinimumThreshold u
   where
     checkSigAndUpdate change = do
       -- Check that the signatures use the appropriate keys and are valid.

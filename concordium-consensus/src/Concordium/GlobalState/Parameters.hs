@@ -146,4 +146,6 @@ data UpdateValue
     | UVTransactionFeeDistribution !TransactionFeeDistribution
     -- |Updates to the GAS rewards.
     | UVGASRewards !GASRewards
+    -- |Updates to the baker minimum threshold
+    | UVBakerMinimumThreshold !Amount
     deriving (Eq, Show)
