@@ -147,7 +147,7 @@ transactionsIO = do
       makeTransaction x@EncryptedAmountTransferData{..} idx checks =
         ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount x -- create an encrypted transfer to Thomas
                       , metadata = makeDummyHeader alesAccount (fromIntegral idx + 1) 100000 -- from Ales with nonce idx + 1
-                      , keys = [(0, alesKP)]
+                      , keys = [(0,[(0, alesKP)])]
                       }
        , (Success $ \case [Types.EncryptedAmountsRemoved {..}, Types.NewEncryptedAmount {..}] -> do
                             HUnit.assertEqual "Account encrypted amounts removed" earAccount alesAccount
@@ -183,7 +183,7 @@ testCases transactions =
         -- First transfer some money to Ales' private balance
         ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
                        , metadata = makeDummyHeader alesAccount 1 100000
-                       , keys = [(0, alesKP)]
+                       , keys = [(0,[(0, alesKP)])]
                        }
         , (SuccessE [Types.EncryptedSelfAmountAdded {
                         eaaAccount = alesAccount,
@@ -207,7 +207,7 @@ tests = do
     return
         [ ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData
                        , metadata = makeDummyHeader thomasAccount 1 100000
-                       , keys = [(0, thomasKP)]
+                       , keys = [(0,[(0, thomasKP)])]
                        }
         , (Success $ \case  [Types.EncryptedAmountsRemoved {..}, Types.AmountAddedByDecryption {..} ] -> do
                               HUnit.assertEqual "Account encrypted amounts removed" earAccount thomasAccount

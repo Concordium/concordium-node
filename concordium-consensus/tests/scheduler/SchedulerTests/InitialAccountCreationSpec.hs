@@ -32,7 +32,7 @@ initialBlockState :: BlockState
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 transactionsInput :: [Types.CredentialDeploymentWithMeta]
-transactionsInput = map (Types.fromICDI 0) $ [
+transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
   icdi1,
   icdi2,
   icdi3, -- should fail because reuse of prf key
@@ -55,7 +55,7 @@ testAccountCreation = do
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFromInitialCred [icdi1,icdi2,icdi4] -- cdi3 has the same address as cdi2
+    let accAddrs = map (accountAddressFromCredential . Types.credential) [icdi1,icdi2,icdi4] -- cdi3 has the same address as cdi2
     case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
@@ -75,8 +75,8 @@ checkAccountCreationResult (suc, fails, stateAccs, executionCost) = do
 
   -- FIXME: Make these more fine-grained so that failures are understandable.
   assertBool "Successful transaction results." txsuc
-  let addr1 = accountAddressFromInitialCred icdi1
-  let addr2 = accountAddressFromInitialCred icdi2
+  let addr1 = accountAddressFromCredential . Types.credential $ icdi1
+  let addr2 = accountAddressFromCredential . Types.credential $ icdi2
   assertEqual "Accounts created" [Just addr1, Just addr2, Nothing] (map (fmap (^. accountAddress)) stateAccs)
   
 

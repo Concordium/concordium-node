@@ -13,15 +13,12 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 import Concordium.Scheduler.Runner
 
-import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState
-import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.Wasm
 import Concordium.ID.Types (AccountAddress(..), accountAddressSize)
-
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -29,6 +26,7 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.Helpers
 
+alesAccount, thomasAccount :: AccountAddress
 alesAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 1
 thomasAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 2
 
@@ -44,27 +42,27 @@ transactionInputs = [
   TJSON{
         metadata = makeDummyHeader alesAccount 1 100000,
         payload = DeployModule 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm",
-        keys = [(0, alesKP)]
+        keys = [(0, [(0, alesKP)])]
         },
   TJSON{
         metadata = makeDummyHeader alesAccount 2 100000,
         payload = InitContract 0 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c10" "",
-        keys = [(0, alesKP)]
+        keys = [(0, [(0, alesKP)])]
         },
   TJSON{
           metadata = makeDummyHeader alesAccount 3 100000,
           payload = InitContract 42 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c10" "",
-          keys = [(0, alesKP)]
+          keys = [(0, [(0, alesKP)])]
           },
   TJSON{
         metadata = makeDummyHeader alesAccount 4 100000,
         payload = InitContract 0 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c20" "",
-        keys = [(0, alesKP)]
+        keys = [(0, [(0, alesKP)])]
         },
   TJSON{
         metadata = makeDummyHeader thomasAccount 1 100000,
         payload = Update 5 (Types.ContractAddress 2 0) "c20.call_c10" "",
-        keys = [(0, thomasKP)]
+        keys = [(0, [(0, thomasKP)])]
         }
   ]
 
@@ -92,7 +90,7 @@ checkReceiveResult (suc, fails, instances) = do
   assertEqual "There should be no failed transactions." [] fails
   assertEqual "There should be no rejected transactions." [] reject
   assertEqual "There should be 3 instances." 3 (length instances)
-  
+
   where
     reject = filter (\case (_, Types.TxSuccess{}) -> False
                            (_, Types.TxReject{}) -> True
