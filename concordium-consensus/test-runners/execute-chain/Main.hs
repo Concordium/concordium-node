@@ -37,15 +37,15 @@ import Concordium.Kontrol.BestBlock
 import Concordium.Skov
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
-type TreeConfig = DiskTreeDiskBlockConfig PV
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
-
--- type TreeConfig = MemoryTreeDiskBlockConfig PV
+-- type TreeConfig = DiskTreeDiskBlockConfig PV
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
+-- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+
+type TreeConfig = MemoryTreeDiskBlockConfig PV
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
 
 -- type TreeConfig = MemoryTreeMemoryBlockConfig PV
 -- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
@@ -167,7 +167,7 @@ readBlocks fp continuation = do
                         Left _ -> return SerializationFail
                         Right l -> do
                             bbs <- BS.hGet h (fromIntegral l)
-                            case deserializePendingBlock SP0 bbs tm of
+                            case deserializePendingBlock SP1 bbs tm of
                                 Left _ -> return SerializationFail
                                 Right block -> continuation block >>= \case
                                     Success -> loop

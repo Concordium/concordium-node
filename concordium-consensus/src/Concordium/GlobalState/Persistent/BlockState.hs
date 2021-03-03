@@ -30,7 +30,6 @@ import Data.Foldable
 import Data.Maybe
 import Data.Word
 import Lens.Micro.Platform
-import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -475,7 +474,7 @@ putBlockStateV0 pbs = do
     -- BankStatus
     sPut $ _unhashed bspBank
     -- Accounts
-    Accounts.putAccountsV0 cryptoParams bspAccounts
+    Accounts.serializeAccounts cryptoParams bspAccounts
     -- Instances
     Instances.putInstancesV0 bspInstances
     -- Updates
@@ -906,16 +905,7 @@ doPutNewInstance pbs fnew = do
         -- Create the instance
         (inst, insts) <- Instances.newContractInstance (fnew' mods) (bspInstances bsp)
         let ca = instanceAddress (instanceParameters inst)
-        case protocolVersion @pv of
-            SP0 -> do
-                -- Update the owner account's set of instances
-                let updAcct oldAccount = ((), ) <$> (oldAccount & accountInstances %~~ Set.insert ca)
-                (_, accts) <- Accounts.updateAccounts updAcct (instanceOwner (instanceParameters inst)) (bspAccounts bsp)
-                (ca,) <$> storePBS pbs bsp{
-                            bspInstances = insts,
-                            bspAccounts = accts
-                        }
-            _ -> (ca,) <$> storePBS pbs bsp{bspInstances = insts}
+        (ca,) <$> storePBS pbs bsp{bspInstances = insts}
         
     where
         fnew' mods ca = let inst@Instance{instanceParameters = InstanceParameters{..}, ..} = fnew ca in do

@@ -834,18 +834,3 @@ instance (Applicative m) => Cacheable m BakerInfo
 instance (Applicative m) => Cacheable m Amount
 -- Required for caching Updates
 instance (Applicative m) => Cacheable m (StoreSerialized a)
-
-versionedStore :: forall pv m v. (BlobStorable m (v pv), IsProtocolVersion pv) => v pv -> m Put
-versionedStore = case protocolVersion @pv of
-    SP0 -> store
-    SP1 -> store
-
-versionedStoreUpdate :: forall pv m v. (BlobStorable m (v pv), IsProtocolVersion pv) => v pv -> m (Put, v pv)
-versionedStoreUpdate = case protocolVersion @pv of
-    SP0 -> storeUpdate
-    SP1 -> storeUpdate
-
-versionedLoad :: forall pv m v. (BlobStorable m (v pv), IsProtocolVersion pv) => Get (m (v pv))
-versionedLoad = case protocolVersion @pv of
-    SP0 -> load
-    SP1 -> load

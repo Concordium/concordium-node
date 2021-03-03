@@ -23,7 +23,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.Types.SeedState as SeedState
 import Concordium.Types.IdentityProviders
 import Concordium.Types.AnonymityRevokers
 import Concordium.Birk.Bake
@@ -34,7 +33,6 @@ import Concordium.Crypto.DummyData
     ( randomBlockKeyPair, randomBlsSecretKey, randomEd25519KeyPair )
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
-import qualified Concordium.Genesis.Data.P0 as P0
 import qualified Concordium.Genesis.Data.P1 as P1
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
@@ -139,15 +137,13 @@ makeGenesisData
     where
         -- todo hardcoded epoch length (and initial seed)
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
-        genesisEpochLength = 10
-        genesisSeedState = SeedState.initialSeedState genesisLeadershipElectionNonce genesisEpochLength
+        genesisEpochLength = 10 :: EpochLength
         mbkrs = makeBakers nBakers
         bakers = (\(bid,binfo,_,_) -> (bid,binfo)) <$> mbkrs
         bakerAccounts = (\(_,_,bacc,_) -> bacc) <$> mbkrs
         genesisAccounts = bakerAccounts ++ additionalAccounts
         genesisTotalAmount = sum (gaBalance <$> genesisAccounts)
         gd = case protocolVersion @pv of
-            SP0 -> GDP0 P0.GenesisDataP0{..}
             SP1 -> GDP1 P1.GDP1Initial{
                         genesisCore=P1.CoreGenesisParameters{..},
                         genesisInitialState=P1.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}

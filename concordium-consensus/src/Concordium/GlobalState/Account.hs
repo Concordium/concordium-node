@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Account where
 
 import Control.Monad
@@ -32,18 +33,6 @@ import Concordium.GlobalState.BakerInfo
 maxNumIncoming :: Int
 maxNumIncoming = 32
 
--- |Type family for the instances stored as part of an account's
--- persisting data. As of 'P1', this is no longer stored and is
--- the '()'.
-type family AccountInstances (pv :: ProtocolVersion) where
-  AccountInstances 'P0 = Set.Set ContractAddress
-  AccountInstances _ = ()
-
-emptyAccountInstances :: SProtocolVersion pv -> AccountInstances pv
-emptyAccountInstances pv = case pv of
-  SP0 -> Set.empty
-  SP1 -> ()
-
 -- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
 data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   _accountAddress :: !AccountAddress
@@ -52,7 +41,6 @@ data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   ,_accountCredentials :: !(NonEmpty AccountCredential)
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
-  ,_accountInstances :: !(AccountInstances pv)
 }
 
 makeClassy ''PersistingAccountData
@@ -64,9 +52,6 @@ instance (IsProtocolVersion pv) => Eq (PersistingAccountData pv) where
     && _accountVerificationKeys pad1 == _accountVerificationKeys pad2
     && _accountCredentials pad1 == _accountCredentials pad2
     && _accountMaxCredentialValidTo pad1 == _accountMaxCredentialValidTo pad2
-    && case protocolVersion :: SProtocolVersion pv of
-        SP0 -> _accountInstances pad1 == _accountInstances pad2
-        _ -> True
 
 instance (IsProtocolVersion pv) => Show (PersistingAccountData pv) where
   show PersistingAccountData{..} = "PersistingAccountData {" ++
@@ -144,8 +129,8 @@ addToSelfEncryptedAmount :: EncryptedAmount -> AccountEncryptedAmount -> Account
 addToSelfEncryptedAmount newAmount = selfAmount %~ (<> newAmount)
 
 -- |Serialization for 'PersistingAccountData'. This is mainly to support
--- the (derived) 'BlobStorable' instance, but is also used in the 'P0'
--- account hashing. V0 account serialization does not use this.
+-- the (derived) 'BlobStorable' instance.
+-- Account serialization does not use this.
 instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
   put PersistingAccountData{..} = do
     put _accountAddress
@@ -153,9 +138,6 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
     put _accountVerificationKeys
     putLength (length _accountCredentials)
     mapM_ put _accountCredentials
-    case protocolVersion @pv of
-      SP0 -> put (Set.toAscList _accountInstances)
-      _ -> return ()
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
@@ -164,9 +146,6 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
     when (numCredentials < 1) $ fail "Account has no credentials"
     _accountCredentials <- (:|) <$> get <*> replicateM (numCredentials - 1) get
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
-    _accountInstances <- case protocolVersion @pv of
-      SP0 -> Set.fromList <$> get
-      SP1 -> return ()
     return PersistingAccountData{..}
 
 -- |Pending changes to the baker associated with an account.
@@ -239,12 +218,6 @@ makeAccountBakerHash amt stkEarnings binfo bpc = Hash.hashLazy $ runPutLazy $
 -- This is defined as the hash of the empty string.
 nullAccountBakerHash :: AccountBakerHash
 nullAccountBakerHash = Hash.hash ""
-
--- TODO To avoid recomputing the hash for the persisting account data each time we update an account
--- we might want to explicitly store its hash, too.
-makeAccountHashP0 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountData 'P0 -> AccountBakerHash -> Hash.Hash
-makeAccountHashP0 n a eas ars pd abh = Hash.hashLazy $ runPutLazy $
-  put n >> put a >> put eas >> put ars >> put pd >> put abh
 
 makeAccountHashP1 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountDataHash -> AccountBakerHash -> Hash.Hash
 makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do

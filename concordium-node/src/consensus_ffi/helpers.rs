@@ -171,7 +171,7 @@ pub enum ConsensusFfiResponse {
     ContinueCatchUp,
     BlockTooEarly,
     MissingImportFile,
-    ConsensusShutDown
+    ConsensusShutDown,
 }
 
 impl ConsensusFfiResponse {
@@ -197,9 +197,8 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            BakerNotFound | DeserializationError | InvalidResult | Unverifiable | BlockTooEarly | ConsensusShutDown => {
-                false
-            }
+            BakerNotFound | DeserializationError | InvalidResult | Unverifiable | BlockTooEarly
+            | ConsensusShutDown => false,
             _ => true,
         }
     }

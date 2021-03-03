@@ -35,7 +35,6 @@ import qualified Data.ByteString as BS
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
-import qualified Concordium.Genesis.Data.P0 as P0
 import qualified Concordium.Genesis.Data.P1 as P1
 
 cryptoParamsFileContents :: BS.ByteString
@@ -128,47 +127,6 @@ mkFullBaker seed _bakerIdentity = (FullBakerInfo {
   where electionKey = bakerElectionKey seed
         sk = bakerSignKey seed
         blssk = bakerAggregationKey seed
-
-{-# WARNING makeTestingGenesisDataP0 "Do not use in production" #-}
-makeTestingGenesisDataP0 ::
-    Timestamp -- ^Genesis time
-    -> Word  -- ^Initial number of bakers.
-    -> Duration  -- ^Slot duration in seconds.
-    -> BlockHeight -- ^Minimum finalization interval - 1
-    -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
-    -> CryptographicParameters -- ^Initial cryptographic parameters.
-    -> IdentityProviders   -- ^List of initial identity providers.
-    -> AnonymityRevokers -- ^Initial anonymity revokers.
-    -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
-    -> Authorizations -- ^Initial update authorizations
-    -> ChainParameters -- ^Initial chain parameters
-    -> GenesisData 'P0
-makeTestingGenesisDataP0
-  genesisTime
-  nBakers
-  genesisSlotDuration
-  finalizationMinimumSkip
-  finalizationCommitteeMaxSize
-  genesisCryptographicParameters
-  genesisIdentityProviders
-  genesisAnonymityRevokers
-  genesisMaxBlockEnergy
-  genesisAuthorizations
-  genesisChainParameters
-    = GDP0 P0.GenesisDataP0 {..}
-    where
-        genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
-        genesisFinalizationParameters =
-          FinalizationParameters {
-           finalizationWaitingTime = 100,
-           finalizationSkipShrinkFactor = 0.8,
-           finalizationSkipGrowFactor = 2,
-           finalizationDelayShrinkFactor = 0.8,
-           finalizationDelayGrowFactor = 2,
-           finalizationAllowZeroDelay = False,
-           ..
-         }
-        genesisAccounts = makeFakeBakers nBakers
 
 {-# WARNING makeTestingGenesisDataP1 "Do not use in production" #-}
 makeTestingGenesisDataP1 ::

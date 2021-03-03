@@ -108,7 +108,6 @@ class (BlockMetadata b, BlockData b, HashableTo BlockHash b, Show b) => BlockPen
 
 -- |Defines the block version serialization associated with a protocol version.
 blockVersion :: SProtocolVersion pv -> Version
-blockVersion SP0 = 1
 blockVersion SP1 = 2
 {-# INLINE blockVersion #-}
 
@@ -230,28 +229,9 @@ instance BlockData BakedBlock where
     blockSignature = Just . bbSignature
     verifyBlockSignature b = Sig.verify (bfBlockBakerKey (bbFields b)) (Hash.hashToByteString (blockHash (getHash b))) (bbSignature b)
 
--- |Helper function for serializing a (non-genesis) block, excluding
--- the signature.
---
--- Note: the V1 and V2 formats are the same for non-genesis blocks.
-blockBodyV1 :: (BlockMetadata b, BlockData b) => b -> Put
-blockBodyV1 b = do
-        put (blockSlot b)
-        put (blockPointer b)
-        put (blockBaker b)
-        put (blockBakerKey b)
-        put (blockProof b)
-        put (blockNonce b)
-        put (blockFinalizationData b)
-        put (blockStateHash b)
-        put (blockTransactionOutcomesHash b)
-        putWord64be (fromIntegral (length (blockTransactions b)))
-        mapM_ putBlockItemV0 $ blockTransactions b
-
--- |Serialize a normal (non-genesis) block.  This function supports both
--- V1 and V2 formats.
-putBakedBlock :: BakedBlock -> Put
-putBakedBlock b = do
+-- |Serialize a normal (non-genesis) block in V2 format.
+putBakedBlockV2 :: BakedBlock -> Put
+putBakedBlockV2 b = do
         put (blockSlot b)
         put (blockPointer b)
         put (blockBaker b)
@@ -266,8 +246,7 @@ putBakedBlock b = do
         put (bbSignature b)
 
 instance (IsProtocolVersion pv) => EncodeBlock pv BakedBlock where
-    putBlock SP0 = putBakedBlock
-    putBlock SP1 = putBakedBlock
+    putBlock SP1 = putBakedBlockV2
 
 -- |Deserialized a normal (non-genesis) block according to the V1/V2 format,
 -- except for the initial slot number, which is provided as a parameter.
@@ -299,7 +278,6 @@ getBakedBlock arrivalTime = do
 type instance DecodeBlockMetadata BakedBlock = TransactionTime
 
 instance (IsProtocolVersion pv) => DecodeBlock pv BakedBlock where
-    getBlock SP0 = getBakedBlock
     getBlock SP1 = getBakedBlock
 
 -- |Representation of a block
