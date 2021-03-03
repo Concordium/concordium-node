@@ -738,7 +738,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
   let iface = instanceModuleInterface iParams
-  result <- runInterpreter (return . Wasm.applyReceiveFun (protocolVersion @pv) iface cm receiveCtx receiveName parameter transferAmount model)
+  result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReason
   -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
   let newModel = Wasm.newState result

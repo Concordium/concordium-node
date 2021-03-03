@@ -45,7 +45,7 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
 type TreeConfig = DiskTreeDiskBlockConfig PV
 makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig

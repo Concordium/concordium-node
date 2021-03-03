@@ -290,7 +290,7 @@ accountAddresses :: MonadBlobStore m => Accounts pv -> m [AccountAddress]
 accountAddresses = Trie.keys . accountMap
 
 -- |Serialize accounts in V0 format.
-putAccountsV0 :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> Accounts pv -> m ()
-putAccountsV0 cryptoParams accts = do
+serializeAccounts :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> Accounts pv -> m ()
+serializeAccounts cryptoParams accts = do
         liftPut $ putWord64be $ L.size (accountTable accts)
         L.mmap_ (putAccountV0 cryptoParams) (accountTable accts)

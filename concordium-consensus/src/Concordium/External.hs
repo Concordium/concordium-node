@@ -207,17 +207,17 @@ foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStat
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
-type TreeConfig = DiskTreeDiskBlockConfig 'P0
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData 'P0 -> TreeConfig
+type TreeConfig = DiskTreeDiskBlockConfig 'P1
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData 'P1 -> TreeConfig
 makeGlobalStateConfig rt genData = DTDBConfig rt genData
 
-type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig 'P0
-makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData 'P0 -> BS.ByteString -> TreeConfigWithLog
+type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig 'P1
+makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData 'P1 -> BS.ByteString -> TreeConfigWithLog
 makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData
 
 
-type ActiveConfig gs = SkovConfig 'P0 gs (BufferedFinalization ThreadTimer) LogUpdateHandler
-type PassiveConfig gs = SkovConfig 'P0 gs (NoFinalization ()) LogUpdateHandler
+type ActiveConfig gs = SkovConfig 'P1 gs (BufferedFinalization ThreadTimer) LogUpdateHandler
+type PassiveConfig gs = SkovConfig 'P1 gs (NoFinalization ()) LogUpdateHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
@@ -520,7 +520,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case deserializeExactVersionedPendingBlock SP0 blockBS now of
+        case deserializeExactVersionedPendingBlock SP1 blockBS now of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail

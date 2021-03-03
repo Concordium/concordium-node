@@ -158,22 +158,22 @@ accountList :: Accounts pv -> [Account pv]
 accountList = fmap snd . AT.toList . accountTable
 
 -- |Serialize 'Accounts' in V0 format.
-putAccountsV0 :: IsProtocolVersion pv => GlobalContext -> Putter (Accounts pv)
-putAccountsV0 cryptoParams Accounts{..} = do
+serializeAccounts :: IsProtocolVersion pv => GlobalContext -> Putter (Accounts pv)
+serializeAccounts cryptoParams Accounts{..} = do
     putWord64be $ AT.size accountTable
-    forM_ (AT.toList accountTable) $ \(_, acct) -> putAccountV0 cryptoParams acct
+    forM_ (AT.toList accountTable) $ \(_, acct) -> serializeAccount cryptoParams acct
 
--- |Deserialize 'Accounts' in V0 format.
+-- |Deserialize 'Accounts'. The serialization format may depend on the protocol version.
 -- This validates the following invariants:
 --
 --  * Every baker account's 'BakerId' must match the account index.
 --  * 'CredentialRegistrationID's must not be used on more than one account.
-getAccountsV0 :: IsProtocolVersion pv => GlobalContext -> Get (Accounts pv)
-getAccountsV0 cryptoParams = do
+deserializeAccounts :: IsProtocolVersion pv => GlobalContext -> Get (Accounts pv)
+deserializeAccounts cryptoParams = do
     nAccounts <- getWord64be
     let loop i accts@Accounts{..}
           | i < nAccounts = do
-            acct <- getAccountV0 cryptoParams
+            acct <- deserializeAccount cryptoParams
             let acctId = AccountIndex i
             forM_ (_accountBaker acct) $ \bkr ->
               unless (_bakerIdentity (_accountBakerInfo bkr) == BakerId acctId) $

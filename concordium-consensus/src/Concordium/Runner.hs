@@ -28,7 +28,7 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.Finalization
 import Concordium.Types
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable, readBlocksV1, ImportingResult(..))
+import Concordium.GlobalState.TreeState (TreeStateMonad, purgeTransactionTable, readBlocksV2, ImportingResult(..))
 
 import Concordium.TimeMonad
 import Concordium.TimerMonad
@@ -487,7 +487,7 @@ syncImportBlocks syncRunner filepath =
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV2 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncReceiveBlock syncRunner b)
   where logm = syncLogMethod syncRunner
 
 -- | Given a file path in the third argument, it will deserialize each block in the file
@@ -502,6 +502,6 @@ syncPassiveImportBlocks syncRunner filepath =
     now <- getCurrentTime
     -- on the continuation we wrap an UpdateResult into an ImportingResult and when we get
     -- a value back we unwrap it.
-    updateResultToImportingResult <$> readBlocksV1 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
+    updateResultToImportingResult <$> readBlocksV2 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner

@@ -434,24 +434,26 @@ getVersionBytes h = do
     else
     return b
 
-readBlocksV1 :: (Show a) => Handle
+-- |Read a block file in V2 format, invoking the supplied
+-- callback on each block.
+readBlocksV2 :: (Show a) => Handle
            -> UTCTime
            -> LogMethod IO
            -> LogSource
            -> (PendingBlock -> IO (ImportingResult a))
            -> IO (ImportingResult a)
-readBlocksV1 h tm logm logLvl continuation = do
+readBlocksV2 h tm logm logLvl continuation = do
   v <- getVersionBytes h
   case readHeader v of
       Left err -> do
         logm logLvl LLError $ "Error deserializing header: " ++ err
         return SerializationFail
       Right version
-          | version == 1 -> loopV1
+          | version == 2 -> loopV2
           | otherwise -> do
               logm logLvl LLError $ "Unsupported version: " ++ show version
               return SerializationFail
-  where loopV1 = do
+  where loopV2 = do
           isEof <- hIsEOF h
           if isEof
             then return Success
@@ -461,21 +463,22 @@ readBlocksV1 h tm logm logLvl continuation = do
               Left _ -> return SerializationFail
               Right l -> do
                 blockBS <- hGet h (fromIntegral l)
-                result <- importBlockV1 blockBS tm logm logLvl continuation
+                result <- importBlockV2 blockBS tm logm logLvl continuation
                 case result of
-                  Success -> loopV1
+                  Success -> loopV2
                   err -> do -- stop processing at first error that we encounter.
                     logm External LLError $ "Error importing block: " ++ show err
                     return err
 
-importBlockV1 :: ByteString
+-- |Handle loading a single block.
+importBlockV2 :: ByteString
               -> UTCTime
               -> LogMethod IO
               -> LogSource
               -> (PendingBlock -> IO (ImportingResult a))
               -> IO (ImportingResult a)
-importBlockV1 blockBS tm logm logLvl continuation =
-  case B.deserializePendingBlock SP0 blockBS tm of
+importBlockV2 blockBS tm logm logLvl continuation =
+  case B.deserializePendingBlock SP1 blockBS tm of
     Left err -> do
       logm logLvl LLError $ "Can't deserialize block: " ++ show err
       return SerializationFail

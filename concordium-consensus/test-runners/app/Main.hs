@@ -50,7 +50,7 @@ import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState.DummyData (dummyAuthorizations)
 
 -- Protocol version
-type PV = 'P0
+type PV = 'P1
 
 nContracts :: Int
 nContracts = 2

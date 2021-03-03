@@ -56,7 +56,7 @@ import Concordium.GlobalState.DummyData (dummyAuthorizations)
 import System.Directory
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
 type TreeConfig = DiskTreeDiskBlockConfig PV
 

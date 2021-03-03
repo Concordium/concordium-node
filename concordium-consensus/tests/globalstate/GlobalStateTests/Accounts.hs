@@ -190,9 +190,7 @@ randomActions = sized (ra Set.empty Set.empty)
 
 makePureAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PA.PersistentAccount pv -> m (Account pv)
 makePureAccount PA.PersistentAccount {..} = do
-  (_accountPersisting :: AccountPersisting pv) <- case protocolVersion @pv of
-    SP0 -> refLoad _persistingData
-    SP1 -> makeHashed <$> refLoad _persistingData
+  (_accountPersisting :: AccountPersisting pv) <- makeHashed <$> refLoad _persistingData
   _accountEncryptedAmount <- PA.loadPersistentAccountEncryptedAmount =<< loadBufferedRef _accountEncryptedAmount
   _accountReleaseSchedule <- PA.loadPersistentAccountReleaseSchedule =<< loadBufferedRef _accountReleaseSchedule
   ab <- case _accountBaker of
