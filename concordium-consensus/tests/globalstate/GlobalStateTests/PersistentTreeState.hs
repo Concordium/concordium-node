@@ -46,7 +46,7 @@ import System.Random
 import Test.Hspec
 
 -- |Protocol version.
-type PV = 'P0
+type PV = 'P1
 
 type GlobalStateIO c g = GlobalStateM PV NoLogContext c c g g (RWST c () g LogIO)
 
@@ -65,7 +65,7 @@ createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)

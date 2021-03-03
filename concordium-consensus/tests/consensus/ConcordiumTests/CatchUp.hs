@@ -24,12 +24,11 @@ import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
-import Concordium.Genesis.Data.P0
+import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
 import Concordium.Skov.Monad
@@ -93,20 +92,24 @@ initialiseStatesDictator n = do
         let bakerAmt = 1000000
             stakes = (2*bakerAmt) : take (n-1) (repeat bakerAmt)
             bis = makeBakersByStake stakes
-            seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
             bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-            gen = GDP0 GenesisDataP0 {
-                    genesisTime = 0,
-                    genesisSlotDuration = 1,
-                    genesisSeedState = seedState,
-                    genesisAccounts = bakerAccounts,
-                    genesisFinalizationParameters = defaultFinalizationParameters{finalizationCommitteeMaxSize = fromIntegral n},
-                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
-                    genesisIdentityProviders = emptyIdentityProviders,
-                    genesisAnonymityRevokers = Dummy.dummyArs,
-                    genesisMaxBlockEnergy = Energy maxBound,
-                    genesisAuthorizations = dummyAuthorizations,
-                    genesisChainParameters = dummyChainParameters
+            gen = GDP1 GDP1Initial {
+                    genesisCore = CoreGenesisParameters {
+                        genesisTime = 0,
+                        genesisSlotDuration = 1,
+                        genesisEpochLength = 10,
+                        genesisMaxBlockEnergy = Energy maxBound,
+                        genesisFinalizationParameters = defaultFinalizationParameters{finalizationCommitteeMaxSize = fromIntegral n}
+                    },
+                    genesisInitialState = GenesisState {
+                        genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                        genesisIdentityProviders = emptyIdentityProviders,
+                        genesisAnonymityRevokers = Dummy.dummyArs,
+                        genesisAuthorizations = dummyAuthorizations,
+                        genesisChainParameters = dummyChainParameters,
+                        genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
+                        genesisAccounts = Vec.fromList bakerAccounts
+                    }
                 }
         res <- liftIO $ mapM (\(bid, binfo, acct, kp) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)

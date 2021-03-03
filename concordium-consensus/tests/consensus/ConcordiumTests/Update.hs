@@ -14,6 +14,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.State
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Test.Hspec
@@ -31,8 +32,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
-import qualified Concordium.Types.SeedState as SeedState
-import Concordium.Genesis.Data.P0
+import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
 
@@ -49,7 +49,7 @@ import Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.GlobalState.DummyData as Dummy
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
@@ -98,21 +98,25 @@ createInitStates :: IO (BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
         bis@[baker1, baker2] = makeBakersByStake [bakerAmount, bakerAmount]
-        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
         cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
-        gen = GDP0 GenesisDataP0 {
-                genesisTime = 0,
-                genesisSlotDuration = 1,
-                genesisSeedState = seedState,
-                genesisAccounts = bakerAccounts,
-                genesisFinalizationParameters = finalizationParameters,
-                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
-                genesisIdentityProviders = emptyIdentityProviders,
-                genesisAnonymityRevokers = Dummy.dummyArs,
-                genesisMaxBlockEnergy = Energy maxBound,
-                genesisAuthorizations = Dummy.dummyAuthorizations,
-                genesisChainParameters = cps
+        gen = GDP1 GDP1Initial {
+                genesisCore = CoreGenesisParameters {
+                    genesisTime = 0,
+                    genesisSlotDuration = 1,
+                    genesisEpochLength = 10,
+                    genesisMaxBlockEnergy = Energy maxBound,
+                    genesisFinalizationParameters = finalizationParameters
+                },
+                genesisInitialState = GenesisState {
+                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                    genesisIdentityProviders = emptyIdentityProviders,
+                    genesisAnonymityRevokers = Dummy.dummyArs,
+                    genesisAuthorizations = Dummy.dummyAuthorizations,
+                    genesisChainParameters = cps,
+                    genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
+                    genesisAccounts = Vec.fromList bakerAccounts
+                }
             }
         createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)

@@ -79,7 +79,7 @@ instance HasSchedulerState (NoLogSchedulerState m) where
   nextIndex = ssNextIndex
   schedulerTransactionLog f s = s <$ f ()
 
-newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
+newtype BSOMonadWrapper (pv :: ProtocolVersion) r w state m a = BSOMonadWrapper (m a)
     deriving (Functor,
               Applicative,
               Monad,
@@ -88,12 +88,12 @@ newtype BSOMonadWrapper r w state m a = BSOMonadWrapper (m a)
               MonadWriter w,
               MonadLogger)
 
-instance MonadTrans (BSOMonadWrapper r w s) where
+instance MonadTrans (BSOMonadWrapper pv r w s) where
     {-# INLINE lift #-}
     lift = BSOMonadWrapper
 
-instance (ATITypes m, ATIStorage m ~ w) => ATITypes (BSOMonadWrapper r w s m) where
-  type ATIStorage (BSOMonadWrapper r w s m) = ATIStorage m
+instance (ATITypes m, ATIStorage m ~ w) => ATITypes (BSOMonadWrapper pv r w s m) where
+  type ATIStorage (BSOMonadWrapper pv r w s m) = ATIStorage m
 
 instance (MonadReader ContextState m,
           SS state ~ UpdatableBlockState m,
@@ -103,7 +103,7 @@ instance (MonadReader ContextState m,
           Footprint (ATIStorage m) ~ w,
           MonadWriter w m
          )
-         => StaticInformation (BSOMonadWrapper ContextState w state m) where
+         => StaticInformation (BSOMonadWrapper pv ContextState w state m) where
 
   {-# INLINE getMaxBlockEnergy #-}
   getMaxBlockEnergy = view maxBlockEnergy
@@ -128,9 +128,10 @@ instance (MonadReader ContextState m,
           CanExtend (ATIStorage m),
           Footprint (ATIStorage m) ~ w,
           MonadWriter w m,
-          MonadLogger m
+          MonadLogger m,
+          IsProtocolVersion pv
          )
-         => SchedulerMonad (BSOMonadWrapper ContextState w state m) where
+         => SchedulerMonad pv (BSOMonadWrapper pv ContextState w state m) where
 
   {-# INLINE tlNotifyAccountEffect #-}
   tlNotifyAccountEffect items summary = do
@@ -321,9 +322,9 @@ instance (MonadReader ContextState m,
     s' <- lift (bsoEnqueueUpdate s tt p)
     schedulerBlockState .= s'
 
-deriving instance GS.BlockStateTypes (BSOMonadWrapper r w state m)
+deriving instance GS.BlockStateTypes (BSOMonadWrapper pv r w state m)
 
-deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper r w state m)
+deriving instance AccountOperations m => AccountOperations (BSOMonadWrapper pv r w state m)
 
 -- Pure block state scheduler state
 type PBSSS pv = NoLogSchedulerState (PureBlockStateMonad pv Identity)
@@ -340,15 +341,15 @@ instance Monad m => MonadWriter () (RWSTBS pv m) where
 newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :: RWSTBS pv (PureBlockStateMonad pv Identity) a }
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, MonadLogger)
-      via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+      via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
 
 instance Monad m => MonadLogger (RWSTBS pv m) where
   logEvent source level event = RWSTBS (RWST (\_ s -> return ((), s, [(source, level, event)])))
 
 deriving via (PureBlockStateMonad pv Identity) instance GS.BlockStateTypes (SchedulerImplementation pv)
 
-deriving via (BSOMonadWrapper ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
-  (IsProtocolVersion pv) => SchedulerMonad (SchedulerImplementation pv)
+deriving via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity))) instance
+  (IsProtocolVersion pv) => SchedulerMonad pv (SchedulerImplementation pv)
 
 instance ATITypes (SchedulerImplementation pv) where
   type ATIStorage (SchedulerImplementation pv) = ()

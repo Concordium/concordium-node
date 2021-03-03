@@ -245,7 +245,7 @@ initialState = do
         -- The genesis parameters could be changed.
         -- The slot duration is set to 1 second (1000 ms), since the deterministic time is also
         -- set to increase in 1 second intervals.
-        (genData, bakers) = makeGenesisData
+        (genData, bakers, _) = makeGenesisData
                                 0 -- Start at time 0, to match time
                                 (maxBakerId + 1) -- Number of bakers
                                 1000 -- Slot time is 1 second, to match time

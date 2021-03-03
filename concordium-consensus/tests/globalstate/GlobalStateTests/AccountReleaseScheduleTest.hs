@@ -49,7 +49,7 @@ import Test.QuickCheck
 --------------------------------- Monad Types ----------------------------------
 
 -- |Protocol version.
-type PV = 'P0
+type PV = 'P1
 
 type PairedGSContext = PairGSContext () PBS.PersistentBlockStateContext
 
@@ -96,7 +96,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
     rp = defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }
     config = PairGSConfig (MTMBConfig rp genesis, DTDBConfig rp genesis)
   (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState config
@@ -116,7 +116,7 @@ testing = do
       bs1 = _unhashedBlockState $ _bpState (bs ^. pairStateLeft . Concordium.GlobalState.Basic.TreeState.focusBlock)
       bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
 
-  let [(accA, _), (accB, _)] = take 2 $ map (\(_, ac) -> (_accountAddress $ _accountPersisting ac, _accountAmount ac)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
+  let [(accA, _), (accB, _)] = take 2 $ map (\(_, ac) -> (ac ^. accountAddress, ac ^. accountAmount)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
   b' <- bsoAddReleaseSchedule (bs1, bs2) [(accA, head timestampsA), (accB, head timestampsB)]
   checkEqualBlockReleaseSchedule b'
   bs'' <- foldlM (\b e@(acc, rels) -> do

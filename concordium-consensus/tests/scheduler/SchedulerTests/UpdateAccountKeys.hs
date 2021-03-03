@@ -23,7 +23,7 @@ import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
 initialBlockState :: BlockState PV
 initialBlockState = createBlockState $

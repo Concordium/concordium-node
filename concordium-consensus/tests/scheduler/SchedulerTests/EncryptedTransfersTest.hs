@@ -71,7 +71,7 @@ import Test.Hspec
 --- |----------------------------------+-----------------+-----------+---------------|
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
 initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
@@ -81,12 +81,12 @@ initialBlockState = blockStateWithAlesAccount
 alesEncryptionSecretKey :: ElgamalSecretKey
 alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
-alesEncryptionPublicKey = (fromJust $ Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
+alesEncryptionPublicKey = (fromJust $ Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
 
 thomasEncryptionSecretKey :: ElgamalSecretKey
 thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
-thomasEncryptionPublicKey = (fromJust $ Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
+thomasEncryptionPublicKey = (fromJust $ Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
 
 createEncryptedTransferData :: AccountEncryptionKey -> ElgamalSecretKey -> AggregatedDecryptedAmount -> Amount -> IO (Maybe EncryptedAmountTransferData)
 createEncryptedTransferData (AccountEncryptionKey receiverPK) senderSK aggDecAmount amount =

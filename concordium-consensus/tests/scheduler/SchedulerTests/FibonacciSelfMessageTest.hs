@@ -32,7 +32,7 @@ import SchedulerTests.TestUtils
 
 
 -- |Protocol version
-type PV = 'Types.P0
+type PV = 'Types.P1
 
 initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount

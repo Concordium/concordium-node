@@ -33,7 +33,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 
 -- |Protocol version
-type PV = 'Types.P0
+type PV = 'Types.P1
 
 keyPair :: Int -> SigScheme.KeyPair
 keyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen

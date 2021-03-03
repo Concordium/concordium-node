@@ -30,7 +30,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 
 -- |Protocol version
-type PV = 'P0
+type PV = 'P1
 
 -- | Specification on the expected result of executing a transaction and the resulting block state.
 type ResultSpec = (TResultSpec, BlockState PV -> Spec)

@@ -129,7 +129,8 @@ processInterpreterResult aDecoder result = case result of
 
 -- |Apply a receive function which is assumed to be part of the given module.
 applyReceiveFun
-    :: ModuleInterface
+    :: SProtocolVersion pv
+    -> ModuleInterface
     -> ChainMetadata -- ^Metadata available to the contract.
     -> ReceiveContext -- ^Additional parameter supplied by the chain and
                      -- available to the receive method.
@@ -141,7 +142,7 @@ applyReceiveFun
     -> Maybe (Either ContractExecutionFailure (SuccessfulResultData ActionsTree), InterpreterEnergy)
     -- ^Nothing if execution used up all the energy, and otherwise the result
     -- of execution with the amount of energy remaining.
-applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
+applyReceiveFun spv miface cm receiveCtx rName param amnt cs initialEnergy = processInterpreterResult getActionsTree result
   where result = unsafePerformIO $ do
               BSU.unsafeUseAsCStringLen wasmBytes $ \(wasmBytesPtr, wasmBytesLen) ->
                 BSU.unsafeUseAsCStringLen initCtxBytes $ \(initCtxBytesPtr, initCtxBytesLen) ->
@@ -163,7 +164,7 @@ applyReceiveFun miface cm receiveCtx rName param amnt cs initialEnergy = process
                             bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
                             return (Just bs)
         wasmBytes = artifact . imWasmArtifact . miModule $ miface
-        initCtxBytes = encodeChainMeta cm <> encodeReceiveContext receiveCtx
+        initCtxBytes = encodeChainMeta cm <> encodeReceiveContext spv receiveCtx
         amountWord = _amount amnt
         stateBytes = contractState cs
         energy = fromIntegral initialEnergy

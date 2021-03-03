@@ -15,4 +15,4 @@ simpleTransferCost :: Energy
 simpleTransferCost = Cost.checkHeader (Types.transactionHeaderSize + 42) 1
 
 -- |Protocol version
-type PV = 'Types.P0
+type PV = 'Types.P1
