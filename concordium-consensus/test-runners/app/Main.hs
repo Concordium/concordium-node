@@ -201,7 +201,7 @@ main :: IO ()
 main = do
     let n = 5
     now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1)*1000) <$> currentTimestamp -- return 1588916588000
-    let (gen, bis) = makeGenesisData now n 200
+    let (gen, bis, _) = makeGenesisData now n 200
                      defaultFinalizationParameters{
                          finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
                          finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,

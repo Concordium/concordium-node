@@ -44,15 +44,17 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
+newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
-    instance (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state, BlockStateOperations m, Footprint (ATIStorage m) ~ w)
-             => StaticInformation (BlockStateMonad w state m)
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+    instance
+        (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state,
+        BlockStateOperations m, Footprint (ATIStorage m) ~ w)
+             => StaticInformation (BlockStateMonad pv w state m)
 
-instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
-  type ATIStorage (BlockStateMonad w state m) = ATIStorage m
+instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad pv w state m) where
+  type ATIStorage (BlockStateMonad pv w state m) = ATIStorage m
 
 data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
@@ -96,21 +98,21 @@ mkInitialSS _lssBlockState =
                     ..}
 
 deriving via (MGSTrans (RWST ContextState w state) m)
-    instance BlockStateTypes (BlockStateMonad w state m)
+    instance BlockStateTypes (BlockStateMonad pv w state m)
 
 deriving via (MGSTrans (RWST ContextState w state) m)
-    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)
+    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad pv w state m)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (
               SS state ~ UpdatableBlockState m,
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
               TreeStateMonad pv m,
               MonadLogger m,
-              BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
+              BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
 
-runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
+runBSM :: Monad m => BlockStateMonad pv w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', _) <- runRWST (_runBSM m) cm s
   return (r, s')

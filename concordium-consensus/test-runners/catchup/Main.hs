@@ -209,7 +209,7 @@ main :: IO ()
 main = do
     let n = 3
     now <- currentTimestamp
-    let (gen, bis) =
+    let (gen, bis, _) =
           makeGenesisData now n 100
             defaultFinalizationParameters{finalizationMinimumSkip = 1}
             Dummy.dummyCryptographicParameters

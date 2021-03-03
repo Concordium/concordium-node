@@ -1,6 +1,9 @@
 {-# LANGUAGE
+    GADTs,
     OverloadedStrings,
-    TemplateHaskell #-}
+    ScopedTypeVariables,
+    TemplateHaskell,
+    TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 -- |This module provides functionality for generating startup data for
 -- testing purposes.  It should not be used in production.
@@ -10,6 +13,7 @@ import System.Random
 import Lens.Micro.Platform
 import Data.Maybe
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.Vector as Vec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.BlockSignature as Sig
@@ -27,9 +31,11 @@ import Concordium.Types
 import Concordium.Types.Updates
 import Concordium.ID.Types(randomAccountAddress, makeSingletonAC)
 import Concordium.Crypto.DummyData
+    ( randomBlockKeyPair, randomBlsSecretKey, randomEd25519KeyPair )
 import Concordium.GlobalState.DummyData
 import Concordium.ID.DummyData
 import qualified Concordium.Genesis.Data.P0 as P0
+import qualified Concordium.Genesis.Data.P1 as P1
 
 makeBakersByStake :: [Amount] -> [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)]
 makeBakersByStake = mbs 0
@@ -103,8 +109,9 @@ defaultFinalizationParameters = FinalizationParameters {
     finalizationAllowZeroDelay = False
 }
 
-makeGenesisData ::
-    Timestamp -- ^Genesis time
+makeGenesisData :: forall pv.
+    (IsProtocolVersion pv)
+    => Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
     -> Duration  -- ^Slot duration (miliseconds).
     -> FinalizationParameters -- ^Finalization parameters
@@ -115,7 +122,7 @@ makeGenesisData ::
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
     -> Authorizations -- ^Authorizations for chain updates
     -> ChainParameters -- ^Initial chain parameters
-    -> (GenesisData 'P0, [(BakerIdentity, FullBakerInfo)])
+    -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisData
         genesisTime
         nBakers
@@ -128,10 +135,20 @@ makeGenesisData
         genesisMaxBlockEnergy
         genesisAuthorizations
         genesisChainParameters
-    = (GDP0 P0.GenesisDataP0{..}, bakers)
+    = (gd, bakers, genesisTotalAmount)
     where
-        genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
+        -- todo hardcoded epoch length (and initial seed)
+        genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
+        genesisEpochLength = 10
+        genesisSeedState = SeedState.initialSeedState genesisLeadershipElectionNonce genesisEpochLength
         mbkrs = makeBakers nBakers
         bakers = (\(bid,binfo,_,_) -> (bid,binfo)) <$> mbkrs
         bakerAccounts = (\(_,_,bacc,_) -> bacc) <$> mbkrs
         genesisAccounts = bakerAccounts ++ additionalAccounts
+        genesisTotalAmount = sum (gaBalance <$> genesisAccounts)
+        gd = case protocolVersion @pv of
+            SP0 -> GDP0 P0.GenesisDataP0{..}
+            SP1 -> GDP1 P1.GDP1Initial{
+                        genesisCore=P1.CoreGenesisParameters{..},
+                        genesisInitialState=P1.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
+                    }

@@ -41,7 +41,7 @@ import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.DummyData
 
 -- |Protocol version
-type PV = 'Types.P0
+type PV = 'Types.P1
 
 iterateLimitM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateLimitM n f = go 0 where
@@ -59,13 +59,13 @@ initialBlockState = blockStateWithAlesAccount
 alesEncryptionSecretKey :: ElgamalSecretKey
 alesEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters alesAccount
 alesEncryptionPublicKey :: AccountEncryptionKey
-alesEncryptionPublicKey = fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
+alesEncryptionPublicKey = fromJust (Acc.getAccount alesAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
 
 -- Thomas' keys
 thomasEncryptionSecretKey :: ElgamalSecretKey
 thomasEncryptionSecretKey = dummyEncryptionSecretKey dummyCryptographicParameters thomasAccount
 thomasEncryptionPublicKey :: AccountEncryptionKey
-thomasEncryptionPublicKey = fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountPersisting . accountEncryptionKey
+thomasEncryptionPublicKey = fromJust (Acc.getAccount thomasAccount (initialBlockState ^. blockAccounts)) ^. accountEncryptionKey
 
 -- Helpers for creating the transfer datas
 createEncryptedTransferData ::

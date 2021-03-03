@@ -36,6 +36,7 @@ import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
 import qualified Concordium.Genesis.Data.P0 as P0
+import qualified Concordium.Genesis.Data.P1 as P1
 
 cryptoParamsFileContents :: BS.ByteString
 cryptoParamsFileContents = $(makeRelativeToProject "testdata/global.json" >>= embedFile)
@@ -128,8 +129,8 @@ mkFullBaker seed _bakerIdentity = (FullBakerInfo {
         sk = bakerSignKey seed
         blssk = bakerAggregationKey seed
 
-{-# WARNING makeTestingGenesisData "Do not use in production" #-}
-makeTestingGenesisData ::
+{-# WARNING makeTestingGenesisDataP0 "Do not use in production" #-}
+makeTestingGenesisDataP0 ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
     -> Duration  -- ^Slot duration in seconds.
@@ -142,7 +143,7 @@ makeTestingGenesisData ::
     -> Authorizations -- ^Initial update authorizations
     -> ChainParameters -- ^Initial chain parameters
     -> GenesisData 'P0
-makeTestingGenesisData
+makeTestingGenesisDataP0
   genesisTime
   nBakers
   genesisSlotDuration
@@ -168,6 +169,53 @@ makeTestingGenesisData
            ..
          }
         genesisAccounts = makeFakeBakers nBakers
+
+{-# WARNING makeTestingGenesisDataP1 "Do not use in production" #-}
+makeTestingGenesisDataP1 ::
+    Timestamp -- ^Genesis time
+    -> Word  -- ^Initial number of bakers.
+    -> Duration  -- ^Slot duration in seconds.
+    -> BlockHeight -- ^Minimum finalization interval - 1
+    -> FinalizationCommitteeSize -- ^Maximum number of parties in the finalization committee
+    -> CryptographicParameters -- ^Initial cryptographic parameters.
+    -> IdentityProviders   -- ^List of initial identity providers.
+    -> AnonymityRevokers -- ^Initial anonymity revokers.
+    -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
+    -> Authorizations -- ^Initial update authorizations
+    -> ChainParameters -- ^Initial chain parameters
+    -> GenesisData 'P1
+makeTestingGenesisDataP1
+  genesisTime
+  nBakers
+  genesisSlotDuration
+  finalizationMinimumSkip
+  finalizationCommitteeMaxSize
+  genesisCryptographicParameters
+  genesisIdentityProviders
+  genesisAnonymityRevokers
+  genesisMaxBlockEnergy
+  genesisAuthorizations
+  genesisChainParameters
+    = GDP1 P1.GDP1Initial {
+        genesisCore=P1.CoreGenesisParameters{..},
+        genesisInitialState=P1.GenesisState{..}
+      }
+    where
+        -- todo hardcoded epoch length (and initial seed)
+        genesisEpochLength = 10
+        genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
+        genesisFinalizationParameters =
+          FinalizationParameters {
+           finalizationWaitingTime = 100,
+           finalizationSkipShrinkFactor = 0.8,
+           finalizationSkipGrowFactor = 2,
+           finalizationDelayShrinkFactor = 0.8,
+           finalizationDelayGrowFactor = 2,
+           finalizationAllowZeroDelay = False,
+           ..
+         }
+        genesisAccounts = Vec.fromList $ makeFakeBakers nBakers
+
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
 emptyBirkParameters :: Accounts pv -> BasicBirkParameters
