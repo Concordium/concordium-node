@@ -64,10 +64,8 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
     where
         -- A transaction is too old if its arrival predates the oldest allowed
         -- arrival time, or if its expiry time has passed.
-        tooOld tx = biArrivalTime tx < oldestArrivalTime
-                    || transactionExpired (thExpiry (atrHeader (wmdData tx))) currentTime
-        tooOldCU tx = biArrivalTime tx < oldestArrivalTime
-                    || transactionExpired (updateTimeout (uiHeader (wmdData tx))) currentTime
+        tooOld :: (BIMetadata a, HasMessageExpiry a) => a -> Bool
+        tooOld tx = biArrivalTime tx < oldestArrivalTime || transactionExpired (msgExpiry tx) currentTime
         -- Determine if an entry in the transaction hash table indicates that a
         -- transaction is eligible for removal.  This is the case if the recorded
         -- slot preceeds the last finalized slot.
@@ -126,7 +124,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 -- Remove entry from the transaction table if eligible
                 p Nothing = Nothing
                 p r@(Just (bi, _))
-                    | biArrivalTime bi < oldestArrivalTime
+                    | tooOld bi
                     , removable r
                         = Nothing
                     | otherwise
@@ -146,7 +144,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         purgeUpds sn uis = state $ \(mmsn, tht) ->
             let
                 purgeUpd (uisacc, thtacc) ui
-                    | tooOldCU ui
+                    | tooOld ui
                     , removable (thtacc ^? ix (biHash ui))
                         = (uisacc, HM.delete (biHash ui) thtacc)
                     | otherwise
