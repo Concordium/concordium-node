@@ -18,7 +18,6 @@
 
 # checkout requested branch for later push
 BRANCH=$(echo $GIT_BRANCH | cut -d'/' -f2-)
-git checkout $BRANCH
 
 set -e
 
@@ -44,4 +43,4 @@ git add scripts/static-libraries/LATEST_STATIC_LIBRARIES
 # CI is skipped by default for these commits as the CI doesn't use the
 # static libraries so the outcome would be the same as in the previous commit.
 git commit -m "Jenkins: push $VERSION_TAG static libraries. [skip ci]"
-git push origin $BRANCH
+git push origin HEAD:$BRANCH
