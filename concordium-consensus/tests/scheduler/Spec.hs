@@ -21,6 +21,7 @@ import qualified SchedulerTests.EncryptedTransfersTest(tests)
 import qualified SchedulerTests.MaxIncomingAmountsTest(tests)
 import qualified SchedulerTests.StakedAmountLocked(tests)
 import qualified SchedulerTests.RejectReasons(tests)
+import qualified SchedulerTests.RejectReasonsRustContract(tests)
 
 import Test.Hspec
 
@@ -47,3 +48,4 @@ main = hspec $ do
          SchedulerTests.MaxIncomingAmountsTest.tests
          SchedulerTests.StakedAmountLocked.tests
          SchedulerTests.RejectReasons.tests
+         SchedulerTests.RejectReasonsRustContract.tests
