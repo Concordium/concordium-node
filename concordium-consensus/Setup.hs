@@ -14,14 +14,12 @@ import Data.Maybe
 makeRust :: Args -> ConfigFlags -> IO HookedBuildInfo
 makeRust args flags = do
     let verbosity = fromFlag $ configVerbosity flags
-    env <- getEnvironment
     rawSystemExit verbosity "mkdir" ["-p", "./smart-contracts/lib"]
 
     -- This way of determining the platform is not ideal.
     notice verbosity "Calling 'cargo build'"
-    rawSystemExitWithEnv verbosity "cargo"
+    rawSystemExit verbosity "cargo"
         ["build", "--release", "--manifest-path", "./smart-contracts/wasm-chain-integration/Cargo.toml"]
-        (("CARGO_NET_GIT_FETCH_WITH_CLI", "true") : env)
     case buildOS of
        Windows -> do
             notice verbosity "Copying wasm_chain_integration library"
