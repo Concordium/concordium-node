@@ -37,12 +37,12 @@ transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
       payload = DeployModule 0 "./testdata/contracts/chain-meta-test.wasm",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
       payload = InitContract 9 0 "./testdata/contracts/chain-meta-test.wasm" "init_origin" "",
-      keys = [(0, alesKP)]
+      keys = [(0,[(0, alesKP)])]
       }
   ]
 
