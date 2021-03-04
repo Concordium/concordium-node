@@ -31,31 +31,34 @@ initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{ slotTime = 444 }
 
+wasmPath :: String
+wasmPath = "./testdata/contracts/reject-reasons.wasm"
+
 transactionInputs :: [TransactionJSON]
 transactionInputs = [
   TJSON{
       metadata = makeDummyHeader alesAccount 1 100000,
-      payload = DeployModule 0 "./testdata/contracts/reject-reasons.wasm",
+      payload = DeployModule 0 wasmPath,
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 2 100000,
-      payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_success" "",
+      payload = InitContract 0 0 wasmPath "init_success" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 3 100000,
-      payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_error_pos" "",
+      payload = InitContract 0 0 wasmPath "init_error_pos" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 4 100000,
-      payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_fail_minus2" "",
+      payload = InitContract 0 0 wasmPath "init_fail_minus2" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
       metadata = makeDummyHeader alesAccount 5 100000,
-      payload = InitContract 0 0 "./testdata/contracts/reject-reasons.wasm" "init_fail_big" "",
+      payload = InitContract 0 0 wasmPath "init_fail_big" "",
       keys = [(0,[(0, alesKP)])]
       },
   TJSON{
@@ -106,7 +109,6 @@ testRejectReasons = do
 
 checkTransactionResults :: TestResult -> Assertion
 checkTransactionResults (suc, fails, instances) = do
-  putStrLn $ unlines $ map show suc
   assertEqual "There should be 10 successful transactions." 10 (length suc)
   assertEqual "There should be no failed transactions." 0 (length fails)
   assertEqual "There should be 3 runtime failures (from using positive return codes)." 3 (length runtimeFailures)

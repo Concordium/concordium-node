@@ -36,26 +36,29 @@ initialBlockState = createBlockState $ putAccountWithRegIds (mkAccount alesVK al
 chainMeta :: Types.ChainMetadata
 chainMeta = Types.ChainMetadata{ slotTime = 444 }
 
+wasmPath :: String
+wasmPath = "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm"
+
 transactionInputs :: [TransactionJSON]
 transactionInputs = [
   TJSON{
         metadata = makeDummyHeader alesAccount 1 100000,
-        payload = DeployModule 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm",
+        payload = DeployModule 0 wasmPath,
         keys = [(0, [(0, alesKP)])]
         },
   TJSON{
         metadata = makeDummyHeader alesAccount 2 100000,
-        payload = InitContract 0 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c10" "",
+        payload = InitContract 0 0 wasmPath "init_c10" "",
         keys = [(0, [(0, alesKP)])]
         },
   TJSON{
           metadata = makeDummyHeader alesAccount 3 100000,
-          payload = InitContract 42 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c10" "",
+          payload = InitContract 42 0 wasmPath "init_c10" "",
           keys = [(0, [(0, alesKP)])]
           },
   TJSON{
         metadata = makeDummyHeader alesAccount 4 100000,
-        payload = InitContract 0 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c20" "",
+        payload = InitContract 0 0 wasmPath "init_c20" "",
         keys = [(0, [(0, alesKP)])]
         },
   TJSON{
