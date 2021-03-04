@@ -6,8 +6,6 @@ STACK_VERSION="2.5.1"
 #############################################################################################################################
 ## Copy GHC libs
 
-sed -i 's/git-fetch-with-cli = true/git-fetch-with-cli = false/' /build/concordium-base/rust-src/.cargo/config
-
 mkdir -p /target/{profiling,vanilla}/{ghc,dependencies,concordium}
 mkdir -p /binaries/{lib,bin}
 for lib in $(find `stack --stack-yaml /build/concordium-consensus/stack.integer-simple.yaml ghc -- --print-libdir` -type f -name "*_p.a" ! -name "*_debug_p.a" ! -name "*rts_p.a" ! -name "*ffi_p.a"); do
