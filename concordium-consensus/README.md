@@ -48,7 +48,7 @@ rustup default stable-x86_64-pc-windows-gnu
 ```
 
 ### `user specified .o/.so/.DLL could not be loaded (addDLL: pthread or dependencies not loaded. (Win32 error 5)) whilst trying to load:  (dynamic) pthread`
-Copy `%APPDATA%\Local\Programs\stack\x86_64-windows\ghc-8.8.4\mingw\bin\libwinpthread-1.dll` to `%APPDATA%\Local\Programs\stack\x86_64-windows\ghc-8.8.4\mingw\bin\pthread.dll`.
+Copy `%APPDATA%\Local\Programs\stack\x86_64-windows\ghc-8.10.4\mingw\bin\libwinpthread-1.dll` to `%APPDATA%\Local\Programs\stack\x86_64-windows\ghc-8.10.4\mingw\bin\pthread.dll`.
 
 # The library and dependencies
 
