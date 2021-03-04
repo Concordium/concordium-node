@@ -175,24 +175,11 @@ updateBakerRestakeEarnings = 0
 updateBakerKeys :: Energy
 updateBakerKeys = 2980
 
--- |Cost to update existing account keys. Parametrised by amount of keys to update
+-- |Cost to update existing credential keys. Parametrised by amount of new keys.
 -- The cost of this transaction is the cost of deserializing Ed25519 verification keys
 -- which means checking that it decodes to a point on the curve.
-updateAccountKeys :: Int -> Energy
-updateAccountKeys n = 5 * fromIntegral n
-
--- |Cost to add a given number of account keys.
--- The cost of this transaction is the cost of deserializing Ed25519 verification keys
--- which means checking that it decodes to a point on the curve.
--- Same as for updateAccountKeys
-addAccountKeys :: Int -> Energy
-addAccountKeys = updateAccountKeys
-
--- |Cost to remove the given number of account keys.
--- There is no expensive operation related to this transaction, which is why it
--- has no cost except for that of checking the header.
-removeAccountKeys :: Int -> Energy
-removeAccountKeys _n = 0
+updateCredentialKeys :: Int -> Energy
+updateCredentialKeys n = 5 * fromIntegral n
 
 -- |Cost of an encrypted amount transfer validation.
 encryptedAmountTransfer :: Energy

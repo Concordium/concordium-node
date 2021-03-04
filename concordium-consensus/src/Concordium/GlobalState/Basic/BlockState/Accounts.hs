@@ -70,7 +70,7 @@ putAccount !acct Accounts{..} =
 -- |Equivalent to calling putAccount and recordRegId in sequence.
 putAccountWithRegIds :: Account -> Accounts -> Accounts
 putAccountWithRegIds !acct accts =
-  foldl' (\accs currentAcc -> recordRegId (ID.regId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
+  foldl' (\accs currentAcc -> recordRegId (ID.credId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts -> Bool
@@ -104,9 +104,9 @@ updateAccount !upd
     = updateNonce
       . updateReleaseSchedule
       . updateAmount
-      . updateCredential (upd ^. auCredential)
+      . updateCredentials (upd ^. auCredentials)
       . updateEncryptedAmount
-      . updateAccountKeys (upd ^. auKeysUpdate) (upd ^. auSignThreshold)
+      . updateCredentialKeys (upd ^. auCredentialKeysUpdate)
   where
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
@@ -137,6 +137,11 @@ regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
 -- |Record an account registration ID as used.
 recordRegId :: ID.CredentialRegistrationID -> Accounts -> Accounts
 recordRegId rid accs = accs { accountRegIds = Set.insert rid (accountRegIds accs) }
+
+-- |Record multiple registration ids as used. This implementation is marginally
+-- more efficient than repeatedly calling `recordRegId`.
+recordRegIds :: [ID.CredentialRegistrationID] -> Accounts -> Accounts
+recordRegIds rids accs = accs { accountRegIds = Set.union (accountRegIds accs) (Set.fromAscList rids) }
 
 instance HashableTo H.Hash Accounts where
     getHash Accounts{..} = getHash accountTable
