@@ -3,9 +3,9 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-8.8.4";
+const GHC_VARIANT: &str = "x86_64-linux-ghc-8.10.4";
 #[cfg(all(not(feature = "static"), target_os = "macos"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-8.8.4";
+const GHC_VARIANT: &str = "x86_64-osx-ghc-8.10.4";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
