@@ -86,7 +86,7 @@ readSigningKeys bs =
     Left err -> error $ "Cannot read credential because " ++ err
     Right d -> d
 
-{-# WARNING cdi8 "Do not use in production." #-}
+{-# WARNING ac8 "Do not use in production." #-}
 ac8 :: AccountCreation
 ac8 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-8.json" >>= embedFile)
 {-# WARNING cdi8keys "Do not use in production." #-}

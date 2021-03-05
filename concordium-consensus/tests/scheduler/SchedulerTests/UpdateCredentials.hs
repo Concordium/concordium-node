@@ -40,7 +40,7 @@ vk = Sig.correspondingVerifyKey
 
 
 
-cdi8ID = credId $ credential cdi8
+cdi8ID = credId $ credential ac8
 cdi8address = addressFromRegId $ cdi8ID
 cdi8kp0 = keys cdi8keys Map.! 0
 cdi8kp1 = keys cdi8keys Map.! 1
