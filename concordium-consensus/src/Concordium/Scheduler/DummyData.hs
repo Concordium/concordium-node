@@ -61,7 +61,7 @@ cdi5 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/
 -- cdi6 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-6.json" >>= embedFile)
 {-# WARNING cdi7 "Do not use in production." #-}
 cdi7 :: AccountCreation
-cdi7 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-7.json" >>= embedFile)
+cdi7 =  . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-7.json" >>= embedFile)
 
 readAccountCreation :: BSL.ByteString -> AccountCreation
 readAccountCreation bs =
@@ -87,8 +87,8 @@ readSigningKeys bs =
     Right d -> d
 
 {-# WARNING cdi8 "Do not use in production." #-}
-cdi8 :: CredentialDeploymentInformation
-cdi8 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-8.json" >>= embedFile)
+ac8 :: AccountCreation
+ac8 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-8.json" >>= embedFile)
 {-# WARNING cdi8keys "Do not use in production." #-}
 cdi8keys :: SigningKeys
 cdi8keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-private-keys-8.json" >>= embedFile)
