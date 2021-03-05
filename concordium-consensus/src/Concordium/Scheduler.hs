@@ -1202,7 +1202,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
       let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
       case credIndex of 
         Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
-        Just index -> if not thresholdCheck then return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy) else do
+        Just index -> if not thresholdCheck then return (TxReject InvalidCredentialKeySignThreshold, energyCost, usedEnergy) else do
           -- We check that the credential whose keys we are updating has indeed signed this transaction.
           let check = OrdMap.member index $ tsSignatures sigs
           if check then do
@@ -1307,7 +1307,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                       ) ([], Set.empty) removeRegIds
 
       -- check that the indices after removal are disjoint from the indices that we are about to add
-      let removalCheck = not (null nonExistingRegIds) &&
+      let removalCheck = null nonExistingRegIds &&
                          let existingIndices = OrdMap.keysSet existingCredentials
                              newIndices = OrdMap.keysSet cdis
                          in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
@@ -1362,6 +1362,8 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         -- is a pretty clean alternative to avoid deep nesting.
         if not firstCredNotRemoved then
           return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
+        else if not thresholdCheck then
+          return (TxReject InvalidAccountThreshold, energyCost, usedEnergy)
         else if not (null nonExistingRegIds) then
           return (TxReject (NonExistentCredIDs nonExistingRegIds), energyCost, usedEnergy)
         else if not removalCheck then
