@@ -61,7 +61,7 @@ cdi5 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/
 -- cdi6 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-6.json" >>= embedFile)
 {-# WARNING cdi7 "Do not use in production." #-}
 cdi7 :: AccountCreation
-cdi7 =  . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-7.json" >>= embedFile)
+cdi7 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-7.json" >>= embedFile)
 
 readAccountCreation :: BSL.ByteString -> AccountCreation
 readAccountCreation bs =
