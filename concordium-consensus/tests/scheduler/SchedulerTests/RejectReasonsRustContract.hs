@@ -49,7 +49,7 @@ updateWithAmount :: Types.Amount -> Text -> Types.Nonce -> TransactionJSON
 updateWithAmount amount fun = transaction (Update amount (Types.ContractAddress 0 0) fun "")
 
 transactionInputs :: [TransactionJSON]
-transactionInputs = zipWith (\t n -> t n) transactionFunctionList [1..]
+transactionInputs = zipWith ($) transactionFunctionList [1..]
                     where transactionFunctionList = [ transaction (DeployModule 0 wasmPath),
 
                                                       -- returns InitError::VeryBadError
