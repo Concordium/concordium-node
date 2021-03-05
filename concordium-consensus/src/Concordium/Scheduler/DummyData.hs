@@ -18,13 +18,14 @@ import qualified Concordium.Scheduler.Runner as Runner
 
 import Concordium.Types.DummyData
 
--- |Maximum possible expiry of a message.
-maxExpiry :: TransactionExpiryTime
-maxExpiry = TransactionTime maxBound
 import Concordium.ID.DummyData
 import qualified  Concordium.Crypto.SignatureScheme as Sig
 import qualified Data.Aeson as AE
 import qualified  Data.Map.Strict as Map
+
+-- |Maximum possible expiry of a message.
+maxExpiry :: TransactionExpiryTime
+maxExpiry = TransactionTime maxBound
 
 -- Make a header assuming there is only one key on the account, its index is 0
 {-# WARNING makeHeaderWithExpiry "Do not use in production." #-}
