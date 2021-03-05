@@ -38,11 +38,16 @@ cdiKeys cdi = credPubKeys (NormalACWP cdi)
 vk :: Sig.KeyPair -> Sig.VerifyKey
 vk = Sig.correspondingVerifyKey
 
-cdi8ID = credId (NormalACWP cdi8)
+
+
+cdi8ID = credId $ credential cdi8
 cdi8address = addressFromRegId $ cdi8ID
 cdi8kp0 = keys cdi8keys Map.! 0
 cdi8kp1 = keys cdi8keys Map.! 1
-cdi8ac = maybe (error "Should be safe") id $ values $ NormalACWP cdi8
+cdi8ac = maybe (error "Should be safe") id $ values $ credential ac8
+
+cdi7'' = case credential cdi7 of 
+  NormalACWP cdi -> cdi
 
 cdi9ID = credId (NormalACWP cdi9)
 cdi9kp0 = keys cdi9keys Map.! 0
@@ -189,7 +194,7 @@ testCases =
           )
         )
       , -- Trying to add cdi7 which is not a cdi for deploying to cdi8 - should reject since for this purpose, cdi7 is invalid
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7) [] 2,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7'') [] 2,
                           metadata = makeDummyHeader cdi8address 13 50000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])] 
                         }
