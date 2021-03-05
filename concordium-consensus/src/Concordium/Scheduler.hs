@@ -60,10 +60,10 @@ import Concordium.Crypto.EncryptedTransfers
 import Control.Applicative
 import Control.Monad.Except
 import Data.Function (on)
+import Data.List (find, foldl')
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
-import Data.List hiding (group)
 import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.Proofs as Proofs
