@@ -370,9 +370,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         r1 <- coerceBSML $ bsoRegIdExists bs1 regid
         r2 <- coerceBSMR $ bsoRegIdExists bs2 regid
         assert (r1 == r2) $ return r1
-    bsoCreateAccount (bs1, bs2) gc keys addr cred = do
-        (r1, bs1') <- coerceBSML $ bsoCreateAccount bs1 gc keys addr cred
-        (r2, bs2') <- coerceBSMR $ bsoCreateAccount bs2 gc keys addr cred
+    bsoCreateAccount (bs1, bs2) gc addr cred = do
+        (r1, bs1') <- coerceBSML $ bsoCreateAccount bs1 gc addr cred
+        (r2, bs2') <- coerceBSMR $ bsoCreateAccount bs2 gc addr cred
         case (r1, r2) of
             (Just a1, Just a2) ->
                 assert ((getHash a1 :: H.Hash) == getHash a2) $ return (Just (a1, a2), (bs1', bs2'))

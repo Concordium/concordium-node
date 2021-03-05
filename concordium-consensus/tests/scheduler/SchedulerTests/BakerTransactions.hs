@@ -73,7 +73,7 @@ transactionsInput =
                                 8_000_000
                                 True
            , metadata = makeDummyHeader (account 0) 1 10000
-           , keys = [(0, keyPair 0)]
+           , keys = [(0,[(0, keyPair 0)])]
            },
       -- Add baker on account 1 (OK)
       TJSON { payload = AddBaker (baker1 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -85,7 +85,7 @@ transactionsInput =
                                 7_500_000
                                 False
            , metadata = makeDummyHeader (account 1) 1 10000
-           , keys = [(0, keyPair 1)]
+           , keys = [(0,[(0, keyPair 1)])]
            },
       -- Add baker on account 2, duplicate aggregation key of baker 0 (FAIL)
       TJSON { payload = AddBaker (baker2 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -97,7 +97,7 @@ transactionsInput =
                                 3_000_000
                                 False
            , metadata = makeDummyHeader (account 2) 1 10000
-           , keys = [(0, keyPair 2)]
+           , keys = [(0,[(0, keyPair 2)])]
            },
       -- Add baker on account 2, duplicate sign and election key of baker 0 (OK)
       TJSON { payload = AddBaker (baker0 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -109,7 +109,7 @@ transactionsInput =
                                 4_000_000
                                 False
            , metadata = makeDummyHeader (account 2) 2 10000
-           , keys = [(0, keyPair 2)]
+           , keys = [(0,[(0, keyPair 2)])]
            },
       -- Update baker 0 with original keys (OK)
       TJSON { payload = UpdateBakerKeys (baker0 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -119,7 +119,7 @@ transactionsInput =
                                 (baker0 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker0 ^. _4)
            , metadata = makeDummyHeader (account 0) 2 10000
-           , keys = [(0, keyPair 0)]
+           , keys = [(0,[(0, keyPair 0)])]
            },
       -- Update baker 0 with baker1's aggregation key (FAIL)
       TJSON { payload = UpdateBakerKeys (baker0 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -129,7 +129,7 @@ transactionsInput =
                                 (baker1 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker1 ^. _4)
            , metadata = makeDummyHeader (account 0) 3 10000
-           , keys = [(0, keyPair 0)]
+           , keys = [(0,[(0, keyPair 0)])]
            },
       -- Add baker on account 3, bad election key proof (FAIL)
       TJSON { payload = AddBaker (baker3 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -141,7 +141,7 @@ transactionsInput =
                                 4_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 1 10000
-           , keys = [(0, keyPair 3)]
+           , keys = [(0,[(0, keyPair 3)])]
            },
       -- Add baker on account 3, bad sign key proof (FAIL)
       TJSON { payload = AddBaker (baker3 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -153,7 +153,7 @@ transactionsInput =
                                 4_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 2 10000
-           , keys = [(0, keyPair 3)]
+           , keys = [(0,[(0, keyPair 3)])]
            },
       -- Add baker on account 3, bad aggregation key proof (FAIL)
       TJSON { payload = AddBaker (baker3 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -165,17 +165,17 @@ transactionsInput =
                                 4_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 3 10000
-           , keys = [(0, keyPair 3)]
+           , keys = [(0,[(0, keyPair 3)])]
            },
       -- Remove baker 3 (FAIL)
       TJSON { payload = RemoveBaker
             , metadata = makeDummyHeader (account 3) 4 10000
-            , keys = [(0, keyPair 3)]
+            , keys = [(0,[(0, keyPair 3)])]
             },
       -- Remove baker 0 (OK)
       TJSON { payload = RemoveBaker
             , metadata = makeDummyHeader (account 0) 4 10000
-            , keys = [(0, keyPair 0)]
+            , keys = [(0,[(0, keyPair 0)])]
             },
       -- Add baker on account 3 with baker 0's keys (FAIL)
       -- This fails because baker 0 remains valid during cooldown.
@@ -188,7 +188,7 @@ transactionsInput =
                                 4_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 5 10000
-           , keys = [(0, keyPair 3)]
+           , keys = [(0,[(0, keyPair 3)])]
            },
       -- Update baker 1 with bad sign key proof (FAIL)
       TJSON { payload = UpdateBakerKeys (baker1 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -198,7 +198,7 @@ transactionsInput =
                                 (baker1 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker1 ^. _4)
            , metadata = makeDummyHeader (account 1) 2 10000
-           , keys = [(0, keyPair 1)]
+           , keys = [(0,[(0, keyPair 1)])]
            },
       -- Update baker 1 with bad election key proof (FAIL)
       TJSON { payload = UpdateBakerKeys (baker1 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -208,7 +208,7 @@ transactionsInput =
                                 (baker1 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker1 ^. _4)
            , metadata = makeDummyHeader (account 1) 3 10000
-           , keys = [(0, keyPair 1)]
+           , keys = [(0,[(0, keyPair 1)])]
            },
       -- Update baker 1 with bad aggregation key proof (FAIL)
       TJSON { payload = UpdateBakerKeys (baker1 ^. _1 . bakerInfo . bakerElectionVerifyKey)
@@ -218,7 +218,7 @@ transactionsInput =
                                 (baker1 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker3 ^. _4)
            , metadata = makeDummyHeader (account 1) 4 10000
-           , keys = [(0, keyPair 1)]
+           , keys = [(0,[(0, keyPair 1)])]
            }
     ]
 

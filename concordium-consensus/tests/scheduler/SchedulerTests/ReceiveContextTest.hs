@@ -42,27 +42,27 @@ transactionInputs = [
   TJSON{
         metadata = makeDummyHeader alesAccount 1 100000,
         payload = DeployModule 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm",
-        keys = [(0, alesKP)]
+        keys = [(0, [(0, alesKP)])]
         },
   TJSON{
         metadata = makeDummyHeader alesAccount 2 100000,
         payload = InitContract 0 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c10" "",
-        keys = [(0, alesKP)]
+        keys = [(0, [(0, alesKP)])]
         },
   TJSON{
           metadata = makeDummyHeader alesAccount 3 100000,
           payload = InitContract 42 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c10" "",
-          keys = [(0, alesKP)]
+          keys = [(0, [(0, alesKP)])]
           },
   TJSON{
         metadata = makeDummyHeader alesAccount 4 100000,
         payload = InitContract 0 0 "./testdata/contracts/send/target/concordium/wasm32-unknown-unknown/release/send.wasm" "init_c20" "",
-        keys = [(0, alesKP)]
+        keys = [(0, [(0, alesKP)])]
         },
   TJSON{
         metadata = makeDummyHeader thomasAccount 1 100000,
         payload = Update 5 (Types.ContractAddress 2 0) "c20.call_c10" "",
-        keys = [(0, thomasKP)]
+        keys = [(0, [(0, thomasKP)])]
         }
   ]
 

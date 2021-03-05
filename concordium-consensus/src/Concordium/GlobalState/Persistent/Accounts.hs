@@ -234,6 +234,15 @@ recordRegId rid accts0 = do
                 accountRegIdHistory = RegIdHistory (rid:l) r
                 }
 
+recordRegIds :: MonadBlobStore m => [ID.CredentialRegistrationID] -> Accounts pv -> m (Accounts pv)
+recordRegIds rids accts0 = do
+        (regids, accts1) <- loadRegIds accts0
+        let (RegIdHistory l r) = accountRegIdHistory accts1
+        return $! accts1 {
+                accountRegIds = Some (Set.union regids (Set.fromAscList rids)),
+                accountRegIdHistory = RegIdHistory (rids++l) r
+                }
+
 -- |Perform an update to an account with the given address.
 -- Does nothing (returning @Nothing@) if the account does not exist.
 -- This should not be used to alter the address of an account (which is
@@ -275,11 +284,11 @@ updateAccount !upd !acc = do
                                                     & accountReleaseSchedule .~ releaseScheduleRef
                                                     & accountEncryptedAmount .~ newEncryptedAmountRef
   -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  case (upd ^. auCredential, upd ^. auKeysUpdate, upd ^. auSignThreshold) of
-        (Nothing, Nothing, Nothing) -> rehashAccount newAccWithoutHash
-        (mNewCred, mKeyUpd, mNewThreshold) -> do
+  case (upd ^. auCredentials, upd ^. auCredentialKeysUpdate) of
+        (Nothing, Nothing) -> rehashAccount newAccWithoutHash
+        (mNewCred, mKeyUpd) -> do
             pData <- refLoad (acc ^. persistingData)
-            let newPData = updateCredential mNewCred (updateAccountKeys mKeyUpd mNewThreshold pData)
+            let newPData = updateCredentials mNewCred (updateCredentialKeys mKeyUpd pData)
             newPDataRef <- refMake newPData
             rehashAccount $ newAccWithoutHash & persistingData .~ newPDataRef
   where setMaybe (Just x) _ = x
@@ -293,4 +302,4 @@ accountAddresses = Trie.keys . accountMap
 serializeAccounts :: (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> Accounts pv -> m ()
 serializeAccounts cryptoParams accts = do
         liftPut $ putWord64be $ L.size (accountTable accts)
-        L.mmap_ (putAccountV0 cryptoParams) (accountTable accts)
+        L.mmap_ (serializeAccount cryptoParams) (accountTable accts)

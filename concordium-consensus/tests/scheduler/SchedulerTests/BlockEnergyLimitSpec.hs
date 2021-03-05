@@ -43,20 +43,20 @@ transactions :: [TransactionJSON]
 transactions = [-- valid transaction: energy not over max limit
                 TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 1 usedTransactionEnergy
-                      , keys = [(0, alesKP)]
+                      , keys = [(0,[(0, alesKP)])]
                       },
                 -- invalid transaction: although its used energy amount (plus the energy of the
                 -- previously valid transaction) is under the energy limit,
                 -- the stated energy is above the limit, so this transaction cannot be added to the block
                 TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 3 $ maxBlockEnergy + Types.Energy 1
-                      , keys = [(0, alesKP)]
+                      , keys = [(0,[(0, alesKP)])]
                       },
                 -- will be an unprocessed transaction because together with the first valid transaction,
                 -- its energy exceeds the limit
                 TJSON { payload = Transfer { toaddress = alesAccount, amount = 100 }
                       , metadata = makeDummyHeader alesAccount 4 $ usedTransactionEnergy + 1
-                      , keys = [(0, alesKP)]
+                      , keys = [(0,[(0, alesKP)])]
                       }
                ]
 
@@ -71,7 +71,7 @@ testMaxBlockEnergy = do
     ts' <- processUngroupedTransactions transactions
     -- invalid transaction: its used and stated energy of 10000 exceeds the maximum
     -- block energy limit
-    let ts = Types.TGCredentialDeployment (Types.fromCDI 0 cdi1) : ts' -- dummy arrival time of 0
+    let ts = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 cdi1) : ts' -- dummy arrival time of 0
 
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize ts)
@@ -96,7 +96,7 @@ checkResult (valid, invalid, invalidCred, unproc, [t1, t3, t4]) =
             let (invalidTs, failures) = unzip invalid
             let (invalidCreds, credFailures) = unzip invalidCred
             assertEqual "The second and third transactions are invalid:" [t3] invalidTs
-            assertEqual "The credential deployment is invalid." [Types.fromCDI 0 cdi1] invalidCreds
+            assertEqual "The credential deployment is invalid." [Types.addMetadata Types.CredentialDeployment 0 cdi1] invalidCreds
             assertEqual "There is one normal transaction whose energy exceeds the block energy limit:"
                 (replicate 1 Types.ExceedsMaxBlockEnergy) failures
             assertEqual "There is one credential deployment whose energy exceeds the block energy limit:"

@@ -74,7 +74,7 @@ putAccount !acct Accounts{..} =
 -- |Equivalent to calling putAccount and recordRegId in sequence.
 putAccountWithRegIds :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
 putAccountWithRegIds !acct accts =
-  foldl' (\accs currentAcc -> recordRegId (ID.regId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
+  foldl' (\accs currentAcc -> recordRegId (ID.credId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts pv -> Bool
@@ -108,9 +108,9 @@ updateAccount !upd
     = updateNonce
       . updateReleaseSchedule
       . updateAmount
-      . updateCredential (upd ^. auCredential)
+      . updateCredentials (upd ^. auCredentials)
       . updateEncryptedAmount
-      . updateAccountKeys (upd ^. auKeysUpdate) (upd ^. auSignThreshold)
+      . updateCredentialKeys (upd ^. auCredentialKeysUpdate)
   where
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
@@ -141,6 +141,11 @@ regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
 -- |Record an account registration ID as used.
 recordRegId :: ID.CredentialRegistrationID -> Accounts pv -> Accounts pv
 recordRegId rid accs = accs { accountRegIds = Set.insert rid (accountRegIds accs) }
+
+-- |Record multiple registration ids as used. This implementation is marginally
+-- more efficient than repeatedly calling `recordRegId`.
+recordRegIds :: [ID.CredentialRegistrationID] -> Accounts pv -> Accounts pv
+recordRegIds rids accs = accs { accountRegIds = Set.union (accountRegIds accs) (Set.fromAscList rids) }
 
 instance HashableTo H.Hash (Accounts pv) where
     getHash Accounts{..} = getHash accountTable
@@ -179,8 +184,8 @@ deserializeAccounts cryptoParams = do
               unless (_bakerIdentity (_accountBakerInfo bkr) == BakerId acctId) $
                 fail "BakerID does not match account index"
             let addRegId regids cred
-                  | ID.regId cred `Set.member` regids = fail "Duplicate credential"
-                  | otherwise = return $ Set.insert (ID.regId cred) regids
+                  | ID.credId cred `Set.member` regids = fail "Duplicate credential"
+                  | otherwise = return $ Set.insert (ID.credId cred) regids
             newRegIds <- foldM addRegId accountRegIds (acct ^. accountCredentials)
             loop (i+1)
               Accounts {

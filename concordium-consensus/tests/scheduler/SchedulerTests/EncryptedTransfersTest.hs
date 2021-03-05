@@ -203,7 +203,7 @@ mkTestCases = do
       , tcTransactions =
         [ ( Runner.TJSON { payload = Runner.TransferToEncrypted 1000
                            , metadata = makeDummyHeader alesAccount 1 100000
-                           , keys = [(0, alesKP)]
+                           , keys = [(0,[(0, alesKP)])]
                            }
             , (SuccessE [EncryptedSelfAmountAdded {
                             eaaAccount = alesAccount,
@@ -217,7 +217,7 @@ mkTestCases = do
           in
            ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData1
                          , metadata = makeDummyHeader alesAccount 2 100000
-                         , keys = [(0, alesKP)]
+                         , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
@@ -240,7 +240,7 @@ mkTestCases = do
           in
            ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData2
                          , metadata = makeDummyHeader alesAccount 3 100000
-                         , keys = [(0, alesKP)]
+                         , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
@@ -263,7 +263,7 @@ mkTestCases = do
           in
            ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer thomasAccount encryptedTransferData3
                          , metadata = makeDummyHeader alesAccount 4 100000
-                         , keys = [(0, alesKP)]
+                         , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
@@ -284,7 +284,7 @@ mkTestCases = do
           ),
           ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer alesAccount encryptedTransferData4
                          , metadata = makeDummyHeader thomasAccount 1 100000
-                         , keys = [(0, thomasKP)]
+                         , keys = [(0,[(0, thomasKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = thomasAccount,
@@ -308,7 +308,7 @@ mkTestCases = do
           ),
           ( Runner.TJSON { payload = Runner.EncryptedAmountTransfer alesAccount encryptedTransferData5
                          , metadata = makeDummyHeader thomasAccount 2 100000
-                         , keys = [(0, thomasKP)]
+                         , keys = [(0,[(0, thomasKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = thomasAccount,
@@ -332,7 +332,7 @@ mkTestCases = do
           ),
           ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData1
                          , metadata = makeDummyHeader alesAccount 5 100000
-                         , keys = [(0, alesKP)]
+                         , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
@@ -351,7 +351,7 @@ mkTestCases = do
           ),
           ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData2
                          , metadata = makeDummyHeader alesAccount 6 100000
-                         , keys = [(0, alesKP)]
+                         , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,
@@ -370,7 +370,7 @@ mkTestCases = do
           ),
           ( Runner.TJSON { payload = Runner.TransferToPublic secToPubTransferData3
                          , metadata = makeDummyHeader alesAccount 7 100000
-                         , keys = [(0, alesKP)]
+                         , keys = [(0,[(0, alesKP)])]
                          }
           , (SuccessE [EncryptedAmountsRemoved {
                           earAccount = alesAccount,

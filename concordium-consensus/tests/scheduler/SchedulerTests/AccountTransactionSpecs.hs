@@ -5,6 +5,7 @@ import Test.Hspec
 import Test.HUnit
 
 import qualified Concordium.Scheduler.Types as Types
+import qualified Concordium.ID.Types as Types
 import qualified Concordium.Scheduler.EnvironmentImplementation as Types
 import qualified Concordium.Scheduler as Sch
 
@@ -31,15 +32,23 @@ initialAmount = 0
 initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
+-- cdi7, but with lowest possible expiry
+cdi8 :: Types.AccountCreation
+cdi8 = Types.AccountCreation{
+  messageExpiry = 0,
+  credential = Types.credential cdi7
+  }
+
 transactionsInput :: [Types.CredentialDeploymentWithMeta]
-transactionsInput = map (Types.fromCDI 0) $ [
+transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
   cdi1,
   cdi2,
   cdi3,
   cdi4, -- should fail because repeated credential ID
   cdi5,
   -- cdi6, -- deploy just a new predicate
-  cdi7  -- should run out of gas (see initial amount on the sender account)
+  cdi7,
+  cdi8
   ]
 
 testAccountCreation ::
@@ -53,13 +62,13 @@ testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
           Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
-            dummyChainMeta
+            dummyChainMeta { slotTime = 250 } -- we set slot time to non-zero so that the deployment of the last credential fails due to message expiry
             maxBound
             maxBound
             initialBlockState
     let state = finState ^. Types.ssBlockState
     let accounts = state ^. blockAccounts
-    let accAddrs = map accountAddressFromCred [cdi1,cdi2,cdi3,cdi5,cdi7]
+    let accAddrs = map (accountAddressFromCredential . Types.credential) [cdi1,cdi2,cdi3,cdi5,cdi7]
     case invariantBlockState state (finState ^. Types.schedulerExecutionCosts) of
         Left f -> liftIO $ assertFailure $ f ++ "\n" ++ show state
         _ -> return ()
@@ -75,7 +84,8 @@ checkAccountCreationResult ::
      Amount)
   -> Assertion
 checkAccountCreationResult (suc, fails, stateAccs, stateAles, executionCost) = do
-  assertEqual "All but the 4th transaction should fail." 1 (length fails)
+  -- this is in reverse order since failed transactions are returned in reverse order of the order tried.
+  assertEqual "Fourth and eighth credential deployment should fail." [Types.ExpiredTransaction, (Types.DuplicateAccountRegistrationID (Types.credId . Types.credential $ cdi3))] (map snd fails)
   assertEqual "Account should keep the initial amount." initialAmount (stateAles ^. accountAmount)
   assertEqual "Execution cost should be 0." 0 executionCost
   assertEqual "Total amount of tokens is maintained." initialAmount (stateAles ^. accountAmount + executionCost)

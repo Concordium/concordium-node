@@ -42,7 +42,7 @@ baker = mkFullBaker 1 0
 transactions :: Types.TransactionExpiryTime -> [TransactionJSON]
 transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount = 10000 }
                         , metadata = makeHeaderWithExpiry alesAccount 1 100000 t
-                        , keys = [(0, alesKP)]
+                        , keys = [(0,[(0, alesKP)])]
                         }
                  ,TJSON { payload = AddBaker {
                               bElectionVerifyKey = baker ^. _1 . bakerInfo . bakerElectionVerifyKey,
@@ -55,11 +55,11 @@ transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount =
                               bRestakeEarnings = True
                             }
                         , metadata = makeHeaderWithExpiry alesAccount 2 100000 t
-                        , keys = [(0, alesKP)]
+                        , keys = [(0,[(0, alesKP)])]
                         }
                  ,TJSON { payload = UpdateBakerStake 2000000
                         , metadata = makeHeaderWithExpiry alesAccount 3 100000 t
-                        , keys = [(0, alesKP)]
+                        , keys = [(0,[(0, alesKP)])]
                         }
                  ,TJSON { payload = UpdateBakerKeys {
                               bElectionVerifyKey = baker ^. _1 . bakerInfo . bakerElectionVerifyKey,
@@ -70,15 +70,15 @@ transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount =
                               bAggregateSecretKey = baker ^. _4
                             }
                         , metadata = makeHeaderWithExpiry alesAccount 4 100000 t
-                        , keys = [(0, alesKP)]
+                        , keys = [(0,[(0, alesKP)])]
                          }
                  ,TJSON { payload = UpdateBakerRestakeEarnings False
                         , metadata = makeHeaderWithExpiry alesAccount 5 1000000 t
-                        , keys = [(0, alesKP)]
+                        , keys = [(0,[(0, alesKP)])]
                         }
                  ,TJSON { payload = RemoveBaker
                       , metadata = makeHeaderWithExpiry alesAccount 6 100000 t
-                      , keys = [(0, alesKP)]
+                      , keys = [(0,[(0, alesKP)])]
                       }
                  ]
 
