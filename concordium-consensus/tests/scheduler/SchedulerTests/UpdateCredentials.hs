@@ -48,6 +48,8 @@ cdi8ac = maybe (error "Should be safe") id $ values $ credential ac8
 
 cdi7'' = case credential cdi7 of 
   NormalACWP cdi -> cdi
+cdi8 = case credential ac8 of 
+  NormalACWP cdi -> cdi
 
 cdi9ID = credId (NormalACWP cdi9)
 cdi9kp0 = keys cdi9keys Map.! 0
