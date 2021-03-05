@@ -86,17 +86,6 @@ readSigningKeys bs =
     Left err -> error $ "Cannot read credential because " ++ err
     Right d -> d
 
-{-# WARNING readGlobalContext "Do not use in production." #-}
-readGlobalContext :: BSL.ByteString -> GlobalContext
-readGlobalContext bs =
-  case AE.eitherDecode bs of
-    Left err -> error $ "Cannot read global context because " ++ err
-    Right d -> d
-
-{-# WARNING gc1 "Do not use in production." #-}
-gc1 :: GlobalContext
-gc1 = readGlobalContext . BSL.fromStrict $ $(makeRelativeToProject "testdata/global_no_version.json" >>= embedFile)
-
 {-# WARNING cdi8 "Do not use in production." #-}
 cdi8 :: CredentialDeploymentInformation
 cdi8 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-8.json" >>= embedFile)
