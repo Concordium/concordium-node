@@ -46,3 +46,6 @@ genesis_data
 /concordium-consensus/HSdll.dll
 /concordium-consensus/HSdll.dll.a
 concordium-node/deps/static-libs
+.dir-locals.el
+hie.yaml
+**/**/TAGS
