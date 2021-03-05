@@ -14,6 +14,7 @@
 -- especially where the keys are randomly distributed.
 module Concordium.GlobalState.Persistent.Trie where
 
+import Data.Fix
 import qualified Data.Vector as V
 import Data.List(intercalate,stripPrefix)
 import Data.Word

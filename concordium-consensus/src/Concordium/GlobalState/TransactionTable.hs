@@ -271,7 +271,7 @@ forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
                 upd (Just (low, high)) =
                     assert (low == transactionNonce tr) $ assert (low <= high) $
                         if low == high then Nothing else Just (low+1,high)
-        forward1 ptt WithMetadata{wmdData=CredentialDeployment{..},..} = ptt & pttDeployCredential %~ upd
+        forward1 ptt WithMetadata{wmdData=CredentialDeployment{},..} = ptt & pttDeployCredential %~ upd
             where
               upd ps
                 | wmdHash `HS.member` ps = HS.delete wmdHash ps
@@ -296,7 +296,7 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                 upd (Just (low, high)) =
                         assert (low == transactionNonce tr + 1) $
                         Just (low-1,high)
-        reverse1 WithMetadata{wmdData=CredentialDeployment{..},..} = pttDeployCredential %~ upd
+        reverse1 WithMetadata{wmdData=CredentialDeployment{},..} = pttDeployCredential %~ upd
             where
               upd ps = assert (not (HS.member wmdHash ps)) $ HS.insert wmdHash ps
         reverse1 WithMetadata{wmdData=ChainUpdate{..}} = pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd
