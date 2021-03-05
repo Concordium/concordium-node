@@ -74,7 +74,7 @@ invariantBlockState bs extraBalance = do
                         unless (Set.member (binfo ^. bakerAggregationVerifyKey) bakerKeys) $ Left "Baker aggregation key is missing from active bakers"
                         return (Set.delete (BakerId i) bakerIds, Set.delete (binfo ^. bakerAggregationVerifyKey) bakerKeys)
             return (creds', Map.insert addr i amp, bal + (acct ^. accountAmount), bakerIds', bakerKeys')
-        checkCred creds (ID.regId -> cred)
+        checkCred creds (ID.credId -> cred)
             | cred `Set.member` creds = Left $ "Duplicate credential: " ++ show cred
             | otherwise = return $ Set.insert cred creds
         checkEpochBakers EpochBakers{..} = do

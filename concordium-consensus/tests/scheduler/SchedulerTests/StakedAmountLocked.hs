@@ -65,11 +65,11 @@ transactionsInput =
     [
       TJSON { payload = Transfer (account 0) 0
            , metadata = makeDummyHeader (account 0) 1 10000
-           , keys = [(0, keyPair 0)]
+           , keys = [(0,[(0, keyPair 0)])]
            },
       TJSON { payload = Transfer (account 1) 0
            , metadata = makeDummyHeader (account 1) 1 10000
-           , keys = [(0, keyPair 1)]
+           , keys = [(0,[(0, keyPair 1)])]
            }
     ]
 

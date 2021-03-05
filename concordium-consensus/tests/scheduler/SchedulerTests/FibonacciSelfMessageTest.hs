@@ -52,20 +52,20 @@ testCases =
     , tcTransactions =
       [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/fib.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
       , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/fib.wasm" "init_fib" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
         -- compute F(10)
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "fib.receive" (fibParamBytes 10)
                 , metadata = makeDummyHeader alesAccount 3 70000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (Success ensureAllUpdates , fibSpec 10)
         )

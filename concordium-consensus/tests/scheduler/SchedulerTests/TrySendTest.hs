@@ -47,20 +47,20 @@ testCases =
     , tcTransactions =
       [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/try-send-test.wasm"
                 , metadata = makeDummyHeader alesAccount 1 100000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
       , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/try-send-test.wasm" "init_try" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (Success emptyExpect, emptySpec)
         )
         -- valid account, should succeed in transferring
       , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr
                 , metadata = makeDummyHeader alesAccount 3 70000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
                                    , euInstigator = Types.AddressAccount alesAccount
@@ -78,7 +78,7 @@ testCases =
         -- transfer did not happen
       , ( TJSON { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0) )
                 , metadata = makeDummyHeader alesAccount 4 70000
-                , keys = [(0, alesKP)]
+                , keys = [(0,[(0, alesKP)])]
                 }
         , (SuccessE [Types.Updated { euAddress = Types.ContractAddress 0 0
                                    , euInstigator = Types.AddressAccount alesAccount

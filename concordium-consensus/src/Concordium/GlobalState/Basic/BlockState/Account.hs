@@ -18,10 +18,9 @@ module Concordium.GlobalState.Basic.BlockState.Account(
 ) where
 
 import Control.Monad
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
 import Data.Maybe
 import qualified Data.Serialize as S
+import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 
 import Concordium.Utils.Serialization
@@ -83,6 +82,11 @@ instance IsProtocolVersion pv => Show (Account pv) where
 
 
 -- |Serialize an account. The serialization format may depend on the protocol version.
+--
+-- This format allows accounts to be stored in a reduced format by
+-- elliding (some) data that can be inferred from context, or is
+-- the default value.  Note that there can be multiple representations
+-- of the same account.
 serializeAccount :: (IsProtocolVersion pv) => GlobalContext -> S.Putter (Account pv)
 serializeAccount cryptoParams acct@Account{..} = do
     S.put flags
@@ -98,12 +102,12 @@ serializeAccount cryptoParams acct@Account{..} = do
   where
     PersistingAccountData {..} = acct ^. persistingAccountData
     flags = AccountSerializationFlags {..}
-    initialRegId = regId (NE.last _accountCredentials)
+    initialRegId = credId (snd (Map.findMin _accountCredentials))
     asfExplicitAddress = _accountAddress /= addressFromRegId initialRegId
     asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialRegId
-    (asfMultipleCredentials, putCredentials) = case _accountCredentials of
-      cred :| [] -> (False, S.put cred)
-      creds -> (True, putLength (length creds) >> mapM_ S.put creds)
+    (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
+      [(0, cred)] -> (False, S.put cred)
+      _ -> (True, putSafeMapOf S.put S.put _accountCredentials)
     asfExplicitEncryptedAmount = _accountEncryptedAmount /= initialAccountEncryptedAmount
     asfExplicitReleaseSchedule = _accountReleaseSchedule /= emptyAccountReleaseSchedule
     asfHasBaker = isJust _accountBaker
@@ -119,13 +123,13 @@ deserializeAccount cryptoParams = do
     _accountVerificationKeys <- S.get
     let getCredentials
           | asfMultipleCredentials = do
-              numCredentials <- getLength
-              when (numCredentials < 1) $ fail "Account has no credentials"
-              (:|) <$> S.get <*> replicateM (numCredentials - 1) S.get
-          | otherwise = pure <$> S.get
+              creds <- getSafeMapOf S.get S.get
+              when (Map.null creds) $ fail "Account has no credentials"
+              return creds
+          | otherwise = Map.singleton 0 <$> S.get
     _accountCredentials <- getCredentials
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
-    let initialRegId = regId (NE.last _accountCredentials)
+    let initialRegId = credId (snd (Map.findMin _accountCredentials))
         _accountAddress = fromMaybe (addressFromRegId initialRegId) preAddress
         _accountEncryptionKey = fromMaybe (makeEncryptionKey cryptoParams initialRegId) preEncryptionKey
     _accountNonce <- S.get
@@ -142,14 +146,21 @@ instance (IsProtocolVersion pv) => HashableTo Hash.Hash (Account pv) where
     where
       bkrHash = maybe nullAccountBakerHash getHash _accountBaker
 
+
+
 -- |Create an empty account with the given public key, address and credentials.
-newAccountMultiCredential :: forall pv. (IsProtocolVersion pv) =>
-  GlobalContext -> AccountKeys -> AccountAddress -> NonEmpty AccountCredential -> Account pv
-newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress cs = Account {
+newAccountMultiCredential :: forall pv. (IsProtocolVersion pv)
+  => GlobalContext  -- ^Cryptographic parameters, needed to derive the encryption key from the credentials.
+  -> AccountThreshold -- ^The account threshold, how many credentials need to sign..
+  -> AccountAddress -- ^Address of the account to be created.
+  -> Map.Map CredentialIndex AccountCredential -- ^Initial credentials on the account. NB: It is assumed that this map has a value at index 0.
+  -> Account pv
+newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountPersisting = makeAccountPersisting @pv PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId (NE.last cs)),
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! 0)),
         _accountCredentials = cs,
         _accountMaxCredentialValidTo = maximum (validTo <$> cs),
+        _accountVerificationKeys = getAccountInformation threshold cs,
         ..
         },
         _accountNonce = minNonce,
@@ -160,6 +171,6 @@ newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress 
     }
 
 -- |Create an empty account with the given public key, address and credential.
-newAccount :: (IsProtocolVersion pv) => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> Account pv
-newAccount cryptoParams _accountVerificationKeys _accountAddress credential
-    = newAccountMultiCredential cryptoParams _accountVerificationKeys _accountAddress (credential :| [])
+newAccount :: (IsProtocolVersion pv) => GlobalContext -> AccountAddress -> AccountCredential -> Account pv
+newAccount cryptoParams _accountAddress credential
+    = newAccountMultiCredential cryptoParams 1 _accountAddress (Map.singleton 0 credential)

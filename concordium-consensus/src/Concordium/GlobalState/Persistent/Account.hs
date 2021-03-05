@@ -12,10 +12,9 @@ import Data.Serialize
 import Lens.Micro.Platform
 import Data.Word
 import Control.Monad
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
 import qualified Data.Sequence as Seq
 import Data.Maybe (isNothing)
+import qualified Data.Map.Strict as Map
 
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
@@ -300,12 +299,14 @@ instance Monad m => MHashableTo m Hash.Hash (PersistentAccount pv)
 
 -- |Create an empty account with the given public key, address and credential.
 newAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv)
-    => GlobalContext -> AccountKeys -> AccountAddress -> AccountCredential -> m (PersistentAccount pv)
-newAccount cryptoParams _accountVerificationKeys _accountAddress credential = do
+    => GlobalContext -> AccountAddress -> AccountCredential -> m (PersistentAccount pv)
+newAccount cryptoParams _accountAddress credential = do
+  let creds = Map.singleton 0 credential
   let newPData = PersistingAccountData {
-        _accountEncryptionKey = makeEncryptionKey cryptoParams (regId credential),
-        _accountCredentials = credential :| [],
+        _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
+        _accountCredentials = creds,
         _accountMaxCredentialValidTo = validTo credential,
+        _accountVerificationKeys = getAccountInformation 1 creds, 
         ..
         } :: PersistingAccountData pv
   _persistingData <- refMake newPData
@@ -525,23 +526,24 @@ addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
 
 -- * Serialization
 
--- |Serialize an account in V0 format.
+-- |Serialize an account. The serialization format may depend on the protocol version.
+--
 -- This format allows accounts to be stored in a reduced format by
 -- elliding (some) data that can be inferred from context, or is
 -- the default value.  Note that there can be multiple representations
 -- of the same account.
 -- This format does not store the smart contract instances, which are
 -- implied by the instance table.
-putAccountV0 :: forall m pv. (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> PersistentAccount pv -> m ()
-putAccountV0 cryptoParams PersistentAccount{..} = do
+serializeAccount :: forall m pv. (MonadBlobStore m, MonadPut m, IsProtocolVersion pv) => GlobalContext -> PersistentAccount pv -> m ()
+serializeAccount cryptoParams PersistentAccount{..} = do
     PersistingAccountData {..} <- refLoad _persistingData
     let
-        initialRegId = regId (NE.last _accountCredentials)
+        initialRegId = credId (snd (Map.findMin _accountCredentials))
         asfExplicitAddress = _accountAddress /= addressFromRegId initialRegId
         asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialRegId
-        (asfMultipleCredentials, putCredentials) = case _accountCredentials of
-          cred :| [] -> (False, put cred)
-          creds -> (True, putLength (length creds) >> mapM_ put creds)
+        (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
+          [(0, cred)] -> (False, put cred)
+          _ -> (True, putSafeMapOf put put _accountCredentials)
     aea <- refLoad _accountEncryptedAmount
     (asfExplicitEncryptedAmount, putEA) <- putAccountEncryptedAmountV0 aea <&> \case
         Nothing -> (False, return ())

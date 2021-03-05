@@ -230,8 +230,7 @@ getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
               return $ object $ ["accountNonce" .= nonce
                               ,"accountAmount" .= amount
                               , "accountReleaseSchedule" .= releaseSchedule
-                                -- credentials, most recent first
-                              ,"accountCredentials" .= map (Versioned 0) creds
+                              ,"accountCredentials" .= fmap (Versioned 0) creds
                               ,"accountEncryptedAmount" .= encrypted
                               ,"accountEncryptionKey" .= encryptionKey
                               ] <> renderBaker baker

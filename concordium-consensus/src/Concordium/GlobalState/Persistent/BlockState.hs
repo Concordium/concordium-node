@@ -860,15 +860,15 @@ doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
 
-doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> ID.AccountKeys -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
-doCreateAccount pbs cryptoParams verifKeys acctAddr credential = do
-        acct <- newAccount cryptoParams verifKeys acctAddr credential
+doCreateAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.GlobalContext -> AccountAddress -> ID.AccountCredential ->  m (Maybe (PersistentAccount pv), PersistentBlockState pv)
+doCreateAccount pbs cryptoParams acctAddr credential = do
+        acct <- newAccount cryptoParams acctAddr credential
         bsp <- loadPBS pbs
         -- Add the account
         (res, accts1) <- Accounts.putNewAccount acct (bspAccounts bsp)
         if res then do
             -- Record the RegId
-            accts2 <- Accounts.recordRegId (ID.regId credential) accts1
+            accts2 <- Accounts.recordRegId (ID.credId credential) accts1
             (Just acct,) <$> storePBS pbs (bsp {bspAccounts = accts2})
         else
             return (Nothing, pbs)
@@ -879,8 +879,8 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         -- Do the update to the account
         (_, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
         -- If we deploy a credential, record it
-        accts2 <- case _auCredential of
-            Just cdi -> Accounts.recordRegId (ID.regId cdi) accts1
+        accts2 <- case _auCredentials of
+            Just creds -> Accounts.recordRegIds (Map.elems $ ID.credId <$> cuAdd creds) accts1
             Nothing -> return accts1
         storePBS pbs (bsp {bspAccounts = accts2})
     where
@@ -1180,7 +1180,7 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
-  getAccountCredentials acc = toList <$> acc ^^. accountCredentials
+  getAccountCredentials acc = acc ^^. accountCredentials
 
   getAccountMaxCredentialValidTo acc = acc ^^. accountMaxCredentialValidTo
 

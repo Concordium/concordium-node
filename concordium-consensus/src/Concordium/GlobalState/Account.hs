@@ -6,21 +6,16 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Account where
 
-import Control.Monad
 import Data.Bits
-import qualified Data.Set as Set
-import qualified Data.Map as Map
+import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
-import Data.List.NonEmpty (NonEmpty(..))
-import qualified Data.List.NonEmpty as NE
 import Data.Maybe
+import Data.Foldable
 import Data.Serialize
 import Lens.Micro.Platform
 
-import Concordium.Utils
 import Concordium.Utils.Serialization
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Crypto.SignatureScheme
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
@@ -37,8 +32,8 @@ maxNumIncoming = 32
 data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   _accountAddress :: !AccountAddress
   ,_accountEncryptionKey :: !AccountEncryptionKey
-  ,_accountVerificationKeys :: !AccountKeys
-  ,_accountCredentials :: !(NonEmpty AccountCredential)
+  ,_accountVerificationKeys :: !AccountInformation
+  ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
   -- ^Credentials; most recent first
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
 }
@@ -67,8 +62,7 @@ instance HashableTo PersistingAccountDataHash (PersistingAccountData pv) where
     put _accountAddress
     put _accountEncryptionKey
     put _accountVerificationKeys
-    putLength (NE.length _accountCredentials)
-    mapM_ put _accountCredentials
+    putSafeMapOf put put _accountCredentials
 
 instance Monad m => MHashableTo m PersistingAccountDataHash (PersistingAccountData pv)
 
@@ -136,15 +130,12 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
     put _accountAddress
     put _accountEncryptionKey
     put _accountVerificationKeys
-    putLength (length _accountCredentials)
-    mapM_ put _accountCredentials
+    putSafeMapOf put put _accountCredentials
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
     _accountVerificationKeys <- get
-    numCredentials <- getLength
-    when (numCredentials < 1) $ fail "Account has no credentials"
-    _accountCredentials <- (:|) <$> get <*> replicateM (numCredentials - 1) get
+    _accountCredentials <- getSafeMapOf get get
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
     return PersistingAccountData{..}
 
@@ -228,21 +219,6 @@ makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do
   put padh
   put abh
 
-{-# INLINE addCredential #-}
-addCredential :: HasPersistingAccountData d pv => AccountCredential -> d -> d
-addCredential cdv = (accountCredentials %~ NE.cons cdv)
-  . (accountMaxCredentialValidTo %~ max (validTo cdv))
-
-{-# INLINE setKey #-}
--- |Set a at a given index to a given value. The value of 'Nothing' will remove the key.
-setKey :: HasPersistingAccountData d pv => KeyIndex -> Maybe VerifyKey -> d -> d
-setKey idx key = accountVerificationKeys %~ (\ks -> ks { akKeys = akKeys ks & at' idx .~ key })
-
-{-# INLINE setThreshold #-}
--- |Set the signature threshold.
-setThreshold :: HasPersistingAccountData d pv => SignatureThreshold -> d -> d
-setThreshold thr = accountVerificationKeys %~ (\ks -> ks { akThreshold = thr })
-
 data EncryptedAmountUpdate =
   -- |Replace encrypted amounts less than the given index,
   -- by appending the new amount at the end of the list of encrypted amounts.
@@ -264,10 +240,18 @@ data EncryptedAmountUpdate =
     }
   deriving(Eq, Show)
 
-data AccountKeysUpdate =
-    RemoveKeys !(Set.Set KeyIndex) -- Removes the keys at the specified indexes from the account
-  | SetKeys !(Map.Map KeyIndex AccountVerificationKey) -- Sets keys at the specified indexes to the specified key
+data CredentialKeysUpdate = SetKeys !CredentialIndex !CredentialPublicKeys -- Replace keys with new set of credential keys, including new signature threshold.
   deriving(Eq)
+
+data CredentialsUpdate = CredentialsUpdate {
+  -- |Remove credentials with these indices.
+  cuRemove :: ![CredentialIndex],
+  -- |Add credentials with these indices.
+  cuAdd :: !(Map.Map CredentialIndex AccountCredential),
+  -- |Optionally update the account signature threshold,
+  -- i.e., how many credentials need to sign the transaction.
+  cuAccountThreshold :: !AccountThreshold
+  } deriving(Eq)
 
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
@@ -280,11 +264,12 @@ data AccountUpdate = AccountUpdate {
   -- |Optionally an update the encrypted amount.
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
   -- |Optionally a new credential.
-  ,_auCredential :: !(Maybe AccountCredential)
+  ,_auCredentials :: !(Maybe CredentialsUpdate)
   -- |Optionally an update to the account keys
-  ,_auKeysUpdate :: !(Maybe AccountKeysUpdate)
-  -- |Optionally update the signature threshold
-  ,_auSignThreshold :: !(Maybe SignatureThreshold)
+  ,_auCredentialKeysUpdate :: !(Maybe CredentialKeysUpdate)
+  -- |Optionally update the account signature threshold,
+  -- i.e., how many credentials need to sign the transaction.
+  ,_auAccountThreshold :: !(Maybe AccountThreshold)
   -- |Optionally update the locked stake on the account.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving(Eq)
@@ -293,24 +278,45 @@ makeLenses ''AccountUpdate
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
 emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
+updateAccountInformation :: AccountThreshold -> Map.Map CredentialIndex AccountCredential -> [CredentialIndex] -> AccountInformation -> AccountInformation
+updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) =
+  let addCredKeys = fmap credPubKeys addCreds
+      removeKeys = flip (foldl' (flip Map.delete)) remove
+      newCredKeys = Map.union addCredKeys . removeKeys $ oldCredKeys
+  in
+  AccountInformation {
+    aiCredentials = newCredKeys,
+    aiThreshold = threshold
+  }
+
 -- |Optionally add a credential to an account.
-{-# INLINE updateCredential #-}
-updateCredential :: (HasPersistingAccountData d pv) => Maybe AccountCredential -> d -> d
-updateCredential = maybe id addCredential
+updateCredentials :: (HasPersistingAccountData d pv) => Maybe CredentialsUpdate -> d -> d
+updateCredentials Nothing d = d
+updateCredentials (Just CredentialsUpdate{..}) d =
+  -- maximum is safe here since there must always be at least one credential on the account.
+  d' & (accountMaxCredentialValidTo .~ maximum (validTo <$> allCredentials))
+  where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
+        d' = d & (accountCredentials %~ Map.union cuAdd . removeKeys)
+               & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
+        allCredentials = Map.elems (d' ^. accountCredentials)
+
+-- |Update the keys of the given account credential.
+updateCredKeyInAccountCredential :: AccountCredential -> CredentialPublicKeys -> AccountCredential
+updateCredKeyInAccountCredential (InitialAC icdv) keys = InitialAC (icdv{icdvAccount=keys})
+updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPublicKeys=keys}) comms
 
 -- |Optionally update the verification keys and signature threshold for an account.
-{-# INLINE updateAccountKeys #-}
-updateAccountKeys :: (HasPersistingAccountData d pv) => Maybe AccountKeysUpdate -> Maybe SignatureThreshold -> d -> d
-updateAccountKeys Nothing Nothing = id
-updateAccountKeys mKeysUpd mNewThreshold = accountVerificationKeys %~ \AccountKeys{..} ->
-    AccountKeys {
-      akKeys = maybe akKeys (update akKeys) mKeysUpd,
-      akThreshold = fromMaybe akThreshold mNewThreshold
-    }
-  where
-    update oldKeys (RemoveKeys indices) = Set.foldl' (flip Map.delete) oldKeys indices
-    update oldKeys (SetKeys keys) = Map.foldlWithKey (\m idx key -> Map.insert idx key m) oldKeys keys
-
+-- Precondition: The credential with given credential index exists.
+updateCredentialKeys :: (HasPersistingAccountData d pv) => Maybe CredentialKeysUpdate -> d -> d
+updateCredentialKeys Nothing d = d
+updateCredentialKeys (Just (SetKeys credIndex credKeys)) d =
+  case (Map.lookup credIndex (d ^. accountCredentials), Map.lookup credIndex (aiCredentials (d ^. accountVerificationKeys))) of
+    (Just oldCred, Just _) ->
+      let updateCred = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)
+          updateKeys = Map.insert credIndex credKeys
+          updateAi ai@AccountInformation{..} = ai{aiCredentials = updateKeys aiCredentials}
+      in d & (accountCredentials %~ updateCred) & (accountVerificationKeys %~ updateAi)
+    _ -> d -- do nothing. This is safe, but should not happen if the precondition is satisfied.
 -- |Flags used for serializing an account in V0 format.
 data AccountSerializationFlags = AccountSerializationFlags {
     -- |Whether the account address is serialized explicity,

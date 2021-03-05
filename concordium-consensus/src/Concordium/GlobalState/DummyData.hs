@@ -3,9 +3,9 @@
 
 module Concordium.GlobalState.DummyData where
 
-import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Vector as Vec
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.VRF as VRF
@@ -219,7 +219,7 @@ blockStateWithAlesAccount alesAmount otherAccounts =
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
 mkAccount :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
-mkAccount key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
+mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyMaxValidTo dummyCreatedAt
 
@@ -228,7 +228,7 @@ mkAccount key addr amnt = newAccount dummyCryptographicParameters (makeSingleton
 -- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
 mkAccountExpiredCredential :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
-mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters (makeSingletonAC key) addr cred & accountAmount .~ amnt
+mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyLowValidTo dummyCreatedAt
 
@@ -238,9 +238,11 @@ mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParamete
 -- The list of keys should be non-empty.
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
 mkAccountMultipleKeys :: IsProtocolVersion pv => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account pv
-mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters (makeAccountKeys keys threshold) addr cred & accountAmount .~ amount
+mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountVerificationKeys .~ ai
+
   where
     cred = dummyCredential dummyCryptographicParameters addr (head keys) dummyMaxValidTo dummyCreatedAt
+    ai = AccountInformation (Map.singleton 0 $ makeCredentialPublicKeys keys threshold) 1
 
 -- |Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
@@ -252,8 +254,9 @@ makeFakeBakerAccount gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggreg
     gbRestakeEarnings = True    
     gaBaker = Just GenesisBaker {..}
     vfKey = SigScheme.correspondingVerifyKey kp
-    gaCredentials = dummyCredential dummyCryptographicParameters gaAddress vfKey dummyMaxValidTo dummyCreatedAt :| []
-    gaVerifyKeys = makeSingletonAC vfKey
+    gaCredentials = Map.singleton 0 $ dummyCredential dummyCryptographicParameters gaAddress vfKey dummyMaxValidTo dummyCreatedAt
+    -- gaVerifyKeys = makeSingletonAC vfKey
+    gaThreshold = 1
     -- NB the negation makes it not conflict with other fake accounts we create elsewhere.
     seed = - (fromIntegral gbBakerId) - 1
     (gaAddress, seed') = randomAccountAddress (mkStdGen seed)
@@ -262,9 +265,9 @@ makeFakeBakerAccount gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggreg
 createCustomAccount :: Amount -> SigScheme.KeyPair -> AccountAddress -> GenesisAccount
 createCustomAccount amount kp address = GenesisAccount {
       gaAddress = address,
-      gaVerifyKeys = makeSingletonAC vfKey,
+      gaThreshold = 1,
       gaBalance = amount,
-      gaCredentials = credential :| [],
+      gaCredentials = Map.singleton 0 credential,
       gaBaker = Nothing
     }
   where credential = dummyCredential dummyCryptographicParameters address vfKey dummyMaxValidTo dummyCreatedAt

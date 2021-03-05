@@ -30,7 +30,6 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
-import Concordium.Types.Updates
 import Concordium.ID.Types
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
@@ -592,16 +591,7 @@ receiveTransaction bptr tdata len = do
             return ResultSerializationFail
         Right tr -> do
             logm External LLDebug $ "Transaction decoded. Sending to consensus."
-            expired <- case wmdData tr of
-              NormalTransaction t -> do
-                logm External LLTrace $ "Received normal transaction."
-                return $ now > thExpiry (atrHeader t)
-              CredentialDeployment _ -> do
-                logm External LLTrace $ "Received credential."
-                return False
-              ChainUpdate t -> do
-                logm External LLTrace $ "Received chain update."
-                return $ now > updateTimeout (uiHeader t)
+            let expired = now > msgExpiry tr
             if expired then do
               logm External LLTrace $ "Transaction already expired"
               return ResultStale
