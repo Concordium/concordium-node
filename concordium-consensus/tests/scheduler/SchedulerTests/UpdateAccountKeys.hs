@@ -123,7 +123,7 @@ testCases =
                           metadata = makeDummyHeader alesAccount 4 10000,
                           keys = [(0, [(0, kp0), (1, kp1), (2, kp2), (3, kp3), (4, kp4)])]
                         }
-        , ( Reject $ InvalidAccountKeySignThreshold
+        , ( Reject $ InvalidCredentialKeySignThreshold
           , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2), (3, vk kp3), (4, vk kp4)] 5
           )
         )
@@ -147,7 +147,7 @@ testCases =
                           metadata = makeDummyHeader alesAccount 2 10000,
                           keys = [(0,[(0, kp0), (2, kp2)])]
                         }
-        , ( Reject $ InvalidAccountKeySignThreshold
+        , ( Reject $ InvalidCredentialKeySignThreshold
           , checkKeys [(0, vk kp0), (1, vk kp1), (2, vk kp2)] 2
           )
         )
@@ -177,18 +177,22 @@ testCases =
       checkKeys expectedKeys expectedThreshold = (\bs -> specify "Correct account keys" $
         case Acc.getAccount alesAccount (bs ^. blockAccounts) of
           Nothing -> HUnit.assertFailure $ "Account with id '" ++ show alesAccount ++ "' not found"
-          Just account -> checkAccountKeys expectedKeys expectedThreshold (aiCredentials (account ^. accountVerificationKeys) Map.! 0))
+          Just account -> do
+            checkCredentialKeys expectedKeys expectedThreshold (aiCredentials (account ^. accountVerificationKeys) Map.! 0)
+            checkKeysInCredential expectedKeys expectedThreshold ((account ^. accountCredentials) Map.! 0))
 
 -- Checks that the keys in the AccountKeys matches the ones in the list, that there isn't
 -- any other keys than these in the AccountKeys and that the signature threshold matches.
-checkAccountKeys :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.CredentialPublicKeys -> HUnit.Assertion
-checkAccountKeys keys threshold ID.CredentialPublicKeys{..} = do
+checkCredentialKeys :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.CredentialPublicKeys -> HUnit.Assertion
+checkCredentialKeys keys threshold ID.CredentialPublicKeys{..} = do
   HUnit.assertEqual "Signature Threshold Matches" threshold credThreshold
   HUnit.assertEqual "Account keys should have same number of keys" (length keys) (length credKeys)
   forM_ keys (\(idx, key) -> case Map.lookup idx (credKeys) of
     Nothing -> HUnit.assertFailure $ "Found no key at index " ++ show idx
     Just actualKey -> HUnit.assertEqual ("Key at index " ++ (show idx) ++ " should be equal") key actualKey)
 
+checkKeysInCredential :: [(ID.KeyIndex, AccountVerificationKey)] -> ID.SignatureThreshold -> ID.AccountCredential -> HUnit.Assertion
+checkKeysInCredential keys threshold credential = checkCredentialKeys keys threshold $ credPubKeys credential
 
 tests :: Spec
 tests = describe "UpdateCredentialKeys" $
