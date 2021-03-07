@@ -38,7 +38,6 @@ module Concordium.Scheduler
   ,execTransactions
   ,FilteredTransactions(..)
   ) where
-
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as Wasm
 import Concordium.Scheduler.Types

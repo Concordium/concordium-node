@@ -12,7 +12,6 @@ import Concordium.Common.Version
 import Concordium.Types
 import Concordium.Scheduler.Types
 import Concordium.ID.Types
-import Concordium.ID.Parameters
 
 import qualified Concordium.Scheduler.Runner as Runner
 
@@ -20,7 +19,6 @@ import Concordium.Types.DummyData
 
 import Concordium.ID.DummyData
 import qualified  Concordium.Crypto.SignatureScheme as Sig
-import qualified Data.Aeson as AE
 import qualified  Data.Map.Strict as Map
 
 -- |Maximum possible expiry of a message.
