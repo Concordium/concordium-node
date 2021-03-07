@@ -5,10 +5,7 @@ import Control.Monad
 import Lens.Micro.Platform
 import Test.Hspec
 import qualified Test.HUnit as HUnit
-import System.Random
 
-import            Concordium.Crypto.DummyData
-import            Concordium.ID.DummyData
 import qualified  Concordium.Crypto.SignatureScheme as Sig
 import            Concordium.GlobalState.Account
 import            Concordium.GlobalState.Basic.BlockState.Accounts as Acc
@@ -16,16 +13,12 @@ import            Concordium.GlobalState.Basic.BlockState
 import            Concordium.GlobalState.Basic.BlockState.Account
 import            Concordium.GlobalState.DummyData
 import            Concordium.ID.Types as ID
-import            Concordium.ID.Parameters(GlobalContext)
 import            Concordium.Scheduler.DummyData
 import qualified  Concordium.Scheduler.Runner as Runner
 import            Concordium.Scheduler.Types
-import            Concordium.Types.DummyData
-import qualified  Data.Set as Set
 import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
-import qualified  Data.Hashable as IntHash
-import            Concordium.Crypto.FFIDataTypes
+import Data.Maybe
 
 initialBlockState :: BlockState
 initialBlockState = createBlockState $
@@ -40,27 +33,45 @@ vk = Sig.correspondingVerifyKey
 
 
 
+cdi8ID :: CredentialRegistrationID
 cdi8ID = credId $ credential ac8
-cdi8address = addressFromRegId $ cdi8ID
+cdi8address :: AccountAddress
+cdi8address = addressFromRegId cdi8ID
+cdi8kp0 :: Sig.KeyPair
 cdi8kp0 = keys cdi8keys Map.! 0
+cdi8kp1 :: Sig.KeyPair
 cdi8kp1 = keys cdi8keys Map.! 1
-cdi8ac = maybe (error "Should be safe") id $ values $ credential ac8
+cdi8ac :: AccountCredential
+cdi8ac = fromMaybe (error "Should be safe") $ values $ credential ac8
 
+cdi7'' :: CredentialDeploymentInformation
 cdi7'' = case credential cdi7 of 
   NormalACWP cdi -> cdi
+  _ -> error "cdi7 should be a normal credential. Something went wrong with test case generation."
+cdi8 :: CredentialDeploymentInformation
 cdi8 = case credential ac8 of 
   NormalACWP cdi -> cdi
+  _ -> error "cdi8 should be a normal credential. Something went wrong with test case generation."
 
+cdi9ID :: CredentialRegistrationID
 cdi9ID = credId (NormalACWP cdi9)
+cdi9kp0 :: Sig.KeyPair
 cdi9kp0 = keys cdi9keys Map.! 0
+cdi9kp1 :: Sig.KeyPair
 cdi9kp1 = keys cdi9keys Map.! 1
 
+cdi10ID :: CredentialRegistrationID
 cdi10ID = credId (NormalACWP cdi10)
+cdi10kp0 :: Sig.KeyPair
 cdi10kp0 = keys cdi10keys Map.! 0
+cdi10kp1 :: Sig.KeyPair
 cdi10kp1 = keys cdi10keys Map.! 1
 
+cdi11ID :: CredentialRegistrationID
 cdi11ID = credId (NormalACWP cdi11)
+cdi11kp0 :: Sig.KeyPair
 cdi11kp0 = keys cdi11keys Map.! 0
+cdi11kp1 :: Sig.KeyPair
 cdi11kp1 = keys cdi11keys Map.! 1
 
 testCases :: [TestCase]
