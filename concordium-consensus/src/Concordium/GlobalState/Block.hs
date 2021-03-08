@@ -427,11 +427,13 @@ instance (IsProtocolVersion pv) => DecodeBlock pv PendingBlock where
         bb <- getBlock spv (utcTimeToTransactionTime recTime)
         return $! makePendingBlock bb recTime
 
+-- |Deserialize a pending block with a version tag.
 deserializeExactVersionedPendingBlock :: IsProtocolVersion pv => SProtocolVersion pv -> ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializeExactVersionedPendingBlock spv blockBS rectime =
     case runGet (getVersionedBlock spv rectime) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right block1 -> Right block1
 
+-- |Deserialize a pending block without a version tag.
 deserializePendingBlock :: IsProtocolVersion pv => SProtocolVersion pv -> ByteString.ByteString -> UTCTime -> Either String PendingBlock
 deserializePendingBlock spv blockBS rectime = runGet (getBlock spv rectime) blockBS

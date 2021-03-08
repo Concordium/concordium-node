@@ -131,6 +131,7 @@ instance HashableTo H.Hash PendingUpdates where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
 
+-- |Serialize the pending updates.
 putPendingUpdatesV0 :: Putter PendingUpdates
 putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 (_unhashed <$> _pAuthorizationQueue)
@@ -143,6 +144,7 @@ putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 _pTransactionFeeDistributionQueue
         putUpdateQueueV0 _pGASRewardsQueue
 
+-- |Deserialize pending updates.
 getPendingUpdatesV0 :: Get PendingUpdates
 getPendingUpdatesV0 = do
         _pAuthorizationQueue <- fmap makeHashed <$> getUpdateQueueV0

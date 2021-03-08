@@ -29,6 +29,7 @@ import Concordium.GlobalState.BakerInfo
 maxNumIncoming :: Int
 maxNumIncoming = 32
 
+-- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
     = EmptyRemovedCredentials
     | RemovedCredential !CredentialRegistrationID !RemovedCredentials
@@ -277,6 +278,7 @@ makeAccountBakerHash amt stkEarnings binfo bpc = Hash.hashLazy $ runPutLazy $
 nullAccountBakerHash :: AccountBakerHash
 nullAccountBakerHash = Hash.hash ""
 
+-- |Function for computing the hash of an account for protocol version P1.
 makeAccountHashP1 :: Nonce -> Amount -> AccountEncryptedAmount -> AccountReleaseScheduleHash -> PersistingAccountDataHash -> AccountBakerHash -> Hash.Hash
 makeAccountHashP1 n a eas arsh padh abh = Hash.hashLazy $ runPutLazy $ do
   put n

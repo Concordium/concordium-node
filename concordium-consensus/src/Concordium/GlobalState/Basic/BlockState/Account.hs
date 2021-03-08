@@ -42,20 +42,28 @@ makeAccountPersisting :: PersistingAccountData pv -> AccountPersisting pv
 makeAccountPersisting = makeHashed
 {-# INLINE makeAccountPersisting #-}
 
+-- |Show an 'AccountPersisting' value.
 showAccountPersisting :: SProtocolVersion pv -> AccountPersisting pv -> String
 showAccountPersisting spv = case spv of
   SP1 -> show
 
--- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
+-- |An (in-memory) account.
 data Account (pv :: ProtocolVersion) = Account {
   _accountPersisting :: !(AccountPersisting pv)
+  -- ^Account data that seldom changes. Stored separately for efficient
+  -- memory use and hashing.
   ,_accountNonce :: !Nonce
-  ,_accountAmount :: !Amount -- ^This account amount contains all the amount owned by the account,
-                            --  this particularly means that the available amount is equal to
-                            -- @accountAmount - totalLockedUpBalance accountReleaseSchedule@.
+  -- ^The next sequence number of a transaction on this account.
+  ,_accountAmount :: !Amount
+  -- ^This account amount contains all the amount owned by the account,
+  -- excluding encrypted amounts. In particular, the available amount is
+  -- @accountAmount - totalLockedUpBalance accountReleaseSchedule@.
   ,_accountEncryptedAmount :: !AccountEncryptedAmount
+  -- ^The encrypted amount
   ,_accountReleaseSchedule :: !AccountReleaseSchedule
+  -- ^Locked-up amounts and their release schedule.
   ,_accountBaker :: !(Maybe AccountBaker)
+  -- ^The baker associated with the account (if any).
   }
 
 makeLenses ''Account
@@ -116,7 +124,7 @@ serializeAccount cryptoParams acct@Account{..} = do
     asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
 
 
--- |Deserialize an account in V0 format.
+-- |Deserialize an account.
 -- The serialization format may depend on the protocol version.
 deserializeAccount :: forall pv. IsProtocolVersion pv => GlobalContext -> S.Get (Account pv)
 deserializeAccount cryptoParams = do

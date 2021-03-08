@@ -237,7 +237,7 @@ instance IsProtocolVersion pv => HashableTo StateHash (BlockState pv) where
     getHash = _blockStateHash . hashBlockState
 
 
--- |Serialize 'BlockState' in V0 format.
+-- |Serialize 'BlockState'. The format may depend on the protocol version.
 putBlockState :: IsProtocolVersion pv => Putter (BlockState pv)
 putBlockState bs = do
     -- BirkParameters
@@ -262,7 +262,7 @@ putBlockState bs = do
     -- Epoch blocks
     putHashedEpochBlocksV0 (bs ^. blockEpochBlocksBaked)
 
--- |Deserialize 'BlockState' in V0 format.
+-- |Deserialize 'BlockState'. The format may depend on the protocol version.
 -- This checks a number of invariants:
 --
 --  * Each smart contract instance is correctly a valid owner account.

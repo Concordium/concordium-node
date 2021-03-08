@@ -210,12 +210,14 @@ instance MonadBlobStore m => Cacheable m HashedEpochBlocks where
         blocks' <- cache (hebBlocks ebs)
         return $! ebs{hebBlocks = blocks'}
 
+-- |The empty 'HashedEpochBlocks'.
 emptyHashedEpochBlocks :: HashedEpochBlocks
 emptyHashedEpochBlocks = HashedEpochBlocks {
         hebBlocks = Null,
         hebHash = Rewards.emptyEpochBlocksHash
     }
 
+-- |Add a new 'BakerId' to the start of a 'HashedEpcohBlocks'.
 consEpochBlock :: (MonadBlobStore m) => BakerId -> HashedEpochBlocks -> m HashedEpochBlocks
 consEpochBlock b hebbs = do
         mbr <- refMake EpochBlock{
@@ -227,12 +229,14 @@ consEpochBlock b hebbs = do
                 hebHash = Rewards.epochBlockHash b (hebHash hebbs)
             }
 
+-- |Make a 'HashedEpochBlocks' from a list of 'BakerId's (most recent first).
 makeHashedEpochBlocks :: (MonadBlobStore m) => [BakerId] -> m HashedEpochBlocks
 makeHashedEpochBlocks [] = return emptyHashedEpochBlocks
 makeHashedEpochBlocks (b:bs) = do
         hebbs <- makeHashedEpochBlocks bs
         consEpochBlock b hebbs
 
+-- |Serialize the 'HashedEpochBlocks' structure in V0 format.
 putHashedEpochBlocksV0 :: (MonadBlobStore m, MonadPut m) => HashedEpochBlocks -> m ()
 putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
         ebs <- loadEB Seq.empty hebBlocks
@@ -247,6 +251,9 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
 
 -- * Block state
 
+-- |Type representing a persistent block state. This is a 'BufferedRef' inside an 'IORef',
+-- which supports making changes to the state without them (necessarily) being written to
+-- disk.
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
 
@@ -273,11 +280,15 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers {
     bspEpochBlocks :: !HashedEpochBlocks
 }
 
+-- |A hashed version of 'PersistingBlockState'.  This is used when the block state
+-- is not being mutated so that the hash values are not recomputed constantly.
 data HashedPersistentBlockState pv = HashedPersistentBlockState {
     hpbsPointers :: !(PersistentBlockState pv),
     hpbsHash :: !StateHash
 }
 
+-- |Convert a 'PersistentBlockState' to a 'HashedPersistentBlockState' by computing
+-- the state hash.
 hashBlockState :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (HashedPersistentBlockState pv)
 hashBlockState hpbsPointers = do
         rbsp <- liftIO $ readIORef hpbsPointers
@@ -390,6 +401,7 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => Cacheable m (BlockStatePoin
             bspEpochBlocks = ebs
         }
 
+-- |Convert an in-memory 'Basic.BlockState' to a disk-backed 'HashedPersistentBlockState'.
 makePersistent :: (IsProtocolVersion pv, MonadBlobStore m) => Basic.BlockState pv -> m (HashedPersistentBlockState pv)
 makePersistent Basic.BlockState{..} = do
   persistentBirkParameters <- makePersistentBirkParameters _blockBirkParameters
@@ -422,6 +434,7 @@ makePersistent Basic.BlockState{..} = do
   bps <- liftIO $ newIORef $! bsp
   hashBlockState bps
 
+-- |An initial 'HashedPersistentBlockState', which may be used for testing purposes.
 initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              => SeedState
              -> CryptographicParameters
@@ -433,8 +446,8 @@ initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              -> m (HashedPersistentBlockState pv)
 initialPersistentState ss cps accts ips ars auths chainParams = makePersistent $ Basic.initialState ss cps accts ips ars auths chainParams
 
--- |Mostly empty block state, apart from using 'Rewards.genesisBankStatus' which
--- has hard-coded initial values for amount of gtu in existence.
+-- |A mostly empty block state, but with the given birk parameters, 
+-- cryptographic parameters, update authorizations and chain parameters.
 emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> m (PersistentBlockState pv)
 emptyBlockState bspBirkParameters cryptParams auths chainParams = do
   modules <- refMake Modules.emptyModules
@@ -457,6 +470,7 @@ emptyBlockState bspBirkParameters cryptParams auths chainParams = do
           }
   liftIO $ newIORef $! bsp
 
+-- |Serialize the block state. The format may depend on the protocol version.
 putBlockStateV0 :: (IsProtocolVersion pv, MonadBlobStore m, MonadPut m) => PersistentBlockState pv -> m ()
 putBlockStateV0 pbs = do
     BlockStatePointers{..} <- loadPBS pbs
