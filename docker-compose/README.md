@@ -28,7 +28,7 @@ NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f bakers.yaml up --scale baker=5 --
 Update the used docker image using 
 
 ```
-NUM_BAKERS=5 DESIRED_PEERS=4 docker-compose -f docker-compose.yaml pull
+docker-compose -f bakers.yaml pull
 ```
 ...
 
