@@ -6,7 +6,7 @@ import qualified Data.Set as Set
 import Control.Monad.RWS
 import Data.Either
 import Control.Monad.Identity
-import Data.List
+import qualified Data.List as L
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Afgjort.Types
@@ -153,7 +153,7 @@ ex3 = (equalParties 4 1 0, [FICandidate blockA, FIProposal 1 blockA, FIRequestPr
     [FOMessage (Proposal blockA), FOMessage (Vote $ Just blockA), FOComplete Nothing, FOJustifiedDecision Nothing])
 
 testFreezeExampleAllPerms :: FreezeExample -> Spec
-testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [(0::Int)..]]
+testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- L.permutations inp | n <- [(0::Int)..]]
 
 checkInvariant :: (HasCallStack) => FreezeInstance -> FreezeState () -> Expectation
 checkInvariant (FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw pw st of
