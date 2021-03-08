@@ -199,7 +199,7 @@ dummyRewardParameters = RewardParameters {
 }
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 0.5) 0.0001 1000000 168 10 dummyRewardParameters 0
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts pv -> BlockState pv

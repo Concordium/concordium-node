@@ -40,9 +40,6 @@ import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.DummyData
 
--- |Protocol version
-type PV = 'Types.P1
-
 iterateLimitM :: Monad m => Int -> (a -> m a) -> a -> m [a]
 iterateLimitM n f = go 0 where
   go m x | m == n = return []

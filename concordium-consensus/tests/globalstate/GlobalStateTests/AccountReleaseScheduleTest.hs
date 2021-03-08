@@ -35,7 +35,7 @@ import Control.Monad.Trans.Reader
 import Data.Aeson (eitherDecode)
 import Data.Foldable
 import Data.IORef
-import Data.List (sort, nub)
+import Data.List (nub, sort)
 import qualified Data.Map.Strict as OrdMap
 import Data.Proxy
 import Data.Time.Clock.POSIX
