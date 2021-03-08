@@ -878,13 +878,27 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
         bsp <- loadPBS pbs
         -- Do the update to the account
         (_, accts1) <- Accounts.updateAccounts upd _auAddress (bspAccounts bsp)
-        -- If we deploy a credential, record it
-        accts2 <- case _auCredentials of
-            Just creds -> Accounts.recordRegIds (Map.elems $ ID.credId <$> cuAdd creds) accts1
-            Nothing -> return accts1
-        storePBS pbs (bsp {bspAccounts = accts2})
+        storePBS pbs (bsp {bspAccounts = accts1})
     where
         upd oldAccount = ((), ) <$> Accounts.updateAccount aUpd oldAccount
+
+doUpdateAccountCredentialKeys :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
+doUpdateAccountCredentialKeys pbs accAddress credIx credKeys = do
+        bsp <- loadPBS pbs
+        (_, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
+        storePBS pbs (bsp {bspAccounts = accts1})
+    where
+        upd oldAccount = ((), ) <$> setPAD (updateCredentialKeys credIx credKeys) oldAccount
+
+doUpdateAccountCredentials :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> [ID.CredentialIndex] -> Map.Map ID.CredentialIndex ID.AccountCredential -> ID.AccountThreshold -> m (PersistentBlockState pv)
+doUpdateAccountCredentials pbs accAddress remove add thrsh = do
+        bsp <- loadPBS pbs
+        (_, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
+        -- If we deploy a credential, record it
+        accts2 <- Accounts.recordRegIds (Map.elems $ ID.credId <$> add) accts1
+        storePBS pbs (bsp {bspAccounts = accts2})
+    where
+        upd oldAccount = ((), ) <$> setPAD (updateCredentials remove add thrsh) oldAccount
 
 doGetInstance :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ContractAddress -> m (Maybe Instance)
 doGetInstance pbs caddr = do
@@ -1209,6 +1223,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoPutNewInstance = doPutNewInstance
     bsoPutNewModule = doPutNewModule
     bsoModifyAccount = doModifyAccount
+    bsoUpdateAccountCredentialKeys = doUpdateAccountCredentialKeys
+    bsoUpdateAccountCredentials = doUpdateAccountCredentials
     bsoModifyInstance = doModifyInstance
     bsoNotifyEncryptedBalanceChange = doNotifyEncryptedBalanceChange
     bsoGetSeedState = doGetSeedState

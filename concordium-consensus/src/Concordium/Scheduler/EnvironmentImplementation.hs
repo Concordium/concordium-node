@@ -190,10 +190,10 @@ instance (MonadReader ContextState m,
     schedulerBlockState .= s'
 
   {-# INLINE updateAccountCredentials #-}
-  updateAccountCredentials !acc !idcs !threshold !creds = do
+  updateAccountCredentials !acc !idcs !creds !threshold  = do
     s <- use schedulerBlockState
     addr <- getAccountAddress acc
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate addr & auCredentials ?~ CredentialsUpdate idcs creds threshold))
+    s' <- lift (bsoUpdateAccountCredentials s addr idcs creds threshold)
     schedulerBlockState .= s'
 
   {-# INLINE commitChanges #-}
@@ -278,7 +278,7 @@ instance (MonadReader ContextState m,
   {-# INLINE updateCredentialKeys #-}
   updateCredentialKeys accAddr credIndex newKeys = do
     s <- use schedulerBlockState
-    s' <- lift (bsoModifyAccount s (emptyAccountUpdate accAddr & auCredentialKeysUpdate ?~ SetKeys credIndex newKeys))
+    s' <- lift (bsoUpdateAccountCredentialKeys s accAddr credIndex newKeys)
     schedulerBlockState .= s'
 
   {-# INLINE getIPInfo #-}

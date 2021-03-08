@@ -147,10 +147,10 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
   updateAccountCredentials :: Account m
                         -> [ID.CredentialIndex]
                         -- ^ The indices of credentials to remove from the account.
+                        -> Map.Map ID.CredentialIndex ID.AccountCredential
+                        -- ^ The new credentials to add.
                         -> ID.AccountThreshold
                         -- ^ The new account threshold
-                        -> Map.Map ID.CredentialIndex ID.AccountCredential
-                        -- ^ The new credentials.
                         -> m ()
 
   -- |Create and add an empty account with the given public key, address and credential.

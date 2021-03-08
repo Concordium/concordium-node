@@ -1285,21 +1285,23 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       existingCredentials <- getAccountCredentials senderAccount
       senderAddress <- getAccountAddress senderAccount
       -- check that all credentials that are to be removed actually exist.
-      -- This is either Nothing if there is a credential id in the list to remove
-      -- which does not exist on the account now or Just kis where `kis` is a list of key indices
-      -- to remove.
-      let (nonExistingRegIds, indicesToRemove) =
+      -- This produces:
+      --  * a list of credential regIds that were supposed to be removed, but don't exist on the account,
+      --    in reverse order
+      --  * a set of the credential indices to remove
+      --  * a list of the credential indices to remove, without duplicates, in reverse order
+      let (nonExistingRegIds, indicesToRemove, revListIndicesToRemove) =
             -- Here we do not care whether the list of credentials to remove has unique elements
             -- or not. As long as the lists are limited in length this should not matter, i.e.,
             -- this is not an abusable property.
             -- Because we should never have duplicate regids on the chain, each of them will only
             -- map to the unique key index. Thus the following map is well-defined.
             let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
-            in foldl' (\(nonExisting, existing) rid ->
+            in foldl' (\(nonExisting, existing, remList) rid ->
                          case rid `OrdMap.lookup` existingCredIds of
-                           Nothing -> (rid:nonExisting, existing)
-                           Just ki -> (nonExisting, Set.insert ki existing)
-                      ) ([], Set.empty) removeRegIds
+                           Nothing -> (rid:nonExisting, existing, remList)
+                           Just ki -> (nonExisting, Set.insert ki existing, if Set.member ki existing then remList else ki : remList)
+                      ) ([], Set.empty, []) removeRegIds
 
       -- check that the indices after removal are disjoint from the indices that we are about to add
       let removalCheck = null nonExistingRegIds &&
@@ -1343,7 +1345,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         case creds of
           Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
           Just newCredentials -> do
-            _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials
+            updateAccountCredentials senderAccount (reverse revListIndicesToRemove) newCredentials threshold
             return (TxSuccess [CredentialsUpdated {
                                   cuAccount = senderAddress,
                                   cuNewCredIds = Set.toList newCredIds,
