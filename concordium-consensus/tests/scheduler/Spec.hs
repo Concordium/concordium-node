@@ -7,6 +7,7 @@ import qualified SchedulerTests.InitContextTest(tests)
 import qualified SchedulerTests.ReceiveContextTest(tests)
 import qualified SchedulerTests.TrySendTest(tests)
 import qualified SchedulerTests.FibonacciSelfMessageTest(tests)
+import qualified SchedulerTests.SmartContractTests(tests)
 import qualified SchedulerTests.AccountTransactionSpecs(tests)
 import qualified SchedulerTests.InitialAccountCreationSpec(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
@@ -33,6 +34,7 @@ main = hspec $ do
          SchedulerTests.ReceiveContextTest.tests
          SchedulerTests.TrySendTest.tests
          SchedulerTests.FibonacciSelfMessageTest.tests
+         SchedulerTests.SmartContractTests.tests
          SchedulerTests.AccountTransactionSpecs.tests
          SchedulerTests.InitialAccountCreationSpec.tests
          SchedulerTests.BakerTransactions.tests
