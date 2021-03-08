@@ -62,8 +62,9 @@ transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
 -- The timeout and effective time are based on the supplied timestamp
 -- (which is assumed to be the current time).
 difficultyUpdateTransactions :: Timestamp -> [BlockItem]
-difficultyUpdateTransactions (Timestamp ts) = [u 1 0.99 60 120, u 2 0.1 120 180, u 3 0.9 120 200, u 4 0.1 120 201, u 5 0.8 120 202, u 6 0.27 120 0]
+difficultyUpdateTransactions (Timestamp ts) = [u 1 99000 60 120, u 2 10000 120 180, u 3 90000 120 200, u 4 10000 120 201, u 5 80000 120 202, u 6 27000 120 0]
     where
+        u :: UpdateSequenceNumber -> Word32 -> TransactionTime -> TransactionTime -> BlockItem
         u sn diff expire eff = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
                 RawUpdateInstruction {
                     ruiSeqNumber = sn,
@@ -191,7 +192,7 @@ main = do
                      [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                      (Energy maxBound)
                      dummyAuthorizations
-                     (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n))
+                     (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n))
     trans <- (difficultyUpdateTransactions now ++) . transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
