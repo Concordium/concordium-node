@@ -6,6 +6,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Account where
 
+import Control.Monad
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -28,14 +29,67 @@ import Concordium.GlobalState.BakerInfo
 maxNumIncoming :: Int
 maxNumIncoming = 32
 
--- |See 'Concordium.GlobalState.BlockState.AccountOperations' for documentation
+data RemovedCredentials
+    = EmptyRemovedCredentials
+    | RemovedCredential !CredentialRegistrationID !RemovedCredentials
+    deriving (Eq)
+
+-- |Convert a 'RemovedCredentials' to a list of 'CredentialRegistrationID's.
+removedCredentialsToList :: RemovedCredentials -> [CredentialRegistrationID]
+removedCredentialsToList EmptyRemovedCredentials = []
+removedCredentialsToList (RemovedCredential cred rest) = cred : removedCredentialsToList rest
+
+instance Serialize RemovedCredentials where
+  put rc = do
+    let l = removedCredentialsToList rc
+    putLength (length l)
+    mapM_ put l
+  get = do
+    len <- getLength
+    l <- replicateM len get
+    return $! foldr RemovedCredential EmptyRemovedCredentials l
+
+-- |The hash of 'EmptyRemovedCredentials'.
+emptyRemovedCredentialsHash :: Hash.Hash
+emptyRemovedCredentialsHash = Hash.hash "E"
+{-# NOINLINE emptyRemovedCredentialsHash #-}
+
+-- |Function for determining the hash of a 'RemovedCredential'.
+removedCredentialHash :: CredentialRegistrationID -> Hash.Hash -> Hash.Hash
+removedCredentialHash cred hrest = Hash.hash $ "R" <> encode cred <> Hash.hashToByteString hrest
+
+instance HashableTo Hash.Hash RemovedCredentials where
+  getHash EmptyRemovedCredentials = emptyRemovedCredentialsHash
+  getHash (RemovedCredential cred rest) = removedCredentialHash cred (getHash rest)
+
+-- |Update hashed remove credentials with a new removed credentials.
+addRemovedCredential :: CredentialRegistrationID -> Hashed RemovedCredentials -> Hashed RemovedCredentials
+addRemovedCredential cred hrc = Hashed (RemovedCredential cred (hrc ^. unhashed)) (removedCredentialHash cred (getHash hrc))
+
+-- |Hashed 'EmptyRemovedCredentials'.
+emptyHashedRemovedCredentials :: Hashed RemovedCredentials
+emptyHashedRemovedCredentials = makeHashed EmptyRemovedCredentials
+{-# NOINLINE emptyHashedRemovedCredentials #-}
+
+-- |Data about an account that is unlikely to change very frequently.
 data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
+  -- |Address of the account
   _accountAddress :: !AccountAddress
+  -- |Account encryption key (for encrypted amounts)
   ,_accountEncryptionKey :: !AccountEncryptionKey
+  -- |Account signature verification keys. Except for the threshold,
+  -- these are derived from the account credentials, and are provided
+  -- for convenience.
   ,_accountVerificationKeys :: !AccountInformation
+  -- |Current credentials. This map is always non-empty and (presently)
+  -- will have a credential at index 0 that cannot be changed.
   ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
-  -- ^Credentials; most recent first
+  -- |Maximum "valid to" date of the current credentials. This is
+  -- provided as a convenience for determining whether an account has
+  -- a currently valid credential, and is derived from the credential map.
   ,_accountMaxCredentialValidTo :: !CredentialValidTo
+  -- |Credential IDs of removed credentials.
+  ,_accountRemovedCredentials :: !(Hashed RemovedCredentials)
 }
 
 makeClassy ''PersistingAccountData
@@ -47,22 +101,32 @@ instance (IsProtocolVersion pv) => Eq (PersistingAccountData pv) where
     && _accountVerificationKeys pad1 == _accountVerificationKeys pad2
     && _accountCredentials pad1 == _accountCredentials pad2
     && _accountMaxCredentialValidTo pad1 == _accountMaxCredentialValidTo pad2
+    && _accountRemovedCredentials pad1 == _accountRemovedCredentials pad2
 
 instance (IsProtocolVersion pv) => Show (PersistingAccountData pv) where
   show PersistingAccountData{..} = "PersistingAccountData {" ++
     "_accountAddress = " ++ show _accountAddress ++ ", " ++
     "_accountEncryptionKey = " ++ show _accountEncryptionKey ++ ", " ++
     "_accountVerificationKeys = " ++ show _accountVerificationKeys ++ ", " ++
-    "_accountCredentials = " ++ show _accountCredentials ++ "}"
+    "_accountCredentials = " ++ show _accountCredentials ++ ", " ++
+    "_accountRemovedCredentials = " ++ show (removedCredentialsToList $ _unhashed _accountRemovedCredentials) ++ "}"
 
 type PersistingAccountDataHash = Hash.Hash
 
+-- |Hashing of 'PersistingAccountData'.
+-- 
+-- * Only the 'aiThreshold' field of '_accountVerificationKeys' is stored, since
+--   this is sufficient to recover it from '_accountCredentials'.
+--
+-- * '_accountMaxCredentialValidTo' is omitted, since it can also be recovered
+--   from '_accountCredentials'.
 instance HashableTo PersistingAccountDataHash (PersistingAccountData pv) where
   getHash PersistingAccountData{..} = Hash.hashLazy $ runPutLazy $ do
     put _accountAddress
     put _accountEncryptionKey
-    put _accountVerificationKeys
+    put (aiThreshold _accountVerificationKeys)
     putSafeMapOf put put _accountCredentials
+    put (_hashed _accountRemovedCredentials)
 
 instance Monad m => MHashableTo m PersistingAccountDataHash (PersistingAccountData pv)
 
@@ -129,14 +193,17 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
   put PersistingAccountData{..} = do
     put _accountAddress
     put _accountEncryptionKey
-    put _accountVerificationKeys
+    put (aiThreshold _accountVerificationKeys)
     putSafeMapOf put put _accountCredentials
+    put (_accountRemovedCredentials ^. unhashed)
   get = do
     _accountAddress <- get
     _accountEncryptionKey <- get
-    _accountVerificationKeys <- get
+    threshold <- get
     _accountCredentials <- getSafeMapOf get get
+    let _accountVerificationKeys = getAccountInformation threshold _accountCredentials
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
+    _accountRemovedCredentials <- makeHashed <$> get
     return PersistingAccountData{..}
 
 -- |Pending changes to the baker associated with an account.
@@ -240,19 +307,6 @@ data EncryptedAmountUpdate =
     }
   deriving(Eq, Show)
 
-data CredentialKeysUpdate = SetKeys !CredentialIndex !CredentialPublicKeys -- Replace keys with new set of credential keys, including new signature threshold.
-  deriving(Eq)
-
-data CredentialsUpdate = CredentialsUpdate {
-  -- |Remove credentials with these indices.
-  cuRemove :: ![CredentialIndex],
-  -- |Add credentials with these indices.
-  cuAdd :: !(Map.Map CredentialIndex AccountCredential),
-  -- |Optionally update the account signature threshold,
-  -- i.e., how many credentials need to sign the transaction.
-  cuAccountThreshold :: !AccountThreshold
-  } deriving(Eq)
-
 -- |An update to an account state.
 data AccountUpdate = AccountUpdate {
   -- |Address of the affected account.
@@ -263,20 +317,13 @@ data AccountUpdate = AccountUpdate {
   ,_auAmount :: !(Maybe AmountDelta)
   -- |Optionally an update the encrypted amount.
   ,_auEncrypted :: !(Maybe EncryptedAmountUpdate)
-  -- |Optionally a new credential.
-  ,_auCredentials :: !(Maybe CredentialsUpdate)
-  -- |Optionally an update to the account keys
-  ,_auCredentialKeysUpdate :: !(Maybe CredentialKeysUpdate)
-  -- |Optionally update the account signature threshold,
-  -- i.e., how many credentials need to sign the transaction.
-  ,_auAccountThreshold :: !(Maybe AccountThreshold)
   -- |Optionally update the locked stake on the account.
   ,_auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
 } deriving(Eq)
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountAddress -> AccountUpdate
-emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+emptyAccountUpdate addr = AccountUpdate addr Nothing Nothing Nothing Nothing
 
 updateAccountInformation :: AccountThreshold -> Map.Map CredentialIndex AccountCredential -> [CredentialIndex] -> AccountInformation -> AccountInformation
 updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) =
@@ -289,16 +336,24 @@ updateAccountInformation threshold addCreds remove (AccountInformation oldCredKe
     aiThreshold = threshold
   }
 
--- |Optionally add a credential to an account.
-updateCredentials :: (HasPersistingAccountData d pv) => Maybe CredentialsUpdate -> d -> d
-updateCredentials Nothing d = d
-updateCredentials (Just CredentialsUpdate{..}) d =
+-- |Add or remove credentials on an account.
+-- The caller must ensure the following, which are not checked:
+--
+-- * Any credential index that is removed must already exist.
+-- * Any credential index that is added must not exist after the removals take effect.
+-- * At least one credential remains after all removals and additions.
+-- * Any new threshold is at most the number of accounts remaining (and at least 1).
+updateCredentials :: (HasPersistingAccountData d pv) => [CredentialIndex] -> Map.Map CredentialIndex AccountCredential -> AccountThreshold -> d -> d
+updateCredentials cuRemove cuAdd cuAccountThreshold d =
   -- maximum is safe here since there must always be at least one credential on the account.
   d' & (accountMaxCredentialValidTo .~ maximum (validTo <$> allCredentials))
   where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
         d' = d & (accountCredentials %~ Map.union cuAdd . removeKeys)
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
+               & (accountRemovedCredentials %~ flip (foldl' (flip (addRemovedCredential . removedCredentialId))) cuRemove)
         allCredentials = Map.elems (d' ^. accountCredentials)
+        removedCredentialId cix = credId $ Map.findWithDefault (error "Removed credential key not found") cix (d ^. accountCredentials)
+        
 
 -- |Update the keys of the given account credential.
 updateCredKeyInAccountCredential :: AccountCredential -> CredentialPublicKeys -> AccountCredential
@@ -307,9 +362,8 @@ updateCredKeyInAccountCredential (NormalAC cdv comms) keys = NormalAC (cdv{cdvPu
 
 -- |Optionally update the verification keys and signature threshold for an account.
 -- Precondition: The credential with given credential index exists.
-updateCredentialKeys :: (HasPersistingAccountData d pv) => Maybe CredentialKeysUpdate -> d -> d
-updateCredentialKeys Nothing d = d
-updateCredentialKeys (Just (SetKeys credIndex credKeys)) d =
+updateCredentialKeys :: (HasPersistingAccountData d pv) => CredentialIndex -> CredentialPublicKeys -> d -> d
+updateCredentialKeys credIndex credKeys d =
   case (Map.lookup credIndex (d ^. accountCredentials), Map.lookup credIndex (aiCredentials (d ^. accountVerificationKeys))) of
     (Just oldCred, Just _) ->
       let updateCred = Map.insert credIndex (updateCredKeyInAccountCredential oldCred credKeys)
@@ -317,6 +371,7 @@ updateCredentialKeys (Just (SetKeys credIndex credKeys)) d =
           updateAi ai@AccountInformation{..} = ai{aiCredentials = updateKeys aiCredentials}
       in d & (accountCredentials %~ updateCred) & (accountVerificationKeys %~ updateAi)
     _ -> d -- do nothing. This is safe, but should not happen if the precondition is satisfied.
+
 -- |Flags used for serializing an account in V0 format.
 data AccountSerializationFlags = AccountSerializationFlags {
     -- |Whether the account address is serialized explicity,
@@ -335,7 +390,11 @@ data AccountSerializationFlags = AccountSerializationFlags {
     -- explicitly, or is the default (empty) value.
     asfExplicitReleaseSchedule :: Bool,
     -- |Whether the account has a baker.
-    asfHasBaker :: Bool
+    asfHasBaker :: Bool,
+    -- |Whether the account threshold is 1.
+    asfThresholdIsOne :: Bool,
+    -- |Whether the account has removed credentials.
+    asfHasRemovedCredentials :: Bool
   }
 
 instance Serialize AccountSerializationFlags where
@@ -346,6 +405,8 @@ instance Serialize AccountSerializationFlags where
           .|. cbit 3 asfExplicitEncryptedAmount
           .|. cbit 4 asfExplicitReleaseSchedule
           .|. cbit 5 asfHasBaker
+          .|. cbit 6 asfThresholdIsOne
+          .|. cbit 7 asfHasRemovedCredentials
     where
       cbit n b = if b then bit n else 0
   get = do
@@ -356,4 +417,6 @@ instance Serialize AccountSerializationFlags where
         asfExplicitEncryptedAmount = testBit flags 3
         asfExplicitReleaseSchedule = testBit flags 4
         asfHasBaker = testBit flags 5
+        asfThresholdIsOne = testBit flags 6
+        asfHasRemovedCredentials = testBit flags 7
     return AccountSerializationFlags{..}

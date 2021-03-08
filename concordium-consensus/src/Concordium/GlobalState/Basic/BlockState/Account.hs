@@ -92,8 +92,9 @@ serializeAccount cryptoParams acct@Account{..} = do
     S.put flags
     when asfExplicitAddress $ S.put _accountAddress
     when asfExplicitEncryptionKey $ S.put _accountEncryptionKey
-    S.put _accountVerificationKeys
+    unless asfThresholdIsOne $ S.put (aiThreshold _accountVerificationKeys)
     putCredentials
+    when asfHasRemovedCredentials $ S.put (_accountRemovedCredentials ^. unhashed)
     S.put _accountNonce
     S.put _accountAmount
     when asfExplicitEncryptedAmount $ S.put _accountEncryptedAmount
@@ -111,6 +112,8 @@ serializeAccount cryptoParams acct@Account{..} = do
     asfExplicitEncryptedAmount = _accountEncryptedAmount /= initialAccountEncryptedAmount
     asfExplicitReleaseSchedule = _accountReleaseSchedule /= emptyAccountReleaseSchedule
     asfHasBaker = isJust _accountBaker
+    asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
+    asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
 
 
 -- |Deserialize an account in V0 format.
@@ -120,7 +123,7 @@ deserializeAccount cryptoParams = do
     AccountSerializationFlags{..} <- S.get
     preAddress <- if asfExplicitAddress then Just <$> S.get else return Nothing
     preEncryptionKey <- if asfExplicitEncryptionKey then Just <$> S.get else return Nothing
-    _accountVerificationKeys <- S.get
+    threshold <- if asfThresholdIsOne then return 1 else S.get
     let getCredentials
           | asfMultipleCredentials = do
               creds <- getSafeMapOf S.get S.get
@@ -128,6 +131,8 @@ deserializeAccount cryptoParams = do
               return creds
           | otherwise = Map.singleton 0 <$> S.get
     _accountCredentials <- getCredentials
+    _accountRemovedCredentials <- if asfHasRemovedCredentials then makeHashed <$> S.get else return emptyHashedRemovedCredentials
+    let _accountVerificationKeys = getAccountInformation threshold _accountCredentials
     let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
     let initialRegId = credId (snd (Map.findMin _accountCredentials))
         _accountAddress = fromMaybe (addressFromRegId initialRegId) preAddress
@@ -161,6 +166,7 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountCredentials = cs,
         _accountMaxCredentialValidTo = maximum (validTo <$> cs),
         _accountVerificationKeys = getAccountInformation threshold cs,
+        _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..
         },
         _accountNonce = minNonce,

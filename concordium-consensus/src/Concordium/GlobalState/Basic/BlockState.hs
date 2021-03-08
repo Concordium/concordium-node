@@ -511,14 +511,22 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
 
     bsoModifyAccount bs accountUpdates = return $!
         -- Update the account
-        (case accountUpdates ^. auCredentials of
-             Nothing -> bs & blockAccounts %~ Accounts.putAccount updatedAccount
-             Just creds ->
-               bs & blockAccounts %~ Accounts.putAccount updatedAccount
-                                   . Accounts.recordRegIds (Map.elems $ credId <$> cuAdd creds))
+        bs & blockAccounts %~ Accounts.putAccount updatedAccount
         where
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account
+    
+    bsoUpdateAccountCredentialKeys bs accountAddr credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
+        where
+            account = bs ^. blockAccounts . singular (ix accountAddr)
+            updatedAccount = updateCredentialKeys credIx newKeys account
+
+    bsoUpdateAccountCredentials bs accountAddr remove add thrsh = return $! bs
+            & blockAccounts %~ Accounts.putAccount updatedAccount
+                              . Accounts.recordRegIds (Map.elems $ credId <$> add)
+        where
+            account = bs ^. blockAccounts . singular (ix accountAddr)
+            updatedAccount = updateCredentials remove add thrsh account
 
     {-# INLINE bsoNotifyEncryptedBalanceChange #-}
     bsoNotifyEncryptedBalanceChange bs amntDiff =

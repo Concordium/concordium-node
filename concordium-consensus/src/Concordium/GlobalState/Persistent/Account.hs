@@ -306,7 +306,8 @@ newAccount cryptoParams _accountAddress credential = do
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
         _accountCredentials = creds,
         _accountMaxCredentialValidTo = validTo credential,
-        _accountVerificationKeys = getAccountInformation 1 creds, 
+        _accountVerificationKeys = getAccountInformation 1 creds,
+        _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..
         } :: PersistingAccountData pv
   _persistingData <- refMake newPData
@@ -544,6 +545,8 @@ serializeAccount cryptoParams PersistentAccount{..} = do
         (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
           [(0, cred)] -> (False, put cred)
           _ -> (True, putSafeMapOf put put _accountCredentials)
+        asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
+        asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
     aea <- refLoad _accountEncryptedAmount
     (asfExplicitEncryptedAmount, putEA) <- putAccountEncryptedAmountV0 aea <&> \case
         Nothing -> (False, return ())
@@ -556,8 +559,9 @@ serializeAccount cryptoParams PersistentAccount{..} = do
         put AccountSerializationFlags {..}
         when asfExplicitAddress $ put _accountAddress
         when asfExplicitEncryptionKey $ put _accountEncryptionKey
-        put _accountVerificationKeys
+        unless asfThresholdIsOne $ put (aiThreshold _accountVerificationKeys)
         putCredentials
+        when asfHasRemovedCredentials $ put (_accountRemovedCredentials ^. unhashed)
         put _accountNonce
         put _accountAmount
         putEA

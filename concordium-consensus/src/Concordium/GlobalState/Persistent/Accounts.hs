@@ -283,14 +283,7 @@ updateAccount !upd !acc = do
                                                     & accountAmount %~ applyAmountDelta stakeDelta
                                                     & accountReleaseSchedule .~ releaseScheduleRef
                                                     & accountEncryptedAmount .~ newEncryptedAmountRef
-  -- create a new pointer for the persisting account data if the account credential information needs to be updated:
-  case (upd ^. auCredentials, upd ^. auCredentialKeysUpdate) of
-        (Nothing, Nothing) -> rehashAccount newAccWithoutHash
-        (mNewCred, mKeyUpd) -> do
-            pData <- refLoad (acc ^. persistingData)
-            let newPData = updateCredentials mNewCred (updateCredentialKeys mKeyUpd pData)
-            newPDataRef <- refMake newPData
-            rehashAccount $ newAccWithoutHash & persistingData .~ newPDataRef
+  rehashAccount newAccWithoutHash
   where setMaybe (Just x) _ = x
         setMaybe Nothing y = y
 

@@ -314,6 +314,41 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- negative account balance or a situation where the staked or locked balance
   -- exceeds the total balance on the account.
   bsoModifyAccount :: UpdatableBlockState m -> AccountUpdate -> m (UpdatableBlockState m)
+
+  -- |Update the public keys for a specific credential on an account.
+  --
+  -- The caller must ensure that the account exists and has a credential with the given
+  -- index.
+  bsoUpdateAccountCredentialKeys :: UpdatableBlockState m -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (UpdatableBlockState m)
+
+  -- |Update the set of credentials on a given account by: removing credentials, adding
+  -- credentials, and updating the account threshold (i.e. number of credentials that are
+  -- required for a valid signature from the account).  Added credentials will be be added
+  -- to the global set of known credentials.
+  --
+  -- The caller is responsible for establishing the following preconditions:
+  --  * The account exists and is valid.
+  --  * The credential indexes to remove already exist on the account.
+  --  * The credentials to add have not been used before (i.e. 'bsoRegIdExists' returns
+  --    @False@ for each of them).
+  --  * The credential indexes that are added do not already have credentials, after the
+  --    removals have occurred.
+  --  * The account threshold is at least 1 and at most the total number of credentials
+  --    on the account after the specified credentials have been removed and added.
+  --
+  -- The removed credentials will be considered removed in the order of the provided list.
+  -- This ordering is significant because it affects the account hash.
+  bsoUpdateAccountCredentials ::
+    UpdatableBlockState m
+    -> AccountAddress
+    -> [ID.CredentialIndex]
+    -- ^Credentials to remove
+    -> Map.Map ID.CredentialIndex AccountCredential
+    -- ^Credentials to add
+    -> ID.AccountThreshold
+    -- ^New account threshold
+    -> m (UpdatableBlockState m)
+
   -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
   -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
@@ -322,22 +357,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
                     -> Wasm.ContractState
                     -> m (UpdatableBlockState m)
 
-  -- FIXME: remove
-  -- |Notify the block state that the given amount was spent on execution.
-  --bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
-
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
   bsoNotifyEncryptedBalanceChange :: UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
-
-
-  -- FIXME: remove
-  -- |Notify the block state that the given identity issuer's credential was
-  -- used by a sender of the transaction.
-  --bsoNotifyIdentityIssuerCredential :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (UpdatableBlockState m)
-
-  -- FIXME: remove
-  -- |Get the execution reward for the current block.
-  -- bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
   -- |Get the seed state associated with the block state.
   bsoGetSeedState :: UpdatableBlockState m -> m SeedState
@@ -664,6 +685,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s
+  bsoUpdateAccountCredentialKeys s aa ci pk = lift $ bsoUpdateAccountCredentialKeys s aa ci pk
+  bsoUpdateAccountCredentials s aa remove add thrsh = lift $ bsoUpdateAccountCredentials s aa remove add thrsh
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
@@ -705,6 +728,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
   {-# INLINE bsoModifyAccount #-}
+  {-# INLINE bsoUpdateAccountCredentialKeys #-}
+  {-# INLINE bsoUpdateAccountCredentials #-}
   {-# INLINE bsoModifyInstance #-}
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetSeedState #-}

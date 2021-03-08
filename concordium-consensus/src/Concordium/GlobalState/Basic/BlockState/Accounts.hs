@@ -103,14 +103,12 @@ indexedAccount ai = lens accountTable (\a v-> a{accountTable = v}) . ix ai
 
 -- |Apply account updates to an account. It is assumed that the address in
 -- account updates and account are the same.
-updateAccount :: IsProtocolVersion pv => AccountUpdate -> Account pv -> Account pv
+updateAccount :: AccountUpdate -> Account pv -> Account pv
 updateAccount !upd
     = updateNonce
       . updateReleaseSchedule
       . updateAmount
-      . updateCredentials (upd ^. auCredentials)
       . updateEncryptedAmount
-      . updateCredentialKeys (upd ^. auCredentialKeysUpdate)
   where
     maybeUpdate :: Maybe a -> (a -> b -> b) -> b -> b
     maybeUpdate Nothing _ = id
@@ -184,9 +182,11 @@ deserializeAccounts cryptoParams = do
               unless (_bakerIdentity (_accountBakerInfo bkr) == BakerId acctId) $
                 fail "BakerID does not match account index"
             let addRegId regids cred
-                  | ID.credId cred `Set.member` regids = fail "Duplicate credential"
-                  | otherwise = return $ Set.insert (ID.credId cred) regids
-            newRegIds <- foldM addRegId accountRegIds (acct ^. accountCredentials)
+                  | cred `Set.member` regids = fail "Duplicate credential"
+                  | otherwise = return $ Set.insert cred regids
+            newRegIds <- foldM addRegId accountRegIds $
+                (ID.credId <$> Map.elems (acct ^. accountCredentials))
+                ++ removedCredentialsToList (acct ^. accountRemovedCredentials . unhashed)
             loop (i+1)
               Accounts {
                 accountMap = Map.insert (acct ^. accountAddress) acctId accountMap,
