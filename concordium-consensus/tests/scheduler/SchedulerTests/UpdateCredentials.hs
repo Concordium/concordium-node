@@ -45,11 +45,11 @@ cdi8ac :: AccountCredential
 cdi8ac = fromMaybe (error "Should be safe") $ values $ credential ac8
 
 cdi7'' :: CredentialDeploymentInformation
-cdi7'' = case credential cdi7 of 
+cdi7'' = case credential cdi7 of
   NormalACWP cdi -> cdi
   _ -> error "cdi7 should be a normal credential. Something went wrong with test case generation."
 cdi8 :: CredentialDeploymentInformation
-cdi8 = case credential ac8 of 
+cdi8 = case credential ac8 of
   NormalACWP cdi -> cdi
   _ -> error "cdi8 should be a normal credential. Something went wrong with test case generation."
 
@@ -85,16 +85,16 @@ testCases =
                           metadata = makeDummyHeader cdi8address 1 50000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
                         }
-        , (SuccessE [CredentialsUpdated cdi8address [cdi9ID] [] 1] 
+        , (SuccessE [CredentialsUpdated cdi8address [cdi9ID] [] 1]
           , checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 1
           )
         )
         , -- Correctly update threshold
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [] 2,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [] 2,
                           metadata = makeDummyHeader cdi8address 2 50000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
                         }
-        , (SuccessE [CredentialsUpdated cdi8address [] [] 2] 
+        , (SuccessE [CredentialsUpdated cdi8address [] [] 2]
           , checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 2
           )
         )
@@ -121,59 +121,59 @@ testCases =
                           metadata = makeDummyHeader cdi8address 4 50000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
                         }
-        , ( SuccessE [CredentialsUpdated cdi8address [cdi10ID] [] 2] 
+        , ( SuccessE [CredentialsUpdated cdi8address [cdi10ID] [] 2]
           , checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9), (2, cdiKeys cdi10)] 2
           )
         )
       , -- Updating threshold to 3
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [] 3,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [] 3,
                           metadata = makeDummyHeader cdi8address 5 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])]
                         }
-        , ( SuccessE [CredentialsUpdated cdi8address [] [] 3] 
+        , ( SuccessE [CredentialsUpdated cdi8address [] [] 3]
           , checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9), (2, cdiKeys cdi10)] 3
           )
         )
       , -- Trying to remove cdi9 -  should reject since threshold is 3
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [cdi9ID] 3,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 3,
                           metadata = makeDummyHeader cdi8address 6 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
-        , ( Reject InvalidAccountThreshold -- The credential is valid but this is the reject reason returned by the scheduler TODO: Fix this in scheduler
+        , ( Reject InvalidAccountThreshold
           , checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9), (2, cdiKeys cdi10)] 3
           )
         )
       , -- Trying to remove cdi9 -  should succeed since threshold is changed to 2
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [cdi9ID] 2,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
                           metadata = makeDummyHeader cdi8address 7 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( SuccessE [CredentialsUpdated cdi8address [] [cdi9ID] 2]
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2
           )
         )
       , -- Trying to sign with cdi9's keys -  should fail since cdi9 was removed
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [] 2,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [] 2,
                           metadata = makeDummyHeader cdi8address 8 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Fail IncorrectSignature
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2
           )
         )
       , -- Trying to remove cdi8 -  should reject since it is the first credential
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [cdi8ID] 1, -- notice that we also change the threshold to 1, otherwise it would fail even if cdi8 could be removed. 
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi8ID] 1, -- notice that we also change the threshold to 1, otherwise it would fail even if cdi8 could be removed.
                           metadata = makeDummyHeader cdi8address 8 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject RemoveFirstCredential
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2
           )
         )
       , -- Trying to remove cdi9 that is already removed -  should reject
-        ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.empty) [cdi9ID] 2,
+        ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
                           metadata = makeDummyHeader cdi8address 9 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject $ NonExistentCredIDs [cdi9ID]
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2
@@ -182,7 +182,7 @@ testCases =
       , -- Trying to add cdi10 whos credID is already in use - should reject
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
                           metadata = makeDummyHeader cdi8address 10 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject $ DuplicateCredIDs [cdi10ID]
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2
@@ -191,16 +191,16 @@ testCases =
       , -- Trying to add cdi9 whos credID has been used earlier - should reject
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 2,
                           metadata = makeDummyHeader cdi8address 11 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject $ DuplicateCredIDs [cdi9ID]
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2
           )
         )
-      , -- Adding cdi11 at index 2 should succeed since we are deleting cdi10 
+      , -- Adding cdi11 at index 2 should succeed since we are deleting cdi10
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 2 cdi11) [cdi10ID] 2,
                           metadata = makeDummyHeader cdi8address 12 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( SuccessE [CredentialsUpdated cdi8address [cdi11ID] [cdi10ID] 2]
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi11)] 2
@@ -209,7 +209,7 @@ testCases =
       , -- Trying to add cdi7 which is not a cdi for deploying to cdi8 - should reject since for this purpose, cdi7 is invalid
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7'') [] 2,
                           metadata = makeDummyHeader cdi8address 13 50000,
-                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])] 
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])]
                         }
         , ( Reject InvalidCredentials
           , checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi11)] 2
@@ -220,12 +220,12 @@ testCases =
   ]
     where
       -- Prompts the blockstate for account keys and checks that they match the expected ones.
-      checkKeys expectedKeys expectedThreshold = (\bs -> specify "Correct account keys" $
+      checkKeys expectedKeys expectedThreshold bs = specify "Correct account keys" $
         case Acc.getAccount cdi8address (bs ^. blockAccounts) of
           Nothing -> HUnit.assertFailure $ "Account with id '" ++ show cdi8address ++ "' not found"
-          Just account -> do 
+          Just account -> do
             checkAccountKeys expectedKeys expectedThreshold $ account ^. accountVerificationKeys
-            checkAllCredentialKeys expectedKeys $ account ^. accountCredentials)
+            checkAllCredentialKeys expectedKeys $ account ^. accountCredentials
 
 -- Checks that the keys in the AccountInformation matches the ones in the list, that there isn't
 -- any other keys than these in the AccountInformation and that the signature threshold matches.
@@ -235,7 +235,7 @@ checkAccountKeys keys threshold ID.AccountInformation{..} = do
   HUnit.assertEqual "Account keys should have same number of keys" (length keys) (length aiCredentials)
   forM_ keys (\(idx, key) -> case Map.lookup idx aiCredentials of
     Nothing -> HUnit.assertFailure $ "Found no key at index " ++ show idx
-    Just actualKey -> HUnit.assertEqual ("Key at index " ++ (show idx) ++ " should be equal") key actualKey)
+    Just actualKey -> HUnit.assertEqual ("Key at index " ++ show idx ++ " should be equal") key actualKey)
 
 -- Checks the keys inside the relevant credentials are correct
 checkAllCredentialKeys :: [(ID.CredentialIndex, ID.CredentialPublicKeys)] -> Map.Map ID.CredentialIndex ID.AccountCredential -> HUnit.Assertion
@@ -244,7 +244,7 @@ checkAllCredentialKeys keys credentials = do
   let keysInCredentials = fmap credPubKeys credentials
   forM_ keys (\(idx, key) -> case Map.lookup idx keysInCredentials of
     Nothing -> HUnit.assertFailure $ "Found no credential with index " ++ show idx
-    Just actualKey -> HUnit.assertEqual ("Key at index " ++ (show idx) ++ " should be equal") key actualKey)
+    Just actualKey -> HUnit.assertEqual ("Key at index " ++ show idx ++ " should be equal") key actualKey)
 
 
 
