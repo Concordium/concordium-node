@@ -20,7 +20,7 @@ zeroLuck :: BlockLuck
 zeroLuck = BlockLuck 0
 
 electionProbability :: LotteryPower -> ElectionDifficulty -> Double
-electionProbability alpha diff = 1 - (1 - electionDifficulty diff) ** (fromIntegral (numerator alpha) / fromIntegral (denominator alpha) )
+electionProbability alpha diff = 1 - (1 - getDoubleFromElectionDifficulty diff) ** (fromIntegral (numerator alpha) / fromIntegral (denominator alpha) )
 
 leaderElectionMessage :: LeadershipElectionNonce -> Slot -> ByteString
 leaderElectionMessage nonce (Slot sl) =

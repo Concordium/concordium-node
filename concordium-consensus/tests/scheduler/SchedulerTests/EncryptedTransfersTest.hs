@@ -70,9 +70,6 @@ import Test.Hspec
 --- |                                  | incomingAmounts |        [] |            [] |
 --- |----------------------------------+-----------------+-----------+---------------|
 
--- |Protocol version
-type PV = 'P1
-
 initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
     10000000000

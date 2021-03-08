@@ -256,7 +256,7 @@ initialState = do
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
                                 dummyAuthorizations
-                                (makeChainParameters (makeElectionDifficulty 0.2) 1 1 4 10 Dummy.dummyRewardParameters (maxBakerId + 1))
+                                (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (maxBakerId + 1))
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"

@@ -33,8 +33,8 @@ initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount initialAmount Acc.emptyAccounts
 
 -- cdi7, but with lowest possible expiry
-cdi8 :: Types.AccountCreation
-cdi8 = Types.AccountCreation{
+cdi7' :: Types.AccountCreation
+cdi7' = Types.AccountCreation{
   messageExpiry = 0,
   credential = Types.credential cdi7
   }
@@ -48,7 +48,7 @@ transactionsInput = map (Types.addMetadata Types.CredentialDeployment 0) $ [
   cdi5,
   -- cdi6, -- deploy just a new predicate
   cdi7,
-  cdi8
+  cdi7'
   ]
 
 testAccountCreation ::

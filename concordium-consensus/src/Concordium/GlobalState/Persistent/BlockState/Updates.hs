@@ -631,6 +631,7 @@ lookupCurrentParameters uref = do
         Updates{..} <- refLoad uref
         unStoreSerialized <$> refLoad currentParameters
 
+-- |Serialize updates in V0 format.
 putUpdatesV0 :: (MonadBlobStore m, MonadPut m) => Updates -> m ()
 putUpdatesV0 Updates{..} = do
         sPut . unStoreSerialized =<< refLoad currentAuthorizations

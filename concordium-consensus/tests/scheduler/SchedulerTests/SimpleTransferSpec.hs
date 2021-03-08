@@ -21,10 +21,6 @@ import Concordium.Crypto.DummyData
 
 import SchedulerTests.TestUtils
 
-
--- |Protocol version
-type PV = 'Types.P1
-
 initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
     10000000000
