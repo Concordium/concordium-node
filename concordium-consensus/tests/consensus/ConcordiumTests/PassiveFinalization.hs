@@ -272,7 +272,7 @@ createInitStates additionalFinMembers = do
     let 
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-        cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
+        cps = dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen = GenesisDataV2 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
