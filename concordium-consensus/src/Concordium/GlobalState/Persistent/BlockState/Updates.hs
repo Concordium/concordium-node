@@ -243,6 +243,7 @@ instance (MonadBlobStore m) => Cacheable m PendingUpdates where
             <*> cache pTransactionFeeDistributionQueue
             <*> cache pGASRewardsQueue
 
+-- |Serialize the pending updates.
 putPendingUpdatesV0 :: (MonadBlobStore m, MonadPut m) => PendingUpdates -> m ()
 putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 =<< refLoad pAuthorizationQueue

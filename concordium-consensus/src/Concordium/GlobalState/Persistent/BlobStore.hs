@@ -676,7 +676,6 @@ instance MonadBlobStore m => BlobStorable m ARS.AnonymityRevokers
 instance MonadBlobStore m => BlobStorable m Parameters.CryptographicParameters
 -- FIXME: This uses serialization of accounts for storing them.
 -- This is potentially quite wasteful when only small changes are made.
--- instance MonadBlobStore m => BlobStorable m Account
 instance MonadBlobStore m => BlobStorable m Amount
 instance MonadBlobStore m => BlobStorable m BakerId
 instance MonadBlobStore m => BlobStorable m BakerInfo
