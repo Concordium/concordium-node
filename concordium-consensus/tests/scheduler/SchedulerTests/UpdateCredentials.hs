@@ -230,7 +230,7 @@ testCases =
 -- Checks that the keys in the AccountInformation matches the ones in the list, that there isn't
 -- any other keys than these in the AccountInformation and that the signature threshold matches.
 checkAccountKeys :: [(ID.CredentialIndex, ID.CredentialPublicKeys)] -> ID.AccountThreshold -> ID.AccountInformation -> HUnit.Assertion
-checkAccountKeys keys threshold actualKeys@ID.AccountInformation{..} = do
+checkAccountKeys keys threshold ID.AccountInformation{..} = do
   HUnit.assertEqual "Account Threshold Matches" threshold aiThreshold
   HUnit.assertEqual "Account keys should have same number of keys" (length keys) (length aiCredentials)
   forM_ keys (\(idx, key) -> case Map.lookup idx aiCredentials of
