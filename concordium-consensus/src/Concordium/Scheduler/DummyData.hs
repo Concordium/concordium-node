@@ -11,10 +11,15 @@ import qualified Data.Aeson as AE
 import Concordium.Common.Version
 import Concordium.Types
 import Concordium.Scheduler.Types
+import Concordium.ID.Types
 
 import qualified Concordium.Scheduler.Runner as Runner
 
 import Concordium.Types.DummyData
+
+import Concordium.ID.DummyData
+import qualified  Concordium.Crypto.SignatureScheme as Sig
+import qualified  Data.Map.Strict as Map
 
 -- |Maximum possible expiry of a message.
 maxExpiry :: TransactionExpiryTime
@@ -61,6 +66,55 @@ readAccountCreation bs =
   case AE.eitherDecode bs of
     Left err -> error $ "Cannot read account creation " ++ err
     Right d -> if vVersion d == 0 then vValue d else error "Incorrect account creation version."
+
+newtype SigningKeys = SigningKeys {
+    keys :: (Map.Map KeyIndex Sig.KeyPair) -- [(KeyIndex, Sig.KeyPair)]
+} 
+
+instance AE.FromJSON SigningKeys where
+    parseJSON = AE.withObject "SigningKeys" $ \v -> do
+        keys <- v AE..: "keys"
+        return SigningKeys{..}
+
+
+{-# WARNING readSigningKeys "Do not use in production." #-}
+readSigningKeys :: BSL.ByteString -> SigningKeys
+readSigningKeys bs =
+  case AE.eitherDecode bs of
+    Left err -> error $ "Cannot read credential because " ++ err
+    Right d -> d
+
+{-# WARNING ac8 "Do not use in production." #-}
+ac8 :: AccountCreation
+ac8 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-8.json" >>= embedFile)
+{-# WARNING cdi8keys "Do not use in production." #-}
+cdi8keys :: SigningKeys
+cdi8keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-private-keys-8.json" >>= embedFile)
+{-# WARNING cdi9 "Do not use in production." #-}
+cdi9 :: CredentialDeploymentInformation
+cdi9 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-9.json" >>= embedFile)
+{-# WARNING cdi9keys "Do not use in production." #-}
+cdi9keys :: SigningKeys
+cdi9keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-private-keys-9.json" >>= embedFile)
+{-# WARNING cdi10 "Do not use in production." #-}
+cdi10 :: CredentialDeploymentInformation
+cdi10 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-10.json" >>= embedFile)
+{-# WARNING cdi10keys "Do not use in production." #-}
+cdi10keys :: SigningKeys
+cdi10keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-private-keys-10.json" >>= embedFile)
+{-# WARNING cdi11 "Do not use in production." #-}
+cdi11 :: CredentialDeploymentInformation
+cdi11 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-11.json" >>= embedFile)
+{-# WARNING cdi11keys "Do not use in production." #-}
+cdi11keys :: SigningKeys
+cdi11keys = readSigningKeys . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-private-keys-11.json" >>= embedFile)
+-- {-# WARNING cdi12 "Do not use in production." #-}
+-- cdi12 :: CredentialDeploymentInformation
+-- cdi12 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-11.json" >>= embedFile)
+-- {-# WARNING cdi13 "Do not use in production." #-}
+-- cdi13 :: CredentialDeploymentInformation
+-- cdi13 = readCredential . BSL.fromStrict $ $(makeRelativeToProject "testdata/credential-12.json" >>= embedFile)
+
 
 {-# WARNING icdi1 "Do not use in production." #-}
 icdi1 :: AccountCreation
