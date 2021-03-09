@@ -422,7 +422,7 @@ elif [ "$MODE" == "basic" ]; then
         done
     fi
 elif [ "$MODE" == "bootstrapper" ]; then
-    /p2p_bootstrapper-cli $ARGS
+    /p2p_bootstrapper-cli --regenesis-block-hashes $(cat $DATA_DIR/GENESIS_HASH) $ARGS
 elif [ "$MODE" == "collector" ]; then
     /node-collector $ARGS
 elif [ "$MODE" == "collector_backend" ]; then
@@ -479,7 +479,7 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
     /p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \
-        $EXTRA_ARGS
+        --regenesis-block-hashes $(cat $DATA_DIR/GENESIS_HASH) $EXTRA_ARGS
 elif [ "$MODE" == "local_wallet_proxy" ]; then
     if [ -n "$WALLET_PROXY_GRPC_IP" ];
     then
