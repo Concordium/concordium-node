@@ -30,6 +30,7 @@ dependencies:
 - bytestring >= 0.10
 - random >= 1.1
 - cereal >= 0.5.7
+- data-fix >= 0.3
 - unordered-containers >= 0.2
 - hashable >= 1.0.1.1
 - containers >0.5.9.1

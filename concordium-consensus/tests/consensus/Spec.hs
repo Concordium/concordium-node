@@ -2,7 +2,7 @@ module Main where
 
 import System.Environment
 import Data.Semigroup
-import Data.List
+import Data.List (stripPrefix)
 import Test.Hspec
 import qualified ConcordiumTests.Afgjort.Freeze (tests)
 import qualified ConcordiumTests.Afgjort.CSS.NominationSet (tests)

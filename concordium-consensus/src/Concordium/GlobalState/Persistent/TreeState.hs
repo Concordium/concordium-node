@@ -33,7 +33,7 @@ import Control.Exception hiding (handle, throwIO)
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.HashMap.Strict as HM
-import Data.List as List hiding (map)
+import Data.List (partition)
 import qualified Data.Map.Strict as Map
 import Data.Typeable
 import qualified Data.PQueue.Prio.Min as MPQ
@@ -589,7 +589,7 @@ instance (MonadLogger (PersistentTreeStateMonad ati bs m),
                                           & (ttHashMap . at' trHash ?~ (bi, Received slot)))
                   return (TS.Added bi)
                 else return TS.ObsoleteNonce
-              CredentialDeployment{..} -> do
+              CredentialDeployment{} -> do
                 -- because we do not have nonce tracking for these transactions we need to check that
                 -- this transction does not already exist in the on-disk storage.
                 finalizedP <- memberTransactionTable trHash

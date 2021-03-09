@@ -937,7 +937,7 @@ withExternalPure_ f = withExternal (return . fmap ((),) . f)
 logInvalidBlockItem :: SchedulerMonad m => BlockItem -> FailureKind -> m ()
 logInvalidBlockItem WithMetadata{wmdData=NormalTransaction{},..} fk =
   logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
-logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred,..} fk =
+logInvalidBlockItem WithMetadata{wmdData=CredentialDeployment cred} fk =
   logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData=ChainUpdate{},..} fk =
   logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk

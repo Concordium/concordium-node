@@ -38,7 +38,6 @@ module Concordium.Scheduler
   ,execTransactions
   ,FilteredTransactions(..)
   ) where
-
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as Wasm
 import Concordium.Scheduler.Types
@@ -60,10 +59,10 @@ import Concordium.Crypto.EncryptedTransfers
 import Control.Applicative
 import Control.Monad.Except
 import Data.Function (on)
+import Data.List (find, foldl')
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
-import Data.List hiding (group)
 import qualified Data.Set as Set
 
 import qualified Concordium.Crypto.Proofs as Proofs
@@ -1197,7 +1196,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
       let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
       case credIndex of 
         Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
-        Just index -> if not thresholdCheck then return (TxReject InvalidAccountKeySignThreshold, energyCost, usedEnergy) else do
+        Just index -> if not thresholdCheck then return (TxReject InvalidCredentialKeySignThreshold, energyCost, usedEnergy) else do
           -- We check that the credential whose keys we are updating has indeed signed this transaction.
           let check = OrdMap.member index $ tsSignatures sigs
           if check then do
@@ -1357,6 +1356,8 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         -- is a pretty clean alternative to avoid deep nesting.
         if not firstCredNotRemoved then
           return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
+        else if not thresholdCheck then
+          return (TxReject InvalidAccountThreshold, energyCost, usedEnergy)
         else if not (null nonExistingRegIds) then
           return (TxReject (NonExistentCredIDs nonExistingRegIds), energyCost, usedEnergy)
         else if not removalCheck then

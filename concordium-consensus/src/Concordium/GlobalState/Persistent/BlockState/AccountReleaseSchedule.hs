@@ -78,7 +78,7 @@ import Concordium.Types.HashableTo
 import Control.Monad
 import qualified Data.ByteString as BS
 import Data.Foldable
-import Data.List
+import Data.List (group, sort)
 import Data.Map (Map)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
