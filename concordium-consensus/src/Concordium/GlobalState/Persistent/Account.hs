@@ -260,7 +260,7 @@ newAccount cryptoParams _accountAddress credential = do
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
         _accountCredentials = creds,
         _accountMaxCredentialValidTo = validTo credential,
-        _accountVerificationKeys = getAccountInformation 1 creds, 
+        _accountVerificationKeys = getAccountInformation 1 creds,
         ..
         }
   _persistingData <- refMake newPData
