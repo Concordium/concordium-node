@@ -588,7 +588,7 @@ doAddBaker pbs aaddr BakerAdd{..} = do
             Nothing -> return (BAInvalidAccount, pbs)
             -- Account is already a baker
             Just (ai, PersistentAccount{_accountBaker = Some _}) -> return (BAAlreadyBaker (BakerId ai), pbs)
-            Just (ai, PersistentAccount{..}) -> do
+            Just (ai, PersistentAccount{}) -> do
                     let bid = BakerId ai
                     pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
                     let updAgg Nothing = return (True, Trie.Insert ())

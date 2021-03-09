@@ -10,7 +10,7 @@ import Control.Monad
 import Lens.Micro.Platform
 import System.Random
 import qualified Data.Serialize as Ser
-import Data.List
+import Data.List (unfoldr)
 import Control.Monad.Trans
 
 import qualified Concordium.Crypto.VRF as VRF

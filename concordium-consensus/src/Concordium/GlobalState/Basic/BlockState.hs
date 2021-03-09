@@ -452,7 +452,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         Nothing -> (BAInvalidAccount, bs)
         -- Account is already a baker
         Just (ai, Account{_accountBaker = Just _}) -> (BAAlreadyBaker (BakerId ai), bs)
-        Just (ai, Account{..})
+        Just (ai, Account{})
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
           -- All checks pass, add the baker
@@ -485,7 +485,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoUpdateBakerStake bs aaddr newStake = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..})
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
           -- We can make the change
@@ -502,7 +502,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoUpdateBakerRestakeEarnings bs aaddr newRestakeEarnings = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..}) ->
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}}) ->
           if newRestakeEarnings == _stakeEarnings
           -- No actual change
           then (BREUUpdated (BakerId ai), bs)
@@ -512,7 +512,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
 
     bsoRemoveBaker bs aaddr = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
-        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}, ..})
+        Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BRChangePending (BakerId ai), bs)
           -- We can make the change

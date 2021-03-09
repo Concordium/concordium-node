@@ -42,7 +42,7 @@ import qualified Data.Aeson as AE
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.Function
-import Data.List
+import Data.List (group, groupBy, sort, sortOn)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Serialize

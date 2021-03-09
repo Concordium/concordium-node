@@ -191,7 +191,8 @@ runTest firstBlocks
                         successfulFins = length $ filter (\(_, r) -> r `elem` [ResultSuccess, ResultPendingFinalization]) receivedIndicesAndExpectedResults
                     mapM (\(i, b) -> bakeVerify (fromIntegral firstBlocks + i) b $ fromIntegral i) $ zip [1..] $ take (fromIntegral successfulFins) blocks
                 ) dummyHandlers fi2 fs2
-        where receiveFM block ind res (fmId, _, SkovState TS.SkovData{..} FinalizationState{..} _ _) =
+        where receiveFM :: BakedBlock -> FinalizationIndex -> UpdateResult -> BakerState -> MySkovT ()
+              receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _ _) =
                 case _finsCurrentRound of
                     ActiveCurrentRound FinalizationRound{..} ->
                         receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res
@@ -272,7 +273,7 @@ createInitStates additionalFinMembers = do
     let 
         seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-        cps = dummyChainParameters & cpElectionDifficulty .~ ElectionDifficulty 1
+        cps = dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
         gen = GenesisDataV2 {
                 genesisTime = 0,
                 genesisSlotDuration = 1,
