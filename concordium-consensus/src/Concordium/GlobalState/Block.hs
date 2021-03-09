@@ -22,9 +22,6 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 
 import Concordium.GlobalState.Finalization
 
-hashGenesisData :: GenesisData -> Hash
-hashGenesisData genData = Hash.hashLazy . runPutLazy $ put genesisSlot >> put genData
-
 instance HashableTo BlockHash BakedBlock where
     getHash bb = generateBlockHash (blockSlot bb) (blockPointer bb) (blockBaker bb) (blockBakerKey bb) (blockProof bb) (blockNonce bb) (blockFinalizationData bb) (blockTransactions bb) (blockStateHash bb) (blockTransactionOutcomesHash bb)
 
