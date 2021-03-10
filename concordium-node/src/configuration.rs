@@ -570,7 +570,7 @@ pub struct BootstrapperConfig {
         long = "regenesis-block-hashes-file",
         help = "Path to a file that contains a json array of regenesis hashes."
     )]
-    pub regenesis_block_hashes: Option<String>,
+    pub regenesis_block_hashes: Option<PathBuf>,
 }
 
 /// The main configuration object.
