@@ -7,7 +7,6 @@ use std::{
 };
 #[global_allocator]
 static A: System = System;
-use serde_json;
 
 use concordium_node::{
     common::{P2PNodeId, PeerType},
