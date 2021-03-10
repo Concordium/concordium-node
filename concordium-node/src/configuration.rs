@@ -2,7 +2,6 @@
 
 use crate::{
     connection::DeduplicationHashAlgorithm,
-    consensus_ffi::blockchain_types::BlockHash,
     network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
 };
 use app_dirs2::*;
@@ -569,9 +568,9 @@ pub struct BootstrapperConfig {
 
     #[structopt(
         long = "regenesis-block-hashes",
-        help = "List with the hashes of regenesis blocks."
+        help = "Path to a file that contains a json array of regenesis hashes."
     )]
-    pub regenesis_block_hashes: Vec<BlockHash>,
+    pub regenesis_block_hashes: Option<String>,
 }
 
 /// The main configuration object.

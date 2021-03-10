@@ -1,5 +1,6 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible, ResultExt};
+use serde::{Deserialize, Serialize};
 use std::{
     convert::{TryFrom, TryInto},
     fmt,
@@ -58,8 +59,7 @@ impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
 
 pub const SHA256: u8 = 32;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct HashBytes([u8; SHA256 as usize]);
 
 impl HashBytes {
