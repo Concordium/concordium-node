@@ -1,5 +1,6 @@
 use byteorder::{NetworkEndian, ReadBytesExt};
 use failure::{format_err, Fallible, ResultExt};
+use serde::{Deserialize, Serialize};
 use std::{
     convert::{TryFrom, TryInto},
     fmt,
@@ -58,8 +59,8 @@ impl<T> RelayOrStopSenderHelper<T> for QueueSyncSender<T> {
 
 pub const SHA256: u8 = 32;
 
-#[derive(Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
 pub struct HashBytes([u8; SHA256 as usize]);
 
 impl HashBytes {
@@ -93,6 +94,16 @@ impl FromStr for HashBytes {
         let hex_decoded = hex::decode(s)?;
         HashBytes::new(&hex_decoded)
     }
+}
+
+impl TryFrom<String> for HashBytes {
+    type Error = failure::Error;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> { Self::from_str(value.as_str()) }
+}
+
+impl Into<String> for HashBytes {
+    fn into(self) -> String { self.to_string() }
 }
 
 // a short, 8-character beginning of the SHA

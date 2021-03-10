@@ -21,8 +21,8 @@ instrumentation = ["serde_derive", "gotham", "mime", "gotham_derive", "prometheu
 network_dump = []
 static = [ ]
 profiling = [ "static" ]
-collector = [ "reqwest/default-tls", "serde_json", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
-staging_net = [ "serde_json", "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
+collector = [ "reqwest/default-tls", "serde/derive", "rmp-serde", "gotham", "mime", "gotham_derive", "hyper", "futures" ]
+staging_net = [ "serde/derive", "reqwest/default-tls", "jsonwebtoken" ]
 database_emitter = []
 genesis_tester = [ "tempfile" ]
 malicious_testing = []
@@ -87,7 +87,7 @@ serde_derive = { version = "1.0", optional = true }
 capnp = { version = "0.13", optional = true }
 serde_cbor = { version = "0.11", optional = true }
 rmp-serde = { version = "0.14.0", optional = true }
-serde_json = { version = "1", optional = true }
+serde_json = { version = "1" }
 num_cpus = { version = "1.13", optional = true }
 jsonwebtoken = { version = "7", optional = true }
 prometheus = { version = "0.10", default-features = false, features = ["gen", "push", "protobuf"], optional = true }

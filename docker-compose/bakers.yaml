@@ -9,7 +9,9 @@ services:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
     - MODE=local_bootstrapper
+    - NUM_BAKERS=${NUM_BAKERS}
     - EXTRA_ARGS=${EXTRA_ARGS}
+    - DATA_DIR=/var/lib/concordium/data
     entrypoint:
     - /start.sh
   collector_backend:
