@@ -567,7 +567,7 @@ pub struct BootstrapperConfig {
     pub peer_list_size: usize,
 
     #[structopt(
-        long = "regenesis-block-hashes",
+        long = "regenesis-block-hashes-file",
         help = "Path to a file that contains a json array of regenesis hashes."
     )]
     pub regenesis_block_hashes: Option<String>,
