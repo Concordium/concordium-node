@@ -479,7 +479,7 @@ elif [ "$MODE" == "local_bootstrapper" ]; then
     /p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \
-        --regenesis-block-hashes-file $DATA_DIR/GENESIS_HASH $EXTRA_ARGS
+        --regenesis-block-hashes-file $DATA_DIR/genesis_hash $EXTRA_ARGS
 elif [ "$MODE" == "local_wallet_proxy" ]; then
     if [ -n "$WALLET_PROXY_GRPC_IP" ];
     then
