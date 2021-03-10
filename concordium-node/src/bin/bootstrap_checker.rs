@@ -31,14 +31,12 @@ fn main() -> Result<(), Error> {
     let pager_duty_svcid = env::var("PD_SVCID")?;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
-    let regenesis_blocks: Vec<BlockHash> = match &conf.bootstrapper.regenesis_block_hashes {
-        None => {
-            let mut regenesis_path = data_dir_path.clone();
-            regenesis_path.push("/genesis_hash");
-            serde_json::from_str(&std::fs::read_to_string(regenesis_path)?)?
-        }
-        Some(p) => serde_json::from_str(&std::fs::read_to_string(p)?)?,
-    };
+    let fname = conf
+        .bootstrapper
+        .regenesis_block_hashes
+        .clone()
+        .unwrap_or_else(|| data_dir_path.join("genesis_hash"));
+    let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&std::fs::read(fname)?)?;
     let regenesis_arc: Arc<RwLock<Vec<BlockHash>>> = Arc::new(RwLock::new(regenesis_blocks));
 
     ensure!(
