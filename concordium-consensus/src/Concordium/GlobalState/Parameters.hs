@@ -147,5 +147,5 @@ data UpdateValue
     -- |Updates to the GAS rewards.
     | UVGASRewards !GASRewards
     -- |Updates to the baker minimum threshold
-    | UVBakerMinimumThreshold !Amount
+    | UVBakerStakeThreshold !Amount
     deriving (Eq, Show)
