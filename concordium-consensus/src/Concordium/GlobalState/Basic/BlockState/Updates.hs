@@ -89,7 +89,7 @@ data PendingUpdates = PendingUpdates {
     -- |Updates to the GAS rewards.
     _pGASRewardsQueue :: !(UpdateQueue GASRewards),
     -- |Updates to the baker minimum threshold.
-    _pBakerMinimumThresholdQueue :: !(UpdateQueue Amount)
+    _pBakerStakeThresholdQueue :: !(UpdateQueue Amount)
 } deriving (Show, Eq)
 makeLenses ''PendingUpdates
 
@@ -104,7 +104,7 @@ instance HashableTo H.Hash PendingUpdates where
             <> hsh _pMintDistributionQueue
             <> hsh _pTransactionFeeDistributionQueue
             <> hsh _pGASRewardsQueue
-            <> hsh _pBakerMinimumThresholdQueue
+            <> hsh _pBakerStakeThresholdQueue
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
@@ -120,7 +120,7 @@ instance ToJSON PendingUpdates where
             "mintDistribution" AE..= _pMintDistributionQueue,
             "transactionFeeDistribution" AE..= _pTransactionFeeDistributionQueue,
             "gasRewards" AE..= _pGASRewardsQueue,
-            "minimumBakerThreshold" AE..= _pBakerMinimumThresholdQueue
+            "minimumBakerThreshold" AE..= _pBakerStakeThresholdQueue
         ]
 
 instance FromJSON PendingUpdates where
@@ -134,7 +134,7 @@ instance FromJSON PendingUpdates where
         _pMintDistributionQueue <- o AE..: "mintDistribution"
         _pTransactionFeeDistributionQueue <- o AE..: "transactionFeeDistribution"
         _pGASRewardsQueue <- o AE..: "gasRewards"
-        _pBakerMinimumThresholdQueue <- o AE..: "minimumBakerThreshold"
+        _pBakerStakeThresholdQueue <- o AE..: "minimumBakerThreshold"
         return PendingUpdates{..}
 
 -- |Initial pending updates with empty queues.
@@ -250,7 +250,7 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                             _rpGASRewards = newGASRewards
                         }
                         newFoundationAccount
-                        newBakerMinimumThreshold,
+                        newBakerStakeThreshold,
             _pendingUpdates = PendingUpdates {
                     _pAuthorizationQueue = newAuthorizationQueue,
                     _pProtocolQueue = newProtocolQueue,
@@ -261,7 +261,7 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                     _pMintDistributionQueue = newMintDistributionQueue,
                     _pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
                     _pGASRewardsQueue = newGASRewardsQueue,
-                    _pBakerMinimumThresholdQueue = newBakerMinimumThresholdQueue
+                    _pBakerStakeThresholdQueue = newBakerStakeThresholdQueue
                 }
         })
     where
@@ -274,7 +274,7 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
         (newMintDistribution, newMintDistributionQueue, resMintDistribution) = processValueUpdates t _rpMintDistribution _pMintDistributionQueue
         (newTransactionFeeDistribution, newTransactionFeeDistributionQueue, resTransactionFeeDistribution) = processValueUpdates t _rpTransactionFeeDistribution _pTransactionFeeDistributionQueue
         (newGASRewards, newGASRewardsQueue, resGASRewards) = processValueUpdates t _rpGASRewards _pGASRewardsQueue
-        (newBakerMinimumThreshold, newBakerMinimumThresholdQueue, resBakerMinimumThreshold) = processValueUpdates t _cpBakerMinimumThreshold _pBakerMinimumThresholdQueue
+        (newBakerStakeThreshold, newBakerStakeThresholdQueue, resBakerStakeThreshold) = processValueUpdates t _cpBakerStakeThreshold _pBakerStakeThresholdQueue
         res = 
             (UVAuthorization . _unhashed <$> resAuthorization) <>
             (UVProtocol <$> resProtocol) <>
@@ -285,7 +285,7 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
             (UVMintDistribution <$> resMintDistribution) <>
             (UVTransactionFeeDistribution <$> resTransactionFeeDistribution) <>
             (UVGASRewards <$> resGASRewards) <>
-            (UVBakerMinimumThreshold <$> resBakerMinimumThreshold)
+            (UVBakerStakeThreshold <$> resBakerStakeThreshold)
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
@@ -304,7 +304,7 @@ lookupNextUpdateSequenceNumber u UpdateFoundationAccount = u ^. pendingUpdates .
 lookupNextUpdateSequenceNumber u UpdateMintDistribution = u ^. pendingUpdates . pMintDistributionQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateTransactionFeeDistribution = u ^. pendingUpdates . pTransactionFeeDistributionQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateGASRewards = u ^. pendingUpdates . pGASRewardsQueue . uqNextSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateBakerMinimumThreshold = u ^. pendingUpdates . pBakerMinimumThresholdQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateBakerStakeThreshold = u ^. pendingUpdates . pBakerStakeThresholdQueue . uqNextSequenceNumber
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: TransactionTime -> UpdateValue -> Updates -> Updates
@@ -317,4 +317,4 @@ enqueueUpdate effectiveTime (UVFoundationAccount upd) = pendingUpdates . pFounda
 enqueueUpdate effectiveTime (UVMintDistribution upd) = pendingUpdates . pMintDistributionQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVTransactionFeeDistribution upd) = pendingUpdates . pTransactionFeeDistributionQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVGASRewards upd) = pendingUpdates . pGASRewardsQueue %~ enqueue effectiveTime upd
-enqueueUpdate effectiveTime (UVBakerMinimumThreshold upd) = pendingUpdates . pBakerMinimumThresholdQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVBakerStakeThreshold upd) = pendingUpdates . pBakerStakeThresholdQueue %~ enqueue effectiveTime upd

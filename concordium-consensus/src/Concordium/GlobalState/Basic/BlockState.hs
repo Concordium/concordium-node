@@ -448,7 +448,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                     }
 
     bsoAddBaker bs aaddr BakerAdd{..} = do
-      cp <- BS.bsoGetChainParameters bs <&> (^. cpBakerMinimumThreshold)
+      cp <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
       return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
@@ -488,21 +488,19 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
         _ -> (BKUInvalidBaker, bs)
 
     bsoUpdateBakerStake bs aaddr newStake = do
-      cp <- BS.bsoGetChainParameters bs <&> (^. cpBakerMinimumThreshold)
+      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
       return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
         Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
-          -- Provided stake is under the threshold
-          | newStake < cp -> (BSUStakeUnderThreshold, bs)
           -- We can make the change
           | otherwise ->
               let mres = case compare newStake _stakedAmount of
                           LT -> let curEpoch = epoch $ _birkSeedState $ _blockBirkParameters bs
                                     cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
                                 in
-                                  if newStake < cp
+                                  if newStake < bakerStakeThreshold
                                   then Left BSUStakeUnderThreshold
                                   else Right (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
                           EQ -> Right (BSUStakeUnchanged (BakerId ai), id)

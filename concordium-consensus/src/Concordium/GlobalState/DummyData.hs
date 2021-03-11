@@ -88,7 +88,7 @@ dummyAuthorizations = Authorizations {
       asParamMintDistribution = theOnly,
       asParamTransactionFeeDistribution = theOnly,
       asParamGASRewards = theOnly,
-      asBakerMinimumThreshold = theOnly
+      asBakerStakeThreshold = theOnly
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1

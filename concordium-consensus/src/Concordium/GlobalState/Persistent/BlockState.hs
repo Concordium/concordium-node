@@ -589,7 +589,7 @@ doAddBaker pbs aaddr BakerAdd{..} = do
             -- Account is already a baker
             Just (ai, PersistentAccount{_accountBaker = Some _}) -> return (BAAlreadyBaker (BakerId ai), pbs)
             Just (ai, PersistentAccount{}) -> do
-                  cp <- (^. cpBakerMinimumThreshold) <$> doGetChainParameters pbs
+                  cp <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
                   if baStake < cp then
                       return (BAStakeUnderThreshold, pbs)
                   else do
@@ -666,7 +666,7 @@ doUpdateBakerKeys pbs aaddr bku@BakerKeyUpdate{..} = do
 doUpdateBakerStake :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState)
 doUpdateBakerStake pbs aaddr newStake = do
         bsp <- loadPBS pbs
-        cp <- (^. cpBakerMinimumThreshold) <$> doGetChainParameters pbs
+
         Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
             Just (ai, PersistentAccount{_accountBaker = Some pAcctBkr}) -> do
@@ -679,8 +679,9 @@ doUpdateBakerStake pbs aaddr newStake = do
                     let curEpoch = epoch $ _birkSeedState (bspBirkParameters bsp)
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
+                    bakerStakeThreshold <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
                     let mres = case compare newStake (_stakedAmount acctBkr) of
-                                LT -> if newStake < (_stakedAmount acctBkr) && newStake < cp
+                                LT -> if newStake < bakerStakeThreshold
                                       then Left BSUStakeUnderThreshold
                                       else Right (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
                                 EQ -> Right (BSUStakeUnchanged (BakerId ai), id)
