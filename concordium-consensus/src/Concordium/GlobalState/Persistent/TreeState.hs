@@ -101,8 +101,11 @@ data PersistentBlockStatus pv ati bs =
     | BlockPending !PendingBlock
   deriving(Eq, Show)
 
--- |Skov data for the persistent tree state version that also holds the database handlers
-data SkovPersistentData pv ati bs = SkovPersistentData {
+-- |Skov data for the persistent tree state version that also holds the database handlers.
+-- The first type parameter, @pv@, is the protocol version.
+-- The second type parameter, @ati@, is a type determining the account transaction index to use.
+-- The third type parameter, @bs@, is the type of block states.
+data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     -- |Map of all received blocks by hash.
     _blockTable :: !(HM.HashMap BlockHash (PersistentBlockStatus pv (ATIValues ati) bs)),
     -- |Map of (possibly) pending blocks by hash

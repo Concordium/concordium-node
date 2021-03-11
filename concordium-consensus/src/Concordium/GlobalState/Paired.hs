@@ -393,9 +393,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoModifyAccount bs1 upd
         bs2' <- coerceBSMR $ bsoModifyAccount bs2 upd
         return (bs1', bs2')
-    bsoUpdateAccountCredentialKeys (bs1, bs2) aaddr credIx credKeys = do
-        bs1' <- coerceBSML $ bsoUpdateAccountCredentialKeys bs1 aaddr credIx credKeys
-        bs2' <- coerceBSMR $ bsoUpdateAccountCredentialKeys bs2 aaddr credIx credKeys
+    bsoSetAccountCredentialKeys (bs1, bs2) aaddr credIx credKeys = do
+        bs1' <- coerceBSML $ bsoSetAccountCredentialKeys bs1 aaddr credIx credKeys
+        bs2' <- coerceBSMR $ bsoSetAccountCredentialKeys bs2 aaddr credIx credKeys
         return (bs1', bs2')
     bsoUpdateAccountCredentials (bs1, bs2) aaddr remove add thrsh = do
         bs1' <- coerceBSML $ bsoUpdateAccountCredentials bs1 aaddr remove add thrsh

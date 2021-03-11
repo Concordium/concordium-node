@@ -31,7 +31,7 @@ import Concordium.GlobalState.Instance
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
-import Concordium.GlobalState.Paired
+-- import Concordium.GlobalState.Paired
 import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Logger
@@ -100,7 +100,7 @@ sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut (putVersionedBlockItemV0 t))
         -- r <- randomRIO (5000, 15000)
-        threadDelay 200000
+        threadDelay 20000
         sendTransactions bakerId chan ts
 sendTransactions _ _ _ = return ()
 
@@ -178,23 +178,23 @@ dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
 
--- type TreeConfig = DiskTreeDiskBlockConfig
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+type TreeConfig = DiskTreeDiskBlockConfig PV
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
--- type TreeConfig = MemoryTreeDiskBlockConfig
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- type TreeConfig = MemoryTreeDiskBlockConfig PV
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 -- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
 
---type TreeConfig = MemoryTreeMemoryBlockConfig
---makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+--type TreeConfig = MemoryTreeMemoryBlockConfig PV
+--makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 --makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
 --uncomment if wanting paired config
-type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+-- type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rp genData =
+--    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
 
 type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
 
@@ -215,7 +215,7 @@ main = do
                      (Energy maxBound)
                      dummyAuthorizations
                      (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n))
-    trans <- (protocolUpdateTransactions now ++) . transactions <$> newStdGen
+    trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode

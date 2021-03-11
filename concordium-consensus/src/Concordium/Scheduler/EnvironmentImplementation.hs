@@ -278,7 +278,7 @@ instance (MonadReader ContextState m,
   {-# INLINE updateCredentialKeys #-}
   updateCredentialKeys accAddr credIndex newKeys = do
     s <- use schedulerBlockState
-    s' <- lift (bsoUpdateAccountCredentialKeys s accAddr credIndex newKeys)
+    s' <- lift (bsoSetAccountCredentialKeys s accAddr credIndex newKeys)
     schedulerBlockState .= s'
 
   {-# INLINE getIPInfo #-}

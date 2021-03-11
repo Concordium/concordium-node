@@ -125,6 +125,10 @@ and consensus parameters.
   performance and resource usage (e.g., size of database storage) testing. It
   runs consensus deterministically, without relying on system randomness or
   timing information.
+- [execute-chain](./test-runners/execute-chain/) is designed to execute a chain
+  based on the block catch-up list. This is intended for testing for regressions
+  against an existing chain, testing different global state implementation against
+  each other on real data, and testing state serialization on real data.
 
 # Tools
 

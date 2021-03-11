@@ -263,9 +263,8 @@ putBlockState bs = do
     putHashedEpochBlocksV0 (bs ^. blockEpochBlocksBaked)
 
 -- |Deserialize 'BlockState'. The format may depend on the protocol version.
--- This checks a number of invariants:
+-- This checks the following invariants:
 --
---  * Each smart contract instance is correctly a valid owner account.
 --  * Bakers cannot have duplicate aggregation keys.
 --
 -- The serialization format reduces redundancy to ensure that:
@@ -273,7 +272,6 @@ putBlockState bs = do
 --  * The active bakers are exactly the accounts with baker records.
 --  * The block release schedule contains the minimal scheduled release
 --    timestamp for every account with a scheduled release.
---  * Accounts correctly record their instances.
 --
 -- Note that the transaction outcomes will always be empty.
 getBlockState :: forall pv. IsProtocolVersion pv => Get (BlockState pv)
@@ -516,7 +514,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             account = bs ^. blockAccounts . singular (ix (accountUpdates ^. auAddress))
             updatedAccount = Accounts.updateAccount accountUpdates account
     
-    bsoUpdateAccountCredentialKeys bs accountAddr credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
+    bsoSetAccountCredentialKeys bs accountAddr credIx newKeys = return $! bs & blockAccounts %~ Accounts.putAccount updatedAccount
         where
             account = bs ^. blockAccounts . singular (ix accountAddr)
             updatedAccount = updateCredentialKeys credIx newKeys account
@@ -846,16 +844,24 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths 
             }
 
 -- |Initial block state based on 'GenesisData', for protocol version P1.
-genesisStateP1 :: GenesisData 'P1 -> BlockState 'P1
+genesisStateP1 :: GenesisData 'P1 -> Either String (BlockState 'P1)
 genesisStateP1 (GDP1 P1.GDP1Initial{
     genesisCore=P1.CoreGenesisParameters{..},
     genesisInitialState = P1.GenesisState{..}
-  }) = BlockState {..}
+  }) = do
+    accounts <- mapM mkAccount (zip [0..] (toList genesisAccounts))
+    let
+        _blockBirkParameters = initialBirkParameters accounts genesisSeedState
+        _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts accounts
+        -- initial amount in the central bank is the amount on all genesis accounts combined
+        initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
+        _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
+    return BlockState {..}
   where
-    mkAccount GenesisAccount{..} bid =
+    mkAccount (bid, GenesisAccount{..}) =
           case gaBaker of
-            Just GenesisBaker{..} | gbBakerId /= bid -> error "Mismatch between assigned and chosen baker id."
-            _ -> newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
+            Just GenesisBaker{..} | gbBakerId /= bid -> Left "Mismatch between assigned and chosen baker id."
+            _ -> Right $! newAccountMultiCredential genesisCryptographicParameters gaThreshold gaAddress gaCredentials
                       & accountAmount .~ gaBalance
                       & case gaBaker of
                           Nothing -> id
@@ -870,16 +876,11 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
                                 },
                             _bakerPendingChange = NoChange
                             }
-    accounts = zipWith mkAccount (toList genesisAccounts) [0..]
+    -- accounts = zipWith mkAccount (toList genesisAccounts) [0..]
     genesisSeedState = initialSeedState genesisLeadershipElectionNonce genesisEpochLength
-    _blockBirkParameters = initialBirkParameters accounts genesisSeedState
     _blockCryptographicParameters = makeHashed genesisCryptographicParameters
-    _blockAccounts = List.foldl' (flip Accounts.putAccountWithRegIds) Accounts.emptyAccounts accounts
     _blockInstances = Instances.emptyInstances
     _blockModules = Modules.emptyModules
-    -- initial amount in the central bank is the amount on all genesis accounts combined
-    initialAmount = List.foldl' (\c acc -> c + acc ^. accountAmount) 0 accounts
-    _blockBank = makeHashed $ Rewards.makeGenesisBankStatus initialAmount
     _blockIdentityProviders = makeHashed genesisIdentityProviders
     _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
@@ -887,15 +888,18 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
 genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNewState of
-  Left err -> error $ "Could not deserialize genesis state: " ++ err
+  Left err -> Left $ "Could not deserialize genesis state: " ++ err
   Right bs
-      | hbs ^. blockStateHash /= genesisStateHash -> error "Could not deserialize genesis state: state hash is incorrect"
-      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= P1.genesisEpochLength genesisCore -> error "Could not deserialize genesis state: epoch length mismatch"      
-      | otherwise -> bs
+      | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"
+      | epochLength (bs ^. blockBirkParameters . birkSeedState) /= P1.genesisEpochLength genesisCore -> Left "Could not deserialize genesis state: epoch length mismatch"      
+      | otherwise -> Right bs
     where
       hbs = hashBlockState bs
 
 -- |Initial block state based on 'GenesisData'.
-genesisState :: forall pv. (IsProtocolVersion pv) => GenesisData pv -> BlockState pv
+-- If the genesis data does not satisfy the required invariant properties, this returns @Left err@
+-- indicating the cause of the failure.  Otherwise, it returns @Right bs@ with a valid block state
+-- constructed according to the supplied genesis data.
+genesisState :: forall pv. (IsProtocolVersion pv) => GenesisData pv -> Either String (BlockState pv)
 genesisState = case protocolVersion :: SProtocolVersion pv of
   SP1 -> genesisStateP1

@@ -36,7 +36,10 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 
-data SkovData pv bs = SkovData {
+-- |Datatype representing an in-memory tree state.
+-- The first type parameter, @pv@, is the protocol version.
+-- The second type parameter, @bs@, is the type of the block state.
+data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Map of all received blocks by hash.
     _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer pv bs) PendingBlock)),
     -- |Table of blocks finalized by height.

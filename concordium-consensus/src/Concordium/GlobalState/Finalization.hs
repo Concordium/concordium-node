@@ -14,6 +14,7 @@ import Data.Aeson(FromJSON, ToJSON)
 import Concordium.Common.Version
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
+import Concordium.Afgjort.Types
 
 newtype FinalizationIndex = FinalizationIndex {theFinalizationIndex :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, ToJSON, FromJSON)
 
@@ -23,7 +24,7 @@ instance Serialize FinalizationIndex where
 
 -- TODO (MR) Should the first argument type be [Party] rather than [Word32]?
 data FinalizationProof = FinalizationProof {
-    finalizationProofParties :: ![Word32],
+    finalizationProofParties :: ![Party],
     finalizationProofSignature :: !Bls.Signature
     }
     deriving (Eq)
@@ -37,12 +38,12 @@ getLength = fromIntegral <$> getWord32be
 instance Serialize FinalizationProof where
   put (FinalizationProof parties sig) =
     putLength (length parties) <>
-    mapM_ putWord32be parties <>
+    mapM_ putParty parties <>
     put sig
 
   get = do
     l <- getLength
-    FinalizationProof <$> replicateM l getWord32be <*> get
+    FinalizationProof <$> replicateM l getParty <*> get
 
 emptyFinalizationProof :: FinalizationProof
 emptyFinalizationProof = FinalizationProof [] Bls.emptySignature    -- this signature currently won't verify
