@@ -615,7 +615,7 @@ handleInitContract wtc initAmount modref initName param =
                   icSenderPolicies = map (Wasm.mkSenderPolicy . snd) (OrdMap.toAscList senderCredentials)
                }
             result <- runInterpreter (return . Wasm.applyInitFun iface cm initCtx initName param initAmount)
-                       `rejectingWith'` wasmRejectToRejectReason
+                       `rejectingWith'` wasmRejectToRejectReasonInit
 
             -- Charge for storing the contract state.
             tickEnergyValueStorage (Wasm.newState result)
@@ -736,7 +736,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
   let iface = instanceModuleInterface iParams
   result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
-             `rejectingWith'` wasmRejectToRejectReason
+             `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
   -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
   let newModel = Wasm.newState result
       txOut = Wasm.messages result

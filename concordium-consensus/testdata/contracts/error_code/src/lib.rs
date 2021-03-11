@@ -13,12 +13,12 @@ pub struct State {}
 
 #[derive(Reject)]
 enum InitError {
-    VeryBadError, // will be converted to
+    VeryBadError, // will be converted to -1
     // testing that we can successfully return both errors from a function that returns an `InitError`
     #[from(ParseError, SpecialInitError)]
     ParseErrorWrapper, // will be converted to -2
     #[from(MostSpecialInitError)]
-    SomeOtherError,
+    SomeOtherError, // will be converted to -3
 }
 
 impl Default for InitError {
@@ -114,3 +114,13 @@ fn receive_error_codes3<A: HasActions>(
 ) -> Result<A, ()> {
     Err(())
 }
+
+#[receive(contract = "error_codes", name = "receive_send")]
+fn receive_error_codes_send<A: HasActions>(
+    _ctx: &impl HasReceiveContext<()>,
+    _state: &mut State,
+) -> Result<A, ()> {
+    // This should result in an error code corresponding to ParseError
+    Ok(A::send(&ContractAddress{ index: 0, subindex: 0 }, "error_codes.receive2", Amount::zero(), &[]))
+}
+

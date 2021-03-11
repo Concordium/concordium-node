@@ -115,7 +115,8 @@ checkTransactionResults (suc, fails, instances) = do
   assertEqual "There should be 2 rejected init and 2 rejected update transactions." [-2, -2147483648, -5, -2147483648] (catMaybes rejects)
   assertEqual "There should be 1 instance." 1 (length instances)
   where
-    rejects = map (\case (_, Types.TxReject{ vrRejectReason = Types.Rejected {Types.rejectReason = reason} }) -> Just reason
+    rejects = map (\case (_, Types.TxReject{ vrRejectReason = Types.RejectedInit {Types.rejectReason = reason} }) -> Just reason
+                         (_, Types.TxReject{ vrRejectReason = Types.RejectedReceive {Types.rejectReason = reason} }) -> Just reason
                          _ -> Nothing) suc
     runtimeFailures = filter (\case (_, Types.TxReject{ vrRejectReason = Types.RuntimeFailure }) -> True
                                     _ -> False) suc
