@@ -168,7 +168,7 @@ constructM build = c 0 0 []
         -- * @t@ is full (satisfying the invariant properties of 'IT' instances);
         -- * The height of @t@ is one less than its index in the list.
         c !idx !count l = build idx >>= \case
-            Nothing -> return $ collapse0 count l
+            Nothing -> return $! collapse0 count l
             Just (Left si) -> c (idx + 1) count $! bubble (VacantLeaf si) l
             Just (Right inst) -> c (idx + 1) (count + 1) $! bubble (Leaf inst) l
         -- Add a new entry to the stack. @t@ is always a full 'IT' at level one

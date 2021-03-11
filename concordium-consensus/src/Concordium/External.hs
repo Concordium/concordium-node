@@ -277,8 +277,11 @@ handleStartExceptions :: LogMethod IO -> IO Int64 -> IO Int64
 handleStartExceptions logM c =
   c `catches`
     [Handler (\(ex :: IOError) -> toStartResult StartIOException <$ logM External LLError (displayException ex)),
-     Handler (\(ex :: InitException) -> toStartResult (StartInitException ex) <$ logM External LLError (displayException ex))
+     Handler (\(ex :: InitException) -> toStartResult (StartInitException ex) <$ logM External LLError (displayException ex)),
+     Handler handleGlobalStateInitException
     ]
+  where
+    handleGlobalStateInitException (InvalidGenesisData _) = return (toStartResult StartGenesisFailure)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and

@@ -60,7 +60,7 @@ import System.Directory
 import qualified Data.HashMap.Strict as HM
 import Concordium.Logger
 
-
+-- |A (finalized) block as stored in the database.
 data StoredBlock pv st = StoredBlock {
   sbFinalizationIndex :: !FinalizationIndex,
   sbInfo :: !BasicBlockPointerData,
@@ -80,6 +80,8 @@ instance (IsProtocolVersion pv, S.Serialize st) => S.Serialize (StoredBlock pv s
           sbState <- S.get
           return StoredBlock{..}
 
+-- |A block store table. A @BlockStore pv st@ stores @StoredBlock pv st@ blocks
+-- indexed by 'BlockHash'.
 newtype BlockStore (pv :: ProtocolVersion) st = BlockStore MDB_dbi'
 
 instance (IsProtocolVersion pv, S.Serialize st) => MDBDatabase (BlockStore pv st) where
@@ -87,17 +89,25 @@ instance (IsProtocolVersion pv, S.Serialize st) => MDBDatabase (BlockStore pv st
   type DBValue (BlockStore pv st) = StoredBlock pv st
   encodeKey _ = hashToByteString . blockHash
 
+-- |A finalization record store table. A @FinalizationRecordStore@ stores
+-- 'FinalizationRecord's indexed by 'FinalizationIndex'.
 newtype FinalizationRecordStore = FinalizationRecordStore MDB_dbi'
 
 instance MDBDatabase FinalizationRecordStore where
   type DBKey FinalizationRecordStore = FinalizationIndex
   type DBValue FinalizationRecordStore = FinalizationRecord
 
+-- |A transaction status store table. A @TransactionStatusStore@ stores
+-- 'FinalizedTransactionStatus'es indexed by 'TransactionHash'.
 newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
 
+-- |Details about a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus {
+  -- |Slot number of the finalized block in which the transaction ocurred.
   ftsSlot :: !Slot,
+  -- |Hash of the finalized block in which the transaction ocurred.
   ftsBlockHash :: !BlockHash,
+  -- |Index of the transaction in the block.
   ftsIndex :: !TransactionIndex
 } deriving (Eq, Show)
 
@@ -115,6 +125,7 @@ instance MDBDatabase TransactionStatusStore where
   type DBValue TransactionStatusStore = FinalizedTransactionStatus
   encodeKey _ = hashToByteString . v0TransactionHash
 
+-- |Index of block hashes by finalized height.
 newtype FinalizedByHeightStore = FinalizedByHeightStore MDB_dbi'
 
 instance MDBDatabase FinalizedByHeightStore where
@@ -124,17 +135,26 @@ instance MDBDatabase FinalizedByHeightStore where
   encodeValue _ = LBS.fromStrict . hashToByteString . blockHash
 
 -- |Values used by the LMDBStoreMonad to manage the database.
--- Sometimes we only want read access
-data DatabaseHandlers pv st = DatabaseHandlers {
+-- The type is parametrised by the protocol version and the block state type.
+data DatabaseHandlers (pv :: ProtocolVersion) st = DatabaseHandlers {
+    -- |The LMDB environment.
     _storeEnv :: !MDB_env,
+    -- |Store of blocks by hash.
     _blockStore :: !(BlockStore pv st),
+    -- |Store of finalization records by index.
     _finalizationRecordStore :: !FinalizationRecordStore,
+    -- |Index of transaction references by transaction hash.
     _transactionStatusStore :: !TransactionStatusStore,
+    -- |Index of block hashes by block height.
     _finalizedByHeightStore :: !FinalizedByHeightStore
 }
 makeLenses ''DatabaseHandlers
 
-class HasDatabaseHandlers pv st s | s -> pv st where
+-- |Class for a state that includes 'DatabaseHandlers'.
+-- The first type parameter is the protocol version.
+-- The second type parameter is the block state type.
+-- The third parameter is the state that has the 'DatabaseHandlers'.
+class HasDatabaseHandlers (pv :: ProtocolVersion) st s | s -> pv st where
   dbHandlers :: Lens' s (DatabaseHandlers pv st)
 
 blockStoreName, finalizationRecordStoreName, transactionStatusStoreName, finalizedByHeightStoreName :: String
@@ -143,9 +163,11 @@ finalizationRecordStoreName = "finalization"
 finalizedByHeightStoreName = "finalizedByHeight"
 transactionStatusStoreName = "transactionstatus"
 
+-- |Database growth size increment.
 dbStepSize :: Int
 dbStepSize = 2^(26 :: Int) -- 64MB
 
+-- |Initial database size.
 dbInitSize :: Int
 dbInitSize = dbStepSize
 
@@ -200,6 +222,7 @@ initializeDatabase gb stRef rp@RuntimeParameters{..} = do
     storeRecord txn _finalizationRecordStore 0 gbfin
   return handlers
 
+-- |Close down the database, freeing the file handles.
 closeDatabase :: DatabaseHandlers pv st -> IO ()
 closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 

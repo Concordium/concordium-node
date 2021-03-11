@@ -291,6 +291,15 @@ class GlobalStateQuery (SkovProtocolVersion c) gsconf => FinalizationConfig gsco
     type FCState c
     initialiseFinalization :: c -> (GSContext gsconf, GSState gsconf) -> LogIO (FCContext c, FCState c)
 
+-- |Configuration for the Skov.
+-- This type has the following parameters:
+--
+-- * @pv@: the protocol version. Possible values include @'P1@.
+-- * @gsconfig@: the global state configuration. This should be an instance of 'GlobalStateConfig',
+--   such as @MemoryTreeMemoryBlockConfig pv@ or @DiskTreeDiskBlockConfig pv@.
+-- * @finconfig@: the finalization configuration. Currently supported types are @NoFinalization t@,
+--   @ActiveFinalization t@ and @BufferedFinalization t@, where @t@ is the type of timers in the supporting monad.
+-- * @handlerconfig@ is the type of event handlers. Currently supported types are @NoHandlers@ and @LogUpdateHandlers@.
 data SkovConfig (pv :: ProtocolVersion) gsconfig finconfig handlerconfig = SkovConfig gsconfig !finconfig !handlerconfig
 
 data NoFinalization (t :: Type) = NoFinalization

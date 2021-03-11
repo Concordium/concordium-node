@@ -25,7 +25,6 @@ import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmo
 import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import Concordium.ID.Types
 import Concordium.ID.Parameters
-import Concordium.Types.ProtocolVersion.TH
 
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
@@ -71,6 +70,8 @@ initialPersistentAccountEncryptedAmount = do
 
 -- |Serialize a 'PersistentAccountEncryptedAmount' if it is not the empty
 -- encrypted amount (in which case, @Nothing@ is returned).
+--
+-- This should match the serialization format of 'AccountEncryptedAmount' exactly.
 putAccountEncryptedAmountV0 :: (MonadBlobStore m) => PersistentAccountEncryptedAmount -> m (Maybe Put)
 putAccountEncryptedAmountV0 PersistentAccountEncryptedAmount{..} = do
     sAmt <- refLoad _selfAmount
@@ -243,7 +244,7 @@ deriving instance (IsProtocolVersion pv) => Show (PersistentAccount pv)
 
 instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentAccount pv) where
     storeUpdate PersistentAccount{..} = do
-        (pAccData :: Put, accData) <- $(casePV [t|pv|] [|storeUpdate _persistingData|])
+        (pAccData :: Put, accData) <- storeUpdate _persistingData
         (pEnc, encData) <- storeUpdate _accountEncryptedAmount
         (pSched, schedData) <- storeUpdate _accountReleaseSchedule
         (pBkr, bkrData) <- storeUpdate _accountBaker
@@ -301,7 +302,7 @@ instance Monad m => MHashableTo m Hash.Hash (PersistentAccount pv)
 newAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv)
     => GlobalContext -> AccountAddress -> AccountCredential -> m (PersistentAccount pv)
 newAccount cryptoParams _accountAddress credential = do
-  let creds = Map.singleton 0 credential
+  let creds = Map.singleton initialCredentialIndex credential
   let newPData = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
         _accountCredentials = creds,
@@ -530,7 +531,7 @@ addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
 -- |Serialize an account. The serialization format may depend on the protocol version.
 --
 -- This format allows accounts to be stored in a reduced format by
--- elliding (some) data that can be inferred from context, or is
+-- eliding (some) data that can be inferred from context, or is
 -- the default value.  Note that there can be multiple representations
 -- of the same account.
 -- This format does not store the smart contract instances, which are
@@ -539,11 +540,15 @@ serializeAccount :: forall m pv. (MonadBlobStore m, MonadPut m, IsProtocolVersio
 serializeAccount cryptoParams PersistentAccount{..} = do
     PersistingAccountData {..} <- refLoad _persistingData
     let
-        initialRegId = credId (snd (Map.findMin _accountCredentials))
-        asfExplicitAddress = _accountAddress /= addressFromRegId initialRegId
-        asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialRegId
+        initialCredId = credId (Map.findWithDefault
+                (error "Account missing initial credential")
+                initialCredentialIndex
+                _accountCredentials
+              )
+        asfExplicitAddress = _accountAddress /= addressFromRegId initialCredId
+        asfExplicitEncryptionKey = _accountEncryptionKey /= makeEncryptionKey cryptoParams initialCredId
         (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
-          [(0, cred)] -> (False, put cred)
+          [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
           _ -> (True, putSafeMapOf put put _accountCredentials)
         asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
         asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials

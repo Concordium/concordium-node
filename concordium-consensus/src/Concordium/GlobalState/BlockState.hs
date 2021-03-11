@@ -319,7 +319,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   --
   -- The caller must ensure that the account exists and has a credential with the given
   -- index.
-  bsoUpdateAccountCredentialKeys :: UpdatableBlockState m -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (UpdatableBlockState m)
+  bsoSetAccountCredentialKeys :: UpdatableBlockState m -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (UpdatableBlockState m)
 
   -- |Update the set of credentials on a given account by: removing credentials, adding
   -- credentials, and updating the account threshold (i.e. number of credentials that are
@@ -685,7 +685,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s
-  bsoUpdateAccountCredentialKeys s aa ci pk = lift $ bsoUpdateAccountCredentialKeys s aa ci pk
+  bsoSetAccountCredentialKeys s aa ci pk = lift $ bsoSetAccountCredentialKeys s aa ci pk
   bsoUpdateAccountCredentials s aa remove add thrsh = lift $ bsoUpdateAccountCredentials s aa remove add thrsh
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
@@ -728,7 +728,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
   {-# INLINE bsoModifyAccount #-}
-  {-# INLINE bsoUpdateAccountCredentialKeys #-}
+  {-# INLINE bsoSetAccountCredentialKeys #-}
   {-# INLINE bsoUpdateAccountCredentials #-}
   {-# INLINE bsoModifyInstance #-}
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}

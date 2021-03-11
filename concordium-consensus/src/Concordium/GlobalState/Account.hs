@@ -6,7 +6,6 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Account where
 
-import Control.Monad
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -47,8 +46,10 @@ instance Serialize RemovedCredentials where
     mapM_ put l
   get = do
     len <- getLength
-    l <- replicateM len get
-    return $! foldr RemovedCredential EmptyRemovedCredentials l
+    let loop n
+          | n <= 0 = pure EmptyRemovedCredentials
+          | otherwise = RemovedCredential <$> get <*> loop (n-1)
+    loop len
 
 -- |The hash of 'EmptyRemovedCredentials'.
 emptyRemovedCredentialsHash :: Hash.Hash
@@ -83,7 +84,7 @@ data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   -- for convenience.
   ,_accountVerificationKeys :: !AccountInformation
   -- |Current credentials. This map is always non-empty and (presently)
-  -- will have a credential at index 0 that cannot be changed.
+  -- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
   ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
   -- |Maximum "valid to" date of the current credentials. This is
   -- provided as a convenience for determining whether an account has
@@ -374,14 +375,23 @@ updateCredentialKeys credIndex credKeys d =
       in d & (accountCredentials %~ updateCred) & (accountVerificationKeys %~ updateAi)
     _ -> d -- do nothing. This is safe, but should not happen if the precondition is satisfied.
 
--- |Flags used for serializing an account in V0 format.
+-- |Flags used for serializing an account in V0 format. This forms
+-- part of the serialization of the account.
+--
+-- These flags determine whether certain values are explicitly recorded
+-- in the serialization of the account. When the values are not
+-- explicitly recorded, they have a sensible default, which is likely
+-- to be common.
+--
+-- The purpose of this structure is to pack multiple flags into a single
+-- byte of the serialization.
 data AccountSerializationFlags = AccountSerializationFlags {
     -- |Whether the account address is serialized explicity,
-    -- or derived from the last credential.
+    -- or derived from the initial credential.
     asfExplicitAddress :: Bool,
     -- |Whether the encryption key is serialized explicity,
-    -- or derived from the cryptographic parameters and last
-    -- credential.
+    -- or derived from the cryptographic parameters and 
+    -- initial credential.
     asfExplicitEncryptionKey :: Bool,
     -- |Whether the account has more than one credential.
     asfMultipleCredentials :: Bool,

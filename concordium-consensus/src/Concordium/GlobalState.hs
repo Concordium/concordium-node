@@ -324,6 +324,17 @@ data DiskTreeDiskBlockWithLogConfig pv = DTDBWLConfig {
   configTxLog :: !ByteString
   }
 
+-- |Exceptions that can occur when initialising the global state.
+data GlobalStateInitException
+    = -- |Genesis data could not be used to construct initial state.
+        InvalidGenesisData !String
+
+instance Show GlobalStateInitException where
+    show (InvalidGenesisData desc) =
+        "Could not initialise state from genesis data: " ++ desc    
+
+instance Exception GlobalStateInitException
+
 -- |This class is implemented by types that determine configurations for the global state.
 class GlobalStateConfig c where
     type GSContext c
@@ -331,6 +342,7 @@ class GlobalStateConfig c where
     type GSLogContext c
     -- |Generate context and state from the initial configuration. This may
     -- have 'IO' side effects to set up any necessary storage.
+    -- This may throw a 'GlobalStateInitException'.
     initialiseGlobalState :: c -> LogIO (GSContext c, GSState c, GSLogContext c)
 
     -- |Shutdown the global state.
@@ -341,7 +353,9 @@ instance (IsProtocolVersion pv) => GlobalStateConfig (MemoryTreeMemoryBlockConfi
     type GSState (MemoryTreeMemoryBlockConfig pv) = SkovData pv (BS.HashedBlockState pv)
     type GSLogContext (MemoryTreeMemoryBlockConfig pv) = NoLogContext
     initialiseGlobalState (MTMBConfig rtparams gendata) = do
-        let bs = genesisState gendata
+        bs <- case genesisState gendata of
+            Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
+            Right bs -> return bs
         return ((), initialSkovData rtparams gendata (BS.hashBlockState bs), NoLogContext)
     shutdownGlobalState _ _ _ _ = return ()
 
@@ -351,14 +365,19 @@ instance (IsProtocolVersion pv) => GlobalStateConfig (MemoryTreeDiskBlockConfig 
     type GSContext (MemoryTreeDiskBlockConfig pv) = PersistentBlockStateContext
     type GSLogContext (MemoryTreeDiskBlockConfig pv) = NoLogContext
     type GSState (MemoryTreeDiskBlockConfig pv) = SkovData pv (HashedPersistentBlockState pv)
-    initialiseGlobalState (MTDBConfig rtparams gendata) = liftIO $ do
-        pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
-        let pbsc = PersistentBlockStateContext {..}
-        pbs <- runReaderT (runPersistentBlockStateMonad (do
-                                                           pbs <- makePersistent (genesisState gendata)
-                                                           _ <- saveBlockState pbs
-                                                           return pbs)) pbsc
-        return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
+    initialiseGlobalState (MTDBConfig rtparams gendata) = do
+        genState <- case genesisState gendata of
+            Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
+            Right genState -> return genState
+        liftIO $ do
+            pbscBlobStore <- createBlobStore . (<.> "dat") . rpBlockStateFile $ rtparams
+            let pbsc = PersistentBlockStateContext {..}
+            let initGS = do
+                    pbs <- makePersistent genState
+                    _ <- saveBlockState pbs
+                    return pbs
+            pbs <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
+            return (pbsc, initialSkovData rtparams gendata pbs, NoLogContext)
     shutdownGlobalState _ (PersistentBlockStateContext {..}) _ _ = liftIO $ do
         closeBlobStore pbscBlobStore
 
@@ -383,10 +402,14 @@ instance (IsProtocolVersion pv) => GlobalStateConfig (DiskTreeDiskBlockConfig pv
       else do
         pbscBlobStore <- liftIO $ createBlobStore blockStateFile
         let pbsc = PersistentBlockStateContext{..}
-        (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad (do
-                                                                    pbs <- makePersistent (genesisState gendata)
-                                                                    ser <- saveBlockState pbs
-                                                                    return (pbs, ser))) pbsc
+        let initGS = do
+                genState <- case genesisState gendata of
+                    Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
+                    Right genState -> return genState
+                pbs <- makePersistent genState
+                ser <- saveBlockState pbs
+                return (pbs, ser)
+        (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs ((), NoLogContext) serBS
                            `onException` (destroyBlobStore pbscBlobStore))
         return (pbsc, isd, NoLogContext)
@@ -419,10 +442,14 @@ instance (IsProtocolVersion pv) => GlobalStateConfig (DiskTreeDiskBlockWithLogCo
       else do
         pbscBlobStore <- liftIO $ createBlobStore blockStateFile
         let pbsc = PersistentBlockStateContext{..}
-        (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad (do
-                                                                    pbs <- makePersistent (genesisState gendata)
-                                                                    ser <- saveBlockState pbs
-                                                                    return (pbs, ser))) pbsc
+        let initGS = do
+                genState <- case genesisState gendata of
+                    Left err -> logExceptionAndThrow GlobalState (InvalidGenesisData err)
+                    Right genState -> return genState
+                pbs <- makePersistent genState
+                ser <- saveBlockState pbs
+                return (pbs, ser)
+        (pbs, serBS) <- runReaderT (runPersistentBlockStateMonad initGS) pbsc
         let ati = defaultValue
         isd <- liftIO (initialSkovPersistentData rtparams gendata pbs (ati, PAAIConfig dbHandle) serBS
                `onException` (destroyAllResources dbHandle >> destroyBlobStore pbscBlobStore))

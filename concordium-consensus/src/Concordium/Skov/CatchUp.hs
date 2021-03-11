@@ -150,6 +150,13 @@ doHandleCatchUp peerCUS limit = do
                         outBlocks2 <- if Seq.length unknownFinTrunk < limit then takeBranches outBlocks1 branches1 else return unknownFinTrunk
                         lvs <- leavesBranches $ toList myBranches
                         myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
+                        -- Merge the finalization records and block pointers, truncating the list to the required length.
+                        -- Note: since the returned list can be truncated, we have to be careful about the
+                        -- order that finalization records are interleaved with blocks.
+                        -- Specifically, we send a finalization record as soon as possible after
+                        -- the corresponding block; and where the block is not being sent, we
+                        -- send the finalization record before all other blocks.  We also send
+                        -- finalization records and blocks in order.
                         return (Just (merge limit frs outBlocks2, myCUS), catchUpResult)
                     else
                         -- No response required

@@ -229,7 +229,7 @@ consEpochBlock b hebbs = do
                 hebHash = Rewards.epochBlockHash b (hebHash hebbs)
             }
 
--- |Make a 'HashedEpochBlocks' from a list of 'BakerId's (most recent first).
+-- |Make a 'HashedEpochBlocks' from a list of 'BakerId's of the blocks (most recent first).
 makeHashedEpochBlocks :: (MonadBlobStore m) => [BakerId] -> m HashedEpochBlocks
 makeHashedEpochBlocks [] = return emptyHashedEpochBlocks
 makeHashedEpochBlocks (b:bs) = do
@@ -896,8 +896,8 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
     where
         upd oldAccount = ((), ) <$> Accounts.updateAccount aUpd oldAccount
 
-doUpdateAccountCredentialKeys :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
-doUpdateAccountCredentialKeys pbs accAddress credIx credKeys = do
+doSetAccountCredentialKeys :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (PersistentBlockState pv)
+doSetAccountCredentialKeys pbs accAddress credIx credKeys = do
         bsp <- loadPBS pbs
         (_, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
         storePBS pbs (bsp {bspAccounts = accts1})
@@ -1237,7 +1237,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoPutNewInstance = doPutNewInstance
     bsoPutNewModule = doPutNewModule
     bsoModifyAccount = doModifyAccount
-    bsoUpdateAccountCredentialKeys = doUpdateAccountCredentialKeys
+    bsoSetAccountCredentialKeys = doSetAccountCredentialKeys
     bsoUpdateAccountCredentials = doUpdateAccountCredentials
     bsoModifyInstance = doModifyInstance
     bsoNotifyEncryptedBalanceChange = doNotifyEncryptedBalanceChange
