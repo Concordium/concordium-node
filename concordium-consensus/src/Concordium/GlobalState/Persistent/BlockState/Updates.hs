@@ -507,6 +507,20 @@ processGASRewardsUpdates t bu = do
                     pendingUpdates = pendingUpdates{pGASRewardsQueue = newpQ}
                 }
 
+processBakerStakeThresholdUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processBakerStakeThresholdUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        oldQ <- refLoad (pBakerStakeThresholdQueue pendingUpdates)
+        processValueUpdates t oldQ (return (Map.empty, bu)) $ \newParamPtr newQ m -> (UVBakerStakeThreshold <$> m,) <$> do
+            newpQ <- refMake newQ
+            StoreSerialized oldCP <- refLoad currentParameters
+            StoreSerialized newParam <- refLoad newParamPtr
+            newParameters <- refMake $ StoreSerialized $ oldCP & cpBakerStakeThreshold .~ newParam
+            refMake u{
+                    currentParameters = newParameters,
+                    pendingUpdates = pendingUpdates{pBakerStakeThresholdQueue = newpQ}
+                }
+
 -- |Process the protocol update queue.  Unlike other queues, once a protocol update occurs, it is not
 -- overridden by later ones.
 -- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
@@ -546,6 +560,7 @@ processUpdateQueues t = processAuthorizationUpdates t
         `pThen` processMintDistributionUpdates t
         `pThen` processTransactionFeeDistributionUpdates t
         `pThen` processGASRewardsUpdates t
+        `pThen` processBakerStakeThresholdUpdates t
     where
         pThen a b = \i -> do
             (m1, r1) <- a i
