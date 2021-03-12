@@ -1,19 +1,14 @@
-{-# LANGUAGE
-    TypeFamilies,
-    DerivingStrategies,
-    DerivingVia,
-    UndecidableInstances,
-    StandaloneDeriving,
-    ScopedTypeVariables,
-    ConstraintKinds,
-    PartialTypeSignatures,
-    QuantifiedConstraints,
-    GeneralizedNewtypeDeriving,
-    RankNTypes,
-    TypeApplications,
-    TemplateHaskell,
-    TypeFamilies
-    #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.Skov.MonadImplementations where
 
 import Data.Kind

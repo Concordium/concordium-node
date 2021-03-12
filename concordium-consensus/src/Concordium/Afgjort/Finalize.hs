@@ -1,22 +1,12 @@
-{-# LANGUAGE
-    BangPatterns,
-    RecordWildCards,
-    ScopedTypeVariables,
-    TemplateHaskell,
-    LambdaCase,
-    FlexibleContexts,
-    MultiParamTypeClasses,
-    FlexibleInstances,
-    FunctionalDependencies,
-    RankNTypes,
-    DerivingStrategies,
-    DerivingVia,
-    StandaloneDeriving,
-    ConstraintKinds,
-    GeneralizedNewtypeDeriving,
-    UndecidableInstances,
-    TypeFamilies
-    #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.Afgjort.Finalize (
     FinalizationStateMonad,
     FinalizationMonad(..),

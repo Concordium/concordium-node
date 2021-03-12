@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
 module GlobalStateTests.FinalizationSerializationSpec where
 
 import Test.Hspec

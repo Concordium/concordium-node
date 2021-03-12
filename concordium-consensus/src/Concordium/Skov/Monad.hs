@@ -1,11 +1,8 @@
-{-# LANGUAGE
-    DerivingVia,
-    StandaloneDeriving,
-    RecordWildCards,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving,
-    UndecidableInstances,
-    DefaultSignatures #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.Skov.Monad(
     module Concordium.Skov.CatchUp.Types,
     module Concordium.Skov.Monad

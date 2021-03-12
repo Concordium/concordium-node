@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Concordium.GlobalState.DummyData where

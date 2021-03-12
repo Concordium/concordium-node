@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards, TupleSections #-}
 module ConcordiumTests.Afgjort.Types where
 
 import Data.Serialize

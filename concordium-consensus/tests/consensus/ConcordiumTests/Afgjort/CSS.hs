@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, RankNTypes, TupleSections, TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 module ConcordiumTests.Afgjort.CSS where
 
 import Data.Monoid

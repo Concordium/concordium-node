@@ -1,4 +1,7 @@
-{-# LANGUAGE DerivingVia, UndecidableInstances, OverloadedStrings, BangPatterns, TupleSections, FlexibleContexts, LambdaCase #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.AccountReleaseScheduleTest where
