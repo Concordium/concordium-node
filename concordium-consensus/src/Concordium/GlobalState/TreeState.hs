@@ -242,7 +242,7 @@ class (Eq (BlockPointerType m),
       -> m [(UpdateSequenceNumber, Set.Set (WithMetadata UpdateInstruction))]
 
     -- |Add a transaction to the transaction table.
-    -- Does nothing if the transaction's nonce preceeds the next available nonce
+    -- Does nothing if the transaction's nonce precedes the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
     -- hash is already in the table.
     -- Otherwise, adds the transaction to the table and the non-finalized transactions
@@ -421,7 +421,7 @@ data ImportingResult a = SerializationFail | Success | OtherError a deriving (Sh
 --
 -- - version number that determines the format of all the subsequent blocks in the file.
 --
--- The function returns, if successfull, the version, and the unconsumed input.
+-- The function returns, if successful, the version, and the unconsumed input.
 readHeader :: ByteString -> Either String Version
 readHeader = S.runGet S.get
 

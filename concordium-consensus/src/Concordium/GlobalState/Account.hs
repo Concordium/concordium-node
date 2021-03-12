@@ -9,6 +9,7 @@ module Concordium.GlobalState.Account where
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
+import qualified Data.Vector as Vec
 import Data.Maybe
 import Data.Foldable
 import Data.Serialize
@@ -46,11 +47,9 @@ instance Serialize RemovedCredentials where
     mapM_ put l
   get = do
     len <- getLength
-    let loop n
-          | n <= 0 = pure EmptyRemovedCredentials
-          | otherwise = RemovedCredential <$> get <*> loop (n-1)
-    loop len
-
+    Vec.foldr RemovedCredential EmptyRemovedCredentials <$>
+      Vec.replicateM len get
+ 
 -- |The hash of 'EmptyRemovedCredentials'.
 emptyRemovedCredentialsHash :: Hash.Hash
 emptyRemovedCredentialsHash = Hash.hash "E"
