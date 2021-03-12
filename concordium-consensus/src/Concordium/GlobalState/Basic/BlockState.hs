@@ -448,7 +448,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
                     }
 
     bsoAddBaker bs aaddr BakerAdd{..} = do
-      cp <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
+      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
       return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
@@ -458,7 +458,7 @@ instance Monad m => BS.BlockStateOperations (PureBlockStateMonad m) where
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
           -- Provided stake is under threshold
-          | baStake < cp -> (BAStakeUnderThreshold, bs)
+          | baStake < bakerStakeThreshold -> (BAStakeUnderThreshold, bs)
           -- All checks pass, add the baker
           | otherwise -> let bid = BakerId ai in
               (BASuccess bid, bs
