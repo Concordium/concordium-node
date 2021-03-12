@@ -7,7 +7,6 @@ import Test.Hspec
 import Test.QuickCheck
 
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Control.Monad
 
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
@@ -109,10 +108,6 @@ updateBaker m0 = do
             mustBeNotBaker = case currentlyBaker of
               NoBaker -> id
               _ -> reject
-            rejectIfBaker :: Model -> Model
-            rejectIfBaker = case currentlyBaker of
-              Baker _ -> reject
-              _ -> id
             rejectIfNotBaker :: Model -> Model
             rejectIfNotBaker = case currentlyBaker of
               NoBaker -> reject

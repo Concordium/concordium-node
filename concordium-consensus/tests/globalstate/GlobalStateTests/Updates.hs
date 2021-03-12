@@ -131,7 +131,7 @@ destroyGS (Identity c, Identity s) =
 --------------------------------------------------------------------------------
 
 limit :: Amount
-limit = 300000000000
+limit = dummyChainParameters ^. cpBakerStakeThreshold
 limitDelta :: AmountDelta
 limitDelta = fromIntegral limit
 
