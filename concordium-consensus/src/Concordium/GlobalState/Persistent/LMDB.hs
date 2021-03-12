@@ -103,9 +103,9 @@ newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
 
 -- |Details about a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus {
-  -- |Slot number of the finalized block in which the transaction ocurred.
+  -- |Slot number of the finalized block in which the transaction occurred.
   ftsSlot :: !Slot,
-  -- |Hash of the finalized block in which the transaction ocurred.
+  -- |Hash of the finalized block in which the transaction occurred.
   ftsBlockHash :: !BlockHash,
   -- |Index of the transaction in the block.
   ftsIndex :: !TransactionIndex

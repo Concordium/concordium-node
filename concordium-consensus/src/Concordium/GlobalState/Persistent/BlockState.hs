@@ -481,7 +481,7 @@ putBlockStateV0 pbs = do
     sPut cryptoParams
     -- IdentityProviders
     sPut =<< refLoad bspIdentityProviders
-    -- AnonymityReovkers
+    -- AnonymityRevokers
     sPut =<< refLoad bspAnonymityRevokers
     -- Modules
     Modules.putModulesV0 =<< refLoad bspModules
