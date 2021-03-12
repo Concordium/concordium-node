@@ -120,7 +120,7 @@ instance ToJSON PendingUpdates where
             "mintDistribution" AE..= _pMintDistributionQueue,
             "transactionFeeDistribution" AE..= _pTransactionFeeDistributionQueue,
             "gasRewards" AE..= _pGASRewardsQueue,
-            "minimumBakerThreshold" AE..= _pBakerStakeThresholdQueue
+            "bakerStakeThreshold" AE..= _pBakerStakeThresholdQueue
         ]
 
 instance FromJSON PendingUpdates where
@@ -134,7 +134,7 @@ instance FromJSON PendingUpdates where
         _pMintDistributionQueue <- o AE..: "mintDistribution"
         _pTransactionFeeDistributionQueue <- o AE..: "transactionFeeDistribution"
         _pGASRewardsQueue <- o AE..: "gasRewards"
-        _pBakerStakeThresholdQueue <- o AE..: "minimumBakerThreshold"
+        _pBakerStakeThresholdQueue <- o AE..: "bakerStakeThreshold"
         return PendingUpdates{..}
 
 -- |Initial pending updates with empty queues.
