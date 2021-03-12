@@ -114,8 +114,9 @@ processInterpreterResult aDecoder result = case result of
             case tag of
               0 -> return Nothing
               1 -> do
+                rejectReason <- getInt32be
                 remainingEnergy <- getWord64be
-                return (Just (Left ContractReject, fromIntegral remainingEnergy))
+                return (Just (Left (ContractReject rejectReason), fromIntegral remainingEnergy))
               2 -> do
                 rData <- getSuccessfulResultData aDecoder
                 remainingEnergy <- getWord64be

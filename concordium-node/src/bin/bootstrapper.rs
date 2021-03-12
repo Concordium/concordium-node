@@ -10,6 +10,7 @@ static A: System = System;
 
 use concordium_node::{
     common::{P2PNodeId, PeerType},
+    consensus_ffi::blockchain_types::BlockHash,
     p2p::{maintenance::spawn, *},
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
@@ -25,7 +26,14 @@ fn main() -> Result<(), Error> {
     let data_dir_path = app_prefs.get_user_app_dir();
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
-    let regenesis_arc = Arc::new(RwLock::new(conf.bootstrapper.regenesis_block_hashes.clone()));
+
+    let fname = conf
+        .bootstrapper
+        .regenesis_block_hashes
+        .clone()
+        .unwrap_or_else(|| data_dir_path.join(std::path::Path::new("genesis_hash")));
+    let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&std::fs::read(fname)?)?;
+    let regenesis_arc: Arc<RwLock<Vec<BlockHash>>> = Arc::new(RwLock::new(regenesis_blocks));
 
     ensure!(
         regenesis_arc.read().unwrap().len() > 0,
