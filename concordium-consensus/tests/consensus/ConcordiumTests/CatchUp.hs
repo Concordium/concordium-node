@@ -1,4 +1,7 @@
-{-# LANGUAGE TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, ViewPatterns, ScopedTypeVariables, TypeApplications #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.CatchUp where
 

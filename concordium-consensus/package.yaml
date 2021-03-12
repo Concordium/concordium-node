@@ -56,20 +56,19 @@ dependencies:
 - monad-logger >= 0.3.30
 - recursion-schemes >= 5.1
 - file-embed >= 0.0.11
-
 - lmdb
 
 default-extensions:
 - DataKinds
-- RecordWildCards
-- LambdaCase
-- KindSignatures
-- TupleSections
-- MultiParamTypeClasses
 - FlexibleContexts
 - FlexibleInstances
 - FunctionalDependencies
 - GeneralizedNewtypeDeriving
+- KindSignatures
+- LambdaCase
+- MultiParamTypeClasses
+- RecordWildCards
+- TupleSections
 
 flags:
   dynamic:

@@ -1,10 +1,8 @@
-{-# LANGUAGE
-    TemplateHaskell,
-    RankNTypes,
-    BangPatterns,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving,
-    ViewPatterns #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 {- |Freeze is the protocol to generate a consistent decision for generating finalization proofs.
 
 For more information, check the konsensus paper, section 5.6.3

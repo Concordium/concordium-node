@@ -1,9 +1,7 @@
-{-# LANGUAGE
-    TemplateHaskell,
-    RankNTypes,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving,
-    BangPatterns #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {- |Core Set Selection algorithm
 
 For more information, check the konsensus paper, section 5.6.4.

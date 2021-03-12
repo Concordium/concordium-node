@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, RankNTypes, BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module ConcordiumTests.Afgjort.ABBA where
 
 import qualified Data.Sequence as Seq

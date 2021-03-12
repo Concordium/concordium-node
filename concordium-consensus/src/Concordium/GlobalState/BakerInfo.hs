@@ -1,5 +1,6 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RecordWildCards, BangPatterns, TypeFamilies #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.BakerInfo where
 
 import Data.Ratio
