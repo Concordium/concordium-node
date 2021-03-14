@@ -9,7 +9,7 @@
 
   ;; Imports
 
-  (import "concordium" "log_event" (func $log_event (param $start i32) (param $length i32)))
+  (import "concordium" "log_event" (func $log_event (param $start i32) (param $length i32) (result i32)))
   (import "concordium" "accept" (func $accept (result i32)))
 
   ;; Helper Functions
@@ -36,7 +36,7 @@
     (call $log_event
       (i32.const -1)
       (i32.const 1))
-
+    drop
     (call $accept)
   )
 
@@ -44,7 +44,7 @@
     (call $log_event
       (i32.const 0)
       (i32.const -1))
-
+    drop
     (call $accept)
   )
 
@@ -52,7 +52,7 @@
     (call $log_event
       (i32.const -1)
       (i32.const -1))
-
+    drop
     (call $accept)
   )
 
@@ -60,7 +60,7 @@
     (call $log_event
       (i32.const 65537)  ;; start is greater than allocated memory, i.e. 1 page of 2^16 (65536) bytes.
       (i32.const 1))
-
+    drop
     (call $accept)
   )
 
@@ -68,7 +68,7 @@
     (call $log_event
       (i32.const 1)
       (i32.const 65537))
-
+    drop
     (call $accept)
   )
 
