@@ -159,7 +159,11 @@ getParameterSectionTestCases =
     "./testdata/contracts/get-parameter-section-tests.wasm"
     [ -- Try to read before parameter section begins
       ("offset_negative__fail", param100, Reject RuntimeFailure),
-      ("length_negative__fail", param100, Reject RuntimeFailure),
+      -- the reason this fails with out of energy is because we charge
+      -- based on the length of data. "Negative" lengths are interpreted as very large numbers
+      -- due to two's complement representation. The "negative" is just a point of view,
+      -- we use unsigned integers for lengths all the time.
+      ("length_negative__fail", param100, Reject OutOfEnergy),
       -- Read whole parameter section
       ("length_equal_to_param_size_100__return_100_and_succeed", param100, Success emptyExpect),
       -- Try to read after parameter section ends
@@ -191,7 +195,11 @@ loadStateTestCases =
       -- Try to read outside of state
       ("offset_negative__fail", emptyParam, Reject RuntimeFailure),
       ("offset_greater_than_state_size__fail", emptyParam, Reject RuntimeFailure),
-      ("length_negative__fail", emptyParam, Reject RuntimeFailure),
+      -- the reason this fails with out of energy is because we charge
+      -- based on the length of data. "Negative" lengths are interpreted as very large numbers
+      -- due to two's complement representation. The "negative" is just a point of view,
+      -- we use unsigned integers for lengths all the time.
+      ("length_negative__fail", emptyParam, Reject OutOfEnergy),
       -- Try to write outside bounds of linear memory
       ("write_location_negative__fail", emptyParam, Reject RuntimeFailure),
       ("write_location_greater_than_mem__fail", emptyParam, Reject RuntimeFailure)
@@ -205,7 +213,7 @@ writeStateTestCases =
       ("write_100_bytes__return_100_and_succeed", emptyParam, Success emptyExpect),
       -- Read before start of memory
       ("read_location_negative__fail", emptyParam, Reject RuntimeFailure),
-      ("length_negative__fail", emptyParam, Reject RuntimeFailure),
+      ("length_negative__fail", emptyParam, Reject OutOfEnergy),
       -- Read after end of memory
       ("length_greater_than_mem__fail", emptyParam, Reject RuntimeFailure),
       ("read_location_greater_than_mem__fail", emptyParam, Reject RuntimeFailure),
@@ -330,7 +338,11 @@ sendTestCases =
       ("parameter_negative__fail", rcvNameParam, Reject RuntimeFailure),
       ("parameter_greater_than_mem__fail", rcvNameParam, Reject RuntimeFailure),
       -- Try reading outside memory with parameter_len
-      ("parameter_len_negative__fail", rcvNameParam, Reject RuntimeFailure),
+      -- the reason this fails with out of energy is because we charge
+      -- based on the length of data. "Negative" lengths are interpreted as very large numbers
+      -- due to two's complement representation. The "negative" is just a point of view,
+      -- we use unsigned integers for lengths all the time.
+      ("parameter_len_negative__fail", rcvNameParam, Reject OutOfEnergy),
       ("parameter_len_greater_than_mem__fail", rcvNameParam, Reject RuntimeFailure),
       -- Amount tests
       ( "amount_negative_one__fail",
