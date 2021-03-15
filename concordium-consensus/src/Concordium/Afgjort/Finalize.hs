@@ -351,9 +351,23 @@ initialFinalizationState FinalizationInstance{..} genHash finParams genBakers to
 getFinalizationInstance :: (MonadReader r m, HasFinalizationInstance r) => m (Maybe FinalizationInstance)
 getFinalizationInstance = asks finalizationInstance
 
+-- |An instance of @FinalizationStateMonad r s m@ is a monad @m@ with
+-- state @s@, which is an instance of 'FinalizationStateLenses', and reader
+-- context @r@, which is an instance of 'HasFinalizationInstances'.
 type FinalizationStateMonad r s m = (MonadState s m, FinalizationStateLenses s (Timer m), MonadReader r m, HasFinalizationInstance r)
 
-type FinalizationBaseMonad pv r s m = (BlockPointerMonad m, SkovMonad pv m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
+-- |The base constraints for the finalization implementation. An
+-- instance @FinalizationBaseMonad pv r s m@ is parametrised by:
+--
+-- * the protocol version @pv@,
+-- * the reader context @r@,
+-- * the state @s@, and
+-- * the monad @m@.
+--
+-- Note that access to the global state is limited to via the 'BlockPointerMonad'
+-- and 'SkovMonad' abstractions.  This is intentional, to guarantee that the
+-- finalization code makes no direct changes to the Skov state.
+type FinalizationBaseMonad (pv :: ProtocolVersion) r s m = (BlockPointerMonad m, SkovMonad pv m, FinalizationStateMonad r s m, MonadIO m, TimerMonad m, FinalizationOutputMonad m)
 
 -- |This sets the base time for triggering finalization replay.
 finalizationReplayBaseDelay :: NominalDiffTime
