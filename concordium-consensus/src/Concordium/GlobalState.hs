@@ -187,8 +187,8 @@ deriving via PersistentBlockStateMonad pv
 -- For the monad @TreeStateM s m@, the underlying monad @m@ should satisfy
 -- @MonadState s m@.
 --
--- * If @s@ is 'SkovData bs', then the in-memory, Haskell tree state is used.
--- * If @s@ is 'SkovPersistentData ati bs', then the persistent Haskell tree state is used.
+-- * If @s@ is 'SkovData pv bs', then the in-memory, Haskell tree state is used.
+-- * If @s@ is 'SkovPersistentData pv ati bs', then the persistent Haskell tree state is used.
 newtype TreeStateM s m a = TreeStateM {runTreeStateM :: m a}
     deriving (Functor, Applicative, Monad, MonadState s, MonadIO, BlockStateTypes, BlockStateQuery, AccountOperations, BlockStateOperations, BlockStateStorage)
 

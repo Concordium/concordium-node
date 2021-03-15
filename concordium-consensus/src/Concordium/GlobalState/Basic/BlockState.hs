@@ -582,7 +582,9 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                         _birkNextEpochBakers = newNextBakers
                     }
 
-    bsoAddBaker bs aaddr BakerAdd{..} = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+    bsoAddBaker bs aaddr BakerAdd{..} = do
+      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
+      return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- Cannot resolve the account
         Nothing -> (BAInvalidAccount, bs)
         -- Account is already a baker
@@ -590,6 +592,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         Just (ai, Account{})
           -- Aggregation key is a duplicate
           | bkuAggregationKey baKeys `Set.member` (bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) -> (BADuplicateAggregationKey, bs)
+          -- Provided stake is under threshold
+          | baStake < bakerStakeThreshold -> (BAStakeUnderThreshold, bs)
           -- All checks pass, add the baker
           | otherwise -> let bid = BakerId ai in
               (BASuccess bid, bs
@@ -618,20 +622,27 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         -- Cannot resolve the account, or it is not a baker
         _ -> (BKUInvalidBaker, bs)
 
-    bsoUpdateBakerStake bs aaddr newStake = return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
+    bsoUpdateBakerStake bs aaddr newStake = do
+      bakerStakeThreshold <- BS.bsoGetChainParameters bs <&> (^. cpBakerStakeThreshold)
+      return $! case Accounts.getAccountWithIndex aaddr (bs ^. blockAccounts) of
         -- The account is valid and has a baker
         Just (ai, Account{_accountBaker = Just ab@AccountBaker{..}})
           -- A change is already pending
           | _bakerPendingChange /= NoChange -> (BSUChangePending (BakerId ai), bs)
           -- We can make the change
           | otherwise ->
-              let (res, updateStake) = case compare newStake _stakedAmount of
+              let mres = case compare newStake _stakedAmount of
                           LT -> let curEpoch = epoch $ bs ^. blockBirkParameters . birkSeedState
                                     cooldown = 2 + bs ^. blockUpdates . currentParameters . cpBakerExtraCooldownEpochs
-                                in (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
-                          EQ -> (BSUStakeUnchanged (BakerId ai), id)
-                          GT -> (BSUStakeIncreased (BakerId ai), stakedAmount .~ newStake)
-              in (res, bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & updateStake))
+                                in
+                                  if newStake < bakerStakeThreshold
+                                  then Left BSUStakeUnderThreshold
+                                  else Right (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
+                          EQ -> Right (BSUStakeUnchanged (BakerId ai), id)
+                          GT -> Right (BSUStakeIncreased (BakerId ai), stakedAmount .~ newStake)
+              in case mres of
+                Right (res, updateStake) -> (res, bs & blockAccounts . Accounts.indexedAccount ai . accountBaker ?~ (ab & updateStake))
+                Left e -> (e, bs)
         -- The account is not valid or has no baker
         _ -> (BSUInvalidBaker, bs)
 
