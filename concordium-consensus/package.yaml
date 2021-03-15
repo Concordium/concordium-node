@@ -59,7 +59,6 @@ dependencies:
 - lmdb
 
 default-extensions:
-- DataKinds
 - FlexibleContexts
 - FlexibleInstances
 - FunctionalDependencies

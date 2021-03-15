@@ -49,6 +49,7 @@ initWithAmount amount = transaction (InitContract amount 0 wasmPath "init_error_
 updateWithAmount :: Types.Amount -> Text -> Types.Nonce -> TransactionJSON
 updateWithAmount amount fun = transaction (Update amount firstAddress fun "")
 
+firstAddress :: Types.ContractAddress
 firstAddress = Types.ContractAddress 0 0
 
 transactionInputs :: [TransactionJSON]

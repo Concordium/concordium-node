@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 module SchedulerTests.Helpers where
 
 import Concordium.Scheduler.Types

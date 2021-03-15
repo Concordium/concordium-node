@@ -1,11 +1,10 @@
-{-# LANGUAGE
-    ForeignFunctionInterface,
-    ScopedTypeVariables,
-    OverloadedStrings,
-    RankNTypes,
-    GADTs,
-    TypeApplications
-    #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module Concordium.External where
 
 import Foreign

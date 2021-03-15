@@ -1,6 +1,7 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Basic.BlockState.Accounts where
 
 import Data.Serialize

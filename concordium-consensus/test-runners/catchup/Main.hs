@@ -1,8 +1,8 @@
-{-# LANGUAGE
-    OverloadedStrings,
-    ScopedTypeVariables,
-    TypeFamilies,
-    TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 

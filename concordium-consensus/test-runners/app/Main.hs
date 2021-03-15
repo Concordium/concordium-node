@@ -1,8 +1,8 @@
-{-# LANGUAGE
-    BangPatterns,
-    OverloadedStrings,
-    ScopedTypeVariables,
-    TypeApplications #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 

@@ -1,4 +1,6 @@
-{-# LANGUAGE OverloadedStrings, NumericUnderscores #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 module SchedulerTests.StakedAmountLocked where
 
 import Test.Hspec
