@@ -589,6 +589,10 @@ doAddBaker pbs aaddr BakerAdd{..} = do
             -- Account is already a baker
             Just (ai, PersistentAccount{_accountBaker = Some _}) -> return (BAAlreadyBaker (BakerId ai), pbs)
             Just (ai, PersistentAccount{}) -> do
+                  cp <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
+                  if baStake < cp then
+                      return (BAStakeUnderThreshold, pbs)
+                  else do
                     let bid = BakerId ai
                     pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
                     let updAgg Nothing = return (True, Trie.Insert ())
@@ -662,6 +666,7 @@ doUpdateBakerKeys pbs aaddr bku@BakerKeyUpdate{..} = do
 doUpdateBakerStake :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> Amount -> m (BakerStakeUpdateResult, PersistentBlockState)
 doUpdateBakerStake pbs aaddr newStake = do
         bsp <- loadPBS pbs
+
         Accounts.getAccountWithIndex aaddr (bspAccounts bsp) >>= \case
             -- The account is valid and has a baker
             Just (ai, PersistentAccount{_accountBaker = Some pAcctBkr}) -> do
@@ -674,15 +679,21 @@ doUpdateBakerStake pbs aaddr newStake = do
                     let curEpoch = epoch $ _birkSeedState (bspBirkParameters bsp)
                     upds <- refLoad (bspUpdates bsp)
                     cooldown <- (2+) . _cpBakerExtraCooldownEpochs . unStoreSerialized <$> refLoad (currentParameters upds)
-                    let (res, updateStake) = case compare newStake (_stakedAmount acctBkr) of
-                                LT -> (BSUStakeReduced (BakerId ai) (curEpoch + cooldown), bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
-                                EQ -> (BSUStakeUnchanged (BakerId ai), id)
-                                GT -> (BSUStakeIncreased (BakerId ai), stakedAmount .~ newStake)
-                        updAcc acc = do
-                                acc' <- setPersistentAccountBaker acc (Some (updateStake acctBkr))
-                                return ((), acc')
-                    (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
-                    (res,) <$> storePBS pbs bsp{bspAccounts = newAccounts}
+
+                    bakerStakeThreshold <- (^. cpBakerStakeThreshold) <$> doGetChainParameters pbs
+                    let applyUpdate updateStake = do
+                           let updAcc acc = do
+                                  acc' <- setPersistentAccountBaker acc (Some (updateStake acctBkr))
+                                  return ((), acc')
+                           (_, newAccounts) <- Accounts.updateAccountsAtIndex updAcc ai (bspAccounts bsp)
+                           storePBS pbs bsp{bspAccounts = newAccounts}
+                    case compare newStake (_stakedAmount acctBkr) of
+                            LT -> if newStake < bakerStakeThreshold
+                                  then return (BSUStakeUnderThreshold, pbs)
+                                  else (BSUStakeReduced (BakerId ai) (curEpoch + cooldown),) <$>
+                                        applyUpdate (bakerPendingChange .~ ReduceStake newStake (curEpoch + cooldown))
+                            EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
+                            GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (stakedAmount .~ newStake)
             _ -> return (BSUInvalidBaker, pbs)
 
 doUpdateBakerRestakeEarnings :: MonadBlobStore m => PersistentBlockState -> AccountAddress -> Bool -> m (BakerRestakeEarningsUpdateResult, PersistentBlockState)
