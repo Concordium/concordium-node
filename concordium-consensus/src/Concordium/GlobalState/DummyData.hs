@@ -91,7 +91,8 @@ dummyAuthorizations = Authorizations {
       asParamFoundationAccount = theOnly,
       asParamMintDistribution = theOnly,
       asParamTransactionFeeDistribution = theOnly,
-      asParamGASRewards = theOnly
+      asParamGASRewards = theOnly,
+      asBakerStakeThreshold = theOnly
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
@@ -202,7 +203,7 @@ dummyRewardParameters = RewardParameters {
 }
 
 dummyChainParameters :: ChainParameters
-dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0
+dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0 300000000000
 
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts pv -> BlockState pv

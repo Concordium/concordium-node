@@ -218,7 +218,7 @@ main = do
             [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
             (Energy maxBound)
             dummyAuthorizations
-            (makeChainParameters (makeElectionDifficulty 50000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n))
+            (makeChainParameters (makeElectionDifficulty 50000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n) 300000000000)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do

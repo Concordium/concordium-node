@@ -12,6 +12,7 @@ import qualified GlobalStateTests.PersistentTreeState(tests)
 import qualified GlobalStateTests.Accounts(tests)
 import qualified GlobalStateTests.BlockHash(tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest(tests)
+import qualified GlobalStateTests.Updates(tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -33,3 +34,4 @@ main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.FinalizationSerializationSpec.tests
   GlobalStateTests.Instances.tests lvl
   GlobalStateTests.AccountReleaseScheduleTest.tests
+  GlobalStateTests.Updates.tests

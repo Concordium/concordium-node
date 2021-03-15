@@ -46,7 +46,7 @@ account = accountAddressFrom
 
 initialBlockState :: BlockState PV
 initialBlockState = createBlockState $ foldr putAccountWithRegIds Acc.emptyAccounts
-  [mkAccount (SigScheme.correspondingVerifyKey (keyPair i)) (account i) 10_000_000 | i <- reverse [0..3]]
+  [mkAccount (SigScheme.correspondingVerifyKey (keyPair i)) (account i) 400_000_000_000 | i <- reverse [0..3]]
 
 baker0 :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker0 = mkFullBaker 0 0
@@ -70,7 +70,7 @@ transactionsInput =
                                 (baker0 ^. _3)
                                 (baker0 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker0 ^. _4)
-                                8_000_000
+                                300_000_000_000
                                 True
            , metadata = makeDummyHeader (account 0) 1 10000
            , keys = [(0,[(0, keyPair 0)])]
@@ -82,7 +82,7 @@ transactionsInput =
                                 (baker1 ^. _3)
                                 (baker1 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker1 ^. _4)
-                                7_500_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 1) 1 10000
            , keys = [(0,[(0, keyPair 1)])]
@@ -94,7 +94,7 @@ transactionsInput =
                                 (baker2 ^. _3)
                                 (baker0 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker0 ^. _4)
-                                3_000_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 2) 1 10000
            , keys = [(0,[(0, keyPair 2)])]
@@ -106,7 +106,7 @@ transactionsInput =
                                 (baker0 ^. _3)
                                 (baker2 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker2 ^. _4)
-                                4_000_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 2) 2 10000
            , keys = [(0,[(0, keyPair 2)])]
@@ -138,7 +138,7 @@ transactionsInput =
                                 (baker3 ^. _3)
                                 (baker3 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker3 ^. _4)
-                                4_000_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 1 10000
            , keys = [(0,[(0, keyPair 3)])]
@@ -150,7 +150,7 @@ transactionsInput =
                                 (baker0 ^. _3)
                                 (baker3 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker3 ^. _4)
-                                4_000_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 2 10000
            , keys = [(0,[(0, keyPair 3)])]
@@ -162,7 +162,7 @@ transactionsInput =
                                 (baker3 ^. _3)
                                 (baker3 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker0 ^. _4)
-                                4_000_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 3 10000
            , keys = [(0,[(0, keyPair 3)])]
@@ -185,7 +185,7 @@ transactionsInput =
                                 (baker0 ^. _3)
                                 (baker0 ^. _1 . bakerInfo . bakerAggregationVerifyKey)
                                 (baker0 ^. _4)
-                                4_000_000
+                                300_000_000_000
                                 False
            , metadata = makeDummyHeader (account 3) 5 10000
            , keys = [(0,[(0, keyPair 3)])]

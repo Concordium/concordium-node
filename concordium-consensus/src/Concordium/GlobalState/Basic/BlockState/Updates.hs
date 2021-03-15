@@ -112,7 +112,9 @@ data PendingUpdates = PendingUpdates {
     -- |Updates to the transaction fee distribution.
     _pTransactionFeeDistributionQueue :: !(UpdateQueue TransactionFeeDistribution),
     -- |Updates to the GAS rewards.
-    _pGASRewardsQueue :: !(UpdateQueue GASRewards)
+    _pGASRewardsQueue :: !(UpdateQueue GASRewards),
+    -- |Updates to the baker minimum threshold.
+    _pBakerStakeThresholdQueue :: !(UpdateQueue Amount)
 } deriving (Show, Eq)
 makeLenses ''PendingUpdates
 
@@ -127,6 +129,7 @@ instance HashableTo H.Hash PendingUpdates where
             <> hsh _pMintDistributionQueue
             <> hsh _pTransactionFeeDistributionQueue
             <> hsh _pGASRewardsQueue
+            <> hsh _pBakerStakeThresholdQueue
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
@@ -143,6 +146,7 @@ putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 _pMintDistributionQueue
         putUpdateQueueV0 _pTransactionFeeDistributionQueue
         putUpdateQueueV0 _pGASRewardsQueue
+        putUpdateQueueV0 _pBakerStakeThresholdQueue
 
 -- |Deserialize pending updates.
 getPendingUpdatesV0 :: Get PendingUpdates
@@ -156,6 +160,7 @@ getPendingUpdatesV0 = do
         _pMintDistributionQueue <- getUpdateQueueV0
         _pTransactionFeeDistributionQueue <- getUpdateQueueV0
         _pGASRewardsQueue <- getUpdateQueueV0
+        _pBakerStakeThresholdQueue <- getUpdateQueueV0
         return PendingUpdates{..}
 
 instance ToJSON PendingUpdates where
@@ -168,7 +173,8 @@ instance ToJSON PendingUpdates where
             "foundationAccount" AE..= _pFoundationAccountQueue,
             "mintDistribution" AE..= _pMintDistributionQueue,
             "transactionFeeDistribution" AE..= _pTransactionFeeDistributionQueue,
-            "gasRewards" AE..= _pGASRewardsQueue
+            "gasRewards" AE..= _pGASRewardsQueue,
+            "bakerStakeThreshold" AE..= _pBakerStakeThresholdQueue
         ]
 
 instance FromJSON PendingUpdates where
@@ -182,6 +188,7 @@ instance FromJSON PendingUpdates where
         _pMintDistributionQueue <- o AE..: "mintDistribution"
         _pTransactionFeeDistributionQueue <- o AE..: "transactionFeeDistribution"
         _pGASRewardsQueue <- o AE..: "gasRewards"
+        _pBakerStakeThresholdQueue <- o AE..: "bakerStakeThreshold"
         return PendingUpdates{..}
 
 -- |Initial pending updates with empty queues.
@@ -189,6 +196,7 @@ emptyPendingUpdates :: PendingUpdates
 emptyPendingUpdates = PendingUpdates
         emptyUpdateQueue 
         emptyUpdateQueue 
+        emptyUpdateQueue
         emptyUpdateQueue
         emptyUpdateQueue
         emptyUpdateQueue
@@ -317,7 +325,8 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                             _rpTransactionFeeDistribution = newTransactionFeeDistribution,
                             _rpGASRewards = newGASRewards
                         }
-                        newFoundationAccount,
+                        newFoundationAccount
+                        newBakerStakeThreshold,
             _pendingUpdates = PendingUpdates {
                     _pAuthorizationQueue = newAuthorizationQueue,
                     _pProtocolQueue = newProtocolQueue,
@@ -327,7 +336,8 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                     _pFoundationAccountQueue = newFoundationAccountQueue,
                     _pMintDistributionQueue = newMintDistributionQueue,
                     _pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
-                    _pGASRewardsQueue = newGASRewardsQueue
+                    _pGASRewardsQueue = newGASRewardsQueue,
+                    _pBakerStakeThresholdQueue = newBakerStakeThresholdQueue
                 }
         })
     where
@@ -340,6 +350,7 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
         (newMintDistribution, newMintDistributionQueue, resMintDistribution) = processValueUpdates t _rpMintDistribution _pMintDistributionQueue
         (newTransactionFeeDistribution, newTransactionFeeDistributionQueue, resTransactionFeeDistribution) = processValueUpdates t _rpTransactionFeeDistribution _pTransactionFeeDistributionQueue
         (newGASRewards, newGASRewardsQueue, resGASRewards) = processValueUpdates t _rpGASRewards _pGASRewardsQueue
+        (newBakerStakeThreshold, newBakerStakeThresholdQueue, resBakerStakeThreshold) = processValueUpdates t _cpBakerStakeThreshold _pBakerStakeThresholdQueue
         res = 
             (UVAuthorization . _unhashed <$> resAuthorization) <>
             (UVProtocol <$> resProtocol) <>
@@ -349,7 +360,8 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
             (UVFoundationAccount <$> resFoundationAccount) <>
             (UVMintDistribution <$> resMintDistribution) <>
             (UVTransactionFeeDistribution <$> resTransactionFeeDistribution) <>
-            (UVGASRewards <$> resGASRewards)
+            (UVGASRewards <$> resGASRewards) <>
+            (UVBakerStakeThreshold <$> resBakerStakeThreshold)
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
@@ -376,6 +388,7 @@ lookupNextUpdateSequenceNumber u UpdateFoundationAccount = u ^. pendingUpdates .
 lookupNextUpdateSequenceNumber u UpdateMintDistribution = u ^. pendingUpdates . pMintDistributionQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateTransactionFeeDistribution = u ^. pendingUpdates . pTransactionFeeDistributionQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateGASRewards = u ^. pendingUpdates . pGASRewardsQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateBakerStakeThreshold = u ^. pendingUpdates . pBakerStakeThresholdQueue . uqNextSequenceNumber
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: TransactionTime -> UpdateValue -> Updates -> Updates
@@ -388,3 +401,4 @@ enqueueUpdate effectiveTime (UVFoundationAccount upd) = pendingUpdates . pFounda
 enqueueUpdate effectiveTime (UVMintDistribution upd) = pendingUpdates . pMintDistributionQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVTransactionFeeDistribution upd) = pendingUpdates . pTransactionFeeDistributionQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVGASRewards upd) = pendingUpdates . pGASRewardsQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVBakerStakeThreshold upd) = pendingUpdates . pBakerStakeThresholdQueue %~ enqueue effectiveTime upd

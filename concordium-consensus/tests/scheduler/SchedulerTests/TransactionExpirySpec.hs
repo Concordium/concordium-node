@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, NumericUnderscores #-}
 module SchedulerTests.TransactionExpirySpec where
 
 import Test.Hspec
@@ -30,7 +30,7 @@ shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState PV
-initialBlockState = blockStateWithAlesAccount 200000000000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 310_000_000_000 Acc.emptyAccounts
 
 baker :: (FullBakerInfo, VRF.SecretKey, BlockSig.SignKey, Bls.SecretKey)
 baker = mkFullBaker 1 0
@@ -51,13 +51,13 @@ transactions t = [TJSON { payload = Transfer { toaddress = alesAccount, amount =
                               bSignSecretKey = baker ^. _3,
                               bAggregateVerifyKey = baker ^. _1 . bakerInfo . bakerAggregationVerifyKey,
                               bAggregateSecretKey = baker ^. _4,
-                              bInitialStake = 1000000,
+                              bInitialStake = 300000000000,
                               bRestakeEarnings = True
                             }
                         , metadata = makeHeaderWithExpiry alesAccount 2 100000 t
                         , keys = [(0,[(0, alesKP)])]
                         }
-                 ,TJSON { payload = UpdateBakerStake 2000000
+                 ,TJSON { payload = UpdateBakerStake 300000000001
                         , metadata = makeHeaderWithExpiry alesAccount 3 100000 t
                         , keys = [(0,[(0, alesKP)])]
                         }
