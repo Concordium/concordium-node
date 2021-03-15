@@ -1246,7 +1246,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           MintDistributionUpdatePayload u -> checkSigAndUpdate $ UVMintDistribution u
           TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
           GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
-          BakerStakeThresholdPayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
+          BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
   where
     checkSigAndUpdate change = do
       -- Check that the signatures use the appropriate keys and are valid.
