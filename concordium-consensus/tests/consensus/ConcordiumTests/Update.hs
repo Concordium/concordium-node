@@ -1,4 +1,6 @@
-{-# LANGUAGE OverloadedStrings, TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 
 -- |This file contains test cases for failure states in Concordium.Skov.Update.

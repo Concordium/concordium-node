@@ -1,4 +1,7 @@
-{-# LANGUAGE ViewPatterns, TemplateHaskell, GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GeneralisedNewtypeDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 -- |This module simulates running multiple copies of consensus together in a
 -- deterministic fashion, without consideration for real time.  The goal is to

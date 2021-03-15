@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-|
 Small test framework for transactions.
 Allows to specify test cases consisting of a list of transactions to be executed in order

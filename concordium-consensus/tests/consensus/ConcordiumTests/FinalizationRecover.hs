@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module ConcordiumTests.FinalizationRecover where
 

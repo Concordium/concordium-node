@@ -1,10 +1,9 @@
-{-# LANGUAGE
-    OverloadedStrings,
-    ScopedTypeVariables,
-    TypeFamilies,
-    CPP,
-    MonoLocalBinds,
-    UndecidableInstances #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.Getters where
 
 import Lens.Micro.Platform hiding ((.=))

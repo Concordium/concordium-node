@@ -1,10 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE MultiWayIf #-}
 -- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
 -- and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
