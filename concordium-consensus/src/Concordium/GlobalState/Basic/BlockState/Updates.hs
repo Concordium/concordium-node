@@ -36,6 +36,31 @@ instance HashableTo H.Hash e => HashableTo H.Hash (UpdateQueue e) where
         putLength $ length _uqQueue
         mapM_ (\(t, e) -> put t >> put (getHash e :: H.Hash)) _uqQueue
 
+-- |Serialize an update queue in V0 format.
+putUpdateQueueV0 :: (Serialize e) => Putter (UpdateQueue e)
+putUpdateQueueV0 UpdateQueue{..} = do
+        put _uqNextSequenceNumber
+        forM_ _uqQueue $ \(tt, v) -> do
+            putWord8 1
+            put tt
+            put v
+        putWord8 0
+
+-- |Deserialize an update queue in V0 format.
+getUpdateQueueV0 :: (Serialize e) => Get (UpdateQueue e)
+getUpdateQueueV0 = do
+        _uqNextSequenceNumber <- get
+        let loop lastTT = getWord8 >>= \case
+                0 -> return []
+                1 -> do
+                    tt <- get
+                    unless (lastTT < Just tt) $ fail "Update queue not in ascending order"
+                    v <- get
+                    ((tt, v) :) <$> loop (Just tt)
+                _ -> fail "Invalid update queue"
+        _uqQueue <- loop Nothing
+        return UpdateQueue{..}
+
 instance ToJSON e => ToJSON (UpdateQueue e) where
     toJSON UpdateQueue{..} = object [
             "nextSequenceNumber" AE..= _uqNextSequenceNumber,
@@ -109,6 +134,35 @@ instance HashableTo H.Hash PendingUpdates where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
 
+-- |Serialize the pending updates.
+putPendingUpdatesV0 :: Putter PendingUpdates
+putPendingUpdatesV0 PendingUpdates{..} = do
+        putUpdateQueueV0 (_unhashed <$> _pAuthorizationQueue)
+        putUpdateQueueV0 _pProtocolQueue
+        putUpdateQueueV0 _pElectionDifficultyQueue
+        putUpdateQueueV0 _pEuroPerEnergyQueue
+        putUpdateQueueV0 _pMicroGTUPerEuroQueue
+        putUpdateQueueV0 _pFoundationAccountQueue
+        putUpdateQueueV0 _pMintDistributionQueue
+        putUpdateQueueV0 _pTransactionFeeDistributionQueue
+        putUpdateQueueV0 _pGASRewardsQueue
+        putUpdateQueueV0 _pBakerStakeThresholdQueue
+
+-- |Deserialize pending updates.
+getPendingUpdatesV0 :: Get PendingUpdates
+getPendingUpdatesV0 = do
+        _pAuthorizationQueue <- fmap makeHashed <$> getUpdateQueueV0
+        _pProtocolQueue <- getUpdateQueueV0
+        _pElectionDifficultyQueue <- getUpdateQueueV0
+        _pEuroPerEnergyQueue <- getUpdateQueueV0
+        _pMicroGTUPerEuroQueue <- getUpdateQueueV0
+        _pFoundationAccountQueue <- getUpdateQueueV0
+        _pMintDistributionQueue <- getUpdateQueueV0
+        _pTransactionFeeDistributionQueue <- getUpdateQueueV0
+        _pGASRewardsQueue <- getUpdateQueueV0
+        _pBakerStakeThresholdQueue <- getUpdateQueueV0
+        return PendingUpdates{..}
+
 instance ToJSON PendingUpdates where
     toJSON PendingUpdates{..} = object [
             "authorization" AE..= (_unhashed <$> _pAuthorizationQueue),
@@ -175,6 +229,28 @@ instance HashableTo H.Hash Updates where
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
+
+-- |Serialize 'Updates' in V0 format.
+putUpdatesV0 :: Putter Updates
+putUpdatesV0 Updates{..} = do
+        put (_currentAuthorizations ^. unhashed)
+        case _currentProtocolUpdate of
+            Nothing -> putWord8 0
+            Just cpu -> putWord8 1 >> put cpu
+        put _currentParameters
+        putPendingUpdatesV0 _pendingUpdates
+
+-- |Deserialize 'Updates' in V0 format.
+getUpdatesV0 :: Get Updates
+getUpdatesV0 = do
+        _currentAuthorizations <- makeHashed <$> get
+        _currentProtocolUpdate <- getWord8 >>= \case
+            0 -> return Nothing
+            1 -> Just <$> get
+            _ -> fail "Invalid Updates"
+        _currentParameters <- get
+        _pendingUpdates <- getPendingUpdatesV0
+        return Updates{..}
 
 instance ToJSON Updates where
     toJSON Updates{..} = object $ [
@@ -292,6 +368,14 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
 futureElectionDifficulty :: Updates -> Timestamp -> ElectionDifficulty
 futureElectionDifficulty Updates{_pendingUpdates = PendingUpdates{..},..} ts
         = processValueUpdates ts (_cpElectionDifficulty _currentParameters) _pElectionDifficultyQueue ^. _1
+
+-- |Get the protocol update status: either an effective protocol update or
+-- a list of pending future protocol updates.
+protocolUpdateStatus :: Updates -> Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)]
+protocolUpdateStatus Updates{_pendingUpdates = PendingUpdates{..},..}
+        = case _currentProtocolUpdate of
+            Nothing -> Right (_uqQueue _pProtocolQueue)
+            Just pu -> Left pu
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber

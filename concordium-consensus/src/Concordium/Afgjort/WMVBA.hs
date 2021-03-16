@@ -1,7 +1,5 @@
-{-# LANGUAGE
-    TemplateHaskell,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-duplicate-exports #-}
 {- |
 WMVBA is the protocol used to generate agreement on the finalization layer.

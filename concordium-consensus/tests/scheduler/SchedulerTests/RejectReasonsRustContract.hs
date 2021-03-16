@@ -27,7 +27,7 @@ import Concordium.Wasm (ReceiveName(..))
 import SchedulerTests.Helpers
 import Data.Text (Text)
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount 1000000000 Acc.emptyAccounts
 
 chainMeta :: Types.ChainMetadata
@@ -49,6 +49,7 @@ initWithAmount amount = transaction (InitContract amount 0 wasmPath "init_error_
 updateWithAmount :: Types.Amount -> Text -> Types.Nonce -> TransactionJSON
 updateWithAmount amount fun = transaction (Update amount firstAddress fun "")
 
+firstAddress :: Types.ContractAddress
 firstAddress = Types.ContractAddress 0 0
 
 transactionInputs :: [TransactionJSON]

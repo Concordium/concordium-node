@@ -11,7 +11,6 @@ import Data.Function
 import Data.Foldable
 import Data.ByteString (ByteString)
 import Data.Serialize
-import Data.Proxy
 import Control.Monad
 
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
@@ -28,41 +27,10 @@ import Concordium.Skov.Monad
 import Concordium.Kontrol.BestBlock
 import Concordium.Afgjort.Finalize
 
--- |Merge finalization records and block pointers.
--- This function ensures that the resulting list is no longer than the given limit.
--- To respect the limit on the number of messages sent some have to be dropped.
--- This function ensures that the lists of finalization records and block pointers are merged
--- respecting the following properties.
---
---   * A finalization record is sent as sson as possible after the corresponding block it finalizes.
---   * If a block does not need to be sent (because the peer already has it), but a finalization record does,
---     then we send the finalization record before all other blocks.
-merge :: forall m . (BlockPointerData (BlockPointerType m))
-      => Proxy m
-      -> Int
-      -> [(FinalizationRecord, BlockHeight)]
-      -> Seq.Seq (BlockPointerType m)
-      -> [(MessageType, ByteString)]
-merge Proxy = go
-  where encodeBlock b = (MessageBlock, runPut (putVersionedBlockV1 b))
-        encodeFinRec fr = (MessageFinalizationRecord, runPut (putVersionedFinalizationRecordV0 fr))
-        -- Note: since the returned list can be truncated, we have to be careful about the
-        -- order that finalization records are interleaved with blocks.
-        -- Specifically, we send a finalization record as soon as possible after
-        -- the corresponding block; and where the block is not being sent, we
-        -- send the finalization record before all other blocks.  We also send
-        -- finalization records and blocks in order.
-        go :: Int -> [(FinalizationRecord, BlockHeight)] -> Seq.Seq (BlockPointerType m) -> [(MessageType, ByteString)]
-        go n _ _ | n == 0 = []
-        go n [] bs = encodeBlock <$> (take n (toList bs))
-        go n fs Seq.Empty = encodeFinRec . fst <$> (take n (toList fs))
-        go n fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
-            | fh < bpHeight b = encodeFinRec f : go (n-1) fs1 bs0
-            | otherwise = encodeBlock b : go (n-1) fs0 bs1
 
 -- |Produce a catchup response and a new catchup status for the peer.
 -- The list of messages (blocks or finalization records) is versioned
-doHandleCatchUp :: forall m. (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadLogger m)
+doHandleCatchUp :: forall pv m. (TreeStateMonad pv m, SkovQueryMonad pv m, FinalizationMonad m, MonadLogger m)
                 => CatchUpStatus
                 -> Int -- ^How many blocks + finalization records should be sent.
                 -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
@@ -182,7 +150,14 @@ doHandleCatchUp peerCUS limit = do
                         outBlocks2 <- if Seq.length unknownFinTrunk < limit then takeBranches outBlocks1 branches1 else return unknownFinTrunk
                         lvs <- leavesBranches $ toList myBranches
                         myCUS <- makeCatchUpStatus False True lfb (fst lvs) []
-                        return (Just (merge (Proxy @ m) limit frs outBlocks2, myCUS), catchUpResult)
+                        -- Merge the finalization records and block pointers, truncating the list to the required length.
+                        -- Note: since the returned list can be truncated, we have to be careful about the
+                        -- order that finalization records are interleaved with blocks.
+                        -- Specifically, we send a finalization record as soon as possible after
+                        -- the corresponding block; and where the block is not being sent, we
+                        -- send the finalization record before all other blocks.  We also send
+                        -- finalization records and blocks in order.
+                        return (Just (merge limit frs outBlocks2, myCUS), catchUpResult)
                     else
                         -- No response required
                         return (Nothing, catchUpResult)
@@ -192,3 +167,15 @@ doHandleCatchUp peerCUS limit = do
                     -- reject this peer.
                     logEvent Skov LLWarning $ "Invalid catch up status: last finalized block not finalized."
                     return (Nothing, ResultInvalid)
+  where encodeBlock b = (MessageBlock, runPut (putVersionedBlock (protocolVersion @pv) b))
+        encodeFinRec fr = (MessageFinalizationRecord, runPut (putVersionedFinalizationRecordV0 fr))
+        -- Merge a list of finalization records and blocks, truncating it to a given length.
+        -- Finalization records are sent before blocks that have greater height than the block
+        -- being finalized, but after all blocks of a lower or equal height.
+        merge :: Int -> [(FinalizationRecord, BlockHeight)] -> Seq.Seq (BlockPointerType m) -> [(MessageType, ByteString)]
+        merge n _ _ | n == 0 = []
+        merge n [] bs = encodeBlock <$> take n (toList bs)
+        merge n fs Seq.Empty = encodeFinRec . fst <$> take n (toList fs)
+        merge n fs0@((f, fh) : fs1) bs0@(b Seq.:<| bs1)
+            | fh < bpHeight b = encodeFinRec f : merge (n-1) fs1 bs0
+            | otherwise = encodeBlock b : merge (n-1) fs0 bs1

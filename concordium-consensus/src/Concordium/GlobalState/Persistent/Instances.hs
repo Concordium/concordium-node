@@ -18,6 +18,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
 import qualified Concordium.Wasm as Wasm
+import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
@@ -141,6 +142,20 @@ fromPersistentInstance PersistentInstance{..} = do
             instanceHash = pinstanceHash,
             ..
          }
+
+-- |Serialize a smart contract instance in V0 format.
+putInstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstance -> m ()
+putInstanceV0 PersistentInstance{..} = do
+        -- Instance parameters
+        PersistentInstanceParameters{..} <- refLoad pinstanceParameters
+        liftPut $ do
+            -- only put the subindex part of the address
+            put (contractSubindex pinstanceAddress)
+            put pinstanceOwner
+            put pinstanceContractModule
+            put pinstanceInitName
+            put pinstanceModel
+            put pinstanceAmount
 
 ----------------------------------------------------------------------------------------------------
 
@@ -457,3 +472,17 @@ makePersistent mods (Transient.Instances (Transient.Tree s t)) = InstancesTree s
                 pinstanceAmount = instanceAmount,
                 pinstanceHash = instanceHash
             }
+
+-- |Serialize instances in V0 format.
+putInstancesV0 :: (MonadBlobStore m, MonadPut m) => Instances -> m ()
+putInstancesV0 InstancesEmpty = liftPut $ putWord8 0
+putInstancesV0 (InstancesTree _ it) = do
+        mapReduceIT putOptInstance it
+        liftPut $ putWord8 0
+    where
+        putOptInstance (Left ca) = liftPut $ do
+            putWord8 1
+            put (contractSubindex ca)
+        putOptInstance (Right inst) = do
+            liftPut $ putWord8 2
+            putInstanceV0 inst

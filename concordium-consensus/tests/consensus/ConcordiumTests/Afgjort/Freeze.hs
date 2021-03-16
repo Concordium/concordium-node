@@ -1,4 +1,6 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, MultiParamTypeClasses, FlexibleInstances, ScopedTypeVariables, ParallelListComp, OverloadedStrings, RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 module ConcordiumTests.Afgjort.Freeze where
 
 import qualified Data.Map.Strict as Map
@@ -6,7 +8,7 @@ import qualified Data.Set as Set
 import Control.Monad.RWS
 import Data.Either
 import Control.Monad.Identity
-import qualified Data.List as L
+import Data.List (permutations)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Afgjort.Types
@@ -19,16 +21,16 @@ import Test.QuickCheck
 import Test.Hspec
 
 blockA :: Val
-blockA = T.BlockHashV0 (H.hash "A")
+blockA = T.BlockHash (H.hash "A")
 
 blockB :: Val
-blockB = T.BlockHashV0 (H.hash "B")
+blockB = T.BlockHash (H.hash "B")
 
 blockC :: Val
-blockC = T.BlockHashV0 (H.hash "C")
+blockC = T.BlockHash (H.hash "C")
 
 blockD :: Val
-blockD = T.BlockHashV0 (H.hash "D")
+blockD = T.BlockHash (H.hash "D")
 
 blocks :: [Val]
 blocks = [blockA, blockB, blockC, blockD]
@@ -153,7 +155,7 @@ ex3 = (equalParties 4 1 0, [FICandidate blockA, FIProposal 1 blockA, FIRequestPr
     [FOMessage (Proposal blockA), FOMessage (Vote $ Just blockA), FOComplete Nothing, FOJustifiedDecision Nothing])
 
 testFreezeExampleAllPerms :: FreezeExample -> Spec
-testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- L.permutations inp | n <- [(0::Int)..]]
+testFreezeExampleAllPerms (ctx, inp, outp) = sequence_ [it ("permutation " ++ show n) $ testFreezeExample (ctx, inp', outp) | inp' <- permutations inp | n <- [(0::Int)..]]
 
 checkInvariant :: (HasCallStack) => FreezeInstance -> FreezeState () -> Expectation
 checkInvariant (FreezeInstance tw cw pw _) st = case invariantFreezeState' tw cw pw st of

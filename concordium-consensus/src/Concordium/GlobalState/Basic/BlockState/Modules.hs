@@ -8,7 +8,10 @@ module Concordium.GlobalState.Basic.BlockState.Modules
     getSource,
     moduleRefList,
     moduleList,
-    _modulesMap
+    _modulesMap,
+    -- * Serialization
+    putModulesV0,
+    getModulesV0
   ) where
 
 import Concordium.Crypto.SHA256
@@ -17,9 +20,12 @@ import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMB
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Wasm
+import Concordium.Scheduler.WasmIntegration
+import Control.Monad
 import Data.Coerce
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Serialize
 import Data.Word
 import Lens.Micro.Platform
 
@@ -40,6 +46,14 @@ data Module = Module {
 
 instance HashableTo Hash Module where
   getHash = coerce . miModuleRef . interface
+
+instance Serialize Module where
+  put = put . source
+  get = do
+    source <- get
+    case processModule source of
+      Nothing -> fail "Invalid module"
+      Just interface -> return Module {..}
 
 --------------------------------------------------------------------------------
 
@@ -93,3 +107,21 @@ moduleRefList mods = Map.keys (mods ^. modulesMap)
 -- The order of the list is not specified.
 moduleList :: Modules -> [(ModuleIndex, Module)]
 moduleList mods = LFMB.toAscPairList (_modulesTable mods)
+
+--------------------------------------------------------------------------------
+
+-- |Serialize modules in V0 format
+putModulesV0 :: Putter Modules
+putModulesV0 mods = do
+    putWord64be (LFMB.size (_modulesTable mods))
+    mapM_ put (_modulesTable mods)
+
+-- |Deserialize modules in V0 format
+getModulesV0 :: Get Modules
+getModulesV0 = do
+    mtSize <- getWord64be
+    _modulesTable <- LFMB.fromList <$> replicateM (fromIntegral mtSize) get
+    let _modulesMap = Map.fromList
+            [(miModuleRef (interface iface), idx)
+              | (idx, iface) <- LFMB.toAscPairList _modulesTable]
+    return Modules{..}

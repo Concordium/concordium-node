@@ -1,10 +1,8 @@
-{-# LANGUAGE
-    TemplateHaskell,
-    ScopedTypeVariables,
-    BangPatterns,
-    GeneralizedNewtypeDeriving,
-    RankNTypes,
-    OverloadedStrings #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {- |Another Binary Byzantine Agreement (ABBA) algorithm
 
 For more information, check the konsensus paper, section 5.6.4.

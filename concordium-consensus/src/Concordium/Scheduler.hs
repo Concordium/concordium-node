@@ -1,4 +1,3 @@
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -98,7 +97,7 @@ existsValidCredential cm acc = do
 -- header and @Just fk@ if any of the checks fails, with the respective 'FailureKind'.
 --
 -- Returns the sender account and the cost to be charged for checking the header.
-checkHeader :: (TransactionData msg, SchedulerMonad m) => msg -> ExceptT (Maybe FailureKind) m (Account m, Energy)
+checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (Maybe FailureKind) m (Account m, Energy)
 checkHeader meta = do
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
@@ -165,7 +164,7 @@ checkHeader meta = do
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
-dispatch :: (TransactionData msg, SchedulerMonad m) => msg -> m (Maybe TxResult)
+dispatch :: (TransactionData msg, SchedulerMonad pv m) => msg -> m (Maybe TxResult)
 dispatch msg = do
   let meta = transactionHeader msg
   validMeta <- runExceptT (checkHeader msg)
@@ -273,7 +272,7 @@ dispatch msg = do
             Just summary -> return $ Just $ TxValid summary
 
 handleTransferWithSchedule ::
-  SchedulerMonad m
+  SchedulerMonad pv m
   => WithDepositContext m
   -> AccountAddress
   -> [(Timestamp, Amount)]
@@ -339,7 +338,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
 
 
 handleTransferToPublic ::
-  SchedulerMonad m
+  SchedulerMonad pv m
   => WithDepositContext m
   -> SecToPubAmountTransferData
   -> m (Maybe TransactionSummary)
@@ -394,7 +393,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
 
 
 handleTransferToEncrypted ::
-  SchedulerMonad m
+  SchedulerMonad pv m
   => WithDepositContext m
   -> Amount
   -> m (Maybe TransactionSummary)
@@ -437,7 +436,7 @@ handleTransferToEncrypted wtc toEncrypted = do
                    usedEnergy)
 
 handleEncryptedAmountTransfer ::
-  SchedulerMonad m
+  SchedulerMonad pv m
   => WithDepositContext m
   -> AccountAddress -- ^ Receiver address.
   -> EncryptedAmountTransferData
@@ -513,7 +512,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 
 -- | Handle the deployment of a module.
 handleDeployModule ::
-  SchedulerMonad m
+  SchedulerMonad pv m
   => WithDepositContext m
   -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
   -> Wasm.WasmModule -- ^The module to deploy.
@@ -547,7 +546,7 @@ handleDeployModule wtc psize mod =
 -- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
 -- that cannot be paid for.
 tickEnergyValueStorage ::
-  TransactionMonad m
+  TransactionMonad pv m
   => Wasm.ContractState
   -> m ()
 tickEnergyValueStorage cs =
@@ -559,7 +558,7 @@ tickEnergyValueStorage cs =
 -- FIXME: Currently we do not know the size of the instance before looking it up.
 -- Therefore we charge a "pre-lookup cost" before the lookup and the actual cost after.
 getCurrentContractInstanceTicking ::
-  TransactionMonad m
+  TransactionMonad pv m
   => ContractAddress
   -> m Instance
 getCurrentContractInstanceTicking cref = do
@@ -572,7 +571,7 @@ getCurrentContractInstanceTicking cref = do
 
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> Amount   -- ^The amount to initialize the contract instance with.
     -> ModuleRef  -- ^The module to initialize a contract from.
@@ -646,7 +645,7 @@ handleInitContract wtc initAmount modref initName param =
                                                    )
 
 handleSimpleTransfer ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> AccountAddress -- ^Address to send the amount to, either account or contract.
     -> Amount -- ^The amount to transfer.
@@ -658,7 +657,7 @@ handleSimpleTransfer wtc toaddr amount =
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> Amount -- ^Amount to invoke the contract's receive method with.
     -> ContractAddress -- ^Address of the contract to invoke.
@@ -683,8 +682,8 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
 -- This includes the transfer of an amount from the sending account or instance.
 -- Recursively do the same for new messages created by contracts (from left to right, depth first).
 -- The target contract must exist, so that its state can be looked up.
-handleMessage ::
-  (TransactionMonad m, AccountOperations m)
+handleMessage :: forall pv m.
+  (TransactionMonad pv m, AccountOperations m)
   => Account m -- ^The account that sent the top-level transaction.
   -> Instance -- ^The current state of the target contract of the transaction, which must exist.
   -> Either (Account m, Instance) (Account m)
@@ -757,7 +756,7 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                                }
       foldEvents origin (ownerAccount, istance) initEvent txOut
 
-foldEvents :: (TransactionMonad m, AccountOperations m)
+foldEvents :: (TransactionMonad pv m, AccountOperations m)
            =>  Account m -- ^Account that originated the top-level transaction
            -> (Account m, Instance) -- ^Instance that generated the events.
            -> Event -- ^Event generated by the invocation of the instance.
@@ -800,7 +799,7 @@ mkSenderAddrCredentials sender =
 -- TODO: Figure out whether we need the origin information in here (i.e.,
 -- whether an account can observe it).
 handleTransferAccount ::
-  (TransactionMonad m, AccountOperations m)
+  (TransactionMonad pv m, AccountOperations m)
   => Account m -- ^The account that sent the top-level transaction.
   -> AccountAddress -- The target account address.
   -> Either (Account m, Instance) (Account m) -- The sender of this transfer (contract instance or account).
@@ -829,7 +828,7 @@ handleTransferAccount _origin accAddr sender transferamount = do
 -- runs out of energy set the remaining gas to 0 and reject the transaction,
 -- otherwise decrease the consumed amount of energy and return the result.
 {-# INLINE runInterpreter #-}
-runInterpreter :: TransactionMonad m => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
+runInterpreter :: TransactionMonad pv m => (Wasm.InterpreterEnergy -> m (Maybe (a, Wasm.InterpreterEnergy))) -> m a
 runInterpreter f = withExternal $ \availableEnergy -> do
   f availableEnergy >>= \case
     Nothing -> return Nothing
@@ -871,7 +870,7 @@ checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 -- If the balance check has not been made, the behaviour is undefined. (Most likely,
 -- this will lead to an underflow and an invariant violation.)
 handleAddBaker ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -944,7 +943,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
 --  * If the account is the cool-down period for another baker change, the transaction fails ('BakerInCooldown').
 --  * Otherwise, the baker is removed, which takes effect after the cool-down period.
 handleRemoveBaker ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> m (Maybe TransactionSummary)
 handleRemoveBaker wtc =
@@ -970,7 +969,7 @@ handleRemoveBaker wtc =
             BI.BRChangePending _ -> return (TxReject BakerInCooldown, energyCost, usedEnergy)
 
 handleUpdateBakerStake ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> Amount
     -- ^new stake
@@ -1009,7 +1008,7 @@ handleUpdateBakerStake wtc newStake =
             return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
 
 handleUpdateBakerRestakeEarnings ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> Bool
     -- ^Whether to restake earnings
@@ -1046,7 +1045,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
 -- If the balance check has not been made, the behaviour is undefined. (Most likely,
 -- this will lead to an underflow and an invariant violation.)
 handleUpdateBakerKeys ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> BakerElectionVerifyKey
     -> BakerSignVerifyKey
@@ -1092,7 +1091,7 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
 
 -- *Transactions without a sender
 handleDeployCredential ::
-  SchedulerMonad m =>
+  SchedulerMonad pv m =>
   -- |Credentials to deploy.
   AccountCreation ->
   TransactionHash ->
@@ -1174,7 +1173,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
 -- |Updates the credential keys in the credential with the given Credential ID. 
 -- It rejects if there is no credential with the given Credential ID.
 handleUpdateCredentialKeys ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> ID.CredentialRegistrationID
     -- ^Registration ID of the credential we are updating.
@@ -1214,7 +1213,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 
 -- |Handle a chain update message
 handleChainUpdate ::
-  SchedulerMonad m
+  SchedulerMonad pv m
   => WithMetadata UpdateInstruction
   -> m TxResult
 handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
@@ -1267,7 +1266,7 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
         return (TxInvalid IncorrectSignature)
 
 handleUpdateCredentials ::
-  SchedulerMonad m
+  SchedulerMonad pv m
     => WithDepositContext m
     -> OrdMap.Map ID.CredentialIndex ID.CredentialDeploymentInformation
     -> [ID.CredentialRegistrationID]
@@ -1288,21 +1287,23 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       existingCredentials <- getAccountCredentials senderAccount
       senderAddress <- getAccountAddress senderAccount
       -- check that all credentials that are to be removed actually exist.
-      -- This is either Nothing if there is a credential id in the list to remove
-      -- which does not exist on the account now or Just kis where `kis` is a list of key indices
-      -- to remove.
-      let (nonExistingRegIds, indicesToRemove) =
+      -- This produces:
+      --  * a list of credential regIds that were supposed to be removed, but don't exist on the account,
+      --    in reverse order
+      --  * a set of the credential indices to remove
+      --  * a list of the credential indices to remove, without duplicates, in reverse order
+      let (nonExistingRegIds, indicesToRemove, revListIndicesToRemove) =
             -- Here we do not care whether the list of credentials to remove has unique elements
             -- or not. As long as the lists are limited in length this should not matter, i.e.,
             -- this is not an abusable property.
             -- Because we should never have duplicate regids on the chain, each of them will only
             -- map to the unique key index. Thus the following map is well-defined.
             let existingCredIds = OrdMap.fromList . map (\(ki, v) -> (ID.credId v, ki)) . OrdMap.toList $ existingCredentials
-            in foldl' (\(nonExisting, existing) rid ->
+            in foldl' (\(nonExisting, existing, remList) rid ->
                          case rid `OrdMap.lookup` existingCredIds of
-                           Nothing -> (rid:nonExisting, existing)
-                           Just ki -> (nonExisting, Set.insert ki existing)
-                      ) ([], Set.empty) removeRegIds
+                           Nothing -> (rid:nonExisting, existing, remList)
+                           Just ki -> (nonExisting, Set.insert ki existing, if Set.member ki existing then remList else ki : remList)
+                      ) ([], Set.empty, []) removeRegIds
 
       -- check that the indices after removal are disjoint from the indices that we are about to add
       let removalCheck = null nonExistingRegIds &&
@@ -1346,7 +1347,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         case creds of
           Nothing -> return (TxReject InvalidCredentials, energyCost, usedEnergy)
           Just newCredentials -> do
-            _<- updateAccountCredentials senderAccount (Set.toList indicesToRemove) threshold newCredentials
+            updateAccountCredentials senderAccount (reverse revListIndicesToRemove) newCredentials threshold
             return (TxSuccess [CredentialsUpdated {
                                   cuAccount = senderAddress,
                                   cuNewCredIds = Set.toList newCredIds,
@@ -1441,7 +1442,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
 -- and `ftUnprocessedCredentials`.
 --
 -- TODO: We might need to add a real-time timeout at which point we stop processing transactions.
-filterTransactions :: forall m . (SchedulerMonad m)
+filterTransactions :: forall m pv. (SchedulerMonad pv m)
                    => Integer -- ^Maximum block size in bytes.
                    -> [TransactionGroup] -- ^Transactions to make a block out of.
                    -> m FilteredTransactions
@@ -1621,7 +1622,7 @@ filterTransactions maxSize groups0 = do
 -- * @Left Nothing@ if maximum block energy limit was exceeded.
 -- * @Left (Just fk)@ if a transaction failed, with the failure kind of the first failed transaction.
 -- * @Right outcomes@ if all transactions are successful, with the given outcomes.
-runTransactions :: forall m . (SchedulerMonad m)
+runTransactions :: forall m pv. (SchedulerMonad pv m)
                 => [BlockItem]
                 -> m (Either (Maybe FailureKind) [(BlockItem, TransactionSummary)])
 runTransactions = go []
@@ -1653,7 +1654,7 @@ runTransactions = go []
 --
 -- This is more efficient than 'runTransactions' since it does not have to build a list
 -- of results.
-execTransactions :: forall m . (SchedulerMonad m)
+execTransactions :: forall m pv. (SchedulerMonad pv m)
                  => [BlockItem]
                  -> m (Either (Maybe FailureKind) ())
 execTransactions = go

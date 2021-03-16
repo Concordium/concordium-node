@@ -1,4 +1,6 @@
-{-# LANGUAGE OverloadedStrings, TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 
 -- |This file contains test cases for failure states in Concordium.Skov.Update.
@@ -14,6 +16,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.State
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Test.Hspec
@@ -23,7 +26,6 @@ import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
 
 import qualified Concordium.Crypto.BlockSignature as Sig
-import Concordium.Crypto.SHA256
 
 import Concordium.GlobalState
 import Concordium.GlobalState.Basic.BlockState.Account
@@ -32,7 +34,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
-import qualified Concordium.Types.SeedState as SeedState
+import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
 
@@ -47,11 +49,14 @@ import Data.FixedByteString as FBS
 import Concordium.Crypto.SHA256 as Hash
 
 import qualified Concordium.GlobalState.DummyData as Dummy
-        
+
+-- |Protocol version
+type PV = 'P1
+
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip=100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
@@ -88,28 +93,32 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account PV)
 
 -- |Create initial states for two bakers
 createInitStates :: IO (BakerState, BakerState)
 createInitStates = do
     let bakerAmount = 10 ^ (4 :: Int)
         bis@[baker1, baker2] = makeBakersByStake [bakerAmount, bakerAmount]
-        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
         cps = Dummy.dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
-        gen = GenesisDataV2 {
-                genesisTime = 0,
-                genesisSlotDuration = 1,
-                genesisSeedState = seedState,
-                genesisAccounts = bakerAccounts,
-                genesisFinalizationParameters = finalizationParameters,
-                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
-                genesisIdentityProviders = emptyIdentityProviders,
-                genesisAnonymityRevokers = Dummy.dummyArs,
-                genesisMaxBlockEnergy = Energy maxBound,
-                genesisAuthorizations = Dummy.dummyAuthorizations,
-                genesisChainParameters = cps
+        gen = GDP1 GDP1Initial {
+                genesisCore = CoreGenesisParameters {
+                    genesisTime = 0,
+                    genesisSlotDuration = 1,
+                    genesisEpochLength = 10,
+                    genesisMaxBlockEnergy = Energy maxBound,
+                    genesisFinalizationParameters = finalizationParameters
+                },
+                genesisInitialState = GenesisState {
+                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                    genesisIdentityProviders = emptyIdentityProviders,
+                    genesisAnonymityRevokers = Dummy.dummyArs,
+                    genesisAuthorizations = Dummy.dummyAuthorizations,
+                    genesisChainParameters = cps,
+                    genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
+                    genesisAccounts = Vec.fromList bakerAccounts
+                }
             }
         createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
@@ -137,7 +146,7 @@ reSign key BakedBlock{..}  = BakedBlock{bbSignature = newSig, ..}
     where
         BlockFields{..} = bbFields
         newBlockHash = generateBlockHash bbSlot bfBlockPointer bfBlockBaker bfBlockBakerKey bfBlockProof bfBlockNonce bfBlockFinalizationData bbTransactions bbStateHash bbTransactionOutcomesHash
-        newSig = Sig.sign key (Hash.hashToByteString (v0BlockHash newBlockHash))
+        newSig = Sig.sign key (Hash.hashToByteString (blockHash newBlockHash))
 
 
 -- |Helper function to bake
@@ -149,14 +158,14 @@ bake bid n = do
           mb
 
 -- |Attempts to store a block, and throws an error if it fails
-store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
+store :: (SkovMonad pv m, MonadFail m) => BakedBlock -> m ()
 store block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> return()
     result        -> fail $ "Failed to store un-dirtied block " ++ show block ++ ". Reason: " ++ show result
 
 -- |Attempts to store a block, and throws an error if it succeeds
 -- Used for verifying that dirtied blocks are rejected
-failStore :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
+failStore :: (SkovMonad pv m, MonadFail m) => BakedBlock -> m ()
 failStore block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> fail $ "Successfully stored dirtied block: " ++ show block
     _        -> return()
@@ -164,7 +173,7 @@ failStore block = storeBlock (makePendingBlock block dummyTime) >>= \case
 -- * Helper functions for dirtying fields of blocks
 
 stubBlockHash :: BlockHash
-stubBlockHash = BlockHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
+stubBlockHash = BlockHash (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))
 
 stubStateHash :: StateHash
 stubStateHash = StateHashV0 (Hash (FBS.pack (Prelude.replicate 32 (fromIntegral (3 :: Word)))))

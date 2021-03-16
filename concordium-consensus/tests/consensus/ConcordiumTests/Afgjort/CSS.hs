@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, TemplateHaskell, RankNTypes, TupleSections, TypeFamilies #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 module ConcordiumTests.Afgjort.CSS where
 
 import Data.Monoid
@@ -9,7 +11,7 @@ import Lens.Micro.Platform
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
-import qualified Data.List as L
+import Data.List (stripPrefix)
 
 import Concordium.Afgjort.Types
 import Concordium.Afgjort.CSS
@@ -82,7 +84,7 @@ checkUpdateHistory s inp _outp hist0 = do
         hist = case inp of
                 ReceiveCSSMessage p (DoneReporting m) -> hist0 & receivedDoneReporting . at p %~ Just . (reverse (nominationSetToList m):) . fromMaybe []
                 _ -> hist0
-        justifiedAfterPrefix seer l rdr = isJust $ sawAllJustified seer <$> L.stripPrefix l rdr
+        justifiedAfterPrefix seer l rdr = isJust $ sawAllJustified seer <$> stripPrefix l rdr
         sawAllJustified seer = all (\(seen, c) -> s ^. sawJustified seer c seen)
 
 data CSSInput

@@ -1,7 +1,5 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -45,31 +43,34 @@ import qualified Concordium.Types.Transactions as Trns
 import System.Random
 import Test.Hspec
 
-type GlobalStateIO c g = GlobalStateM NoLogContext c c g g (RWST c () g LogIO)
+-- |Protocol version.
+type PV = 'P1
 
-type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData () PBS.HashedPersistentBlockState)
+type GlobalStateIO c g = GlobalStateM PV NoLogContext c c g g (RWST c () g LogIO)
+
+type TestM = GlobalStateIO PBS.PersistentBlockStateContext (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
 
 type Test = TestM ()
 
 instance HasGlobalStateContext PBS.PersistentBlockStateContext PBS.PersistentBlockStateContext where
   globalStateContext = id
 
-instance HasGlobalState (SkovPersistentData () PBS.HashedPersistentBlockState) (SkovPersistentData () PBS.HashedPersistentBlockState) where
+instance HasGlobalState (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) where
   globalState = id
 
-createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.HashedPersistentBlockState)
+createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
 createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 
-destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData () PBS.HashedPersistentBlockState) -> IO ()
+destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()
 destroyGlobalState (c, s) =
-  shutdownGlobalState (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
+  shutdownGlobalState (Proxy :: Proxy (DiskTreeDiskBlockConfig PV)) c s NoLogContext
 
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =
@@ -96,7 +97,7 @@ testFinalizeABlock = do
   
   now' <- liftIO $ getCurrentTime
   blockPtr :: BlockPointerType TestM <- makeLiveBlock pb genesisBlock genesisBlock state () now' 0
-  let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof ([1], sign "Hello" sk)) 0
+  let frec = FinalizationRecord 1 (bpHash blockPtr) (FinalizationProof [1] (sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   markFinalized (bpHash blockPtr) frec
   addFinalization blockPtr frec
@@ -136,7 +137,7 @@ testFinalizeABlock = do
   pb2 <- makePendingBlock (fst $ randomBlockKeyPair (mkStdGen 1)) 2 (bpHash blockPtr) 0  proof1 proof2 NoFinalizationData [] (StateHashV0 minBound) (getHash Trns.emptyTransactionOutcomes) now''
   now''' <- liftIO $ getCurrentTime
   blockPtr2 :: BlockPointerType TestM <- makeLiveBlock pb2 blockPtr genesisBlock state () now''' 0
-  let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof ([1], sign "Hello" sk)) 0
+  let frec2 = FinalizationRecord 2 (bpHash blockPtr2) (FinalizationProof [1] (sign "Hello" sk)) 0
   -- Add the finalization to the tree state
   markFinalized (bpHash blockPtr2) frec2
   addFinalization blockPtr2 frec2

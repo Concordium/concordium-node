@@ -16,6 +16,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Updates
 import Concordium.Utils.Serialization
+import Concordium.Utils.Serialization.Put
 
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.BlobStore
@@ -72,6 +73,18 @@ instance (BlobStorable m e, Serialize e, MHashableTo m H.Hash e) => Cacheable m 
     cache uq = do
         q <- mapM (\(t, h) -> (t,) <$> cache h) (uqQueue uq)
         return uq{uqQueue = q}
+
+-- |Serialize an update queue in V0 format.
+putUpdateQueueV0 :: (MonadBlobStore m, MonadPut m, MHashableTo m H.Hash e, Serialize e) => UpdateQueue e -> m ()
+putUpdateQueueV0 UpdateQueue{..} = do
+        sPut uqNextSequenceNumber
+        forM_ uqQueue $ \(tt, vref) -> do
+            v <- refLoad vref
+            liftPut $ do
+                putWord8 1
+                put tt
+                put v
+        liftPut $ putWord8 0
 
 -- |Update queue with no pending updates, and with the minimal next
 -- sequence number.
@@ -239,6 +252,20 @@ instance (MonadBlobStore m) => Cacheable m PendingUpdates where
             <*> cache pTransactionFeeDistributionQueue
             <*> cache pGASRewardsQueue
             <*> cache pBakerStakeThresholdQueue
+
+-- |Serialize the pending updates.
+putPendingUpdatesV0 :: (MonadBlobStore m, MonadPut m) => PendingUpdates -> m ()
+putPendingUpdatesV0 PendingUpdates{..} = do
+        putUpdateQueueV0 =<< refLoad pAuthorizationQueue
+        putUpdateQueueV0 =<< refLoad pProtocolQueue
+        putUpdateQueueV0 =<< refLoad pElectionDifficultyQueue
+        putUpdateQueueV0 =<< refLoad pEuroPerEnergyQueue
+        putUpdateQueueV0 =<< refLoad pMicroGTUPerEuroQueue
+        putUpdateQueueV0 =<< refLoad pFoundationAccountQueue
+        putUpdateQueueV0 =<< refLoad pMintDistributionQueue
+        putUpdateQueueV0 =<< refLoad pTransactionFeeDistributionQueue
+        putUpdateQueueV0 =<< refLoad pGASRewardsQueue
+        putUpdateQueueV0 =<< refLoad pBakerStakeThresholdQueue
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: forall m. (MonadBlobStore m) => m PendingUpdates
@@ -578,6 +605,17 @@ futureElectionDifficulty uref ts = do
                 return $ cp ^. cpElectionDifficulty
         processValueUpdates ts oldQ getCurED (\newEDp _ _ -> unStoreSerialized <$> refLoad newEDp)
 
+-- |Get the protocol update status: either an effective protocol update or
+-- a list of pending future protocol updates.
+protocolUpdateStatus :: (MonadBlobStore m) => BufferedRef Updates -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+protocolUpdateStatus uref = do
+        Updates{..} <- refLoad uref
+        case currentProtocolUpdate of
+            Null -> do
+                pq <- refLoad (pProtocolQueue pendingUpdates)
+                Right . toList <$> forM (uqQueue pq) (\(t, e) -> (t,) . unStoreSerialized <$> refLoad e)
+            Some puRef -> Left . unStoreSerialized <$> refLoad puRef
+
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: (MonadBlobStore m) => BufferedRef Updates -> UpdateType -> m UpdateSequenceNumber
 lookupNextUpdateSequenceNumber uref uty = do
@@ -618,7 +656,20 @@ lookupEnergyRate uref = do
         StoreSerialized ChainParameters{..} <- refLoad currentParameters
         return _cpEnergyRate
 
+-- |Look up the current chain parameters.
 lookupCurrentParameters :: (MonadBlobStore m) => BufferedRef Updates -> m ChainParameters
 lookupCurrentParameters uref = do
         Updates{..} <- refLoad uref
         unStoreSerialized <$> refLoad currentParameters
+
+-- |Serialize updates in V0 format.
+putUpdatesV0 :: (MonadBlobStore m, MonadPut m) => Updates -> m ()
+putUpdatesV0 Updates{..} = do
+        sPut . unStoreSerialized =<< refLoad currentAuthorizations
+        case currentProtocolUpdate of
+            Null -> liftPut $ putWord8 0
+            Some pu -> do
+                liftPut $ putWord8 1
+                sPut . unStoreSerialized =<< refLoad pu
+        sPut . unStoreSerialized =<< refLoad currentParameters
+        putPendingUpdatesV0 pendingUpdates

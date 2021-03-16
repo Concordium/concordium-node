@@ -1,11 +1,8 @@
-{-# LANGUAGE
-    DerivingVia,
-    StandaloneDeriving,
-    RecordWildCards,
-    ScopedTypeVariables,
-    GeneralizedNewtypeDeriving,
-    UndecidableInstances,
-    DefaultSignatures #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.Skov.Monad(
     module Concordium.Skov.CatchUp.Types,
     module Concordium.Skov.Monad
@@ -23,6 +20,7 @@ import Control.Monad.IO.Class
 import Concordium.Skov.Query
 
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.GlobalState.Types
 import Concordium.Types.HashableTo
 import Concordium.GlobalState
@@ -68,9 +66,12 @@ data UpdateResult
     -- ^The block was sent too early and should be dropped
     | ResultMissingImportFile
     -- ^The file provided for importing blocks is missing
+    | ResultConsensusShutDown
+    -- ^The message was not processed because consensus has been shut down
     deriving (Eq, Show)
 
-class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), BlockStateQuery m) => SkovQueryMonad m where
+class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), EncodeBlock pv (BlockPointerType m), BlockStateQuery m, IsProtocolVersion pv)
+        => SkovQueryMonad pv m | m -> pv where
     -- |Look up a block in the table given its hash
     resolveBlock :: BlockHash -> m (Maybe (BlockPointerType m))
     -- |Determine if a block has been finalized.
@@ -87,7 +88,7 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     -- |Determine the next index for finalization.
     nextFinalizationIndex :: m FinalizationIndex
     -- |Get the genesis data.
-    getGenesisData :: m GenesisData
+    getGenesisData :: m (GenesisData pv)
     -- |Get the genesis block pointer.
     genesisBlock :: m (BlockPointerType m)
     -- |Get the height of the highest blocks in the tree.
@@ -113,15 +114,21 @@ class (Monad m, Eq (BlockPointerType m), BlockPointerData (BlockPointerType m), 
     -- |Get a catch-up status message. The flag indicates if the
     -- message should be a catch-up request.
     getCatchUpStatus :: Bool -> m CatchUpStatus
-
+    -- |Get the 'RuntimeParameters'.
     getRuntimeParameters :: m RuntimeParameters
-    default getRuntimeParameters :: (TS.TreeStateMonad m) => m RuntimeParameters
+    default getRuntimeParameters :: (TS.TreeStateMonad pv m) => m RuntimeParameters
     getRuntimeParameters = TS.getRuntimeParameters
+    -- |Determine if consensus has been shut down. This is the case if a protocol update has
+    -- taken effect as of the last finalized block.
+    isShutDown :: m Bool
+    -- |Return the current protocol update, or any pending updates if none has
+    -- yet taken effect.
+    getProtocolUpdateStatus :: m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
 
 data MessageType = MessageBlock | MessageFinalizationRecord
     deriving (Eq, Show)
 
-class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
+class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m -> pv where
     -- |Store a block in the block table and add it to the tree
     -- if possible.
     storeBlock :: PendingBlock -> m UpdateResult
@@ -140,7 +147,7 @@ class (SkovQueryMonad m, TimeMonad m, MonadLogger m) => SkovMonad m where
     handleCatchUpStatus :: CatchUpStatus -> Int -> m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 
 
-instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, SkovQueryMonad pv m) => SkovQueryMonad pv (MGSTrans t m) where
     resolveBlock = lift . resolveBlock
     isFinalized = lift . isFinalized
     lastFinalizedBlock = lift lastFinalizedBlock
@@ -160,6 +167,8 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     blockLastFinalizedIndex = lift . blockLastFinalizedIndex
     getCatchUpStatus = lift . getCatchUpStatus
     getRuntimeParameters = lift getRuntimeParameters
+    isShutDown = lift isShutDown
+    getProtocolUpdateStatus = lift getProtocolUpdateStatus
     {- - INLINE resolveBlock - -}
     {- - INLINE isFinalized - -}
     {- - INLINE lastFinalizedBlock - -}
@@ -180,11 +189,11 @@ instance (Monad (t m), MonadTrans t, SkovQueryMonad m) => SkovQueryMonad (MGSTra
     {- - INLINE getCatchUpStatus - -}
     {- - INLINE getRuntimeParameters - -}
 
-deriving via (MGSTrans MaybeT m) instance SkovQueryMonad m => SkovQueryMonad (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance SkovQueryMonad pv m => SkovQueryMonad pv (MaybeT m)
 
-deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad m => SkovQueryMonad (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance SkovQueryMonad pv m => SkovQueryMonad pv (ExceptT e m)
 
-instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t m) where
+instance (MonadLogger (t m), MonadTrans t, SkovMonad pv m) => SkovMonad pv (MGSTrans t m) where
     storeBlock b = lift $ storeBlock b
     receiveTransaction = lift . receiveTransaction
     trustedFinalize = lift . trustedFinalize
@@ -194,20 +203,29 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad m) => SkovMonad (MGSTrans t
     {- - INLINE trustedFinalize - -}
     {- - INLINE handleCatchUpStatus - -}
 
-deriving via (MGSTrans MaybeT m) instance SkovMonad m => SkovMonad (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance SkovMonad pv m => SkovMonad pv (MaybeT m)
 
-deriving via (MGSTrans (ExceptT e) m) instance SkovMonad m => SkovMonad (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance SkovMonad pv m => SkovMonad pv (ExceptT e m)
 
-getGenesisTime :: (SkovQueryMonad m) => m Timestamp
-getGenesisTime = genesisTime <$> getGenesisData
+-- |Get the 'Timestamp' of the genesis block.
+getGenesisTime :: (SkovQueryMonad pv m) => m Timestamp
+getGenesisTime = gdGenesisTime <$> getGenesisData
 
-getFinalizationParameters :: (SkovQueryMonad m) => m FinalizationParameters
-getFinalizationParameters = genesisFinalizationParameters <$> getGenesisData
+-- |Get the 'FinalizationParameters'.
+getFinalizationParameters :: (SkovQueryMonad pv m) => m FinalizationParameters
+getFinalizationParameters = gdFinalizationParameters <$> getGenesisData
 
-getSlotTime :: (SkovQueryMonad m) => Slot -> m UTCTime
+-- |Get the 'UTCTime' corresponding to a particular slot.
+getSlotTime :: (SkovQueryMonad pv m) => Slot -> m UTCTime
 getSlotTime s = do
         genData <- getGenesisData
-        return $ posixSecondsToUTCTime $ 0.001 * (fromIntegral (tsMillis $ genesisTime genData) + fromIntegral (durationMillis $ genesisSlotDuration genData) * fromIntegral s)
+        return $ posixSecondsToUTCTime $ 0.001 * (fromIntegral (tsMillis $ gdGenesisTime genData) + fromIntegral (durationMillis $ gdSlotDuration genData) * fromIntegral s)
+
+-- |Perform the monadic action unless the consensus is already shut down.
+unlessShutDown :: (SkovQueryMonad pv m) => m UpdateResult -> m UpdateResult
+unlessShutDown a = isShutDown >>= \case
+        True -> return ResultConsensusShutDown
+        False -> a
 
 -- * Generic instance of SkovQueryMonad based on a TreeStateMonad.
 
@@ -224,15 +242,15 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMon
 deriving via (MGSTrans SkovQueryMonadT m) instance AccountOperations m => AccountOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateQuery m => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockPointerMonad m => BlockPointerMonad (SkovQueryMonadT m)
-deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad m => TS.TreeStateMonad (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance TS.TreeStateMonad pv m => TS.TreeStateMonad pv (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockStateStorage (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
 
 instance (Monad m,
           BlockStateQuery m,
-          TS.TreeStateMonad m)
-          => SkovQueryMonad (SkovQueryMonadT m) where
+          TS.TreeStateMonad pv m)
+          => SkovQueryMonad pv (SkovQueryMonadT m) where
     {- - INLINE resolveBlock - -}
     resolveBlock = lift . doResolveBlock
     {- - INLINE isFinalized - -}
@@ -273,8 +291,13 @@ instance (Monad m,
     {- - INLINE queryNextAccountNonce - -}
     queryNextAccountNonce = lift . TS.getNextAccountNonce
 
-deriving via SkovQueryMonadT (GlobalStateM db c r g s m)
+    isShutDown = lift doIsShutDown
+    getProtocolUpdateStatus = lift doGetProtocolUpdateStatus
+
+
+deriving via SkovQueryMonadT (GlobalStateM pv db c r g s m)
       instance (Monad m,
-                BlockStateQuery (BlockStateM c r g s m),
-                BlockStateStorage (BlockStateM c r g s m),
-                TS.TreeStateMonad (TreeStateBlockStateM g c r s m)) => SkovQueryMonad (GlobalStateM db c r g s m)
+                BlockStateQuery (BlockStateM pv c r g s m),
+                BlockStateStorage (BlockStateM pv c r g s m),
+                TS.TreeStateMonad pv (TreeStateBlockStateM pv g c r s m),
+                IsProtocolVersion pv) => SkovQueryMonad pv (GlobalStateM pv db c r g s m)

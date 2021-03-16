@@ -1,4 +1,8 @@
-{-# LANGUAGE DerivingVia, UndecidableInstances, OverloadedStrings, BangPatterns, TupleSections, FlexibleContexts, LambdaCase #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.AccountReleaseScheduleTest where
@@ -48,13 +52,17 @@ import Test.QuickCheck
 
 --------------------------------- Monad Types ----------------------------------
 
+-- |Protocol version.
+type PV = 'P1
+
 type PairedGSContext = PairGSContext () PBS.PersistentBlockStateContext
 
 type PairedGState = PairGState
-                      (SkovData HashedBlockState)
-                      (SkovPersistentData () PBS.HashedPersistentBlockState)
+                      (SkovData PV (HashedBlockState PV))
+                      (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
 
 type ThisMonadConcrete = BlockStateM
+                PV
                 PairedGSContext
                 (Identity PairedGSContext)
                 PairedGState
@@ -92,14 +100,14 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisData now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
     rp = defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }
     config = PairGSConfig (MTMBConfig rp genesis, DTDBConfig rp genesis)
   (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState config
   return (Identity x, Identity y)
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()
-destroyGS (Identity c, Identity s) = shutdownGlobalState (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig)) c s (NoLogContext, NoLogContext)
+destroyGS (Identity c, Identity s) = shutdownGlobalState (Proxy :: Proxy (PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV))) c s (NoLogContext, NoLogContext)
 
 ------------------------------------- Test -------------------------------------
 
@@ -112,7 +120,7 @@ testing = do
       bs1 = _unhashedBlockState $ _bpState (bs ^. pairStateLeft . Concordium.GlobalState.Basic.TreeState.focusBlock)
       bs2 = PBS.hpbsPointers $ _bpState (bs ^. pairStateRight . Concordium.GlobalState.Persistent.TreeState.focusBlock)
 
-  let [(accA, _), (accB, _)] = take 2 $ map (\(_, ac) -> (_accountAddress $ _accountPersisting ac, _accountAmount ac)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
+  let [(accA, _), (accB, _)] = take 2 $ map (\(_, ac) -> (ac ^. accountAddress, ac ^. accountAmount)) $ AT.toList $ accountTable (bs1 ^. blockAccounts)
   b' <- bsoAddReleaseSchedule (bs1, bs2) [(accA, head timestampsA), (accB, head timestampsB)]
   checkEqualBlockReleaseSchedule b'
   bs'' <- foldlM (\b e@(acc, rels) -> do
@@ -141,7 +149,7 @@ tests = do
 ------------------------------------ Checks ------------------------------------
 
 -- | Check that the two implementations of blockstate have the same Block release schedule
-checkEqualBlockReleaseSchedule :: (BS.BlockState, PBS.PersistentBlockState) -> ThisMonadConcrete ()
+checkEqualBlockReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> ThisMonadConcrete ()
 checkEqualBlockReleaseSchedule (blockstateBasic, blockStatePersistent) = do
   let brs = _blockReleaseSchedule blockstateBasic
   ctx <- PBS.pbscBlobStore . _pairContextRight <$> R.ask
@@ -151,7 +159,7 @@ checkEqualBlockReleaseSchedule (blockstateBasic, blockStatePersistent) = do
   assert (brs == brsP) $ return ()
 
 -- | Check that an account has the same Account release schedule in the two implementations of the blockstate
-checkEqualAccountReleaseSchedule :: (BS.BlockState, PBS.PersistentBlockState) -> AccountAddress -> ThisMonadConcrete ()
+checkEqualAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> AccountAddress -> ThisMonadConcrete ()
 checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = do
   let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
   ctx <- PBS.pbscBlobStore . _pairContextRight <$> R.ask
@@ -163,7 +171,7 @@ checkEqualAccountReleaseSchedule (blockStateBasic, blockStatePersistent) acc = d
   assert (Just (getHash (newBasicAccount ^. accountReleaseSchedule)) == newPersistentAccountReleaseScheduleHash) $ return ()
 
 -- | Check that an an account was correctly updated in the two blockstates with the given release schedule
-checkCorrectAccountReleaseSchedule :: (BS.BlockState, PBS.PersistentBlockState) -> (BS.BlockState, PBS.PersistentBlockState) -> (AccountAddress, [(Timestamp, Amount)]) -> ThisMonadConcrete ()
+checkCorrectAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> (AccountAddress, [(Timestamp, Amount)]) -> ThisMonadConcrete ()
 checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldBlockStateBasic, _) (acc, rel) = do
   let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)
   let Just oldBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (oldBlockStateBasic ^. blockAccounts)
@@ -175,7 +183,7 @@ checkCorrectAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldB
 
 -- | Check that the implementations have the same data and that the difference between the old state and the new state after unlocking amounts at the given timestamp is the amount given in the last argument
 -- also check that all the timestamps for this account are over the unlocked timestamps.
-checkCorrectShrinkingAccountReleaseSchedule :: (BS.BlockState, PBS.PersistentBlockState) -> (BS.BlockState, PBS.PersistentBlockState) -> Timestamp -> [(AccountAddress, Amount)] -> ThisMonadConcrete ()
+checkCorrectShrinkingAccountReleaseSchedule :: (BS.BlockState PV, PBS.PersistentBlockState PV) -> (BS.BlockState PV, PBS.PersistentBlockState PV) -> Timestamp -> [(AccountAddress, Amount)] -> ThisMonadConcrete ()
 checkCorrectShrinkingAccountReleaseSchedule (blockStateBasic, blockStatePersistent) (oldBlockStateBasic, _) ts accs =
   let f (acc, rel) = do
         let Just newBasicAccount = Concordium.GlobalState.Basic.BlockState.Accounts.getAccount acc (blockStateBasic ^. blockAccounts)

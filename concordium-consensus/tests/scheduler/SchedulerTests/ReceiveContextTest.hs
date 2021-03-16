@@ -29,7 +29,7 @@ alesAccount, thomasAccount :: AccountAddress
 alesAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 1
 thomasAccount = AccountAddress $ pack $ take accountAddressSize $ repeat 2
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount 1000000000)
                                      $ putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000000) emptyAccounts
 

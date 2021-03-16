@@ -1,4 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module GlobalStateTests.BlockHash where
 
@@ -130,7 +129,7 @@ tests = do
           hfindata = Hash.hashLazy . runPutLazy $ put blockFinData
           blockFinData' = genFinData 2 dummyblockPointer emptyFinalizationProof 1
           blockFinData'' = genFinData 1 defaultHash emptyFinalizationProof 1
-          blockFinData''' = genFinData 1 dummyblockPointer (FinalizationProof ([2], Bls.emptySignature)) 1
+          blockFinData''' = genFinData 1 dummyblockPointer (FinalizationProof [2] Bls.emptySignature) 1
           blockFinData'''' = genFinData 1 dummyblockPointer emptyFinalizationProof 2
         hfindata `shouldNotBe` (Hash.hashLazy . runPutLazy $ put blockFinData')
         hfindata `shouldNotBe` (Hash.hashLazy . runPutLazy $ put blockFinData'')

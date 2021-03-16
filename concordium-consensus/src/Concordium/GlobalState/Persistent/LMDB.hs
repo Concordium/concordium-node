@@ -1,7 +1,8 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE TypeFamilies #-}
 -- |This module provides an abstraction over the operations done in the LMDB database that serves as a backend for storing blocks and finalization records.
 
@@ -60,44 +61,54 @@ import System.Directory
 import qualified Data.HashMap.Strict as HM
 import Concordium.Logger
 
-
-data StoredBlock st = StoredBlock {
+-- |A (finalized) block as stored in the database.
+data StoredBlock pv st = StoredBlock {
   sbFinalizationIndex :: !FinalizationIndex,
   sbInfo :: !BasicBlockPointerData,
-  sbBlock :: !Block,
+  sbBlock :: !(Block pv),
   sbState :: !st
 }
 
-instance S.Serialize st => S.Serialize (StoredBlock st) where
+instance (IsProtocolVersion pv, S.Serialize st) => S.Serialize (StoredBlock pv st) where
   put StoredBlock{..} = S.put sbFinalizationIndex <>
           S.put sbInfo <>
-          putBlockV1 sbBlock <>
+          putBlock (protocolVersion @pv) sbBlock <>
           S.put sbState
   get = do
           sbFinalizationIndex <- S.get
           sbInfo <- S.get
-          sbBlock <- getBlockV1 (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
+          sbBlock <- getBlock (protocolVersion @pv) (utcTimeToTransactionTime (_bpReceiveTime sbInfo))
           sbState <- S.get
           return StoredBlock{..}
 
-newtype BlockStore st = BlockStore MDB_dbi'
+-- |A block store table. A @BlockStore pv st@ stores @StoredBlock pv st@ blocks
+-- indexed by 'BlockHash'.
+newtype BlockStore (pv :: ProtocolVersion) st = BlockStore MDB_dbi'
 
-instance S.Serialize st => MDBDatabase (BlockStore st) where
-  type DBKey (BlockStore st) = BlockHash
-  type DBValue (BlockStore st) = StoredBlock st
-  encodeKey _ = hashToByteString . v0BlockHash
+instance (IsProtocolVersion pv, S.Serialize st) => MDBDatabase (BlockStore pv st) where
+  type DBKey (BlockStore pv st) = BlockHash
+  type DBValue (BlockStore pv st) = StoredBlock pv st
+  encodeKey _ = hashToByteString . blockHash
 
+-- |A finalization record store table. A @FinalizationRecordStore@ stores
+-- 'FinalizationRecord's indexed by 'FinalizationIndex'.
 newtype FinalizationRecordStore = FinalizationRecordStore MDB_dbi'
 
 instance MDBDatabase FinalizationRecordStore where
   type DBKey FinalizationRecordStore = FinalizationIndex
   type DBValue FinalizationRecordStore = FinalizationRecord
 
+-- |A transaction status store table. A @TransactionStatusStore@ stores
+-- 'FinalizedTransactionStatus'es indexed by 'TransactionHash'.
 newtype TransactionStatusStore = TransactionStatusStore MDB_dbi'
 
+-- |Details about a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus {
+  -- |Slot number of the finalized block in which the transaction occurred.
   ftsSlot :: !Slot,
+  -- |Hash of the finalized block in which the transaction occurred.
   ftsBlockHash :: !BlockHash,
+  -- |Index of the transaction in the block.
   ftsIndex :: !TransactionIndex
 } deriving (Eq, Show)
 
@@ -115,27 +126,37 @@ instance MDBDatabase TransactionStatusStore where
   type DBValue TransactionStatusStore = FinalizedTransactionStatus
   encodeKey _ = hashToByteString . v0TransactionHash
 
+-- |Index of block hashes by finalized height.
 newtype FinalizedByHeightStore = FinalizedByHeightStore MDB_dbi'
 
 instance MDBDatabase FinalizedByHeightStore where
   type DBKey FinalizedByHeightStore = BlockHeight
 
   type DBValue FinalizedByHeightStore = BlockHash
-  encodeValue _ = LBS.fromStrict . hashToByteString . v0BlockHash
+  encodeValue _ = LBS.fromStrict . hashToByteString . blockHash
 
 -- |Values used by the LMDBStoreMonad to manage the database.
--- Sometimes we only want read access
-data DatabaseHandlers st = DatabaseHandlers {
+-- The type is parametrised by the protocol version and the block state type.
+data DatabaseHandlers (pv :: ProtocolVersion) st = DatabaseHandlers {
+    -- |The LMDB environment.
     _storeEnv :: !MDB_env,
-    _blockStore :: !(BlockStore st),
+    -- |Store of blocks by hash.
+    _blockStore :: !(BlockStore pv st),
+    -- |Store of finalization records by index.
     _finalizationRecordStore :: !FinalizationRecordStore,
+    -- |Index of transaction references by transaction hash.
     _transactionStatusStore :: !TransactionStatusStore,
+    -- |Index of block hashes by block height.
     _finalizedByHeightStore :: !FinalizedByHeightStore
 }
 makeLenses ''DatabaseHandlers
 
-class HasDatabaseHandlers st s | s -> st where
-  dbHandlers :: Lens' s (DatabaseHandlers st)
+-- |Class for a state that includes 'DatabaseHandlers'.
+-- The first type parameter is the protocol version.
+-- The second type parameter is the block state type.
+-- The third parameter is the state that has the 'DatabaseHandlers'.
+class HasDatabaseHandlers (pv :: ProtocolVersion) st s | s -> pv st where
+  dbHandlers :: Lens' s (DatabaseHandlers pv st)
 
 blockStoreName, finalizationRecordStoreName, transactionStatusStoreName, finalizedByHeightStoreName :: String
 blockStoreName = "blocks"
@@ -143,9 +164,11 @@ finalizationRecordStoreName = "finalization"
 finalizedByHeightStoreName = "finalizedByHeight"
 transactionStatusStoreName = "transactionstatus"
 
+-- |Database growth size increment.
 dbStepSize :: Int
 dbStepSize = 2^(26 :: Int) -- 64MB
 
+-- |Initial database size.
 dbInitSize :: Int
 dbInitSize = dbStepSize
 
@@ -154,7 +177,7 @@ dbInitSize = dbStepSize
 
 -- |Initialize database handlers in ReadWrite mode.
 -- This simply loads the references and does not initialize the databases.
-databaseHandlers :: RuntimeParameters -> IO (DatabaseHandlers st)
+databaseHandlers :: RuntimeParameters -> IO (DatabaseHandlers pv st)
 databaseHandlers RuntimeParameters{..} = makeDatabaseHandlers rpTreeStateDir False
 
 -- |Initialize database handlers.
@@ -163,7 +186,7 @@ makeDatabaseHandlers
   -- ^Path of database
   -> Bool
   -- ^Open read only
-  -> IO (DatabaseHandlers st)
+  -> IO (DatabaseHandlers pv st)
 makeDatabaseHandlers treeStateDir readOnly = do
   _storeEnv <- mdb_env_create
   mdb_env_set_mapsize _storeEnv dbInitSize
@@ -179,7 +202,7 @@ makeDatabaseHandlers treeStateDir readOnly = do
     return DatabaseHandlers{..}
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initializeDatabase :: (S.Serialize st) => PersistentBlockPointer ati bs -> st -> RuntimeParameters -> IO (DatabaseHandlers st)
+initializeDatabase :: (IsProtocolVersion pv, S.Serialize st) => PersistentBlockPointer pv ati bs -> st -> RuntimeParameters -> IO (DatabaseHandlers pv st)
 initializeDatabase gb stRef rp@RuntimeParameters{..} = do
   -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
   -- initialization would fail. It also needs to be a multiple of the OS page size. We considered keeping 4096 as a typical
@@ -200,7 +223,8 @@ initializeDatabase gb stRef rp@RuntimeParameters{..} = do
     storeRecord txn _finalizationRecordStore 0 gbfin
   return handlers
 
-closeDatabase :: DatabaseHandlers st -> IO ()
+-- |Close down the database, freeing the file handles.
+closeDatabase :: DatabaseHandlers pv st -> IO ()
 closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 
 -- |Resize the LMDB map if the file size has changed.
@@ -208,14 +232,14 @@ closeDatabase db = runInBoundThread $ mdb_env_close (db ^. storeEnv)
 -- to handle resizes to the database that are made by the writer.
 -- The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
 -- error, then the map will be resized and the action retried.
-resizeOnResized :: DatabaseHandlers st -> IO a -> IO a
+resizeOnResized :: DatabaseHandlers pv st -> IO a -> IO a
 resizeOnResized dbh a = inner
   where
     inner = handleJust checkResized onResized a
     checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
     onResized _ = mdb_env_set_mapsize (dbh ^. storeEnv) 0 >> inner
 
-resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers st -> Int -> m ()
+resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv st -> Int -> m ()
 resizeDatabaseHandlers dbh size = do
   envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv)
   let delta = size + (dbStepSize - size `mod` dbStepSize)
@@ -226,9 +250,9 @@ resizeDatabaseHandlers dbh size = do
   liftIO $ mdb_env_set_mapsize _storeEnv newMapSize
 
 -- |Read a block from the database by hash.
-readBlock :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
+readBlock :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, S.Serialize st)
   => BlockHash
-  -> m (Maybe (StoredBlock st))
+  -> m (Maybe (StoredBlock pv st))
 readBlock bh = do
   dbh <- use dbHandlers
   liftIO
@@ -236,7 +260,7 @@ readBlock bh = do
     $ \txn -> loadRecord txn (dbh ^. blockStore) bh
 
 -- |Read a finalization record from the database by finalization index.
-readFinalizationRecord :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+readFinalizationRecord :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => FinalizationIndex
   -> m (Maybe FinalizationRecord)
 readFinalizationRecord finIndex = do
@@ -246,7 +270,7 @@ readFinalizationRecord finIndex = do
     $ \txn -> loadRecord txn (dbh ^. finalizationRecordStore) finIndex
 
 -- |Read the status of a transaction from the database by the transaction hash.
-readTransactionStatus :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+readTransactionStatus :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => TransactionHash
   -> m (Maybe FinalizedTransactionStatus)
 readTransactionStatus txHash = do
@@ -256,25 +280,25 @@ readTransactionStatus txHash = do
     $ \txn -> loadRecord txn (dbh ^. transactionStatusStore) txHash
 
 -- |Get a block from the database by its height.
-getFinalizedBlockAtHeight :: (S.Serialize st)
-  => DatabaseHandlers st
+getFinalizedBlockAtHeight :: (IsProtocolVersion pv, S.Serialize st)
+  => DatabaseHandlers pv st
   -> BlockHeight
-  -> IO (Maybe (StoredBlock st))
+  -> IO (Maybe (StoredBlock pv st))
 getFinalizedBlockAtHeight dbh bHeight = transaction (dbh ^. storeEnv) True
     $ \txn -> do
         mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) bHeight
         join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
 
 -- |Read a block from the database by its height.
-readFinalizedBlockAtHeight :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
+readFinalizedBlockAtHeight :: (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, S.Serialize st)
   => BlockHeight
-  -> m (Maybe (StoredBlock st))
+  -> m (Maybe (StoredBlock pv st))
 readFinalizedBlockAtHeight bHeight = do
   dbh <- use dbHandlers
   liftIO $ getFinalizedBlockAtHeight dbh bHeight
 
 -- |Check if the given key is in the on-disk transaction table.
-memberTransactionTable :: (MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+memberTransactionTable :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => TransactionHash
   -> m Bool
 memberTransactionTable th = do
@@ -284,7 +308,7 @@ memberTransactionTable th = do
     $ \txn -> isRecordPresent txn (dbh ^. transactionStatusStore) th
 
 -- |Build a table of a block finalization indexes for blocks.
-loadBlocksFinalizationIndexes :: S.Serialize st => DatabaseHandlers st -> IO (Either String (HM.HashMap BlockHash FinalizationIndex))
+loadBlocksFinalizationIndexes :: (IsProtocolVersion pv, S.Serialize st) => DatabaseHandlers pv st -> IO (Either String (HM.HashMap BlockHash FinalizationIndex))
 loadBlocksFinalizationIndexes dbh = transaction (dbh ^. storeEnv) True $ \txn ->
     withPrimitiveCursor txn (mdbDatabase $ dbh ^. blockStore) $ \cursor -> do
       let
@@ -302,7 +326,7 @@ loadBlocksFinalizationIndexes dbh = transaction (dbh ^. storeEnv) True $ \txn ->
       loop fstRes HM.empty
 
 -- |Get the last finalized block by block height.
-getLastBlock :: S.Serialize st => DatabaseHandlers st -> IO (Either String (FinalizationRecord, StoredBlock st))
+getLastBlock :: (IsProtocolVersion pv, S.Serialize st) => DatabaseHandlers pv st -> IO (Either String (FinalizationRecord, StoredBlock pv st))
 getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
     mLastFin <- withCursor txn (dbh ^. finalizationRecordStore) $ getCursor CursorLast
     case mLastFin of
@@ -314,7 +338,7 @@ getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
       Nothing -> return $ Left "No last finalized block found"
 
 -- |Get the first block
-getFirstBlock :: (S.Serialize st) => DatabaseHandlers st -> IO (Maybe (StoredBlock st))
+getFirstBlock :: (IsProtocolVersion pv, S.Serialize st) => DatabaseHandlers pv st -> IO (Maybe (StoredBlock pv st))
 getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
         mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) 0
         join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
@@ -323,10 +347,10 @@ getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
 -- |Perform a database action that may require the database to be resized,
 -- resizing the database if necessary. The size argument is only evaluated
 -- if the resize actually happens.
-resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+resizeOnFull :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => Int
   -- ^Additional size
-  -> (DatabaseHandlers st -> IO a)
+  -> (DatabaseHandlers pv st -> IO a)
   -- ^Action that may require resizing
   -> m a
 resizeOnFull addSize a = do
@@ -348,8 +372,8 @@ resizeOnFull addSize a = do
 
 -- |Write a block to the database. Adds it both to the index by height and
 -- by block hash.
-writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s, S.Serialize st)
-  => StoredBlock st -> m ()
+writeBlock :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, IsProtocolVersion pv, S.Serialize st)
+  => StoredBlock pv st -> m ()
 writeBlock block = resizeOnFull blockSize
     $ \dbh -> transaction (dbh ^. storeEnv) False
     $ \txn -> do
@@ -360,19 +384,19 @@ writeBlock block = resizeOnFull blockSize
     blockSize = 2*digestSize + fromIntegral (LBS.length (S.encodeLazy block))
 
 -- |Write a finalization record to the database.
-writeFinalizationRecord :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+writeFinalizationRecord :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => FinalizationRecord -> m ()
 writeFinalizationRecord finRec = resizeOnFull finRecSize
     $ \dbh -> transaction (dbh ^. storeEnv) False
     $ \txn ->
         storeReplaceRecord txn (dbh ^. finalizationRecordStore) (finalizationIndex finRec) finRec
   where
-    finRecSize = let FinalizationProof (vs, _)  = finalizationProof finRec in
+    finRecSize = let FinalizationProof vs _ = finalizationProof finRec in
           -- key + finIndex + finBlockPointer + finProof (list of Word32s + BlsSignature.signatureSize) + finDelay
           digestSize + 64 + digestSize + (32 * Prelude.length vs) + 48 + 64
 
 -- |Write a single transaction status to the database.
-writeTransactionStatus :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+writeTransactionStatus :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => TransactionHash -> FinalizedTransactionStatus -> m ()
 writeTransactionStatus th ts = resizeOnFull tsSize
     $ \dbh -> transaction (dbh ^. storeEnv) False
@@ -383,7 +407,7 @@ writeTransactionStatus th ts = resizeOnFull tsSize
 
 -- |Write a collection of transaction statuses to the database.  This occurs
 -- as a single transaction which is faster than writing them individually.
-writeTransactionStatuses :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers st s)
+writeTransactionStatuses :: (MonadLogger m, MonadIO m, MonadState s m, HasDatabaseHandlers pv st s)
   => [(TransactionHash, FinalizedTransactionStatus)] -> m ()
 writeTransactionStatuses tss = resizeOnFull tssSize
     $ \dbh -> transaction (dbh ^. storeEnv) False

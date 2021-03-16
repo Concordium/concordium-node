@@ -1,6 +1,6 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.TreeState(
     module Concordium.GlobalState.Classes,
     module Concordium.GlobalState.Types,
@@ -81,9 +81,11 @@ class (Eq (BlockPointerType m),
        BlockPointerData (BlockPointerType m),
        BlockStateStorage m,
        BlockPointerMonad m,
+       B.EncodeBlock pv (BlockPointerType m),
        PerAccountDBOperations m,
-       Monad m)
-      => TreeStateMonad m where
+       Monad m,
+       IsProtocolVersion pv)
+      => TreeStateMonad pv m | m -> pv where
 
     -- * 'PendingBlock' operations
     -- |Create and sign a 'PendingBlock`.
@@ -142,7 +144,7 @@ class (Eq (BlockPointerType m),
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
     -- |Get the 'GenesisData'.
-    getGenesisData :: m GenesisData
+    getGenesisData :: m (GenesisData pv)
     -- * Operations on the finalization list
     -- |Get the last finalized block.
     getLastFinalized :: m (BlockPointerType m, FinalizationRecord)
@@ -239,7 +241,7 @@ class (Eq (BlockPointerType m),
       -> m [(UpdateSequenceNumber, Set.Set (WithMetadata UpdateInstruction))]
 
     -- |Add a transaction to the transaction table.
-    -- Does nothing if the transaction's nonce preceeds the next available nonce
+    -- Does nothing if the transaction's nonce precedes the next available nonce
     -- for the account at the last finalized block, or if a transaction with the same
     -- hash is already in the table.
     -- Otherwise, adds the transaction to the table and the non-finalized transactions
@@ -326,7 +328,7 @@ class (Eq (BlockPointerType m),
     -- not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
-instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
+instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (MGSTrans t m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash = lift . makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash
     getBlockStatus = lift . getBlockStatus
     makeLiveBlock b parent lastFin st ati time = lift . makeLiveBlock b parent lastFin st ati time
@@ -408,8 +410,8 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE getRuntimeParameters #-}
     {-# INLINE purgeTransactionTable #-}
 
-deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance TreeStateMonad pv m => TreeStateMonad pv (MaybeT m)
+deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad pv m => TreeStateMonad pv (ExceptT e m)
 
 data ImportingResult a = SerializationFail | Success | OtherError a deriving (Show)
 
@@ -418,7 +420,7 @@ data ImportingResult a = SerializationFail | Success | OtherError a deriving (Sh
 --
 -- - version number that determines the format of all the subsequent blocks in the file.
 --
--- The function returns, if successfull, the version, and the unconsumed input.
+-- The function returns, if successful, the version, and the unconsumed input.
 readHeader :: ByteString -> Either String Version
 readHeader = S.runGet S.get
 
@@ -431,24 +433,26 @@ getVersionBytes h = do
     else
     return b
 
-readBlocksV1 :: (Show a) => Handle
+-- |Read a block file in V2 format, invoking the supplied
+-- callback on each block.
+readBlocksV2 :: (Show a) => Handle
            -> UTCTime
            -> LogMethod IO
            -> LogSource
            -> (PendingBlock -> IO (ImportingResult a))
            -> IO (ImportingResult a)
-readBlocksV1 h tm logm logLvl continuation = do
+readBlocksV2 h tm logm logLvl continuation = do
   v <- getVersionBytes h
   case readHeader v of
       Left err -> do
         logm logLvl LLError $ "Error deserializing header: " ++ err
         return SerializationFail
       Right version
-          | version == 1 -> loopV1
+          | version == 2 -> loopV2
           | otherwise -> do
               logm logLvl LLError $ "Unsupported version: " ++ show version
               return SerializationFail
-  where loopV1 = do
+  where loopV2 = do
           isEof <- hIsEOF h
           if isEof
             then return Success
@@ -458,21 +462,22 @@ readBlocksV1 h tm logm logLvl continuation = do
               Left _ -> return SerializationFail
               Right l -> do
                 blockBS <- hGet h (fromIntegral l)
-                result <- importBlockV1 blockBS tm logm logLvl continuation
+                result <- importBlockV2 blockBS tm logm logLvl continuation
                 case result of
-                  Success -> loopV1
+                  Success -> loopV2
                   err -> do -- stop processing at first error that we encounter.
                     logm External LLError $ "Error importing block: " ++ show err
                     return err
 
-importBlockV1 :: ByteString
+-- |Handle loading a single block.
+importBlockV2 :: ByteString
               -> UTCTime
               -> LogMethod IO
               -> LogSource
               -> (PendingBlock -> IO (ImportingResult a))
               -> IO (ImportingResult a)
-importBlockV1 blockBS tm logm logLvl continuation =
-  case B.deserializePendingBlockV1 blockBS tm of
+importBlockV2 blockBS tm logm logLvl continuation =
+  case B.deserializePendingBlock SP1 blockBS tm of
     Left err -> do
       logm logLvl LLError $ "Can't deserialize block: " ++ show err
       return SerializationFail

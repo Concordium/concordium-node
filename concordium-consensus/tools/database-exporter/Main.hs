@@ -10,11 +10,11 @@ main :: IO ()
 main = do
   Identity conf <- execParser opts
   case conf of
-    Check file -> readExportedDatabaseV1 =<< initialReadingHandle file
+    Check file -> readExportedDatabaseV2 =<< initialReadingHandle file
     Export db filepath -> do
       database <- initialDatabase db
       file <- initialHandle filepath
-      runReaderT exportDatabaseV1 (ReadEnv database file)
+      runReaderT exportDatabaseV2 (ReadEnv database file)
  where opts = info (config <**> helper)
         (fullDesc
           <> progDesc "Export the database of a consensus node")

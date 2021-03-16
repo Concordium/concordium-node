@@ -1,4 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Finalization where
 
 import Data.Serialize
@@ -11,6 +13,7 @@ import Data.Aeson(FromJSON, ToJSON)
 import Concordium.Common.Version
 import qualified Concordium.Crypto.BlsSignature as Bls
 import Concordium.Types
+import Concordium.Afgjort.Types
 
 newtype FinalizationIndex = FinalizationIndex {theFinalizationIndex :: Word64} deriving (Eq, Ord, Num, Real, Enum, Integral, Show, ToJSON, FromJSON)
 
@@ -19,14 +22,11 @@ instance Serialize FinalizationIndex where
   get = FinalizationIndex <$> getWord64be
 
 -- TODO (MR) Should the first argument type be [Party] rather than [Word32]?
-data FinalizationProof = FinalizationProof ([Word32], Bls.Signature)
+data FinalizationProof = FinalizationProof {
+    finalizationProofParties :: ![Party],
+    finalizationProofSignature :: !Bls.Signature
+    }
     deriving (Eq)
-
-finalizationProofParties :: FinalizationProof -> [Word32]
-finalizationProofParties (FinalizationProof (parties, _)) = parties
-
-finalizationProofSignature :: FinalizationProof -> Bls.Signature
-finalizationProofSignature (FinalizationProof (_, sig)) = sig
 
 putLength :: Putter Int
 putLength = putWord32be . fromIntegral
@@ -35,17 +35,17 @@ getLength :: Get Int
 getLength = fromIntegral <$> getWord32be
 
 instance Serialize FinalizationProof where
-  put (FinalizationProof (parties, sig)) =
+  put (FinalizationProof parties sig) =
     putLength (length parties) <>
-    mapM_ putWord32be parties <>
+    mapM_ putParty parties <>
     put sig
 
   get = do
     l <- getLength
-    FinalizationProof <$> (getTwoOf (replicateM l getWord32be) get)
+    FinalizationProof <$> replicateM l getParty <*> get
 
 emptyFinalizationProof :: FinalizationProof
-emptyFinalizationProof = FinalizationProof ([], Bls.emptySignature) -- this signature currently won't verify
+emptyFinalizationProof = FinalizationProof [] Bls.emptySignature    -- this signature currently won't verify
                                                                     -- perhaps it should
 
 
@@ -55,8 +55,6 @@ data FinalizationRecord = FinalizationRecord {
     finalizationProof :: !FinalizationProof,
     finalizationDelay :: !BlockHeight
 } deriving (Eq)
-
-
 instance Serialize FinalizationRecord where
     put FinalizationRecord{..} = do
         put finalizationIndex

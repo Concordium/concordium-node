@@ -1,6 +1,7 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Concordium.GlobalState.Basic.TreeState where
 
@@ -36,25 +37,28 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.GlobalState.AccountTransactionIndex
 
-data SkovData bs = SkovData {
+-- |Datatype representing an in-memory tree state.
+-- The first type parameter, @pv@, is the protocol version.
+-- The second type parameter, @bs@, is the type of the block state.
+data SkovData (pv :: ProtocolVersion) bs = SkovData {
     -- |Map of all received blocks by hash.
-    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer bs) PendingBlock)),
+    _blockTable :: !(HM.HashMap BlockHash (TS.BlockStatus (BasicBlockPointer pv bs) PendingBlock)),
     -- |Table of blocks finalized by height.
-    _finalizedByHeightTable :: !(HM.HashMap BlockHeight (BasicBlockPointer bs)),
+    _finalizedByHeightTable :: !(HM.HashMap BlockHeight (BasicBlockPointer pv bs)),
     -- |Map of (possibly) pending blocks by hash
     _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
     -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
     _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
     -- |List of finalization records with the blocks that they finalize, starting from genesis
-    _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer bs)),
+    _finalizationList :: !(Seq.Seq (FinalizationRecord, BasicBlockPointer pv bs)),
     -- |Branches of the tree by height above the last finalized block
-    _branches :: !(Seq.Seq [BasicBlockPointer bs]),
+    _branches :: !(Seq.Seq [BasicBlockPointer pv bs]),
     -- |Genesis data
-    _genesisData :: !GenesisData,
+    _genesisData :: !(GenesisData pv),
     -- |Block pointer to genesis block
-    _genesisBlockPointer :: !(BasicBlockPointer bs),
+    _genesisBlockPointer :: !(BasicBlockPointer pv bs),
     -- |Current focus block
-    _focusBlock :: !(BasicBlockPointer bs),
+    _focusBlock :: !(BasicBlockPointer pv bs),
     -- |Pending transaction table
     _pendingTransactions :: !PendingTransactionTable,
     -- |Transaction table
@@ -68,15 +72,15 @@ data SkovData bs = SkovData {
 }
 makeLenses ''SkovData
 
-instance Show (SkovData bs) where
+instance IsProtocolVersion pv => Show (SkovData pv bs) where
     show SkovData{..} = "Finalized: " ++ intercalate "," (take 6 . show . bpHash . snd <$> toList _finalizationList) ++ "\n" ++
         "Branches: " ++ intercalate "," ( ('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: GenesisData -> bs -> SkovData bs
+initialSkovDataDefault :: IsProtocolVersion pv => GenesisData pv -> bs -> SkovData pv bs
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: RuntimeParameters -> GenesisData -> bs -> SkovData bs
+initialSkovData :: IsProtocolVersion pv => RuntimeParameters -> GenesisData pv -> bs -> SkovData pv bs
 initialSkovData rp gd genState =
   SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
@@ -109,29 +113,28 @@ initialSkovData rp gd genState =
 --
 -- This newtype establishes types for the @GlobalStateTypes@. The type variable @bs@ stands for the BlockState
 -- type used in the implementation.
-newtype PureTreeStateMonad bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
+newtype PureTreeStateMonad (pv :: ProtocolVersion) bs m a = PureTreeStateMonad { runPureTreeStateMonad :: m a }
   deriving (Functor, Applicative, Monad, MonadIO, BlockStateTypes,
             BS.BlockStateQuery, BS.AccountOperations, BS.BlockStateOperations, BS.BlockStateStorage)
 
-deriving instance (Monad m, MonadState (SkovData bs) m) => MonadState (SkovData bs) (PureTreeStateMonad bs m)
+deriving instance (Monad m, MonadState (SkovData pv bs) m) => MonadState (SkovData pv bs) (PureTreeStateMonad pv bs m)
 
+instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad pv bs m) where
+    type BlockPointerType (PureTreeStateMonad pv bs m) = BasicBlockPointer pv bs
 
-instance (bs ~ BlockState m) => GlobalStateTypes (PureTreeStateMonad bs m) where
-    type BlockPointerType (PureTreeStateMonad bs m) = BasicBlockPointer bs
-
-instance (bs ~ BlockState m, Monad m, MonadState (SkovData bs) m) => BlockPointerMonad (PureTreeStateMonad bs m) where
+instance (bs ~ BlockState m, Monad m, MonadState (SkovData pv bs) m, IsProtocolVersion pv) => BlockPointerMonad (PureTreeStateMonad pv bs m) where
     blockState = return . _bpState
     bpParent = return . runIdentity . _bpParent
     bpLastFinalized = return . runIdentity . _bpLastFinalized
 
-instance ATITypes (PureTreeStateMonad bs m) where
-  type ATIStorage (PureTreeStateMonad bs m) = ()
+instance ATITypes (PureTreeStateMonad pv bs m) where
+  type ATIStorage (PureTreeStateMonad pv bs m) = ()
 
-instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad bs m) where
+instance (Monad m) => PerAccountDBOperations (PureTreeStateMonad pv bs m) where
   -- default instance because ati = ()
 
-instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData bs) m)
-          => TS.TreeStateMonad (PureTreeStateMonad bs m) where
+instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadState (SkovData pv bs) m, IsProtocolVersion pv)
+          => TS.TreeStateMonad pv (PureTreeStateMonad pv bs m) where
     makePendingBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash time = do
         return $ makePendingBlock (signBlock key slot parent bid pf n lastFin trs statehash transactionOutcomesHash) time
     getBlockStatus bh = use (blockTable . at' bh)

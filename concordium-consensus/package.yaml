@@ -34,6 +34,7 @@ dependencies:
 - unordered-containers >= 0.2
 - hashable >= 1.0.1.1
 - containers >0.5.9.1
+- data-fix >= 0.3
 - time >=1.8
 - transformers >=0.5
 - microlens-platform >=0.3
@@ -55,18 +56,18 @@ dependencies:
 - monad-logger >= 0.3.30
 - recursion-schemes >= 5.1
 - file-embed >= 0.0.11
-
 - lmdb
 
 default-extensions:
-- RecordWildCards
-- LambdaCase
-- TupleSections
-- MultiParamTypeClasses
 - FlexibleContexts
 - FlexibleInstances
 - FunctionalDependencies
 - GeneralizedNewtypeDeriving
+- KindSignatures
+- LambdaCase
+- MultiParamTypeClasses
+- RecordWildCards
+- TupleSections
 
 flags:
   dynamic:
@@ -174,6 +175,32 @@ executables:
                 ghc-options: -static
     dependencies:
     - concordium-consensus
+
+  execute-chain:
+    main:                Main.hs
+    source-dirs:         test-runners/execute-chain
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - clock
+
 
   database-exporter:
     main:         Main.hs

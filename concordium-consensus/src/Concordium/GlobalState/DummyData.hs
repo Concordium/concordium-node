@@ -1,4 +1,7 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, TemplateHaskell #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Concordium.GlobalState.DummyData where
@@ -35,6 +38,7 @@ import qualified Data.ByteString as BS
 import Concordium.Crypto.DummyData
 import Concordium.ID.DummyData
 import Concordium.Types.DummyData
+import qualified Concordium.Genesis.Data.P1 as P1
 
 cryptoParamsFileContents :: BS.ByteString
 cryptoParamsFileContents = $(makeRelativeToProject "testdata/global.json" >>= embedFile)
@@ -128,8 +132,8 @@ mkFullBaker seed _bakerIdentity = (FullBakerInfo {
         sk = bakerSignKey seed
         blssk = bakerAggregationKey seed
 
-{-# WARNING makeTestingGenesisData "Do not use in production" #-}
-makeTestingGenesisData ::
+{-# WARNING makeTestingGenesisDataP1 "Do not use in production" #-}
+makeTestingGenesisDataP1 ::
     Timestamp -- ^Genesis time
     -> Word  -- ^Initial number of bakers.
     -> Duration  -- ^Slot duration in seconds.
@@ -141,8 +145,8 @@ makeTestingGenesisData ::
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
     -> Authorizations -- ^Initial update authorizations
     -> ChainParameters -- ^Initial chain parameters
-    -> GenesisData
-makeTestingGenesisData
+    -> GenesisData 'P1
+makeTestingGenesisDataP1
   genesisTime
   nBakers
   genesisSlotDuration
@@ -154,9 +158,14 @@ makeTestingGenesisData
   genesisMaxBlockEnergy
   genesisAuthorizations
   genesisChainParameters
-    = GenesisDataV2 {..}
+    = GDP1 P1.GDP1Initial {
+        genesisCore=P1.CoreGenesisParameters{..},
+        genesisInitialState=P1.GenesisState{..}
+      }
     where
-        genesisSeedState = SeedState.initialSeedState (Hash.hash "LeadershipElectionNonce") 10 -- todo hardcoded epoch length (and initial seed)
+        -- todo hardcoded epoch length (and initial seed)
+        genesisEpochLength = 10
+        genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisFinalizationParameters =
           FinalizationParameters {
            finalizationWaitingTime = 100,
@@ -167,10 +176,11 @@ makeTestingGenesisData
            finalizationAllowZeroDelay = False,
            ..
          }
-        genesisAccounts = makeFakeBakers nBakers
+        genesisAccounts = Vec.fromList $ makeFakeBakers nBakers
+
 
 {-# WARNING emptyBirkParameters "Do not use in production." #-}
-emptyBirkParameters :: Accounts -> BasicBirkParameters
+emptyBirkParameters :: Accounts pv -> BasicBirkParameters
 emptyBirkParameters accounts = initialBirkParameters (snd <$> AT.toList (accountTable accounts)) (SeedState.initialSeedState (Hash.hash "NONCE") 360)
 
 dummyRewardParameters :: RewardParameters
@@ -196,7 +206,7 @@ dummyChainParameters :: ChainParameters
 dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001 1000000 168 10 dummyRewardParameters 0 300000000000
 
 {-# WARNING createBlockState "Do not use in production" #-}
-createBlockState :: Accounts -> BlockState
+createBlockState :: Accounts pv -> BlockState pv
 createBlockState accounts =
     emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
       (blockAccounts .~ accounts) .
@@ -205,14 +215,14 @@ createBlockState accounts =
       (blockAnonymityRevokers . unhashed .~ dummyArs)
 
 {-# WARNING blockStateWithAlesAccount "Do not use in production" #-}
-blockStateWithAlesAccount :: Amount -> Accounts -> BlockState
+blockStateWithAlesAccount :: IsProtocolVersion pv => Amount -> Accounts pv -> BlockState pv
 blockStateWithAlesAccount alesAmount otherAccounts =
     createBlockState $ putAccountWithRegIds (mkAccount alesVK alesAccount alesAmount) otherAccounts
 
 -- This generates an account with a single credential and single keypair, which has sufficiently
 -- late expiry date, but is otherwise not well-formed.
 {-# WARNING mkAccount "Do not use in production." #-}
-mkAccount :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
+mkAccount :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
 mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyMaxValidTo dummyCreatedAt
@@ -221,7 +231,7 @@ mkAccount key addr amnt = newAccount dummyCryptographicParameters addr cred & ac
 -- the credential should already be considered expired. (Its valid-to date will be
 -- Jan 1000, which precedes the earliest expressible timestamp by 970 years.)
 {-# WARNING mkAccountExpiredCredential "Do not use in production." #-}
-mkAccountExpiredCredential :: SigScheme.VerifyKey -> AccountAddress -> Amount -> Account
+mkAccountExpiredCredential :: IsProtocolVersion pv => SigScheme.VerifyKey -> AccountAddress -> Amount -> Account pv
 mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amnt
   where
     cred = dummyCredential dummyCryptographicParameters addr key dummyLowValidTo dummyCreatedAt
@@ -231,8 +241,8 @@ mkAccountExpiredCredential key addr amnt = newAccount dummyCryptographicParamete
 -- The keys are indexed in ascending order starting from 0
 -- The list of keys should be non-empty.
 {-# WARNING mkAccountMultipleKeys "Do not use in production." #-}
-mkAccountMultipleKeys :: [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account
-mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountPersisting . accountVerificationKeys .~ ai
+mkAccountMultipleKeys :: IsProtocolVersion pv => [SigScheme.VerifyKey] -> SignatureThreshold -> AccountAddress -> Amount -> Account pv
+mkAccountMultipleKeys keys threshold addr amount = newAccount dummyCryptographicParameters addr cred & accountAmount .~ amount & accountVerificationKeys .~ ai
 
   where
     cred = dummyCredential dummyCryptographicParameters addr (head keys) dummyMaxValidTo dummyCreatedAt

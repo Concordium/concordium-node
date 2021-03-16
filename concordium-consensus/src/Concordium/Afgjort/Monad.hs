@@ -28,16 +28,19 @@ class (Monad m) => FinalizationMonad m where
     -- |Notify finalization that a finalization message has been received.
     -- The result can be one of the following:
     --
-    -- * `ResultStale`: the message is for an old finalization round.
-    -- * `ResultUnverifiable`: the message could not be verified because it pertains to a future round.
-    -- * `ResultDuplicate`: the message was received before.
-    -- * `ResultPendingFinalization`: the message is for a future round, but we're not throwing it away.
-    -- * `ResultInvalid`: the message is not valid.
-    -- * `ResultSuccess`: the message was received and not found invalid.
-    -- * `ResultIncorrectFinalizationSession`: the finalization session of the message is not what is expected.
-    -- * `ResultPendingBlock`: the message suggests we are missing blocks; attempt catch up.
+    -- * 'ResultStale': the message is for an old finalization round.
+    -- * 'ResultUnverifiable': the message could not be verified because it pertains to a future round.
+    -- * 'ResultDuplicate': the message was received before.
+    -- * 'ResultPendingFinalization': the message is for a future round, but we're not throwing it away.
+    -- * 'ResultInvalid': the message is not valid.
+    -- * 'ResultSuccess': the message was received and not found invalid.
+    -- * 'ResultIncorrectFinalizationSession': the finalization session of the message is not what is expected.
+    -- * 'ResultPendingBlock': the message suggests we are missing blocks; attempt catch up.
+    -- * 'ResultConsensusShutDown': the consensus has been shut down (due to an update).
     finalizationReceiveMessage :: FinalizationPseudoMessage -> m UpdateResult
     -- |Handle receipt of a finalization record.
+    --
+    -- If consensus has already shut down (due to a protocol update), returns 'ResultConsensusShutDown'.
     --
     -- If the record is for a finalization index that is settled (i.e. the finalization
     -- record appears in a finalized block) then this returns 'ResultStale'.

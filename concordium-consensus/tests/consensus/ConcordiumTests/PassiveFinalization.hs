@@ -1,4 +1,6 @@
-{-# LANGUAGE OverloadedStrings, TypeFamilies #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.PassiveFinalization where
 
@@ -7,6 +9,7 @@ import Control.Monad.IO.Class
 import Control.Monad.Trans.State
 import Data.Time.Clock.POSIX
 import Data.Time.Clock
+import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Test.Hspec
@@ -29,8 +32,8 @@ import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
+import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
 
@@ -50,10 +53,13 @@ import qualified Concordium.GlobalState.DummyData as Dummy
 -- for cases where finalization messages are received out of order (i.e. messages for a later
 -- finalization round arrive before the messages for an earlier finalization round).
 
+-- |Protocol version
+type PV = 'P1
+
 dummyTime :: UTCTime
 dummyTime = posixSecondsToUTCTime 0
 
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationParameters
 finalizationParameters = defaultFinalizationParameters{finalizationMinimumSkip=100} -- setting minimum skip to 100 to prevent finalizers to finalize blocks when they store them
@@ -90,7 +96,7 @@ myRunSkovT a handlers ctx st = liftIO $ flip runLoggerT doLog $ do
         doLog _ _ _ = return () -- traceM $ show src ++ ": " ++ msg
 
 type BakerState = (BakerIdentity, SkovContext (Config DummyTimer), SkovState (Config DummyTimer))
-type BakerInformation = (FullBakerInfo, BakerIdentity, Account)
+type BakerInformation = (FullBakerInfo, BakerIdentity, Account PV)
 
 -- This test has the following set up:
 -- There are two bakers, baker1 and baker2, and a finalization-committee member, finMember.
@@ -191,8 +197,14 @@ runTest firstBlocks
                         successfulFins = length $ filter (\(_, r) -> r `elem` [ResultSuccess, ResultPendingFinalization]) receivedIndicesAndExpectedResults
                     mapM (\(i, b) -> bakeVerify (fromIntegral firstBlocks + i) b $ fromIntegral i) $ zip [1..] $ take (fromIntegral successfulFins) blocks
                 ) dummyHandlers fi2 fs2
-        where receiveFM :: BakedBlock -> FinalizationIndex -> UpdateResult -> BakerState -> MySkovT ()
-              receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _ _) =
+        where
+            receiveFM :: (FinalizationMonad m, MonadIO m, MonadFail m)
+                => BakedBlock
+                -> FinalizationIndex
+                -> UpdateResult
+                -> (BakerIdentity, b, SkovState (Config DummyTimer))
+                -> m ()
+            receiveFM block ind res (fmId, _, SkovState TS.SkovData{} FinalizationState{..} _ _) =
                 case _finsCurrentRound of
                     ActiveCurrentRound FinalizationRound{..} ->
                         receiveFinMessage (_finsIndex + ind) block roundDelta _finsSessionId roundMe fmId res
@@ -206,7 +218,7 @@ bake bid n = do
           (\BS.BlockPointer {_bpBlock = NormalBlock block} -> return block)
           mb
 
-store :: (SkovMonad m, MonadFail m) => BakedBlock -> m ()
+store :: (SkovMonad PV m, MonadFail m) => BakedBlock -> m ()
 store block = storeBlock (makePendingBlock block dummyTime) >>= \case
     ResultSuccess -> return()
     result        -> fail $ "Could not store block " ++ show block ++ ". Reason: " ++ show result
@@ -271,23 +283,26 @@ createInitStates additionalFinMembers = do
         finMemberAmount = bakerAmount * 10 ^ (6 :: Int)
     let bis@(baker1:baker2:finMember:finMembers) = makeBakersByStake ([bakerAmount, bakerAmount, finMemberAmount] ++ take additionalFinMembers (repeat finMemberAmount))
     let 
-        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = map (\(_, _, acc, _) -> acc) bis
         cps = dummyChainParameters & cpElectionDifficulty .~ makeElectionDifficultyUnchecked 100000
-        gen = GenesisDataV2 {
-                genesisTime = 0,
-                genesisSlotDuration = 1,
-                genesisSeedState = seedState,
-                genesisAccounts = bakerAccounts,
-                genesisFinalizationParameters = finalizationParameters,
-                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
-                genesisIdentityProviders = emptyIdentityProviders,
-                genesisAnonymityRevokers = Dummy.dummyArs,
-                genesisMaxBlockEnergy = Energy maxBound,
-                genesisAuthorizations = dummyAuthorizations,
-                genesisChainParameters = cps
+        gen = GDP1 GDP1Initial {
+                genesisCore = CoreGenesisParameters {
+                    genesisTime = 0,
+                    genesisSlotDuration = 1,
+                    genesisEpochLength = 10,
+                    genesisMaxBlockEnergy = Energy maxBound,
+                    genesisFinalizationParameters = finalizationParameters
+                },
+                genesisInitialState = GenesisState {
+                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                    genesisIdentityProviders = emptyIdentityProviders,
+                    genesisAnonymityRevokers = Dummy.dummyArs,
+                    genesisAuthorizations = dummyAuthorizations,
+                    genesisChainParameters = cps,
+                    genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
+                    genesisAccounts = Vec.fromList bakerAccounts
+                }
             }
-
         createState = liftIO . (\(bid, _, _, _) -> do
                                    let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                        config = SkovConfig

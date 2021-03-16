@@ -120,7 +120,7 @@ instance FromJSON RuntimeParameters where
     when (rpBlockSize <= 0) $
       fail "Block size must be a positive integer."
     when (rpEarlyBlockThreshold <= 0) $
-      fail "The early block threshold must be a postitive integer"
+      fail "The early block threshold must be a positive integer"
     return RuntimeParameters{..}
 
 -- |Values of updates that are stored in update queues.

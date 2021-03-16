@@ -22,12 +22,13 @@ import            Concordium.Types.DummyData
 import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
 
-initialBlockState :: BlockState
+
+initialBlockState :: BlockState PV
 initialBlockState = createBlockState $
                     Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1] 2 alesAccount 10000000000)
                     Acc.emptyAccounts
 
-initialBlockState2 :: BlockState
+initialBlockState2 :: BlockState PV
 initialBlockState2 = createBlockState $
                     Acc.putAccountWithRegIds (mkAccountMultipleKeys [vk kp0, vk kp1, vk kp2, vk kp3, vk kp4] 2 alesAccount 10000000000)
                     Acc.emptyAccounts

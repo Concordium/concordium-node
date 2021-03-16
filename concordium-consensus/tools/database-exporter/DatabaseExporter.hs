@@ -1,6 +1,7 @@
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TemplateHaskell            #-}
-{-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-|
 Module      : DatabaseExporter
 
@@ -27,10 +28,10 @@ module DatabaseExporter (
   ReadEnv(..),
   initialHandle,
   initialDatabase,
-  exportDatabaseV1,
+  exportDatabaseV2,
   -- * Exporting
   initialReadingHandle,
-  readExportedDatabaseV1
+  readExportedDatabaseV2
   ) where
 
 import           Concordium.Logger
@@ -50,15 +51,15 @@ import           Lens.Micro.Platform
 import           System.Directory
 import           System.FilePath.Posix
 import           System.IO
-import           Concordium.GlobalState.TreeState (ImportingResult(..), readBlocksV1)
+import           Concordium.GlobalState.TreeState (ImportingResult(..), readBlocksV2)
 
 data ReadEnv = ReadEnv
-    { _db         :: DatabaseHandlers (BlockStatePointer PersistentBlockState)
+    { _db         :: DatabaseHandlers 'P1 (BlockStatePointer (PersistentBlockState 'P1))
     , _exportFile :: Handle
     }
 makeLenses ''ReadEnv
 
-initialDatabase :: FilePath -> IO (DatabaseHandlers (BlockStatePointer PersistentBlockState))
+initialDatabase :: FilePath -> IO (DatabaseHandlers 'P1 (BlockStatePointer (PersistentBlockState 'P1)))
 initialDatabase p = makeDatabaseHandlers p True
 
 initialHandle :: FilePath -> IO Handle
@@ -71,20 +72,20 @@ initialHandle p = do
     createDirectoryIfMissing True (takeDirectory p)
     openBinaryFile p WriteMode
 
-exportHeaderV1 :: ReaderT ReadEnv IO ()
-exportHeaderV1 = do
+exportHeaderV2 :: ReaderT ReadEnv IO ()
+exportHeaderV2 = do
   export <- view exportFile
-  let header = S.encode (1 :: Version)
+  let header = S.encode (2 :: Version)
   liftIO $ BS.hPut export header
 
-exportBlockV1 :: BlockHeight -> ReaderT ReadEnv IO ()
-exportBlockV1 finalizedHeight = do
+exportBlockV2 :: BlockHeight -> ReaderT ReadEnv IO ()
+exportBlockV2 finalizedHeight = do
   theDB <- view db
   mblock <- liftIO $ resizeOnResized theDB (getFinalizedBlockAtHeight theDB finalizedHeight)
   case mblock of
     Nothing -> return ()
     Just storedBlock -> do
-      let serializedBlock = S.runPut (putBlockV1 (sbBlock storedBlock))
+      let serializedBlock = S.runPut (putBlock SP1 (sbBlock storedBlock))
           len = BS.length serializedBlock
       export <- view exportFile
       liftIO $ do
@@ -94,14 +95,14 @@ exportBlockV1 finalizedHeight = do
           ++ ". Serialized length: " ++ show (8 + len)
         BS.hPut export (S.runPut (S.putWord64be (fromIntegral len))) -- put length
         BS.hPut export serializedBlock -- put block bytes
-      exportBlockV1 (finalizedHeight + 1)
+      exportBlockV2 (finalizedHeight + 1)
 
--- |Export the database in V1 format. This currently puts the version number first (1), and after that
+-- |Export the database in V2 format. This currently puts the version number first (2), and after that
 -- the list of blocks in format (length, block bytes) where length is serialized in big-endian Word64.
-exportDatabaseV1 :: ReaderT ReadEnv IO ()
-exportDatabaseV1 = do
-  exportHeaderV1
-  exportBlockV1 1
+exportDatabaseV2 :: ReaderT ReadEnv IO ()
+exportDatabaseV2 = do
+  exportHeaderV2
+  exportBlockV2 1
   export <- view exportFile
   liftIO $ do
     hClose export
@@ -111,12 +112,12 @@ exportDatabaseV1 = do
 initialReadingHandle :: FilePath -> IO Handle
 initialReadingHandle p = openBinaryFile p ReadMode
 
-readExportedDatabaseV1 :: Handle -> IO ()
-readExportedDatabaseV1 h = do
+readExportedDatabaseV2 :: Handle -> IO ()
+readExportedDatabaseV2 h = do
   liftIO $ do
     tm <- liftIO getCurrentTime
     putStrLn "Starting database processing"
-    result <- readBlocksV1 h tm (\_ src str-> putStrLn $ show src ++ ": " ++ str) GlobalState (const $ return Success) :: IO (ImportingResult ())
+    result <- readBlocksV2 h tm (\_ src str-> putStrLn $ show src ++ ": " ++ str) GlobalState (const $ return Success) :: IO (ImportingResult ())
     case result of
       SerializationFail -> putStrLn "Error."
       _ -> putStrLn "Done."
