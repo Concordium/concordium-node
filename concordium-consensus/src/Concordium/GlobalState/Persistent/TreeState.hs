@@ -135,6 +135,8 @@ data SkovPersistentData (pv :: ProtocolVersion) ati bs = SkovPersistentData {
     _statistics :: !ConsensusStatistics,
     -- |Runtime parameters
     _runtimeParameters :: !RuntimeParameters,
+    -- |Tree state directory
+    _treeStateDirectory :: !FilePath,
     -- | Database handlers
     _db :: !(DatabaseHandlers pv (TS.BlockStatePointer bs)),
     -- |Context for the transaction log.
@@ -152,24 +154,34 @@ initialSkovPersistentDataDefault
     => FilePath
     -> GenesisData pv
     -> bs
-    -> (ATIValues ati, ATIContext ati)
+    -> ATIValues ati
+    -> ATIContext ati
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
     -> IO (SkovPersistentData pv ati bs)
-initialSkovPersistentDataDefault dir = initialSkovPersistentData (defaultRuntimeParameters { rpTreeStateDir = dir })
+initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 initialSkovPersistentData
     :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs))
     => RuntimeParameters
+    -- ^Runtime parameters
+    -> FilePath
+    -- ^Tree state directory
     -> GenesisData pv
+    -- ^Genesis data
     -> bs
-    -> (ATIValues ati, ATIContext ati)
-    -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
+    -- ^Genesis state
+    -> ATIValues ati
+    -- ^Account transaction index summary for genesis block
+    -> ATIContext ati
+    -- ^Account transaction index configuration
+    -> TS.BlockStatePointer bs
+    -- ^Genesis block state
     -> IO (SkovPersistentData pv ati bs)
-initialSkovPersistentData rp gd genState ati serState = do
-  gb <- makeGenesisPersistentBlockPointer gd genState (fst ati)
+initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState = do
+  gb <- makeGenesisPersistentBlockPointer gd genState genATI
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  initialDb <- initializeDatabase gb serState rp
+  initialDb <- initializeDatabase gb serState treeStateDir
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -185,8 +197,9 @@ initialSkovPersistentData rp gd genState ati serState = do
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
+            _treeStateDirectory = treeStateDir,
             _db = initialDb,
-            _atiCtx = snd ati
+            _atiCtx = atiContext
         }
 
 --------------------------------------------------------------------------------
@@ -194,10 +207,16 @@ initialSkovPersistentData rp gd genState ati serState = do
 -- * Initialization functions
 
 -- |Check the permissions in the required files.
-checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) => RuntimeParameters -> m (FilePath, Bool)
-checkExistingDatabase rp = do
-  let blockStateFile = rpBlockStateFile rp <.> "dat"
-      treeStateFile = rpTreeStateDir rp </> "data.mdb"
+-- Returns 'True' if the database already existed, 'False' if not.
+-- Raises an exception of the database is inaccessible, or only partially exists.
+checkExistingDatabase :: forall m. (MonadLogger m, MonadIO m) =>
+    -- |Tree state path
+    FilePath ->
+    -- |Block state file
+    FilePath ->
+    m Bool
+checkExistingDatabase treeStateDir blockStateFile = do
+  let treeStateFile = treeStateDir </> "data.mdb"
   bsPathEx <- liftIO $ doesPathExist blockStateFile
   tsPathEx <- liftIO $ doesPathExist treeStateFile
 
@@ -222,13 +241,13 @@ checkExistingDatabase rp = do
          checkRWFile blockStateFile BlockStatePermissionError
          checkRWFile treeStateFile TreeStatePermissionError
          mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
-         return (blockStateFile, True)
+         return True
      | bsPathEx -> do
          logExceptionAndThrowTS $ DatabaseInvariantViolation "Block state file exists, but tree state file does not."
      | tsPathEx -> do
          logExceptionAndThrowTS $ DatabaseInvariantViolation "Tree state file exists, but block state file does not."
      | otherwise ->
-         return (blockStateFile, False)
+         return False
 
 -- |Try to load an existing instance of skov persistent data.
 -- This function will raise an exception if it detects invariant violation in the
@@ -247,18 +266,19 @@ checkExistingDatabase rp = do
 -- random segmentation faults and similar exceptions.
 loadSkovPersistentData :: forall ati pv. (IsProtocolVersion pv, CanExtend (ATIValues ati))
                        => RuntimeParameters
+                       -> FilePath -- ^Tree state directory
                        -> GenesisData pv
                        -> PBS.PersistentBlockStateContext
-                       -> (ATIValues ati, ATIContext ati)
+                       -> ATIContext ati
                        -> LogIO (SkovPersistentData pv ati (PBS.HashedPersistentBlockState pv))
-loadSkovPersistentData rp _genesisData pbsc atiPair = do
+loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
   -- we open the environment first.
   -- It might be that the database is bigger than the default environment size.
   -- This seems to not be an issue while we only read from the database,
   -- and on insertions we resize the environment anyhow.
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
-          liftIO (try $ databaseHandlers rp)
+          liftIO (try $ databaseHandlers _treeStateDirectory)
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<
@@ -313,7 +333,7 @@ loadSkovPersistentData rp _genesisData pbsc atiPair = do
             -- consensus started.
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
-            _atiCtx = snd atiPair,
+            _atiCtx = atiContext,
             ..
         }
 

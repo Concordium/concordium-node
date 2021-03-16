@@ -19,7 +19,7 @@ import Data.Foldable(forM_)
 import Text.Read(readMaybe)
 import Control.Exception
 import Control.Monad.State.Class(MonadState)
-import System.FilePath ((</>))
+import System.FilePath ((</>), (<.>))
 
 import qualified Data.Text.Lazy as LT
 import qualified Data.Aeson.Text as AET
@@ -206,12 +206,23 @@ callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
 type TreeConfig = DiskTreeDiskBlockConfig 'P1
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData 'P1 -> TreeConfig
-makeGlobalStateConfig rt genData = DTDBConfig rt genData
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> GenesisData 'P1 -> TreeConfig
+makeGlobalStateConfig rt appData genData = DTDBConfig{
+        dtdbRuntimeParameters = rt,
+        dtdbTreeStateDirectory = appData </> "treestate",
+        dtdbBlockStateFile = appData </> "blockstate" <.> "dat",
+        dtdbGenesisData = genData
+    }
 
 type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig 'P1
-makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData 'P1 -> BS.ByteString -> TreeConfigWithLog
-makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData
+makeGlobalStateConfigWithLog :: RuntimeParameters -> FilePath -> GenesisData 'P1 -> BS.ByteString -> TreeConfigWithLog
+makeGlobalStateConfigWithLog rt appData genData txDBConnString = DTDBWLConfig{
+        dtdbwlRuntimeParameters = rt,
+        dtdbwlTreeStateDirectory = appData </> "treestate",
+        dtdbwlBlockStateFile = appData </> "blockstate" <.> "dat",
+        dtdbwlGenesisData = genData,
+        dtdbwlTxDBConnectionString = txDBConnString
+    }
 
 
 type ActiveConfig gs = SkovConfig 'P1 gs (BufferedFinalization ThreadTimer) LogUpdateHandler
@@ -309,8 +320,6 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         let runtimeParams = RuntimeParameters {
               rpBlockSize = fromIntegral maxBlock,
-              rpTreeStateDir = appData </> "treestate",
-              rpBlockStateFile = appData </> "blockstate",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
@@ -326,6 +335,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
                 let
                     gsconfig = makeGlobalStateConfigWithLog
                         runtimeParams
+                        appData
                         genData
                         connString
                     config = SkovConfig gsconfig finconfig hconfig
@@ -340,6 +350,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
                 let
                     gsconfig = makeGlobalStateConfig
                         runtimeParams
+                        appData
                         genData
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
@@ -385,8 +396,6 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         let runtimeParams = RuntimeParameters {
               rpBlockSize = fromIntegral maxBlock,
-              rpTreeStateDir = appData </> "treestate",
-              rpBlockStateFile = appData </> "blockstate",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
@@ -401,6 +410,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                 let
                     gsconfig = makeGlobalStateConfigWithLog
                         runtimeParams
+                        appData
                         genData
                         connString
                     config = SkovConfig gsconfig finconfig hconfig
@@ -413,6 +423,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                 let
                     gsconfig = makeGlobalStateConfig
                         runtimeParams
+                        appData
                         genData
                     config = SkovConfig gsconfig finconfig hconfig
                 regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr

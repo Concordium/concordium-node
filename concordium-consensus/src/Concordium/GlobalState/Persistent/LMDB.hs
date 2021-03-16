@@ -38,7 +38,6 @@ module Concordium.GlobalState.Persistent.LMDB (
   ) where
 
 import Concordium.GlobalState.LMDB.Helpers
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
@@ -177,8 +176,8 @@ dbInitSize = dbStepSize
 
 -- |Initialize database handlers in ReadWrite mode.
 -- This simply loads the references and does not initialize the databases.
-databaseHandlers :: RuntimeParameters -> IO (DatabaseHandlers pv st)
-databaseHandlers RuntimeParameters{..} = makeDatabaseHandlers rpTreeStateDir False
+databaseHandlers :: FilePath -> IO (DatabaseHandlers pv st)
+databaseHandlers treeStateDir = makeDatabaseHandlers treeStateDir False
 
 -- |Initialize database handlers.
 makeDatabaseHandlers
@@ -202,13 +201,20 @@ makeDatabaseHandlers treeStateDir readOnly = do
     return DatabaseHandlers{..}
 
 -- |Initialize the database handlers creating the databases if needed and writing the genesis block and its finalization record into the disk
-initializeDatabase :: (IsProtocolVersion pv, S.Serialize st) => PersistentBlockPointer pv ati bs -> st -> RuntimeParameters -> IO (DatabaseHandlers pv st)
-initializeDatabase gb stRef rp@RuntimeParameters{..} = do
+initializeDatabase :: (IsProtocolVersion pv, S.Serialize st) =>
+  -- |Genesis block pointer
+  PersistentBlockPointer pv ati bs ->
+  -- |Genesis block state
+  st ->
+  -- |Tree state directory
+  FilePath ->
+  IO (DatabaseHandlers pv st)
+initializeDatabase gb stRef treeStateDir = do
   -- The initial mapsize needs to be high enough to allocate the genesis block and its finalization record or
   -- initialization would fail. It also needs to be a multiple of the OS page size. We considered keeping 4096 as a typical
   -- OS page size and setting the initial mapsize to 64MB which is very unlikely to be reached just by the genesis block.
-  createDirectoryIfMissing False rpTreeStateDir
-  handlers@DatabaseHandlers{..} <- databaseHandlers rp
+  createDirectoryIfMissing False treeStateDir
+  handlers@DatabaseHandlers{..} <- databaseHandlers treeStateDir
   let gbh = getHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
   transaction _storeEnv False $ \txn -> do

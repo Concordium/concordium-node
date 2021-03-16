@@ -65,13 +65,13 @@ type TreeConfig = DiskTreeDiskBlockConfig PV
 
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> (GenesisData PV) -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
 
 {-
 type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
-makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+makeGlobalStateConfig rp treeStateDir blockStateFile genData =
+   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
 -}
 
 -- |A timer is represented as an integer identifier.
@@ -263,7 +263,11 @@ initialState = do
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
             createDirectoryIfMissing True "data"
-            gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) genData --dbConnString
+            gsconfig <- makeGlobalStateConfig 
+                            defaultRuntimeParameters 
+                            ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
+                            ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
+                            genData
             let
                 finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
                 hconfig = NoHandler

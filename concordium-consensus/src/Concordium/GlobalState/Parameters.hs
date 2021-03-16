@@ -77,10 +77,6 @@ data RuntimeParameters = RuntimeParameters {
   -- applies to the blocks produced by this baker, we will still accept blocks
   -- of arbitrary size from other bakers.
   rpBlockSize :: !Int,
-  -- |Treestate storage directory.
-  rpTreeStateDir :: !FilePath,
-  -- |BlockState storage file.
-  rpBlockStateFile :: !FilePath,
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
@@ -100,8 +96,6 @@ data RuntimeParameters = RuntimeParameters {
 defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
-  rpTreeStateDir = "treestate",
-  rpBlockStateFile = "blockstate",
   rpEarlyBlockThreshold = 30, -- 30 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
@@ -111,8 +105,6 @@ defaultRuntimeParameters = RuntimeParameters {
 instance FromJSON RuntimeParameters where
   parseJSON = withObject "RuntimeParameters" $ \v -> do
     rpBlockSize <- v .: "blockSize"
-    rpTreeStateDir <- v .: "treeStateDir"
-    rpBlockStateFile <- v .: "blockStateFile"
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"

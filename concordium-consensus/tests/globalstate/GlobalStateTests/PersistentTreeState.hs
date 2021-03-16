@@ -36,7 +36,7 @@ import Control.Monad.RWS.Strict as RWS hiding (state)
 import Data.Proxy
 import Data.Time.Clock.POSIX
 import Lens.Micro.Platform
-import System.FilePath ((</>))
+import System.FilePath ((</>), (<.>))
 import System.IO.Temp
 import qualified Concordium.Types.Transactions as Trns
 
@@ -64,7 +64,7 @@ createGlobalState dbDir = do
   let
     n = 3
     genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
-    config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis
+    config = DTDBConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") genesis
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)
 

@@ -179,22 +179,22 @@ dummyArs = emptyAnonymityRevokers
 
 
 type TreeConfig = DiskTreeDiskBlockConfig PV
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
 
 -- type TreeConfig = MemoryTreeDiskBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
+-- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rt _ blockStateFile genData = return $ MTDBConfig rt blockStateFile genData
 
 --type TreeConfig = MemoryTreeMemoryBlockConfig PV
---makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
---makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
+--makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+--makeGlobalStateConfig rt _ _ genData = return $ MTMBConfig rt genData
 
 --uncomment if wanting paired config
 -- type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rp genData =
---    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+-- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rp treeStateDir blockStateFile genData =
+--    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
 
 type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
 
@@ -225,7 +225,11 @@ main = do
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
         --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
-        gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
+        gsconfig <- makeGlobalStateConfig 
+                        defaultRuntimeParameters
+                        ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
+                        ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
+                        gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
             hconfig = LogUpdateHandler

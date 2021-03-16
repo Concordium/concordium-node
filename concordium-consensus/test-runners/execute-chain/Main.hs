@@ -41,22 +41,22 @@ import Concordium.Skov
 type PV = 'P1
 
 -- type TreeConfig = DiskTreeDiskBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+-- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
 
 type TreeConfig = MemoryTreeDiskBlockConfig PV
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig rt _ blockStateFile genData = return $ MTDBConfig rt blockStateFile genData
 
 -- type TreeConfig = MemoryTreeMemoryBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
+-- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rt _ _ genData = return $ MTMBConfig rt genData
 
 --uncomment if wanting paired config
 -- type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rp genData =
---     return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+-- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rp treeStateDir blockStateFile genData =
+--     return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
 
 type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
 
@@ -81,9 +81,8 @@ main = do
     gsconfig <-
         makeGlobalStateConfig
             defaultRuntimeParameters
-                { rpTreeStateDir = "data/treestate-" ++ show now,
-                  rpBlockStateFile = "data/blockstate-" ++ show now
-                }
+            ("data/treestate-" ++ show now)
+            ("data/blockstate-" ++ show now ++ ".dat")
             genesisData
     let config = SkovConfig gsconfig NoFinalization LogUpdateHandler
     (skovContext, skovState0) <- runLoggerT (initialiseSkov config) logM
