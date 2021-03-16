@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-|
 Small test framework for transactions.
 Allows to specify test cases consisting of a list of transactions to be executed in order
@@ -9,7 +10,7 @@ Also checks invariants on the block state after each processed transaction.
 NOTE: This processes each transaction individually - for testing grouped transactions, see
       'SchedulerTests.TransactionGroupingSpec' and 'SchedulerTests.TransactionGroupingSpec2'.
 -}
-module SchedulerTests.TestUtils(ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
+module SchedulerTests.TestUtils(PV,ResultSpec,TResultSpec(..),emptySpec,emptyExpect,TestCase(..),
                                 TestParameters(..),defaultParams, mkSpec,mkSpecs) where
 
 import Test.Hspec
@@ -29,8 +30,11 @@ import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 
+-- |Protocol version
+type PV = 'P1
+
 -- | Specification on the expected result of executing a transaction and the resulting block state.
-type ResultSpec = (TResultSpec, BlockState -> Spec)
+type ResultSpec = (TResultSpec, BlockState PV -> Spec)
 
 -- | Specification on the expected result of executing a transaction.
 data TResultSpec
@@ -54,7 +58,7 @@ emptyExpect _ = return ()
 data TestParameters = TestParameters
   { tpChainMeta :: ChainMetadata
     -- | The blockstate to start from.
-  , tpInitialBlockState :: BlockState
+  , tpInitialBlockState :: BlockState PV
     -- | Limit on the total energy the processed transactions can use.
   , tpEnergyLimit :: Energy
     -- | Limit on the number of credential deployments that can occur in a block.
@@ -100,7 +104,7 @@ data ProcessResult
 runWithIntermediateStates ::
   TestParameters
   -> [TransactionJSON]
-  -> IO [(ProcessResult, BlockState, Amount)]
+  -> IO [(ProcessResult, BlockState PV, Amount)]
 runWithIntermediateStates TestParameters{..} transactions = do
   -- Create actual 'Transaction's from the 'TransactionJSON'.
   txs <- processUngroupedTransactions transactions

@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Basic.BlockPointer where
 
 import Data.Time
@@ -12,18 +14,18 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.Types.Transactions as Transactions
 
-type BasicBlockPointer s = BlockPointer () Identity s
+type BasicBlockPointer pv s = BlockPointer pv () Identity s
 
 -- |Make a 'BasicBlockPointer' from a 'PendingBlock'.
 -- The parent and last finalized block pointers must match the block data.
 makeBasicBlockPointer ::
     PendingBlock        -- ^Pending block
-    -> BasicBlockPointer s    -- ^Parent block pointer
-    -> BasicBlockPointer s    -- ^Last finalized block pointer
+    -> BasicBlockPointer pv s    -- ^Parent block pointer
+    -> BasicBlockPointer pv s    -- ^Last finalized block pointer
     -> s       -- ^Block state
     -> UTCTime          -- ^Block arrival time
     -> Energy           -- ^Energy cost of all transactions in the block
-    -> BasicBlockPointer s
+    -> BasicBlockPointer pv s
 makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransactionsEnergyCost
         = assert (getHash parent == blockPointer bf) $
             assert checkLastFin $
@@ -47,7 +49,7 @@ makeBasicBlockPointer pb parent lastFinalized _bpState _bpArriveTime _bpTransact
             NoFinalizationData -> lastFinalized == runIdentity (_bpLastFinalized parent)
             BlockFinalizationData r -> getHash lastFinalized == finalizationBlockPointer r
 
-makeGenesisBasicBlockPointer :: GenesisData -> s -> BasicBlockPointer s
+makeGenesisBasicBlockPointer :: forall pv s. IsProtocolVersion pv => GenesisData pv -> s -> BasicBlockPointer pv s
 makeGenesisBasicBlockPointer genData _bpState = theBlockPointer
     where
         theBlockPointer = BlockPointer {_bpInfo=BasicBlockPointerData{..},_bpATI=(),..}
@@ -57,7 +59,7 @@ makeGenesisBasicBlockPointer genData _bpState = theBlockPointer
         _bpLastFinalized = Identity theBlockPointer
         _bpLastFinalizedHash = _bpHash
         _bpHeight = 0
-        _bpReceiveTime = timestampToUTCTime (genesisTime genData)
+        _bpReceiveTime = timestampToUTCTime (gdGenesisTime genData)
         _bpArriveTime = _bpReceiveTime
         _bpTransactionCount = 0
         _bpTransactionsEnergyCost = 0

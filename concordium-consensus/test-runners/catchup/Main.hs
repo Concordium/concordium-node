@@ -1,7 +1,8 @@
-{-# LANGUAGE
-    OverloadedStrings,
-    TypeFamilies,
-    CPP #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -43,11 +44,14 @@ import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
 
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- |Protocol version
+type PV = 'P1
+
+type TreeConfig = DiskTreeDiskBlockConfig PV
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
+type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) NoHandler
 
 newtype Peer = Peer {
     peerChan :: Chan (InMessage Peer)
@@ -113,8 +117,8 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're connected, relay the message as required
             if connected then case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getExactVersionedBlock now) blockBS of
-                        Right (NormalBlock block) -> do
+                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
+                        Right (block :: BakedBlock) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
@@ -143,8 +147,8 @@ relay myPeer inp sr connectedRef monitor _loopback outps = loop
             -- If we're not connected, don't relay, but still send to the monitor channel
             else case msg of
                 MsgNewBlock blockBS ->
-                    case runGet (getExactVersionedBlock now) blockBS of
-                        Right (NormalBlock block) -> do
+                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
+                        Right (block :: BakedBlock) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
@@ -205,7 +209,7 @@ main :: IO ()
 main = do
     let n = 3
     now <- currentTimestamp
-    let (gen, bis) =
+    let (gen, bis, _) =
           makeGenesisData now n 100
             defaultFinalizationParameters{finalizationMinimumSkip = 1}
             Dummy.dummyCryptographicParameters

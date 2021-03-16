@@ -1,8 +1,8 @@
-{-# LANGUAGE
-    BangPatterns,
-    OverloadedStrings,
-    CPP,
-    ScopedTypeVariables #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module Main where
 
@@ -17,6 +17,7 @@ import Control.Exception
 import System.Directory
 import qualified Data.Map as Map
 
+import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.TimerMonad
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
@@ -30,7 +31,7 @@ import Concordium.GlobalState.Instance
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState
-import Concordium.GlobalState.Paired
+-- import Concordium.GlobalState.Paired
 import Concordium.Kontrol (currentTimestamp)
 
 import Concordium.Logger
@@ -47,6 +48,9 @@ import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState.DummyData (dummyAuthorizations)
+
+-- Protocol version
+type PV = 'P1
 
 nContracts :: Int
 nContracts = 2
@@ -74,11 +78,29 @@ difficultyUpdateTransactions (Timestamp ts) = [u 1 99000 60 120, u 2 10000 120 1
                 }
                 (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
 
+protocolUpdateTransactions :: Timestamp -> [BlockItem]
+protocolUpdateTransactions (Timestamp ts) = [ui]
+    where
+        ui = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
+                RawUpdateInstruction {
+                    ruiSeqNumber = 1,
+                    ruiEffectiveTime = fromIntegral (ts `div` 1000) + 60,
+                    ruiTimeout = fromIntegral (ts `div` 1000) + 30,
+                    ruiPayload = ProtocolUpdatePayload ProtocolUpdate {
+                        puMessage = "Updating",
+                        puSpecificationURL = "http://concordium.com",
+                        puSpecificationHash = Hash.hash "blah",
+                        puSpecificationAuxiliaryData = ""
+                    }
+                }
+                (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
+
+
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
         writeChan chan (MsgTransactionReceived $ runPut (putVersionedBlockItemV0 t))
         -- r <- randomRIO (5000, 15000)
-        threadDelay 200000
+        threadDelay 20000
         sendTransactions bakerId chan ts
 sendTransactions _ _ _ = return ()
 
@@ -90,8 +112,8 @@ relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn st
             now <- getTransactionTime
             case msg of
                 MsgNewBlock blockBS -> do
-                    case runGet (getExactVersionedBlock now) blockBS of
-                        Right (NormalBlock !block) -> do
+                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
+                        Right !(block :: BakedBlock) -> do
                             let bh = getHash block :: BlockHash
                             bi <- runStateQuery sr (bInsts bh)
                             writeChan monitor (Left (bh, block, bi))
@@ -156,31 +178,31 @@ dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
 
--- type TreeConfig = DiskTreeDiskBlockConfig
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
--- makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
+type TreeConfig = DiskTreeDiskBlockConfig PV
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig rt genData = return $ DTDBConfig rt genData
 
--- type TreeConfig = MemoryTreeDiskBlockConfig
--- makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+-- type TreeConfig = MemoryTreeDiskBlockConfig PV
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 -- makeGlobalStateConfig rt genData = return $ MTDBConfig rt genData
 
---type TreeConfig = MemoryTreeMemoryBlockConfig
---makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
+--type TreeConfig = MemoryTreeMemoryBlockConfig PV
+--makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
 --makeGlobalStateConfig rt genData = return $ MTMBConfig rt genData
 
 --uncomment if wanting paired config
-type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> IO TreeConfig
-makeGlobalStateConfig rp genData =
-   return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
+-- type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
+-- makeGlobalStateConfig :: RuntimeParameters -> GenesisData PV -> IO TreeConfig
+-- makeGlobalStateConfig rp genData =
+--    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp genData)
 
-type ActiveConfig = SkovConfig TreeConfig (BufferedFinalization ThreadTimer) NoHandler
+type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
 
 main :: IO ()
 main = do
     let n = 5
     now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1)*1000) <$> currentTimestamp -- return 1588916588000
-    let (gen, bis) = makeGenesisData now n 200
+    let (gen, bis, _) = makeGenesisData now n 200
                      defaultFinalizationParameters{
                          finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
                          finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,
@@ -193,7 +215,7 @@ main = do
                      (Energy maxBound)
                      dummyAuthorizations
                      (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n) 300000000000)
-    trans <- (difficultyUpdateTransactions now ++) . transactions <$> newStdGen
+    trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"
     chans <- mapM (\(bakerId, (bid, _)) -> do
         logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
@@ -206,7 +228,7 @@ main = do
         gsconfig <- makeGlobalStateConfig (defaultRuntimeParameters { rpTreeStateDir = "data/treestate-" ++ show now ++ "-" ++ show bakerId, rpBlockStateFile = "data/blockstate-" ++ show now ++ "-" ++ show bakerId }) gen --dbConnString
         let
             finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-            hconfig = NoHandler
+            hconfig = LogUpdateHandler
             config = SkovConfig gsconfig finconfig hconfig
         (cin, cout, sr) <- makeAsyncRunner logM bid config
         _ <- forkIO $ sendTransactions bakerId cin trans

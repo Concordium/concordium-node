@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -16,7 +17,7 @@ import Data.Serialize
 data InstanceTable
     -- |The empty instance table
     = Empty
-    -- |A non-empty instance table (recording the size)
+    -- |A non-empty instance table (recording the number of instances present)
     | Tree !Word64 !IT
     deriving (Show)
 
@@ -152,6 +153,39 @@ deleteContractInstanceExact addr (Tree s0 t0) = uncurry Tree $ dci (contractInde
             | otherwise = (s0, b)
             where
                 mkBranch t1' t2' = Branch h f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
+
+-- |Construct an 'InstanceTable' given a monadic function that
+-- will be invoked for each 'ContractIndex' in sequence to give
+-- the 'ContractSubindex' (for a vacancy) or 'Instance', until
+-- the function returns 'Nothing', indicating there are no more
+-- instances in the constructed table.
+constructM :: (Monad m)
+    => (ContractIndex -> m (Maybe (Either ContractSubindex Instance)))
+    -> m InstanceTable
+constructM build = c 0 0 []
+    where
+        -- The list argument is a stack of @Maybe IT@ such that, for each @Just t@ in the list:
+        -- * @t@ is full (satisfying the invariant properties of 'IT' instances);
+        -- * The height of @t@ is one less than its index in the list.
+        c !idx !count l = build idx >>= \case
+            Nothing -> return $! collapse0 count l
+            Just (Left si) -> c (idx + 1) count $! bubble (VacantLeaf si) l
+            Just (Right inst) -> c (idx + 1) (count + 1) $! bubble (Leaf inst) l
+        -- Add a new entry to the stack. @t@ is always a full 'IT' at level one
+        -- less than that required for the next index of the stack.
+        bubble t [] = [Just t]
+        bubble t (Nothing : l) = Just t : l
+        bubble t (Just t' : l) = Nothing : (bubble $! mkBranch True t' t) l
+        -- Collapse a stack with the above invariant properties into an 'InstanceTable'.
+        collapse0 _ [] = Empty
+        collapse0 count (Nothing:l) = collapse0 count l
+        collapse0 count (Just t:l) = collapse1 count l t
+        -- Here @t@ is either a non-full tree at the appropriate level of the stack,
+        -- or is a full tree at a lower level.
+        collapse1 count [] t = Tree count t
+        collapse1 count (Nothing:l) t = collapse1 count l t
+        collapse1 count (Just t':l) t = collapse1 count l (mkBranch False t' t)
+        mkBranch f t1' t2' = Branch (nextHeight t1') f (hasVacancies t1' || hasVacancies t2') (computeBranchHash t1' t2') t1' t2'
 
 -- |A collection of smart contract instances.
 newtype Instances = Instances {

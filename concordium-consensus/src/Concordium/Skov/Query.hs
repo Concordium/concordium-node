@@ -9,32 +9,34 @@ import Data.Foldable
 
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.TreeState
 import Concordium.GlobalState.Finalization
 import Concordium.Types
+import Concordium.Types.Updates
 import Concordium.Skov.CatchUp.Types
 
-doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
+doResolveBlock :: TreeStateMonad pv m => BlockHash -> m (Maybe (BlockPointerType m))
 {- - INLINE doResolveBlock - -}
 doResolveBlock cbp = getBlockStatus cbp <&> \case
         Just (BlockAlive bp) -> Just bp
         Just (BlockFinalized bp _) -> Just bp
         _ -> Nothing
 
-doIsFinalized :: TreeStateMonad m => BlockHash -> m Bool
+doIsFinalized :: TreeStateMonad pv m => BlockHash -> m Bool
 {- - INLINE doIsFinalized - -}
 doIsFinalized = getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
-doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
+doGetCurrentHeight :: TreeStateMonad pv m => m BlockHeight
 {- - INLINE doGetCurrentHeight - -}
 doGetCurrentHeight = do
         lfHeight <- getLastFinalizedHeight
         branchLen <- fromIntegral . Seq.length <$> getBranches
         return $ lfHeight + branchLen
 
-doBranchesFromTop :: TreeStateMonad m => m [[BlockPointerType m]]
+doBranchesFromTop :: TreeStateMonad pv m => m [[BlockPointerType m]]
 {- - INLINE doBranchesFromTop - -}
 doBranchesFromTop = revSeqToList <$> getBranches
     where
@@ -42,7 +44,7 @@ doBranchesFromTop = revSeqToList <$> getBranches
         revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
 
-doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointerType m]
+doGetBlocksAtHeight :: TreeStateMonad pv m => BlockHeight -> m [BlockPointerType m]
 {- - INLINE doGetBlocksAtHeight - -}
 doGetBlocksAtHeight h = do
         lastFin <- fst <$> getLastFinalized
@@ -57,7 +59,7 @@ doGetBlocksAtHeight h = do
                 mb <- getFinalizedAtHeight h
                 return (toList mb)
 
-doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
+doBlockLastFinalizedIndex :: TreeStateMonad pv m => BlockPointerType m -> m FinalizationIndex
 {- - INLINE doBlockLastFinalizedIndex - -}
 doBlockLastFinalizedIndex bp = getBlockStatus (bpLastFinalizedHash bp) <&> \case
         Just (BlockFinalized _ fr) -> finalizationIndex fr
@@ -66,12 +68,25 @@ doBlockLastFinalizedIndex bp = getBlockStatus (bpLastFinalizedHash bp) <&> \case
 
 -- |Get a catch-up status message. The flag indicates if the
 -- message should be a catch-up request.
-doGetCatchUpStatus :: (TreeStateMonad m) => Bool -> m CatchUpStatus
+doGetCatchUpStatus :: (TreeStateMonad pv m) => Bool -> m CatchUpStatus
 doGetCatchUpStatus cusIsRequest = do
         lfb <- fst <$> getLastFinalized
         br <- toList <$> getBranches
         (leaves, branches) <- leavesBranches br
         makeCatchUpStatus cusIsRequest False lfb leaves (if cusIsRequest then branches else [])
+
+doGetProtocolUpdateStatus :: (TreeStateMonad pv m) => m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
+doGetProtocolUpdateStatus = do
+        (lastFin, _) <- getLastFinalized
+        lastFinState <- blockState lastFin
+        getProtocolUpdateStatus lastFinState
+
+doIsShutDown :: (TreeStateMonad pv m) => m Bool
+doIsShutDown = do
+        status <- doGetProtocolUpdateStatus
+        return $ case status of
+            Left _ -> True
+            Right _ -> False
 
 makeCatchUpStatus :: (BlockPointerMonad m) => Bool -> Bool -> (BlockPointerType m) -> [BlockPointerType m] -> [BlockPointerType m] -> m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}

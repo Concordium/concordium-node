@@ -1,13 +1,13 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.Persistent.Bakers where
 
+import Control.Exception
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -22,6 +22,7 @@ import Concordium.Utils.Serialization
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types.HashableTo
+import Concordium.Utils.Serialization.Put
 
 -- |A list of 'BakerInfo's, ordered by increasing 'BakerId'.
 newtype BakerInfos = BakerInfos (Vec.Vector (BufferedRef BakerInfo)) deriving (Show)
@@ -71,6 +72,17 @@ data PersistentEpochBakers = PersistentEpochBakers {
 } deriving (Show)
 
 makeLenses ''PersistentEpochBakers
+
+-- |Serialize 'PersistentEpochBakers' in V0 format.
+putEpochBakersV0 :: (MonadBlobStore m, MonadPut m) => PersistentEpochBakers -> m ()
+putEpochBakersV0 peb = do
+        BakerInfos bi <- refLoad (peb ^. bakerInfos)
+        bInfos <- mapM refLoad bi
+        BakerStakes bStakes <- refLoad (peb ^. bakerStakes)
+        assert (Vec.length bInfos == Vec.length bStakes) $
+            liftPut $ putLength (Vec.length bInfos)
+        mapM_ sPut bInfos
+        mapM_ sPut bStakes
 
 instance MonadBlobStore m => MHashableTo m H.Hash PersistentEpochBakers where
     getHashM PersistentEpochBakers{..} = do

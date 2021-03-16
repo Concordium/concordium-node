@@ -1,7 +1,12 @@
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE ScopedTypeVariables, TemplateHaskell, TypeApplications #-}
-{-# LANGUAGE DerivingVia, StandaloneDeriving, UndecidableInstances #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall #-}
 module Concordium.Scheduler.TreeStateEnvironment where
 
@@ -44,15 +49,17 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Scheduler as Sch
 
-newtype BlockStateMonad w state m a = BSM { _runBSM :: RWST ContextState w state m a}
+newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
     deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
-    instance (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state, BlockStateOperations m, Footprint (ATIStorage m) ~ w)
-             => StaticInformation (BlockStateMonad w state m)
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
+    instance
+        (SS state ~ UpdatableBlockState m, Monoid w, HasSchedulerState state,
+        BlockStateOperations m, Footprint (ATIStorage m) ~ w)
+             => StaticInformation (BlockStateMonad pv w state m)
 
-instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad w state m) where
-  type ATIStorage (BlockStateMonad w state m) = ATIStorage m
+instance (ATIStorage m ~ w, ATITypes m) => ATITypes (BlockStateMonad pv w state m) where
+  type ATIStorage (BlockStateMonad pv w state m) = ATIStorage m
 
 data LogSchedulerState (m :: DK.Type -> DK.Type) = LogSchedulerState {
   _lssBlockState :: !(UpdatableBlockState m),
@@ -77,7 +84,7 @@ type ExecutionResult m = ExecutionResult' (BlockState m) (ATIStorage m)
 
 makeLenses ''ExecutionResult'
 
-instance TreeStateMonad m => HasSchedulerState (LogSchedulerState m) where
+instance TreeStateMonad pv m => HasSchedulerState (LogSchedulerState m) where
   type SS (LogSchedulerState m) = UpdatableBlockState m
   type TransactionLog (LogSchedulerState m) = ATIStorage m
   schedulerBlockState = lssBlockState
@@ -96,21 +103,21 @@ mkInitialSS _lssBlockState =
                     ..}
 
 deriving via (MGSTrans (RWST ContextState w state) m)
-    instance BlockStateTypes (BlockStateMonad w state m)
+    instance BlockStateTypes (BlockStateMonad pv w state m)
 
 deriving via (MGSTrans (RWST ContextState w state) m)
-    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad w state m)
+    instance (Monoid w, AccountOperations m) => AccountOperations (BlockStateMonad pv w state m)
 
-deriving via (BSOMonadWrapper ContextState w state (MGSTrans (RWST ContextState w state) m))
+deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance (
               SS state ~ UpdatableBlockState m,
               Footprint (ATIStorage m) ~ w,
               HasSchedulerState state,
-              TreeStateMonad m,
+              TreeStateMonad pv m,
               MonadLogger m,
-              BlockStateOperations m) => SchedulerMonad (BlockStateMonad w state m)
+              BlockStateOperations m) => SchedulerMonad pv (BlockStateMonad pv w state m)
 
-runBSM :: Monad m => BlockStateMonad w b m a -> ContextState -> b -> m (a, b)
+runBSM :: Monad m => BlockStateMonad pv w b m a -> ContextState -> b -> m (a, b)
 runBSM m cm s = do
   (r, s', _) <- runRWST (_runBSM m) cm s
   return (r, s')
@@ -433,8 +440,8 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
 --
 -- The slot number must exceed the slot of the parent block, and the seed state
 -- must indicate the correct epoch of the block.
-executeFrom :: forall m .
-  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
+executeFrom :: forall m pv.
+  (BlockPointerMonad m, TreeStateMonad pv m, MonadLogger m)
   => BlockHash -- ^Hash of the block we are executing. Used only for committing transactions.
   -> Slot -- ^Slot number of the block being executed.
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
@@ -460,7 +467,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
         bshandle0b <- bsoProcessReleaseSchedule bshandle0a slotTime
         -- update the bakers and seed state
         (isNewEpoch, bshandle1) <- updateBirkParameters newSeedState bshandle0b
-        maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
+        maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
         let context = ContextState{
               _chainMetadata = cm,
               _maxBlockEnergy = maxBlockEnergy,
@@ -480,7 +487,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                 -- the main execution is now done. At this point we must mint new currency
                 -- and reward the baker and other parties.
                 genData <- getGenesisData
-                let updates' = (_1 %~ transactionTimeToSlot (genesisTime genData) (genesisSlotDuration genData))
+                let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
                                 <$> Map.toAscList updates
                 bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
@@ -494,8 +501,8 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
 -- EFFECTS: This function only updates the block state. It has no effects on the transaction table.
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
-constructBlock :: forall m .
-  (BlockPointerMonad m, TreeStateMonad m, MonadLogger m)
+constructBlock :: forall m pv.
+  (BlockPointerMonad m, TreeStateMonad pv m, MonadLogger m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing
@@ -548,7 +555,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
 
-    maxBlockEnergy <- genesisMaxBlockEnergy <$> getGenesisData
+    maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy,
@@ -564,7 +571,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     let counts = countFreeTransactions (map fst ftAdded) (isJust mfinInfo)
     genData <- getGenesisData
-    let updates' = (_1 %~ transactionTimeToSlot (genesisTime genData) (genesisSlotDuration genData))
+    let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
                     <$> Map.toAscList updates
     bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 

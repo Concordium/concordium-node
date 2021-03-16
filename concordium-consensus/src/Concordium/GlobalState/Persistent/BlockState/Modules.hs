@@ -8,7 +8,9 @@ module Concordium.GlobalState.Persistent.BlockState.Modules
     getModuleReference,
     putInterface,
     moduleRefList,
-    makePersistentModules
+    makePersistentModules,
+    -- * Serialization
+    putModulesV0
   ) where
 
 import Concordium.Crypto.SHA256
@@ -18,7 +20,9 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
+import Control.Monad
 import Data.Coerce
 import Data.Foldable
 import Data.Map.Strict (Map)
@@ -46,6 +50,8 @@ instance HashableTo Hash Module where
   getHash = coerce . miModuleRef . interface
 instance MonadBlobStore m => MHashableTo m Hash Module
 
+-- |This serialization is used for storing the module in the BlobStore.
+-- It should not be used for other purposes.
 instance Serialize Module where
   get = do
     interface <- get
@@ -57,6 +63,11 @@ instance Serialize Module where
 
 instance MonadBlobStore m => BlobStorable m Module where
 instance MonadBlobStore m => Cacheable m Module where
+
+-- |Serialize a module in V0 format.
+-- This only serializes the source.
+putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
+putModuleV0 = sPut <=< loadRef . source
 
 --------------------------------------------------------------------------------
 
@@ -167,3 +178,12 @@ makePersistentModules mods = do
   _modulesTable <- mapM (storePersistentModule . snd) modlist >>=
                      LFMB.fromAscList
   return Modules{ _modulesMap = TransientModules._modulesMap mods, ..}
+
+--------------------------------------------------------------------------------
+
+-- |Serialize modules in V0 format.
+putModulesV0 :: (MonadBlobStore m, MonadPut m) => Modules -> m ()
+putModulesV0 mods = do
+    let mt = mods ^. modulesTable
+    liftPut $ putWord64be $ LFMB.size mt
+    LFMB.mmap_ putModuleV0 mt

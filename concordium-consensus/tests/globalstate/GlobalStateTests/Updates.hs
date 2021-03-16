@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE UndecidableInstances #-}
 module GlobalStateTests.Updates where
 
@@ -74,21 +75,24 @@ import qualified Concordium.GlobalState.Basic.BlockState.Updates as BU
 --                                                                            --
 --------------------------------------------------------------------------------
 
+type PV = 'P1
+
 type PairedGSContext = PairGSContext () PBS.PersistentBlockStateContext
 
 type PairedGState = PairGState
-                      (SkovData HashedBlockState)
-                      (SkovPersistentData () PBS.HashedPersistentBlockState)
+                      (SkovData PV (HashedBlockState PV))
+                      (SkovPersistentData PV () (PBS.HashedPersistentBlockState PV))
 
 -- |Basically a PureBlockStateMonad and a PersistentBlockStateMonad paired
 type ThisMonadConcrete = BlockStateM
+                PV
                 PairedGSContext
                 (Identity PairedGSContext)
                 PairedGState
                 (Identity PairedGState)
                 (RWST (Identity PairedGSContext) () (Identity PairedGState) LogIO)
 
-type TheBlockStates = (BlockState, PBS.PersistentBlockState)
+type TheBlockStates = (BlockState PV, PBS.PersistentBlockState PV)
 
 --------------------------------------------------------------------------------
 --                                                                            --
@@ -101,7 +105,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisData now
+    genesis = makeTestingGenesisDataP1 now
                                      n
                                      1
                                      1
@@ -119,7 +123,7 @@ createGS dbDir = do
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()
 destroyGS (Identity c, Identity s) =
-  shutdownGlobalState (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig))
+  shutdownGlobalState (Proxy :: Proxy (PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)))
                       c
                       s
                       (NoLogContext, NoLogContext)
@@ -186,7 +190,7 @@ modifyStakeTo a bs = do
 -- tests.
 increaseLimit :: Amount -> TheBlockStates -> ThisMonadConcrete TheBlockStates
 increaseLimit newLimit (bs, bs2) = do
-  let f :: PBS.PersistentBlockStateMonad PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) ()
+  let f :: PBS.PersistentBlockStateMonad PV PBS.PersistentBlockStateContext (ReaderT PBS.PersistentBlockStateContext LogIO) ()
       f = do
         -- load the block from the IORef
         bsp <- refLoad =<< (liftIO $ readIORef bs2)

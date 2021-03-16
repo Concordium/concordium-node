@@ -44,7 +44,9 @@ import Data.Serialize(Serialize)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import Data.Foldable (foldl')
+import qualified Data.ByteString.Lazy as LBS
 import Data.Word
+import System.IO (Handle)
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
@@ -240,6 +242,11 @@ class AccountOperations m => BlockStateQuery m where
     getCurrentElectionDifficulty :: BlockState m -> m ElectionDifficulty
     -- |Get the current chain parameters and pending updates.
     getUpdates :: BlockState m -> m Basic.Updates
+    -- |Get the protocol update status. If a protocol update has taken effect,
+    -- returns @Left protocolUpdate@. Otherwise, returns @Right pendingProtocolUpdates@.
+    -- The @pendingProtocolUpdates@ is a (possibly-empty) list of timestamps and protocol
+    -- updates that have not yet taken effect.
+    getProtocolUpdateStatus :: BlockState m -> m (Either ProtocolUpdate [(TransactionTime, ProtocolUpdate)])
 
     -- |Get the current cryptographic parameters of the chain.
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
@@ -307,6 +314,41 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- negative account balance or a situation where the staked or locked balance
   -- exceeds the total balance on the account.
   bsoModifyAccount :: UpdatableBlockState m -> AccountUpdate -> m (UpdatableBlockState m)
+
+  -- |Update the public keys for a specific credential on an account.
+  --
+  -- The caller must ensure that the account exists and has a credential with the given
+  -- index.
+  bsoSetAccountCredentialKeys :: UpdatableBlockState m -> AccountAddress -> ID.CredentialIndex -> ID.CredentialPublicKeys -> m (UpdatableBlockState m)
+
+  -- |Update the set of credentials on a given account by: removing credentials, adding
+  -- credentials, and updating the account threshold (i.e. number of credentials that are
+  -- required for a valid signature from the account).  Added credentials will be be added
+  -- to the global set of known credentials.
+  --
+  -- The caller is responsible for establishing the following preconditions:
+  --  * The account exists and is valid.
+  --  * The credential indexes to remove already exist on the account.
+  --  * The credentials to add have not been used before (i.e. 'bsoRegIdExists' returns
+  --    @False@ for each of them).
+  --  * The credential indexes that are added do not already have credentials, after the
+  --    removals have occurred.
+  --  * The account threshold is at least 1 and at most the total number of credentials
+  --    on the account after the specified credentials have been removed and added.
+  --
+  -- The removed credentials will be considered removed in the order of the provided list.
+  -- This ordering is significant because it affects the account hash.
+  bsoUpdateAccountCredentials ::
+    UpdatableBlockState m
+    -> AccountAddress
+    -> [ID.CredentialIndex]
+    -- ^Credentials to remove
+    -> Map.Map ID.CredentialIndex AccountCredential
+    -- ^Credentials to add
+    -> ID.AccountThreshold
+    -- ^New account threshold
+    -> m (UpdatableBlockState m)
+
   -- |Replace the instance with given data. The rest of the instance data (instance parameters) stays the same.
   -- This method is only called when it is known the instance exists, and can thus assume it.
   bsoModifyInstance :: UpdatableBlockState m
@@ -315,22 +357,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
                     -> Wasm.ContractState
                     -> m (UpdatableBlockState m)
 
-  -- FIXME: remove
-  -- |Notify the block state that the given amount was spent on execution.
-  --bsoNotifyExecutionCost :: UpdatableBlockState m -> Amount -> m (UpdatableBlockState m)
-
   -- |Notify that some amount was transferred from/to encrypted balance of some account.
   bsoNotifyEncryptedBalanceChange :: UpdatableBlockState m -> AmountDelta -> m (UpdatableBlockState m)
-
-
-  -- FIXME: remove
-  -- |Notify the block state that the given identity issuer's credential was
-  -- used by a sender of the transaction.
-  --bsoNotifyIdentityIssuerCredential :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (UpdatableBlockState m)
-
-  -- FIXME: remove
-  -- |Get the execution reward for the current block.
-  -- bsoGetExecutionCost :: UpdatableBlockState m -> m Amount
 
   -- |Get the seed state associated with the block state.
   bsoGetSeedState :: UpdatableBlockState m -> m SeedState
@@ -566,6 +594,15 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
     -- (where applicable).
     cacheBlockState :: BlockState m -> m (BlockState m)
 
+    -- |Serialize the block state to a byte string.
+    -- This serialization does not include transaction outcomes.
+    serializeBlockState :: BlockState m -> m LBS.ByteString
+
+    -- |Serialize the block state to a file handle.
+    -- This serialization does not include transaction outcomes.
+    writeBlockState :: Handle -> BlockState m -> m ()
+
+
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
@@ -589,6 +626,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getNextUpdateSequenceNumber s = lift . getNextUpdateSequenceNumber s
   getCurrentElectionDifficulty = lift . getCurrentElectionDifficulty
   getUpdates = lift . getUpdates
+  getProtocolUpdateStatus = lift . getProtocolUpdateStatus
   getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
@@ -611,6 +649,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   {-# INLINE getNextUpdateSequenceNumber #-}
   {-# INLINE getCurrentElectionDifficulty #-}
   {-# INLINE getUpdates #-}
+  {-# INLINE getProtocolUpdateStatus #-}
   {-# INLINE getCryptographicParameters #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
@@ -646,6 +685,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoPutNewInstance s = lift . bsoPutNewInstance s
   bsoPutNewModule s miface = lift (bsoPutNewModule s miface)
   bsoModifyAccount s = lift . bsoModifyAccount s
+  bsoSetAccountCredentialKeys s aa ci pk = lift $ bsoSetAccountCredentialKeys s aa ci pk
+  bsoUpdateAccountCredentials s aa remove add thrsh = lift $ bsoUpdateAccountCredentials s aa remove add thrsh
   bsoModifyInstance s caddr amount model = lift $ bsoModifyInstance s caddr amount model
   bsoNotifyEncryptedBalanceChange s = lift . bsoNotifyEncryptedBalanceChange s
   bsoGetSeedState = lift . bsoGetSeedState
@@ -687,6 +728,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoPutNewInstance #-}
   {-# INLINE bsoPutNewModule #-}
   {-# INLINE bsoModifyAccount #-}
+  {-# INLINE bsoSetAccountCredentialKeys #-}
+  {-# INLINE bsoUpdateAccountCredentials #-}
   {-# INLINE bsoModifyInstance #-}
   {-# INLINE bsoNotifyEncryptedBalanceChange #-}
   {-# INLINE bsoGetSeedState #-}
@@ -728,6 +771,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     saveBlockState = lift . saveBlockState
     loadBlockState hsh = lift . loadBlockState hsh
     cacheBlockState = lift . cacheBlockState
+    serializeBlockState = lift . serializeBlockState
+    writeBlockState fh bs = lift $ writeBlockState fh bs
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -736,6 +781,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE saveBlockState #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE cacheBlockState #-}
+    {-# INLINE serializeBlockState #-}
+    {-# INLINE writeBlockState #-}
 
 deriving via (MGSTrans MaybeT m) instance BlockStateQuery m => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance AccountOperations m => AccountOperations (MaybeT m)

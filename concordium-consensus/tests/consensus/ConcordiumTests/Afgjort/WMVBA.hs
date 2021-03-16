@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, OverloadedStrings, ScopedTypeVariables, RankNTypes, BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module ConcordiumTests.Afgjort.WMVBA where
 
@@ -114,7 +116,7 @@ runWMVBATest me baid nparties keys = go myInstance initialWMVBAState
 
 
 blockA :: Val
-blockA = T.BlockHashV0 (H.hash "A")
+blockA = T.BlockHash (H.hash "A")
 
 testData1 :: BS.ByteString -> Val -> Vec.Vector (VRF.KeyPair, Bls.SecretKey) -> [WMVBAInput]
 testData1 baid v keys = inputs
@@ -204,10 +206,10 @@ createAggSigTest = do
         wi = WMVBAInstance baid 17 5 pWeight 16 undefined 0 undefined pubKeys undefined
     val <- H.hash . BS.pack <$> arbitrary
     let
-        toSign = (witnessMessage baid (T.BlockHashV0 (val)))
+        toSign = (witnessMessage baid (T.BlockHash (val)))
         (_, signatures) = makePartiesAndSignatures keys toSign culpritIxs
         culprits = PS.fromList pWeight culpritIxs
-        (proof, bad) = createAggregateSig wi (T.BlockHashV0 (val)) (PM.fromList pWeight signatures) PS.empty
+        (proof, bad) = createAggregateSig wi (T.BlockHash (val)) (PM.fromList pWeight signatures) PS.empty
     case proof of
       Just (good, sig) -> return $ (bad === culprits .&&. Bls.verifyAggregate toSign (pubKeys <$> good) sig)
       Nothing -> return $ property False

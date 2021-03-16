@@ -105,7 +105,7 @@ runReceiveTestsFromFile testFile = map f
 
 -- ** Helper Functions **
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState =
   blockStateWithAlesAccount
     100000000

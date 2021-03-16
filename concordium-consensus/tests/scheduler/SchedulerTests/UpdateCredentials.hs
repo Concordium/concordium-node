@@ -20,7 +20,7 @@ import qualified  Data.Map as Map
 import            SchedulerTests.TestUtils
 import Data.Maybe
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = createBlockState $
                     Acc.putAccountWithRegIds ((newAccount dummyCryptographicParameters cdi8address cdi8ac) & accountAmount .~ 10000000000)
                     Acc.emptyAccounts

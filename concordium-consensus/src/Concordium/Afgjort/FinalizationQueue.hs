@@ -184,7 +184,7 @@ fpGetProof fp@FinalizationProven{..}
         makeFR parties sig = FinalizationRecord {
                 finalizationIndex = fpIndex,
                 finalizationBlockPointer = fpBlock,
-                finalizationProof = FinalizationProof (BitSet.toList parties, sig),
+                finalizationProof = FinalizationProof (BitSet.toList parties) sig,
                 finalizationDelay = fpDelay
             }
         key party = partyBlsKey (parties fpCommittee Vector.! fromIntegral party)
@@ -249,7 +249,7 @@ fpGetProofSimple fp@FinalizationProven{..}
         makeFR parties sig = FinalizationRecord {
                 finalizationIndex = fpIndex,
                 finalizationBlockPointer = fpBlock,
-                finalizationProof = FinalizationProof (BitSet.toList parties, sig),
+                finalizationProof = FinalizationProof (BitSet.toList parties) sig,
                 finalizationDelay = fpDelay
             }
 
@@ -259,7 +259,7 @@ fpGetProofTrivial :: FinalizationProven -> FinalizationRecord
 fpGetProofTrivial FinalizationProven{..} = FinalizationRecord {
         finalizationIndex = fpIndex,
         finalizationBlockPointer = fpBlock,
-        finalizationProof = FinalizationProof (BitSet.toList fpCheckedAggregateSet, fpCheckedAggregateSignature),
+        finalizationProof = FinalizationProof (BitSet.toList fpCheckedAggregateSet) fpCheckedAggregateSignature,
         finalizationDelay = fpDelay
     }
 

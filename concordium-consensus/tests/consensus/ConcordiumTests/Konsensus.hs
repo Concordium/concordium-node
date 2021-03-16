@@ -1,4 +1,9 @@
-{-# LANGUAGE RecordWildCards, GeneralizedNewtypeDeriving, TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, CPP, TemplateHaskell, NumericUnderscores #-}
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.Konsensus where
 
@@ -45,6 +50,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.Bakers
 import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
+import Concordium.Genesis.Data.P1
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -68,6 +74,9 @@ import Test.QuickCheck
 import Test.QuickCheck.Monadic
 import Test.Hspec
 
+-- |Protocol version
+type PV = 'P1
+
 isActiveCurrentRound :: FinalizationCurrentRound -> Bool
 isActiveCurrentRound (ActiveCurrentRound _) = True
 isActiveCurrentRound _ = False
@@ -79,7 +88,7 @@ type Trs = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 type ANFTS = HM.HashMap AccountAddress AccountNonFinalizedTransactions
 type NFCUS = Map.Map UpdateType NonFinalizedChainUpdates
 
-type Config t = SkovConfig MemoryTreeMemoryBlockConfig (ActiveFinalization t) NoHandler
+type Config t = SkovConfig PV (MemoryTreeMemoryBlockConfig PV) (ActiveFinalization t) NoHandler
 
 finalizationParameters :: FinalizationCommitteeSize -> FinalizationParameters
 finalizationParameters finComSize = defaultFinalizationParameters{finalizationCommitteeMaxSize = finComSize}
@@ -93,7 +102,7 @@ defaultMaxFinComSize = 1000
 maxFinComSizeChangingFinCommittee :: FinalizationCommitteeSize
 maxFinComSizeChangingFinCommittee = 10
 
-invariantSkovData :: TS.SkovData BState.HashedBlockState -> Either String ()
+invariantSkovData :: TS.SkovData PV (BState.HashedBlockState PV) -> Either String ()
 invariantSkovData TS.SkovData{..} = addContext $ do
         -- Finalization list
         when (Seq.null _finalizationList) $ Left "Finalization list is empty"
@@ -224,7 +233,7 @@ invariantSkovData TS.SkovData{..} = addContext $ do
         notDeadOrPending _ = True
         onlyPending (TreeState.BlockPending {}) = True
         onlyPending _ = False
-        checkEpochs :: BasicBlockPointer BState.HashedBlockState -> Either String ()
+        checkEpochs :: BasicBlockPointer PV (BState.HashedBlockState PV) -> Either String ()
         checkEpochs bp = do
             let params = BState._blockBirkParameters (BState._unhashedBlockState (BS._bpState bp))
                 seedState = BState._birkSeedState params
@@ -526,20 +535,24 @@ initialiseStatesTransferTransactions f b averageStake stakeDiff maxFinComSize = 
 createInitStates :: [(BakerIdentity, FullBakerInfo, GenesisAccount, SigScheme.KeyPair)] -> [GenesisAccount] -> FinalizationCommitteeSize -> PropertyM IO States
 createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM createState bis)
     where
-        seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
         bakerAccounts = (^. _3) <$> bis
-        gen = GenesisDataV2 {
-                genesisTime = 0,
-                genesisSlotDuration = 1,
-                genesisSeedState = seedState,
-                genesisAccounts = bakerAccounts ++ extraAccounts,
-                genesisFinalizationParameters = finalizationParameters maxFinComSize,
-                genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
-                genesisIdentityProviders = emptyIdentityProviders,
-                genesisAnonymityRevokers = Dummy.dummyArs,
-                genesisMaxBlockEnergy = Energy maxBound,
-                genesisAuthorizations = dummyAuthorizations,
-                genesisChainParameters = dummyChainParameters
+        gen = GDP1 GDP1Initial {
+                genesisCore = CoreGenesisParameters {
+                    genesisTime = 0,
+                    genesisSlotDuration = 1,
+                    genesisEpochLength = 10,
+                    genesisMaxBlockEnergy = Energy maxBound,
+                    genesisFinalizationParameters = finalizationParameters maxFinComSize
+                },
+                genesisInitialState = GenesisState {
+                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                    genesisIdentityProviders = emptyIdentityProviders,
+                    genesisAnonymityRevokers = Dummy.dummyArs,
+                    genesisAuthorizations = dummyAuthorizations,
+                    genesisChainParameters = dummyChainParameters,
+                    genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
+                    genesisAccounts = Vec.fromList (bakerAccounts ++ extraAccounts)
+                }
             }
         createState (bid, binfo, acct, kp) = do
             let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)

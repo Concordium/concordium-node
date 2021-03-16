@@ -72,20 +72,20 @@ instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateCont
 instance C.HasGlobalStateContext (PairGSContext lc rc) a => C.HasGlobalStateContext rc (FocusRight a) where
     globalStateContext = lens unFocusRight (const FocusRight) . C.globalStateContext . pairContextRight
 
-type BSML lc r ls s m = BlockStateM lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
-type BSMR rc r rs s m = BlockStateM rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
+type BSML pv lc r ls s m = BlockStateM pv lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
+type BSMR pv rc r rs s m = BlockStateM pv rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r)
-        => BlockStateTypes (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m) where
-    type BlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (BlockState (BSML lc r lg s m),
-                BlockState (BSMR rc r rg s m))
-    type UpdatableBlockState (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (UpdatableBlockState (BSML lc r lg s m),
-                UpdatableBlockState (BSMR rc r rg s m))
-    type Account (BlockStateM (PairGSContext lc rc) r (PairGState lg rg) s m)
-            = (Account (BSML lc r lg s m),
-                Account (BSMR rc r rg s m))
+        => BlockStateTypes (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m) where
+    type BlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (BlockState (BSML pv lc r lg s m),
+                BlockState (BSMR pv rc r rg s m))
+    type UpdatableBlockState (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (UpdatableBlockState (BSML pv lc r lg s m),
+                UpdatableBlockState (BSMR pv rc r rg s m))
+    type Account (BlockStateM pv (PairGSContext lc rc) r (PairGState lg rg) s m)
+            = (Account (BSML pv lc r lg s m),
+                Account (BSMR pv rc r rg s m))
 
 instance C.HasGlobalState (PairGState ls rs) s => C.HasGlobalState ls (FocusLeft s) where
     globalState = lens unFocusLeft (const FocusLeft) . C.globalState . pairStateLeft
@@ -123,7 +123,10 @@ instance (BlockData l, BlockData r) => BlockData (PairBlockData l r) where
     verifyBlockSignature (PairBlockData (l, r)) = assert (vbsl == verifyBlockSignature r) vbsl
         where
             vbsl = verifyBlockSignature l
-    putBlockV1 (PairBlockData (l, _)) = putBlockV1 l
+
+instance (EncodeBlock pv l) => EncodeBlock pv (PairBlockData l r) where
+    putBlock spv (PairBlockData (l, _)) = putBlock spv l
+    putVersionedBlock spv (PairBlockData (l, _)) = putVersionedBlock spv l
 
 instance (HashableTo BlockHash l, HashableTo BlockHash r) => HashableTo BlockHash (PairBlockData l r) where
     getHash (PairBlockData (l, r)) = assert ((getHash l :: BlockHash) == getHash r) $ getHash l
@@ -150,26 +153,26 @@ instance (BlockPointerData l, BlockPointerData r) => BlockPointerData (PairBlock
     bpTransactionsEnergyCost (PairBlockData (l, r)) = assert (bpTransactionsEnergyCost l == bpTransactionsEnergyCost r) $ bpTransactionsEnergyCost l
     bpTransactionsSize (PairBlockData (l, r)) = assert (bpTransactionsSize l == bpTransactionsSize r) $ bpTransactionsSize l
 
-type GSML lc r ls s m = GlobalStateM NoLogContext lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
-type GSMR rc r rs s m = GlobalStateM NoLogContext rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
+type GSML pv lc r ls s m = GlobalStateM pv NoLogContext lc (FocusLeft r) ls (FocusLeft s) (ReviseRSM (FocusLeft r) (FocusLeft s) m)
+type GSMR pv rc r rs s m = GlobalStateM pv NoLogContext rc (FocusRight r) rs (FocusRight s) (ReviseRSM (FocusRight r) (FocusRight s) m)
 
-instance (GlobalStateTypes (GSML lc r ls s m), GlobalStateTypes (GSMR rc r rs s m))
-        => GlobalStateTypes (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
-    type BlockPointerType (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) = PairBlockData (BlockPointerType (GSML lc r ls s m)) (BlockPointerType (GSMR rc r rs s m))
+instance (GlobalStateTypes (GSML pv lc r ls s m), GlobalStateTypes (GSMR pv rc r rs s m))
+        => GlobalStateTypes (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+    type BlockPointerType (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) = PairBlockData (BlockPointerType (GSML pv lc r ls s m)) (BlockPointerType (GSMR pv rc r rs s m))
 
-instance ATITypes (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
-  type ATIStorage (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) = ()
+instance ATITypes (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
+  type ATIStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) = ()
 
 {-# INLINE coerceBSML #-}
-coerceBSML :: BSML lc r ls s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
+coerceBSML :: BSML pv lc r ls s m a -> BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceBSML = coerce
 
 {-# INLINE coerceBSMR #-}
-coerceBSMR :: BSMR rc r rs s m a -> BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m a
+coerceBSMR :: BSMR pv rc r rs s m a -> BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m a
 coerceBSMR = coerce
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML lc r ls s m), BlockStateQuery (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
-        => BlockStateQuery (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQuery (BSML pv lc r ls s m), BlockStateQuery (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
+        => BlockStateQuery (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     getModule (ls, rs) modRef = do
         m1 <- coerceBSML (getModule ls modRef)
         m2 <- coerceBSMR (getModule rs modRef)
@@ -273,14 +276,18 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
         u1 <- coerceBSML (getUpdates bps1)
         u2 <- coerceBSMR (getUpdates bps2)
         assert (u1 == u2) $ return u1
+    getProtocolUpdateStatus (bps1, bps2) = do
+        us1 <- coerceBSML (getProtocolUpdateStatus bps1)
+        us2 <- coerceBSMR (getProtocolUpdateStatus bps2)
+        assert (us1 == us2) $ return us1
 
     getCryptographicParameters (bps1, bps2) = do
         u1 <- coerceBSML (getCryptographicParameters bps1)
         u2 <- coerceBSMR (getCryptographicParameters bps2)
         assert (u1 == u2) $ return u1
 
-instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML lc r ls s m), AccountOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
-  => AccountOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOperations (BSML pv lc r ls s m), AccountOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
+  => AccountOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
 
     getAccountAddress (acc1, acc2) = do
         addr1 <- coerceBSML (getAccountAddress acc1)
@@ -332,8 +339,8 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         ab2 <- coerceBSMR (getAccountBaker acc2)
         assert (ab1 == ab2) $ return ab1
 
-instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML lc r ls s m), BlockStateOperations (BSMR rc r rs s m), HashableTo H.Hash (Account (BSML lc r ls s m)), HashableTo H.Hash (Account (BSMR rc r rs s m)))
-        => BlockStateOperations (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateOperations (BSML pv lc r ls s m), BlockStateOperations (BSMR pv rc r rs s m), HashableTo H.Hash (Account (BSML pv lc r ls s m)), HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
+        => BlockStateOperations (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     bsoGetModule (bs1, bs2) mref = do
         r1 <- coerceBSML $ bsoGetModule bs1 mref
         r2 <- coerceBSMR $ bsoGetModule bs2 mref
@@ -385,6 +392,14 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
     bsoModifyAccount (bs1, bs2) upd = do
         bs1' <- coerceBSML $ bsoModifyAccount bs1 upd
         bs2' <- coerceBSMR $ bsoModifyAccount bs2 upd
+        return (bs1', bs2')
+    bsoSetAccountCredentialKeys (bs1, bs2) aaddr credIx credKeys = do
+        bs1' <- coerceBSML $ bsoSetAccountCredentialKeys bs1 aaddr credIx credKeys
+        bs2' <- coerceBSMR $ bsoSetAccountCredentialKeys bs2 aaddr credIx credKeys
+        return (bs1', bs2')
+    bsoUpdateAccountCredentials (bs1, bs2) aaddr remove add thrsh = do
+        bs1' <- coerceBSML $ bsoUpdateAccountCredentials bs1 aaddr remove add thrsh
+        bs2' <- coerceBSMR $ bsoUpdateAccountCredentials bs2 aaddr remove add thrsh
         return (bs1', bs2')
     bsoModifyInstance (bs1, bs2) caddr delta model = do
         bs1' <- coerceBSML $ bsoModifyInstance bs1 caddr delta model
@@ -520,11 +535,11 @@ type instance BlockStatePointer (a, b) = (BlockStatePointer a, BlockStatePointer
 
 instance (MonadLogger m,
     C.HasGlobalStateContext (PairGSContext lc rc) r,
-    BlockStateStorage (BSML lc r ls s m),
-    BlockStateStorage (BSMR rc r rs s m),
-    HashableTo H.Hash (Account (BSML lc r ls s m)),
-    HashableTo H.Hash (Account (BSMR rc r rs s m)))
-        => BlockStateStorage (BlockStateM (PairGSContext lc rc) r (PairGState ls rs) s m) where
+    BlockStateStorage (BSML pv lc r ls s m),
+    BlockStateStorage (BSMR pv rc r rs s m),
+    HashableTo H.Hash (Account (BSML pv lc r ls s m)),
+    HashableTo H.Hash (Account (BSMR pv rc r rs s m)))
+        => BlockStateStorage (BlockStateM pv (PairGSContext lc rc) r (PairGState ls rs) s m) where
     thawBlockState (bs1, bs2) = do
         ubs1 <- coerceBSML $ thawBlockState bs1
         ubs2 <- coerceBSMR $ thawBlockState bs2
@@ -554,26 +569,34 @@ instance (MonadLogger m,
         bs1' <- coerceBSML $ cacheBlockState bs1
         bs2' <- coerceBSMR $ cacheBlockState bs2
         return (bs1', bs2')
+    serializeBlockState (bps1, bps2) = do
+        s1 <- coerceBSML (serializeBlockState bps1)
+        s2 <- coerceBSMR (serializeBlockState bps2)
+        -- While we check for equality, in future it could be
+        -- acceptable for implementations to give different results.
+        assert (s1 == s2) $ return s2
+    -- We only write out 
+    writeBlockState h (bps1, _) = coerceBSML (writeBlockState h bps1)
 
 {-# INLINE coerceGSML #-}
-coerceGSML :: GSML lc r ls s m a -> TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m a
+coerceGSML :: GSML pv lc r ls s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a
 coerceGSML = coerce
 
 {-# INLINE coerceGSMR #-}
-coerceGSMR :: GSMR rc r rs s m a -> TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m a
+coerceGSMR :: GSMR pv rc r rs s m a -> TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m a
 coerceGSMR = coerce
 
 -- default instance since ATIStorage = ()
-instance Monad m => PerAccountDBOperations (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m)
+instance Monad m => PerAccountDBOperations (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m)
 
 instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
           MonadReader r m,
           C.HasGlobalState (PairGState ls rs) s,
           MonadState s m,
           MonadIO m,
-          BlockPointerMonad (GSML lc r ls s m),
-          BlockPointerMonad (GSMR rc r rs s m))
-          => BlockPointerMonad (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
+          BlockPointerMonad (GSML pv lc r ls s m),
+          BlockPointerMonad (GSMR pv rc r rs s m))
+          => BlockPointerMonad (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
     blockState (PairBlockData (bp1, bp2)) = do
         bs1 <- coerceGSML $ blockState bp1
         bs2 <- coerceGSMR $ blockState bp2
@@ -592,12 +615,13 @@ instance (C.HasGlobalStateContext (PairGSContext lc rc) r,
         C.HasGlobalState (PairGState ls rs) s,
         MonadState s m,
         MonadIO m,
-        BlockStateStorage (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m),
-        TreeStateMonad (GSML lc r ls s m),
-        ATIStorage (GSML lc r ls s m) ~ (),
-        TreeStateMonad (GSMR rc r rs s m),
-        ATIStorage (GSMR rc r rs s m) ~ ())
-        => TreeStateMonad (TreeStateBlockStateM (PairGState ls rs) (PairGSContext lc rc) r s m) where
+        IsProtocolVersion pv,
+        BlockStateStorage (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m),
+        TreeStateMonad pv (GSML pv lc r ls s m),
+        ATIStorage (GSML pv lc r ls s m) ~ (),
+        TreeStateMonad pv (GSMR pv rc r rs s m),
+        ATIStorage (GSMR pv rc r rs s m) ~ ())
+        => TreeStateMonad pv (TreeStateBlockStateM pv (PairGState ls rs) (PairGSContext lc rc) r s m) where
     makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime = do
       pb1 <- coerceGSML $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime
       pb2 <- coerceGSMR $ TS.makePendingBlock sk sl parent bid bp bn lf trs sthash trouthash brtime

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 module Concordium.GlobalState.BlockPointer where
 
@@ -117,40 +118,40 @@ instance Serialize BasicBlockPointerData where
 -- * BlockData
 -- * BlockPointerData
 -- * HashableTo BlockHash
-data BlockPointer ati (p :: Type -> Type) s = BlockPointer {
+data BlockPointer (pv :: ProtocolVersion) ati (p :: Type -> Type) s = BlockPointer {
     -- |Information about the block, e.g., height, transactions, ...
     _bpInfo :: !BasicBlockPointerData,
     -- |Pointer to the parent (circular reference for genesis block)
-    _bpParent :: p (BlockPointer ati p s),
+    _bpParent :: p (BlockPointer pv ati p s),
     -- |Pointer to the last finalized block (circular for genesis)
-    _bpLastFinalized :: p (BlockPointer ati p s),
+    _bpLastFinalized :: p (BlockPointer pv ati p s),
     -- |The block itself
-    _bpBlock :: !Block,
+    _bpBlock :: !(Block pv),
     -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
     _bpState :: !s,
     -- |Handle to access the account transaction index; the index of which transactions affect which accounts.
     _bpATI :: !ati
 }
 
-type instance BlockFieldType (BlockPointer ati p s) = BlockFields
+type instance BlockFieldType (BlockPointer pv ati p s) = BlockFields
 
-instance Eq (BlockPointer ati p s) where
+instance Eq (BlockPointer pv ati p s) where
     bp1 == bp2 = _bpInfo bp1 == _bpInfo bp2
 
-instance Ord (BlockPointer ati p s) where
+instance Ord (BlockPointer pv ati p s) where
     compare bp1 bp2 = compare (_bpInfo bp1) (_bpInfo bp2)
 
-instance Hashable (BlockPointer ati p s) where
+instance Hashable (BlockPointer pv ati p s) where
     hashWithSalt s = hashWithSalt s . _bpInfo
     hash = hash . _bpInfo
 
-instance Show (BlockPointer ati p s) where
+instance Show (BlockPointer pv ati p s) where
     show = show . _bpInfo
 
-instance HashableTo BlockHash (BlockPointer ati p s) where
+instance HashableTo BlockHash (BlockPointer pv ati p s) where
     getHash = getHash . _bpInfo
 
-instance BlockData (BlockPointer ati p s) where
+instance BlockData (BlockPointer pv ati p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
@@ -158,7 +159,6 @@ instance BlockData (BlockPointer ati p s) where
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature = verifyBlockSignature . _bpBlock
-    putBlockV1 = putBlockV1 . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
@@ -166,9 +166,11 @@ instance BlockData (BlockPointer ati p s) where
     {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
-    {-# INLINE putBlockV1 #-}
 
-instance BlockPointerData (BlockPointer ati p s) where
+instance IsProtocolVersion pv => EncodeBlock pv (BlockPointer pv ati p s) where
+    putBlock spv = putBlock spv . _bpBlock
+
+instance BlockPointerData (BlockPointer pv ati p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo

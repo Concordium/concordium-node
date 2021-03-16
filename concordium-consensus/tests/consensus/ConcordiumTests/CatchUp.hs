@@ -1,4 +1,7 @@
-{-# LANGUAGE TupleSections, OverloadedStrings, InstanceSigs, FlexibleContexts, ViewPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 {-# OPTIONS_GHC -Wno-orphans -Wno-deprecations #-}
 module ConcordiumTests.CatchUp where
 
@@ -24,18 +27,18 @@ import qualified Concordium.GlobalState.Basic.TreeState as BTS
 import qualified Concordium.GlobalState.TreeState as TS
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.BakerInfo
-import qualified Concordium.Types.SeedState as SeedState
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
+import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
 import Concordium.Skov.Monad
 import Concordium.Skov.MonadImplementations
 import Concordium.Afgjort.Finalize
 import Concordium.Birk.Bake
-import Concordium.Types (Energy(..), AccountAddress)
+import Concordium.Types (Energy(..), AccountAddress, protocolVersion)
 import Concordium.Startup (defaultFinalizationParameters, makeBakersByStake)
 
 import ConcordiumTests.Konsensus hiding (tests)
@@ -92,20 +95,24 @@ initialiseStatesDictator n = do
         let bakerAmt = 1000000
             stakes = (2*bakerAmt) : take (n-1) (repeat bakerAmt)
             bis = makeBakersByStake stakes
-            seedState = SeedState.initialSeedState (hash "LeadershipElectionNonce") 10
             bakerAccounts = map (\(_, _, acc, _) -> acc) bis
-            gen = GenesisDataV2 {
-                    genesisTime = 0,
-                    genesisSlotDuration = 1,
-                    genesisSeedState = seedState,
-                    genesisAccounts = bakerAccounts,
-                    genesisFinalizationParameters = defaultFinalizationParameters{finalizationCommitteeMaxSize = fromIntegral n},
-                    genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
-                    genesisIdentityProviders = emptyIdentityProviders,
-                    genesisAnonymityRevokers = Dummy.dummyArs,
-                    genesisMaxBlockEnergy = Energy maxBound,
-                    genesisAuthorizations = dummyAuthorizations,
-                    genesisChainParameters = dummyChainParameters
+            gen = GDP1 GDP1Initial {
+                    genesisCore = CoreGenesisParameters {
+                        genesisTime = 0,
+                        genesisSlotDuration = 1,
+                        genesisEpochLength = 10,
+                        genesisMaxBlockEnergy = Energy maxBound,
+                        genesisFinalizationParameters = defaultFinalizationParameters{finalizationCommitteeMaxSize = fromIntegral n}
+                    },
+                    genesisInitialState = GenesisState {
+                        genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
+                        genesisIdentityProviders = emptyIdentityProviders,
+                        genesisAnonymityRevokers = Dummy.dummyArs,
+                        genesisAuthorizations = dummyAuthorizations,
+                        genesisChainParameters = dummyChainParameters,
+                        genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
+                        genesisAccounts = Vec.fromList bakerAccounts
+                    }
                 }
         res <- liftIO $ mapM (\(bid, binfo, acct, kp) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
@@ -173,7 +180,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                     checkBinary Set.isSubsetOf (Set.fromList $ cusLeaves request) respLive "is a subset of" "resquestor leaves" "respondent nodes, given no counter-request"
                 unless (lfh2 < lfh1) $ do
                     -- If the respondent should be able to send us something meaningful, then make sure they do
-                    let recBHs = [getHash bp | (MessageBlock, runGet (B.getExactVersionedBlock 0) -> Right bp) <- l]
+                    let recBHs = [getHash (bp :: Block PV) | (MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right bp) <- l]
                     let recBlocks = Set.fromList recBHs
                     -- Check that the requestor's live blocks + received blocks include all live blocks for respondent
                     checkBinary Set.isSubsetOf respLive (reqLive `Set.union` recBlocks) "is a subset of" "respondent live blocks" "requestor live blocks + received blocks"
@@ -184,7 +191,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
                         testList knownBlocks knownFin ((MessageFinalizationRecord, runGet getExactVersionedFinalizationRecord -> Right finRec) : rs) = do
                             checkBinary Set.member (finalizationBlockPointer finRec) knownBlocks "in" "finalized block" "known blocks"
                             testList knownBlocks (Set.insert (finalizationBlockPointer finRec) knownFin) rs
-                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getExactVersionedBlock 0) -> Right (B.NormalBlock bp)) : rs) = do
+                        testList knownBlocks knownFin ((MessageBlock, runGet (B.getVersionedBlock (protocolVersion @PV) 0) -> Right (bp :: BakedBlock)) : rs) = do
                             checkBinary Set.member (blockPointer bp) knownBlocks "in" "block parent" "known blocks"
                             knownFin' <- case blockFinalizationData bp of
                                 NoFinalizationData -> return knownFin

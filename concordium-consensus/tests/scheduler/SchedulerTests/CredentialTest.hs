@@ -27,7 +27,7 @@ import SchedulerTests.Helpers
 -- Test that sending to and from an account without valid credentials fails.
 
 -- Create initial state where alesAccount has a valid credential, but thomasAccount does not.
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
     10000000
     (Acc.putAccountWithRegIds (mkAccountExpiredCredential thomasVK thomasAccount 10000000) Acc.emptyAccounts)

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wall #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 module SchedulerTests.BlockEnergyLimitSpec where
@@ -29,7 +28,7 @@ import SchedulerTests.Helpers
 shouldReturnP :: Show a => IO a -> (a -> Bool) -> IO ()
 shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
-initialBlockState :: BlockState
+initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts
 
 -- We will use simple transfer transactions.

@@ -16,7 +16,7 @@ import Concordium.Logger
 import Concordium.TimeMonad
 
 -- | Called when a block is fully validated (arrives) to update the statistics.
-updateArriveStatistics :: (MonadLogger m, TreeStateMonad m, SkovQueryMonad m) => BlockPointerType m -> m ()
+updateArriveStatistics :: (MonadLogger m, TreeStateMonad pv m, SkovQueryMonad pv m) => BlockPointerType m -> m ()
 updateArriveStatistics bp = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksVerifiedCount +~ 1
@@ -65,7 +65,7 @@ updateArriveStatistics bp = do
                   & (transactionsPerBlockEMVar %~ \oldEMVar -> (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block is received to update the statistics.
-updateReceiveStatistics :: (TreeStateMonad m, MonadLogger m, SkovQueryMonad m) => PendingBlock -> m ()
+updateReceiveStatistics :: (TreeStateMonad pv m, MonadLogger m, SkovQueryMonad pv m) => PendingBlock -> m ()
 updateReceiveStatistics pb = do
         s0 <- getConsensusStatistics
         let s1 = s0 & blocksReceivedCount +~ 1
@@ -103,7 +103,7 @@ updateReceiveStatistics pb = do
                           & (blockReceivePeriodEMVar ?~! (1 - emaWeight) * (oldEMVar + emaWeight * delta * delta))
 
 -- | Called when a block has been finalized to update the statistics.
-updateFinalizationStatistics :: (TreeStateMonad m, MonadLogger m, TimeMonad m) => m ()
+updateFinalizationStatistics :: (TreeStateMonad pv m, MonadLogger m, TimeMonad m) => m ()
 updateFinalizationStatistics = do
         s0 <- getConsensusStatistics
         let s1 = s0 & finalizationCount +~ 1

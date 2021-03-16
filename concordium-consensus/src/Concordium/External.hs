@@ -1,10 +1,10 @@
-{-# LANGUAGE
-    ForeignFunctionInterface,
-    ScopedTypeVariables,
-    OverloadedStrings,
-    RankNTypes,
-    GADTs
-    #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 module Concordium.External where
 
 import Foreign
@@ -64,7 +64,7 @@ jsonValueToCString = newCString . LT.unpack . AET.encodeToLazyText
 -- |Use a 'BlockHash' as a 'BlockReference'.  The 'BlockReference' may not
 -- be valid after the function has returned.
 withBlockReference :: BlockHash -> (BlockReference -> IO a) -> IO a
-withBlockReference (BlockHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
+withBlockReference (BlockHash (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 
 -- |Use a 'TransactionHash' as a 'Ptr Word8'. The pointer may not be valid after
 -- the function has returned.
@@ -74,7 +74,7 @@ withTxReference (TransactionHashV0 (Hash.Hash fbs)) = FBS.withPtrReadOnly fbs
 -- |Create a 'BlockHash' from a 'BlockReference'.  This creates a copy
 -- of the block hash.
 blockReferenceToBlockHash :: BlockReference -> IO BlockHash
-blockReferenceToBlockHash src = BlockHashV0 <$> Hash.Hash <$> FBS.create cp 
+blockReferenceToBlockHash src = BlockHash . Hash.Hash <$> FBS.create cp 
     where
         cp dest = copyBytes dest src (FBS.fixedLength (undefined :: Hash.DigestSize))
 
@@ -176,15 +176,16 @@ callBroadcastCallback cbk mt bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invo
 
 -- |Broadcast a consensus message. This can be either a block,, finalization record, or finalization (pseudo) message.
 -- All messages are serialized with a version.
-broadcastCallback :: (BlockData (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig gs finconf hconf) LogIO)
-                                                        (SkovConfig gs finconf hconf)
-                                                        (LoggerT IO))))
-                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig gs finconf hconf) -> IO ()
+broadcastCallback :: forall pv gs finconf hconf.
+    (EncodeBlock pv (TS.BlockPointerType (SkovT (SkovHandlers ThreadTimer (SkovConfig pv gs finconf hconf) LogIO)
+                                          (SkovConfig pv gs finconf hconf)
+                                          (LoggerT IO))))
+                     => LogMethod IO -> FunPtr BroadcastCallback -> SimpleOutMessage (SkovConfig pv gs finconf hconf) -> IO ()
 broadcastCallback logM bcbk = handleB
     where
         handleB (SOMsgNewBlock block) = do
             -- we assume that genesis block (the only block that doesn't have signature) will never be sent to the network
-            let blockbs = runPut $ putVersionedBlockV1 block
+            let blockbs = runPut $ putVersionedBlock (protocolVersion @pv) block
             logM External LLDebug $ "Broadcasting block [size=" ++ show (BS.length blockbs) ++ "]"
             callBroadcastCallback bcbk MTBlock blockbs
         handleB (SOMsgFinalization finMsg) = do
@@ -204,17 +205,17 @@ foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStat
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
-type TreeConfig = DiskTreeDiskBlockConfig
-makeGlobalStateConfig :: RuntimeParameters -> GenesisData -> TreeConfig
+type TreeConfig = DiskTreeDiskBlockConfig 'P1
+makeGlobalStateConfig :: RuntimeParameters -> GenesisData 'P1 -> TreeConfig
 makeGlobalStateConfig rt genData = DTDBConfig rt genData
 
-type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig
-makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData -> BS.ByteString -> TreeConfigWithLog
+type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig 'P1
+makeGlobalStateConfigWithLog :: RuntimeParameters -> GenesisData 'P1 -> BS.ByteString -> TreeConfigWithLog
 makeGlobalStateConfigWithLog rt genData = DTDBWLConfig rt genData
 
 
-type ActiveConfig gs = SkovConfig gs (BufferedFinalization ThreadTimer) NoHandler
-type PassiveConfig gs = SkovConfig gs (NoFinalization ()) NoHandler
+type ActiveConfig gs = SkovConfig 'P1 gs (BufferedFinalization ThreadTimer) LogUpdateHandler
+type PassiveConfig gs = SkovConfig 'P1 gs (NoFinalization ()) LogUpdateHandler
 
 -- |A 'ConsensusRunner' encapsulates an instance of the consensus, and possibly a baker thread.
 data ConsensusRunner = BakerRunner {
@@ -237,8 +238,8 @@ consensusLogMethod BakerRunnerWithLog{bakerSyncRunnerWithLog=SyncRunner{syncLogM
 consensusLogMethod PassiveRunnerWithLog{passiveSyncRunnerWithLog=SyncPassiveRunner{syncPLogMethod=logM}} = logM
 
 runWithConsensus :: ConsensusRunner
-                 -> (forall h f gs. TS.TreeStateMonad (SkovT h (SkovConfig gs f NoHandler) LogIO)
-                     => SkovT h (SkovConfig gs f NoHandler) LogIO a) -> IO a
+                 -> (forall pv h f gs. TS.TreeStateMonad pv (SkovT h (SkovConfig pv gs f LogUpdateHandler) LogIO)
+                     => SkovT h (SkovConfig pv gs f LogUpdateHandler) LogIO a) -> IO a
 runWithConsensus BakerRunner{..} = runSkovTransaction bakerSyncRunner
 runWithConsensus PassiveRunner{..} = runSkovPassive passiveSyncRunner
 runWithConsensus BakerRunnerWithLog{..} = runSkovTransaction bakerSyncRunnerWithLog
@@ -275,8 +276,11 @@ handleStartExceptions :: LogMethod IO -> IO Int64 -> IO Int64
 handleStartExceptions logM c =
   c `catches`
     [Handler (\(ex :: IOError) -> toStartResult StartIOException <$ logM External LLError (displayException ex)),
-     Handler (\(ex :: InitException) -> toStartResult (StartInitException ex) <$ logM External LLError (displayException ex))
+     Handler (\(ex :: InitException) -> toStartResult (StartInitException ex) <$ logM External LLError (displayException ex)),
+     Handler handleGlobalStateInitException
     ]
+  where
+    handleGlobalStateInitException (InvalidGenesisData _) = return (toStartResult StartGenesisFailure)
 
 -- |Start up an instance of Skov without starting the baker thread.
 -- If an error occurs starting Skov, the error will be logged and
@@ -312,11 +316,11 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
             }
-        case (runGet getExactVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
+        case (runGet getVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
               let
                   finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-                  hconfig = NoHandler
+                  hconfig = LogUpdateHandler
               if connStringLen /= 0 then do -- enable logging of transactions
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
@@ -327,7 +331,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
-                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (v0BlockHash b))
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
                 bakerSyncRunnerWithLog <-
                   makeSyncRunner logM bid config bakerBroadcast catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr BakerRunnerWithLog{..}
@@ -340,7 +344,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
                     config = SkovConfig gsconfig finconfig hconfig
                     bakerBroadcast = broadcastCallback logM bcbk
                 regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
-                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (v0BlockHash b))
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
                 bakerSyncRunner <- makeSyncRunner logM bid config bakerBroadcast catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr BakerRunner{..}
                 return (toStartResult StartSuccess)
@@ -388,10 +392,10 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
             }
-        case runGet getExactVersionedGenesisData gdata of
+        case runGet getVersionedGenesisData gdata of
             Right genData -> do
               let finconfig = NoFinalization
-                  hconfig = NoHandler
+                  hconfig = LogUpdateHandler
               if connStringLen /= 0 then do
                 connString <- BS.packCStringLen (connStringPtr, fromIntegral connStringLen)
                 let
@@ -401,7 +405,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                         connString
                     config = SkovConfig gsconfig finconfig hconfig
                 regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
-                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (v0BlockHash b))
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
                 passiveSyncRunnerWithLog <- makeSyncPassiveRunner logM config catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr PassiveRunnerWithLog{..}
                 return (toStartResult StartSuccess)
@@ -412,7 +416,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                         genData
                     config = SkovConfig gsconfig finconfig hconfig
                 regenesisArc <- newForeignPtr freeRegenesisArc regenesisArcPtr
-                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (v0BlockHash b))
+                let regenesisCallback b = withForeignPtr regenesisArc $ \arc -> callRegenesisCallback regenesisCB arc (Hash.hashToByteString (blockHash b))
                 passiveSyncRunner <- makeSyncPassiveRunner logM config catchUpCallback regenesisCallback
                 poke runnerPtrPtr =<< newStablePtr PassiveRunner{..}
                 return (toStartResult StartSuccess)
@@ -482,6 +486,8 @@ stopBaker cptr = mask_ $
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 |    12 | ResultMissingImportFile            | The file provided for importing doesn't exist                                          | N/A      |
 +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
+|    13 | ResultConsensusShutDown            | Consensus has been shut down and the message was ignored                               | No       |
++-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -}
 type ReceiveResult = Int64
 
@@ -499,12 +505,13 @@ toReceiveResult ResultUnverifiable = 9
 toReceiveResult ResultContinueCatchUp = 10
 toReceiveResult ResultEarlyBlock = 11
 toReceiveResult ResultMissingImportFile = 12
+toReceiveResult ResultConsensusShutDown = 13
 
 
 -- |Handle receipt of a block.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 -- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultAsync@, @ResultDuplicate@,
--- and @ResultStale@.
+-- @ResultStale@, and @ResultConsensusShutDown@.
 -- 'receiveBlock' may invoke the callbacks for new finalization messages.
 receiveBlock :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveBlock bptr cstr l = do
@@ -514,7 +521,7 @@ receiveBlock bptr cstr l = do
     blockBS <- BS.packCStringLen (cstr, fromIntegral l)
     now <- currentTime
     toReceiveResult <$>
-        case (deserializeExactVersionedPendingBlock blockBS now) of
+        case deserializeExactVersionedPendingBlock SP1 blockBS now of
             Left err -> do
                 logm External LLDebug err
                 return ResultSerializationFail
@@ -527,8 +534,8 @@ receiveBlock bptr cstr l = do
 
 -- |Handle receipt of a finalization message.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@ and
--- @ResultUnverifiable@.
+-- @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@,
+-- @ResultUnverifiable@, @ResultConsensusShutDown@.
 -- 'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalization :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveFinalization bptr cstr l = do
@@ -550,7 +557,7 @@ receiveFinalization bptr cstr l = do
 
 -- |Handle receipt of a finalization record.
 -- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
--- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, and @ResultStale@.
+-- @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@ and @ResultConsensusShutDown@.
 -- (Currently, @ResultDuplicate@ cannot happen, although it may be supported in future.)
 -- 'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
 receiveFinalizationRecord :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
@@ -571,7 +578,8 @@ receiveFinalizationRecord bptr cstr l = do
                 PassiveRunnerWithLog{..} -> syncPassiveReceiveFinalizationRecord passiveSyncRunnerWithLog finRec
 
 -- |Handle receipt of a transaction.
--- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@, @ResultStale@, @ResultInvalid@.
+-- The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,
+-- @ResultStale@, @ResultInvalid@, and @ResultConsensusShutDown@.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> IO ReceiveResult
 receiveTransaction bptr tdata len = do
     c <- deRefStablePtr bptr
@@ -596,7 +604,7 @@ receiveTransaction bptr tdata len = do
                   BakerRunnerWithLog{..} -> syncReceiveTransaction bakerSyncRunnerWithLog tr
                   PassiveRunnerWithLog{..} -> syncPassiveReceiveTransaction passiveSyncRunnerWithLog tr
 
-runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad m, MonadState s m, MonadLogger m) => z -> a) -> a
+runConsensusQuery :: ConsensusRunner -> (forall z m s. (Get.SkovStateQueryable z m, BlockPointerMonad m, TS.TreeStateMonad (Get.SkovStateProtocolVersion z) m, MonadState s m, MonadLogger m) => z -> a) -> a
 runConsensusQuery BakerRunner{..} f = f bakerSyncRunner
 runConsensusQuery PassiveRunner{..} f = f passiveSyncRunner
 runConsensusQuery BakerRunnerWithLog{..} f = f bakerSyncRunnerWithLog
