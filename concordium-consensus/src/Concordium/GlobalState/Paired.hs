@@ -485,9 +485,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoProcessReleaseSchedule bs1 ts
         bs2' <- coerceBSMR $ bsoProcessReleaseSchedule bs2 ts
         return (bs1', bs2')
-    bsoGetCurrentAuthorizations (bs1, bs2) = do
-        a1 <- coerceBSML $ bsoGetCurrentAuthorizations bs1
-        a2 <- coerceBSMR $ bsoGetCurrentAuthorizations bs2
+    bsoGetUpdateKeyCollection (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetUpdateKeyCollection bs1
+        a2 <- coerceBSMR $ bsoGetUpdateKeyCollection bs2
         assert (a1 == a2) $ return a1
     bsoGetNextUpdateSequenceNumber (bs1, bs2) uty = do
         a1 <- coerceBSML $ bsoGetNextUpdateSequenceNumber bs1 uty

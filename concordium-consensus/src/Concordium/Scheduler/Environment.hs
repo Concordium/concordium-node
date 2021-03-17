@@ -257,8 +257,8 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- * Chain updates
 
-  -- |Get the current 'Authorizations'.
-  getUpdateAuthorizations :: m Authorizations
+  -- |Get the current authorized keys for updates.
+  getUpdateKeyCollection :: m UpdateKeysCollection
 
   -- |Get the next sequence number of updates of a given type.
   getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber

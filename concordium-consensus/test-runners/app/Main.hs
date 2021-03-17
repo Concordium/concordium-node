@@ -47,7 +47,7 @@ import Concordium.Startup
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState.DummyData (dummyAuthorizations)
+import Concordium.GlobalState.DummyData (dummyKeyCollection)
 
 -- Protocol version
 type PV = 'P1
@@ -213,7 +213,7 @@ main = do
                      dummyArs
                      [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                      (Energy maxBound)
-                     dummyAuthorizations
+                     dummyKeyCollection
                      (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n) 300000000000)
     trans <- transactions <$> newStdGen
     createDirectoryIfMissing True "data"

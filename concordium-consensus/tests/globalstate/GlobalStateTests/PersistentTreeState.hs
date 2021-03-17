@@ -63,7 +63,7 @@ createGlobalState dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     config = DTDBConfig (defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }) genesis
   (x, y, NoLogContext) <- runSilentLogger $ initialiseGlobalState config
   return (x, y)

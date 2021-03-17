@@ -95,8 +95,12 @@ enqueue !t !e = (uqNextSequenceNumber +~ 1)
 
 -- |Update queues for all on-chain update types.
 data PendingUpdates = PendingUpdates {
-    -- |Updates to authorized update keys.
-    _pAuthorizationQueue :: !(UpdateQueue (Hashed Authorizations)),
+    -- |Updates to the root keys.
+    _pRootKeysUpdateQueue :: !(UpdateQueue (HigherLevelKeys RootKeysKind)),
+    -- |Updates to the level 1 keys.
+    _pLevel1KeysUpdateQueue :: !(UpdateQueue (HigherLevelKeys Level1KeysKind)),
+    -- |Updates to the level 2 keys.
+    _pLevel2KeysUpdateQueue :: !(UpdateQueue Authorizations),
     -- |Protocol updates.
     _pProtocolQueue :: !(UpdateQueue ProtocolUpdate),
     -- |Updates to the election difficulty parameter.
@@ -120,7 +124,9 @@ makeLenses ''PendingUpdates
 
 instance HashableTo H.Hash PendingUpdates where
     getHash PendingUpdates{..} = H.hash $
-            hsh _pAuthorizationQueue
+            hsh _pRootKeysUpdateQueue
+            <> hsh _pLevel1KeysUpdateQueue
+            <> hsh _pLevel2KeysUpdateQueue
             <> hsh _pProtocolQueue
             <> hsh _pElectionDifficultyQueue
             <> hsh _pEuroPerEnergyQueue
@@ -137,7 +143,9 @@ instance HashableTo H.Hash PendingUpdates where
 -- |Serialize the pending updates.
 putPendingUpdatesV0 :: Putter PendingUpdates
 putPendingUpdatesV0 PendingUpdates{..} = do
-        putUpdateQueueV0 (_unhashed <$> _pAuthorizationQueue)
+        putUpdateQueueV0 _pRootKeysUpdateQueue
+        putUpdateQueueV0 _pLevel1KeysUpdateQueue
+        putUpdateQueueV0 _pLevel2KeysUpdateQueue
         putUpdateQueueV0 _pProtocolQueue
         putUpdateQueueV0 _pElectionDifficultyQueue
         putUpdateQueueV0 _pEuroPerEnergyQueue
@@ -151,7 +159,9 @@ putPendingUpdatesV0 PendingUpdates{..} = do
 -- |Deserialize pending updates.
 getPendingUpdatesV0 :: Get PendingUpdates
 getPendingUpdatesV0 = do
-        _pAuthorizationQueue <- fmap makeHashed <$> getUpdateQueueV0
+        _pRootKeysUpdateQueue <- getUpdateQueueV0
+        _pLevel1KeysUpdateQueue <- getUpdateQueueV0
+        _pLevel2KeysUpdateQueue <- getUpdateQueueV0
         _pProtocolQueue <- getUpdateQueueV0
         _pElectionDifficultyQueue <- getUpdateQueueV0
         _pEuroPerEnergyQueue <- getUpdateQueueV0
@@ -165,7 +175,9 @@ getPendingUpdatesV0 = do
 
 instance ToJSON PendingUpdates where
     toJSON PendingUpdates{..} = object [
-            "authorization" AE..= (_unhashed <$> _pAuthorizationQueue),
+            "rootKeys" AE..= _pRootKeysUpdateQueue,
+            "level1Keys" AE..= _pLevel1KeysUpdateQueue,
+            "level2Keys" AE..= _pLevel2KeysUpdateQueue,
             "protocol" AE..= _pProtocolQueue,
             "electionDifficulty" AE..= _pElectionDifficultyQueue,
             "euroPerEnergy" AE..= _pEuroPerEnergyQueue,
@@ -179,7 +191,9 @@ instance ToJSON PendingUpdates where
 
 instance FromJSON PendingUpdates where
     parseJSON = withObject "PendingUpdates" $ \o -> do
-        _pAuthorizationQueue <- fmap makeHashed <$> o AE..: "authorization"
+        _pRootKeysUpdateQueue <- o AE..: "rootKeys"
+        _pLevel1KeysUpdateQueue <- o AE..: "level1Keys"
+        _pLevel2KeysUpdateQueue <- o AE..: "level2Keys"
         _pProtocolQueue <- o AE..: "protocol"
         _pElectionDifficultyQueue <- o AE..: "electionDifficulty"
         _pEuroPerEnergyQueue <- o AE..: "euroPerEnergy"
@@ -194,6 +208,8 @@ instance FromJSON PendingUpdates where
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: PendingUpdates
 emptyPendingUpdates = PendingUpdates
+        emptyUpdateQueue
+        emptyUpdateQueue
         emptyUpdateQueue 
         emptyUpdateQueue 
         emptyUpdateQueue
@@ -208,7 +224,7 @@ emptyPendingUpdates = PendingUpdates
 -- |Current state of updatable parameters and update queues.
 data Updates = Updates {
     -- |Current update authorizations.
-    _currentAuthorizations :: !(Hashed Authorizations),
+    _currentKeyCollection :: !(Hashed UpdateKeysCollection),
     -- |Current protocol update.
     _currentProtocolUpdate :: !(Maybe ProtocolUpdate),
     -- |Current chain parameters.
@@ -220,7 +236,7 @@ makeClassy ''Updates
 
 instance HashableTo H.Hash Updates where
     getHash Updates{..} = H.hash $
-            hsh _currentAuthorizations
+            hsh _currentKeyCollection
             <> case _currentProtocolUpdate of
                     Nothing -> "\x00"
                     Just cpu -> "\x01" <> hsh cpu
@@ -233,7 +249,7 @@ instance HashableTo H.Hash Updates where
 -- |Serialize 'Updates' in V0 format.
 putUpdatesV0 :: Putter Updates
 putUpdatesV0 Updates{..} = do
-        put (_currentAuthorizations ^. unhashed)
+        put (_currentKeyCollection ^. unhashed)
         case _currentProtocolUpdate of
             Nothing -> putWord8 0
             Just cpu -> putWord8 1 >> put cpu
@@ -243,7 +259,7 @@ putUpdatesV0 Updates{..} = do
 -- |Deserialize 'Updates' in V0 format.
 getUpdatesV0 :: Get Updates
 getUpdatesV0 = do
-        _currentAuthorizations <- makeHashed <$> get
+        _currentKeyCollection <- makeHashed <$> get
         _currentProtocolUpdate <- getWord8 >>= \case
             0 -> return Nothing
             1 -> Just <$> get
@@ -254,14 +270,14 @@ getUpdatesV0 = do
 
 instance ToJSON Updates where
     toJSON Updates{..} = object $ [
-            "authorizations" AE..= _unhashed _currentAuthorizations,
+            "keys" AE..= _unhashed _currentKeyCollection,
             "chainParameters" AE..= _currentParameters,
             "updateQueues" AE..= _pendingUpdates
         ] <> toList (("protocolUpdate" AE..=) <$> _currentProtocolUpdate)
 
 instance FromJSON Updates where
     parseJSON = withObject "Updates" $ \o -> do
-        _currentAuthorizations <- makeHashed <$> o AE..: "authorizations"
+        _currentKeyCollection <- makeHashed <$> o AE..: "keys"
         _currentProtocolUpdate <- o AE..:? "protocolUpdate"
         _currentParameters <- o AE..: "chainParameters"
         _pendingUpdates <- o AE..: "updateQueues"
@@ -269,9 +285,9 @@ instance FromJSON Updates where
 
 -- |An initial 'Updates' with the given initial 'Authorizations'
 -- and 'ChainParameters'.
-initialUpdates :: Authorizations -> ChainParameters -> Updates
-initialUpdates initialAuthorizations _currentParameters = Updates {
-        _currentAuthorizations = makeHashed initialAuthorizations,
+initialUpdates :: UpdateKeysCollection -> ChainParameters -> Updates
+initialUpdates initialKeyCollection _currentParameters = Updates {
+        _currentKeyCollection = makeHashed initialKeyCollection,
         _currentProtocolUpdate = Nothing,
         _pendingUpdates = emptyPendingUpdates,
         ..
@@ -297,7 +313,11 @@ processValueUpdates t a0 uq = (getLast (sconcat (Last <$> a0 :| (snd <$> ql))), 
 -- overridden by later ones.
 -- FIXME: We may just want to keep unused protocol updates in the queue, even if their timestamps have
 -- elapsed.
-processProtocolUpdates :: Timestamp -> Maybe ProtocolUpdate -> UpdateQueue ProtocolUpdate -> (Maybe ProtocolUpdate, UpdateQueue ProtocolUpdate, Map.Map TransactionTime ProtocolUpdate)
+processProtocolUpdates ::
+  Timestamp ->
+  Maybe ProtocolUpdate ->
+  UpdateQueue ProtocolUpdate ->
+  (Maybe ProtocolUpdate, UpdateQueue ProtocolUpdate, Map.Map TransactionTime ProtocolUpdate)
 processProtocolUpdates t pu0 uq = (pu', uq {_uqQueue = qr}, Map.fromAscList ql)
     where
         (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
@@ -312,7 +332,7 @@ processUpdateQueues
     -> Updates
     -> (Map.Map TransactionTime UpdateValue, Updates)
 processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters=RewardParameters{..}, ..}, ..} = (res, Updates {
-            _currentAuthorizations = newAuthorizations,
+            _currentKeyCollection = makeHashed $ UpdateKeysCollection newRootKeys newLevel1Keys newLevel2Keys,
             _currentProtocolUpdate = newProtocolUpdate,
             _currentParameters = makeChainParameters
                         newElectionDifficulty
@@ -328,7 +348,9 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                         newFoundationAccount
                         newBakerStakeThreshold,
             _pendingUpdates = PendingUpdates {
-                    _pAuthorizationQueue = newAuthorizationQueue,
+                    _pRootKeysUpdateQueue = newRootKeysQueue,
+                    _pLevel1KeysUpdateQueue = newLevel1KeysQueue,
+                    _pLevel2KeysUpdateQueue = newLevel2KeysQueue,
                     _pProtocolQueue = newProtocolQueue,
                     _pElectionDifficultyQueue = newElectionDifficultyQueue,
                     _pEuroPerEnergyQueue = newEuroPerEnergyQueue,
@@ -341,7 +363,9 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                 }
         })
     where
-        (newAuthorizations, newAuthorizationQueue, resAuthorization) = processValueUpdates t _currentAuthorizations _pAuthorizationQueue
+        (newRootKeys, newRootKeysQueue, resRootKeys) = processValueUpdates t (rootKeys $ _unhashed _currentKeyCollection) _pRootKeysUpdateQueue
+        (newLevel1Keys, newLevel1KeysQueue, resLevel1Keys) = processValueUpdates t (level1Keys $ _unhashed _currentKeyCollection) _pLevel1KeysUpdateQueue
+        (newLevel2Keys, newLevel2KeysQueue, resLevel2Keys) = processValueUpdates t (level2Keys $ _unhashed _currentKeyCollection) _pLevel2KeysUpdateQueue
         (newProtocolUpdate, newProtocolQueue, resProtocol) = processProtocolUpdates t _currentProtocolUpdate _pProtocolQueue
         (newElectionDifficulty, newElectionDifficultyQueue, resElectionDifficulty) = processValueUpdates t _cpElectionDifficulty _pElectionDifficultyQueue
         (newEuroPerEnergy, newEuroPerEnergyQueue, resEuroPerEnergy) = processValueUpdates t _cpEuroPerEnergy _pEuroPerEnergyQueue
@@ -351,8 +375,10 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
         (newTransactionFeeDistribution, newTransactionFeeDistributionQueue, resTransactionFeeDistribution) = processValueUpdates t _rpTransactionFeeDistribution _pTransactionFeeDistributionQueue
         (newGASRewards, newGASRewardsQueue, resGASRewards) = processValueUpdates t _rpGASRewards _pGASRewardsQueue
         (newBakerStakeThreshold, newBakerStakeThresholdQueue, resBakerStakeThreshold) = processValueUpdates t _cpBakerStakeThreshold _pBakerStakeThresholdQueue
-        res = 
-            (UVAuthorization . _unhashed <$> resAuthorization) <>
+        res =
+            (UVRootKeys <$> resRootKeys) <>
+            (UVLevel1Keys <$> resLevel1Keys) <>
+            (UVLevel2Keys <$> resLevel2Keys) <>
             (UVProtocol <$> resProtocol) <>
             (UVElectionDifficulty <$> resElectionDifficulty) <>
             (UVEuroPerEnergy <$> resEuroPerEnergy) <>
@@ -379,7 +405,6 @@ protocolUpdateStatus Updates{_pendingUpdates = PendingUpdates{..},..}
 
 -- |Determine the next sequence number for a given update type.
 lookupNextUpdateSequenceNumber :: Updates -> UpdateType -> UpdateSequenceNumber
-lookupNextUpdateSequenceNumber u UpdateAuthorization = u ^. pendingUpdates . pAuthorizationQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateProtocol = u ^. pendingUpdates . pProtocolQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateElectionDifficulty = u ^. pendingUpdates . pElectionDifficultyQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateEuroPerEnergy = u ^. pendingUpdates . pEuroPerEnergyQueue . uqNextSequenceNumber
@@ -389,10 +414,17 @@ lookupNextUpdateSequenceNumber u UpdateMintDistribution = u ^. pendingUpdates . 
 lookupNextUpdateSequenceNumber u UpdateTransactionFeeDistribution = u ^. pendingUpdates . pTransactionFeeDistributionQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateGASRewards = u ^. pendingUpdates . pGASRewardsQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateBakerStakeThreshold = u ^. pendingUpdates . pBakerStakeThresholdQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateRootKeysWithRootKeys = u ^. pendingUpdates . pRootKeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateLevel1KeysWithRootKeys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateLevel2KeysWithRootKeys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateLevel1KeysWithLevel1Keys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateLevel2KeysWithLevel1Keys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: TransactionTime -> UpdateValue -> Updates -> Updates
-enqueueUpdate effectiveTime (UVAuthorization auths) = pendingUpdates . pAuthorizationQueue %~ enqueue effectiveTime (makeHashed auths)
+enqueueUpdate effectiveTime (UVRootKeys rk) = pendingUpdates . pRootKeysUpdateQueue %~ enqueue effectiveTime rk
+enqueueUpdate effectiveTime (UVLevel1Keys l1k) = pendingUpdates . pLevel1KeysUpdateQueue %~ enqueue effectiveTime l1k
+enqueueUpdate effectiveTime (UVLevel2Keys l2k) = pendingUpdates . pLevel2KeysUpdateQueue %~ enqueue effectiveTime l2k
 enqueueUpdate effectiveTime (UVProtocol protUp) = pendingUpdates . pProtocolQueue %~ enqueue effectiveTime protUp
 enqueueUpdate effectiveTime (UVElectionDifficulty edUp) = pendingUpdates . pElectionDifficultyQueue %~ enqueue effectiveTime edUp
 enqueueUpdate effectiveTime (UVEuroPerEnergy epeUp) = pendingUpdates . pEuroPerEnergyQueue %~ enqueue effectiveTime epeUp
