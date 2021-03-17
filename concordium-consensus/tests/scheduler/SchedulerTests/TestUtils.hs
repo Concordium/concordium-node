@@ -42,6 +42,8 @@ data TResultSpec
   = Success ([Event] -> Expectation)
   -- | Like 'Success' but with exactly the given list of events.
   | SuccessE [Event]
+  -- | Like Success but has access to the full transaction summary.
+  | SuccessWithSummary (BlockItem -> TransactionSummary -> Expectation)
   -- | Expect the transaction to be rejected with the given reason.
   | Reject RejectReason
   -- | Expect the transaction to fail with the given reason.
@@ -180,6 +182,10 @@ mkSpec TestCase{..} =
                     specify "Transaction valid and successful" emptyExpect
                     specify "Correct events" $ events `shouldBe` expectedEvents
                   _ -> specify "Transaction successful" failure
+              _ -> specify "Transaction valid" failure
+          SuccessWithSummary ensure ->
+            case res of
+              Valid (bi, ts) -> specify "Ensure successful outcome " $ ensure bi ts
               _ -> specify "Transaction valid" failure
           Reject expectedReason ->
             case res of
