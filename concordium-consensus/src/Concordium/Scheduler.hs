@@ -1259,7 +1259,6 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       else do
         -- Convert the payload to an update
         case uiPayload of
-          AuthorizationUpdatePayload u -> checkSigAndUpdate $ UVAuthorization u
           ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
           ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
           EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
@@ -1271,11 +1270,17 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
           GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
           BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
+          RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
+          RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
+          RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
+          Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
+          Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
+
   where
     checkSigAndUpdate change = do
       -- Check that the signatures use the appropriate keys and are valid.
-      auths <- getUpdateAuthorizations
-      if checkAuthorizedUpdate auths ui then do
+      keyCollection <- getUpdateKeyCollection
+      if checkAuthorizedUpdate keyCollection ui then do
         enqueueUpdate (updateEffectiveTime uiHeader) change
         tsIndex <- bumpTransactionIndex
         return $ TxValid TransactionSummary {

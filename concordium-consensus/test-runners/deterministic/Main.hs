@@ -54,7 +54,7 @@ import Concordium.Startup
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState.DummyData (dummyAuthorizations)
+import Concordium.GlobalState.DummyData (dummyKeyCollection)
 
 import System.Directory
 
@@ -258,7 +258,7 @@ initialState = do
                                 dummyArs
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
-                                dummyAuthorizations
+                                dummyKeyCollection
                                 (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (maxBakerId + 1) 300000000000)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
