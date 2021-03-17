@@ -11,6 +11,7 @@ import Test.Hspec
 import Test.HUnit(assertFailure, assertEqual)
 
 import qualified Data.ByteString.Short as BSS
+import qualified Data.ByteString as BS
 import Data.Serialize(runPut, putWord64le)
 import Data.Word
 import Lens.Micro.Platform
@@ -22,6 +23,7 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.Wasm
+import qualified Concordium.Scheduler.Cost as Cost
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
@@ -39,6 +41,9 @@ initialBlockState = blockStateWithAlesAccount
 fibParamBytes :: Word64 -> BSS.ShortByteString
 fibParamBytes n = BSS.toShort $ runPut (putWord64le n)
 
+fibSourceFile :: FilePath
+fibSourceFile = "./testdata/contracts/fib.wasm"
+
 testCases :: [TestCase]
 testCases =
   [ -- NOTE: Could also check resulting balances on each affected account or contract, but
@@ -47,11 +52,11 @@ testCases =
     { tcName = "Error handling in contracts."
     , tcParameters = defaultParams {tpInitialBlockState=initialBlockState}
     , tcTransactions =
-      [ ( TJSON { payload = DeployModule 0 "./testdata/contracts/fib.wasm"
+      [ ( TJSON { payload = DeployModule 0 fibSourceFile
                 , metadata = makeDummyHeader alesAccount 1 100000
                 , keys = [(0,[(0, alesKP)])]
                 }
-        , (Success emptyExpect, emptySpec)
+        , (SuccessWithSummary deploymentCostCheck, emptySpec)
         )
       , ( TJSON { payload = InitContract 0 0 "./testdata/contracts/fib.wasm" "init_fib" ""
                 , metadata = makeDummyHeader alesAccount 2 100000
@@ -61,7 +66,7 @@ testCases =
         )
         -- compute F(10)
       , ( TJSON { payload = Update 0 (Types.ContractAddress 0 0) "fib.receive" (fibParamBytes 10)
-                , metadata = makeDummyHeader alesAccount 3 70000
+                , metadata = makeDummyHeader alesAccount 3 700000
                 , keys = [(0,[(0, alesKP)])]
                 }
         , (Success ensureAllUpdates , fibSpec 10)
@@ -70,7 +75,20 @@ testCases =
      }
   ]
 
-  where ensureAllUpdates = mapM_ p
+  where
+        deploymentCostCheck :: Types.BlockItem -> Types.TransactionSummary -> Expectation
+        deploymentCostCheck _ Types.TransactionSummary{..} = do
+          moduleSource <- BS.readFile fibSourceFile
+          let len = fromIntegral $ BS.length moduleSource
+              -- size of the module deploy payload
+              payloadSize = Types.payloadSize (Types.encodePayload (Types.DeployModule (WasmModule 0 ModuleSource{..})))
+              -- size of the transaction minus the signatures.
+              txSize = Types.transactionHeaderSize + fromIntegral payloadSize
+              -- transaction is signed with 1 signature
+          assertEqual "Deployment has correct cost " (Cost.baseCost txSize 1 + Cost.deployModuleCost len) tsEnergyCost
+
+        ensureAllUpdates :: [Types.Event] -> Expectation
+        ensureAllUpdates = mapM_ p
         p Types.Updated { euAmount = 0
                         , euEvents = []
                         , ..
