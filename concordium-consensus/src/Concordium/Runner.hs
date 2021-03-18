@@ -40,7 +40,15 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.Getters
 
-type SkovBlockPointer c = BlockPointerType (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)
+-- | The SkovT transformer specialized to
+-- - @SkovHandlers ThreadTimer c LogIO@ as handlers
+-- - @LogIO@ as the base monad
+-- - c as the context
+--
+-- This is top-level monad used to run consensus and finalization.
+type SkovTLogIO c = SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO
+
+type SkovBlockPointer c = BlockPointerType (SkovTLogIO c)
 
 data SimpleOutMessage c
     = SOMsgNewBlock !(SkovBlockPointer c)
@@ -129,7 +137,7 @@ runWithStateLog mvState logm a = bracketOnError (takeMVar mvState) (tryPutMVar m
         return ret
 
 
-runSkovTransaction :: SyncRunner c -> SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO a -> IO a
+runSkovTransaction :: SyncRunner c -> SkovTLogIO c a -> IO a
 {-# INLINE runSkovTransaction #-}
 runSkovTransaction sr@SyncRunner{..} a = runWithStateLog syncState syncLogMethod (runSkovT a (syncSkovHandlers sr) syncContext)
 
@@ -145,34 +153,81 @@ syncSkovHandlers sr@SyncRunner{..} = SkovHandlers{
 -- |Start the baker thread for a 'SyncRunner'. This will also spawn a background thread for purging the transaction table periodically.
 startSyncRunner :: forall c. (
     (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)),
-    (BakerMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)),
-    (TreeStateMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+    (BakerMonad (SkovProtocolVersion c) (SkovTLogIO c)),
+    (TreeStateMonad (SkovProtocolVersion c) (SkovTLogIO c))
     ) => SyncRunner c -> IO ()
 startSyncRunner sr@SyncRunner{..} = do
+        -- start baking at the current time.
+        initialSlot <- runStateQuery sr getCurrentSlot
+        rp <- runStateQuery sr getRuntimeParameters
+        genData <- runStateQuery sr getGenesisData
         let
             runBaker :: IO ()
-            runBaker = (bakeLoop 0 `catch` \(e :: SomeException) -> (syncLogMethod Runner LLError ("Message loop exited with exception: " ++ show e)))
+            runBaker = (bakeLoop initialSlot `catch` \(e :: SomeException) -> (syncLogMethod Runner LLError ("Message loop exited with exception: " ++ show e)))
                             `finally` syncLogMethod Runner LLInfo "Exiting baker thread"
+
+            maxDelaySlots = tsMillis (rpMaxBakingDelay rp) `div` durationMillis (gdSlotDuration genData)
+
+            -- Try to bake beyond the last slot we tried to bake for.
+            -- The returned value is a triple of
+            -- 1. a new block if we produced a block
+            -- 2. a slot we baked for last
+            -- 3. a flag indicating whether the bake loop should be stopped.
+            tryBake :: Slot -> SkovState c -> LogIO ((Maybe (SkovBlockPointer c), SkovState c, Slot, Bool), SkovState c)
+            tryBake lastSlot sfs = do
+              -- bake for a slot if appropriate Return a new block if
+              -- successful, the slot we baked for last, and a flag indicating
+              -- whether the bake loop should be stopped.
+              let bakeIfTime :: SkovTLogIO c (Maybe (SkovBlockPointer c), Slot, Bool)
+                  bakeIfTime = do
+                    shutdown <- isShutDown
+                    curSlot <- getCurrentSlot
+                    -- the slot we wish to bake for next
+                    let candidateSlot = lastSlot + 1
+                    if curSlot >= candidateSlot then do
+                      -- Try the next slot after the one we last tried.
+                      -- while this slot might be behind the current one it should not be very much
+                      -- behind. Not skipping slots means we get more uniform block times that
+                      -- are not affected by block execution times. If we only checked the current slot
+                      -- then in the case when block execution on average takes 1/2 of average block time
+                      -- we'd fail to bake for half the slots, which would mean that the average block time
+                      -- would double (this is of course not entirely accurate since the two things are dependent
+                      -- on each other, but it conveys the problem with missing to bake for some slots)
+                      --
+                      -- It could happen that `candidateSlot` is behind the last finalized block that we know, in which
+                      -- case `bakeForSlot` will quickly return with `Nothing`, so running this is safe.
+                      if fromIntegral (curSlot - candidateSlot) <= maxDelaySlots then do
+                        mblock <- bakeForSlot syncBakerIdentity candidateSlot
+                        return (mblock, candidateSlot, shutdown)
+                      else do
+                        mblock <- bakeForSlot syncBakerIdentity curSlot
+                        return (mblock, curSlot, shutdown)
+                    else
+                      -- we do not want to produce blocks in the future, so do
+                      -- nothing if the current slot (derived from current
+                      -- system time) is not above the one we tried to bake for
+                      -- last.
+                      --
+                      -- This case should happen very very rarely, and only because of rounding issues with
+                      -- calculating the time until the next slot.
+                      return (Nothing, curSlot, shutdown)
+                        -- TODO: modify handlers to send out finalization messages AFTER any generated block
+              ((mblock, curSlot, shutdown), sfs') <- runSkovT bakeIfTime (syncSkovHandlers sr) syncContext sfs
+              return ((mblock, sfs', curSlot, shutdown), sfs')
+
+            -- Repeatedly try to bake until told to shut down.
             bakeLoop :: Slot -> IO ()
             bakeLoop lastSlot = do
-                (mblock, sfs', curSlot, shutdown) <- runWithStateLog syncState syncLogMethod (\sfs -> do
-                        let bake = do
-                                shutdown <- isShutDown
-                                curSlot <- getCurrentSlot
-                                mblock <-
-                                        if curSlot > lastSlot then do
-                                            bakeForSlot syncBakerIdentity curSlot
-                                        else
-                                            return Nothing
-                                return (mblock, curSlot, shutdown)
-                        -- TODO: modify handlers to send out finalization messages AFTER any generated block
-                        ((mblock, curSlot, shutdown), sfs') <-
-                          runSkovT bake (syncSkovHandlers sr) syncContext sfs
-                        return ((mblock, sfs', curSlot, shutdown), sfs'))
+                -- try to bake for `lastSlot`
+                (mblock, sfs', curSlot, shutdown) <- runWithStateLog syncState syncLogMethod (tryBake lastSlot)
+                -- if a block was produced send it
                 forM_ mblock $ syncCallback . SOMsgNewBlock
                 if shutdown then
                     syncLogMethod Runner LLWarning "Consensus has been updated; terminating baking loop."
                 else do
+                    -- figure out whether we need to wait or not.
+                    -- if we tried to bake for the current slot (derived from current system time) then
+                    -- wait until the next slot before attempting another iteration of the bakeLoop.
                     delay <- runLoggerT (evalSkovT (do
                         curSlot' <- getCurrentSlot
                         if curSlot == curSlot' then do
@@ -185,11 +240,10 @@ startSyncRunner sr@SyncRunner{..} = do
             tid <- myThreadId
             putRes <- tryPutMVar syncBakerThread tid
             if putRes then do
-                syncLogMethod Runner LLInfo "Starting baker thread"
+                syncLogMethod Runner LLInfo $ "Starting baker thread at slot = " ++ show initialSlot
                 runBaker
             else
                 syncLogMethod Runner LLInfo "Starting baker thread aborted: baker is already running"
-        rp <- runSkovTransaction sr getRuntimeParameters
         let delay = rpTransactionsPurgingDelay rp * 10 ^ (6 :: Int)
             purgingLoop = do
               tm <- currentTime
@@ -224,7 +278,7 @@ isSlotTooEarly s = do
     slotTime <- getSlotTimestamp s
     return $ slotTime > now + threshold
 
-syncReceiveBlock :: (SkovMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+syncReceiveBlock :: (SkovMonad (SkovProtocolVersion c) (SkovTLogIO c))
     => SyncRunner c
     -> PendingBlock
     -> IO UpdateResult
@@ -235,19 +289,19 @@ syncReceiveBlock syncRunner block = do
     else
         runSkovTransaction syncRunner (storeBlock block)
 
-syncReceiveTransaction :: (SkovMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+syncReceiveTransaction :: (SkovMonad (SkovProtocolVersion c) (SkovTLogIO c))
     => SyncRunner c -> BlockItem -> IO UpdateResult
 syncReceiveTransaction syncRunner trans = runSkovTransaction syncRunner (receiveTransaction trans)
 
-syncReceiveFinalizationMessage :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+syncReceiveFinalizationMessage :: (FinalizationMonad (SkovTLogIO c))
     => SyncRunner c -> FinalizationPseudoMessage -> IO UpdateResult
 syncReceiveFinalizationMessage syncRunner finMsg = runSkovTransaction syncRunner (finalizationReceiveMessage finMsg)
 
-syncReceiveFinalizationRecord :: (FinalizationMonad (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+syncReceiveFinalizationRecord :: (FinalizationMonad (SkovTLogIO c))
     => SyncRunner c -> FinalizationRecord -> IO UpdateResult
 syncReceiveFinalizationRecord syncRunner finRec = runSkovTransaction syncRunner (finalizationReceiveRecord False finRec)
 
-syncReceiveCatchUp :: (SkovMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+syncReceiveCatchUp :: (SkovMonad (SkovProtocolVersion c) (SkovTLogIO c))
     => SyncRunner c
     -> CatchUpStatus
     -> Int
@@ -363,9 +417,8 @@ data OutMessage peer =
 makeAsyncRunner :: forall c source.
     (SkovConfiguration c,
     (SkovQueryMonad (SkovProtocolVersion c) (SkovT () c LogIO)),
-    (TreeStateMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO)),
-    (BakerMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
-        )
+    (TreeStateMonad (SkovProtocolVersion c) (SkovTLogIO c)),
+    (BakerMonad (SkovProtocolVersion c) (SkovTLogIO c)))
     => LogMethod IO
     -> BakerIdentity
     -> c
@@ -477,7 +530,7 @@ updateResultToImportingResult = \case
 
 -- | Given a file path in the second argument, it will deserialize each block in the file
 -- and import it into the active global state.
-syncImportBlocks :: (SkovMonad (SkovProtocolVersion c) (SkovT (SkovHandlers ThreadTimer c LogIO) c LogIO))
+syncImportBlocks :: (SkovMonad (SkovProtocolVersion c) (SkovTLogIO c))
                  => SyncRunner c
                  -> FilePath
                  -> IO UpdateResult
