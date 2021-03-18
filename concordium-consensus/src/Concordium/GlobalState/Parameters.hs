@@ -85,6 +85,9 @@ data RuntimeParameters = RuntimeParameters {
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
   rpEarlyBlockThreshold :: !Timestamp,
+  -- |Maximum number of milliseconds we can get behind before skipping to the current time
+  -- when baking.
+  rpMaxBakingDelay :: !Timestamp,
   -- |Number of insertions to be performed in the transaction table before running
   -- a purge to remove long living transactions that have not been executed for more
   -- than `rpTransactionsKeepAliveTime` seconds.
@@ -102,7 +105,8 @@ defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
   rpTreeStateDir = "treestate",
   rpBlockStateFile = "blockstate",
-  rpEarlyBlockThreshold = 30, -- 30 seconds
+  rpEarlyBlockThreshold = 30000, -- 30 seconds
+  rpMaxBakingDelay = 10000, -- 10 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
   rpTransactionsKeepAliveTime = 5 * 60, -- 5 min
   rpTransactionsPurgingDelay = 3 * 60 -- 3 min
@@ -114,6 +118,7 @@ instance FromJSON RuntimeParameters where
     rpTreeStateDir <- v .: "treeStateDir"
     rpBlockStateFile <- v .: "blockStateFile"
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
+    rpMaxBakingDelay <- v .: "maxBakingDelay"
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"
     rpTransactionsKeepAliveTime <- (fromIntegral :: Int -> TransactionTime) <$> v .: "transactionsKeepAliveTime"
     rpTransactionsPurgingDelay <- v .: "transactionsPurgingDelay"

@@ -903,11 +903,13 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
             4 => "Kontrol",
             5 => "Skov",
             6 => "Baker",
+            7 => "External",
             8 => "GlobalState",
             9 => "BlockState",
             10 => "TreeState",
             11 => "LMDB",
-            _ => "External",
+            12 => "Scheduler",
+            _ => "Unknown",
         }
     }
 
