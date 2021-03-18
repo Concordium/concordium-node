@@ -266,6 +266,9 @@ dispatch msg = do
                    UpdateCredentials{..} ->
                      handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
 
+                   RegisterData {..} ->
+                     handleRegisterData (mkWTC TTRegisterData) psize rdData
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -1370,6 +1373,27 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         else if not (null existingCredIds) then
           return (TxReject (DuplicateCredIDs existingCredIds), energyCost, usedEnergy)
         else return (TxReject InvalidCredentials, energyCost, usedEnergy)
+
+-- |Charges energy based on payload size and emits a 'DataRegistered' event.
+handleRegisterData ::
+  SchedulerMonad pv m
+  => WithDepositContext m
+  -> PayloadSize -- ^Serialized size of the data. Used for charging execution cost.
+  -> RegisteredData -- ^The data to register
+  -> m (Maybe TransactionSummary)
+handleRegisterData wtc psize regData =
+  withDeposit wtc c k
+  where
+    senderAccount = wtc ^. wtcSenderAccount
+    txHash = wtc ^. wtcTransactionHash
+    meta = wtc ^. wtcTransactionHeader
+
+    c = tickEnergy (Cost.registerData (fromIntegral psize))
+
+    k ls _ = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      return (TxSuccess [DataRegistered regData], energyCost, usedEnergy)
 
 
 -- * Exposed methods.

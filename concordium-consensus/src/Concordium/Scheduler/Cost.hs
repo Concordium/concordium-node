@@ -141,6 +141,10 @@ deployModule size =
   -- As we store about twice the size of the source of the module we add a factor.
   + storeModule (fromIntegral size)
 
+-- |Cost for registering data on the chain.
+registerData :: Word64 -> Energy
+registerData = storeBytes . Wasm.ByteSize
+
 -- |Fixed cost per generated inter-contract message.
 interContractMessage :: Energy
 interContractMessage = 10
