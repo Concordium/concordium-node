@@ -25,7 +25,7 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Instances
 import Concordium.GlobalState.Basic.BlockState
 import Concordium.Wasm
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 
 import Concordium.Scheduler.DummyData
 import Concordium.GlobalState.DummyData
