@@ -2,7 +2,7 @@
 module SchedulerTests.Helpers where
 
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 
 getResults :: [(a, TransactionSummary)] -> [(a, ValidResult)]

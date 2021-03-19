@@ -52,7 +52,7 @@ import Concordium.GlobalState.BlockState (AccountOperations(..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 
 import Control.Applicative
@@ -349,7 +349,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
         c cryptoParams = do
           senderAddress <- getAccountAddress senderAccount
           -- the expensive operations start now, so we charge.
-          tickEnergy Cost.transferToPublic
+          tickEnergy Cost.transferToPublicCost
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
