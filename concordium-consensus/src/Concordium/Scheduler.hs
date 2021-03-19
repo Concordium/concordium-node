@@ -759,6 +759,17 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                                }
       foldEvents origin (ownerAccount, istance) initEvent txOut
 
+-- Cost of a step in the traversal of the actions tree. We need to charge for
+-- this separately to prevent problems with exponentially sized trees
+-- (exponential in the size of their representation). Based on benchmarks we can
+-- handle the worst case, which is a tree consisting solely of Accept and And
+-- nodes, of 300000 accepts well in about half the time we have for making a
+-- block. Thus we set the cost to 10 so that it both prevents abuse, but also
+-- so that it is cheap enough not be negligible compared to transfer costs
+-- for trees that have genuine utility.
+traversalStepCost :: Energy
+traversalStepCost = 10
+
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
            =>  Account m -- ^Account that originated the top-level transaction
            -> (Account m, Instance) -- ^Instance that generated the events.
@@ -777,13 +788,16 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
         go Wasm.TSimpleTransfer{..} = do
           handleTransferAccount origin erTo (Left istance) erAmount
         go (Wasm.And l r) = do
+          tickEnergy traversalStepCost
           resL <- go l
           resR <- go r
           return (resL ++ resR)
         -- FIXME: This will not retain logs from the left run if it fails.
         -- We might want to include the information on why the right-side
         -- was run in the output event list.
-        go (Wasm.Or l r) = go l `orElse` go r
+        go (Wasm.Or l r) = do
+          tickEnergy traversalStepCost
+          go l `orElse` go r
         go Wasm.Accept = return []
 
 mkSenderAddrCredentials :: AccountOperations m => Either (Account m, Instance) (Account m) -> m (Address, [ID.AccountCredential])
@@ -809,6 +823,7 @@ handleTransferAccount ::
   -> Amount -- The amount to transfer.
   -> m [Event] -- The events resulting from the transfer.
 handleTransferAccount _origin accAddr sender transferamount = do
+  -- charge at the beginning, successful and failed transfers will have the same cost.
   tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
   senderamount <- getCurrentAvailableAmount sender
