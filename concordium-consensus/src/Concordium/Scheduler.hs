@@ -872,7 +872,7 @@ checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dl
 checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
 -- |Add a baker for the sender account. The logic is as follows:
--- 
+--
 --  * The transaction fails ('InsufficientBalanceForBakerStake') if the balance on the account
 --    (less the energy deposit) is below the amount to stake.
 --  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
@@ -1050,7 +1050,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
           return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 -- |Update a baker's keys. The logic is as follows:
--- 
+--
 --  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
 --  * The transaction fails ('DuplicateAggregationKey') if the aggregation key is used by another baker.
 --  * The transaction succeeds ('BASuccess') if it passes all the above checks; the baker is
@@ -1188,7 +1188,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
     Right ts -> return (Just ts)
 
 
--- |Updates the credential keys in the credential with the given Credential ID. 
+-- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
 handleUpdateCredentialKeys ::
   SchedulerMonad pv m
@@ -1201,30 +1201,34 @@ handleUpdateCredentialKeys ::
     -- ^Signatures on the transaction. This is needed to check that a specific credential signed.
     -> m (Maybe TransactionSummary)
 handleUpdateCredentialKeys wtc cid keys sigs =
-  withDeposit wtc cost k
+  withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
-    cost = tickEnergy $ Cost.updateCredentialKeysCost $ length $ ID.credKeys keys
-    k ls _ = do
-      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+    c = do
       existingCredentials <- getAccountCredentials senderAccount
+      tickEnergy $ Cost.updateCredentialKeysCost (OrdMap.size existingCredentials) $ length $ ID.credKeys keys
+
       let credIndex = fst <$> find (\(_, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
       -- check that the new threshold is no more than the number of credentials
       let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
-      case credIndex of 
-        Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
-        Just index -> if not thresholdCheck then return (TxReject InvalidCredentialKeySignThreshold, energyCost, usedEnergy) else do
+
+      unless thresholdCheck $ rejectTransaction InvalidCredentialKeySignThreshold
+
+      case credIndex of
+        Nothing -> rejectTransaction NonExistentCredentialID
+        Just index -> do
           -- We check that the credential whose keys we are updating has indeed signed this transaction.
-          let check = OrdMap.member index $ tsSignatures sigs
-          if check then do
-            senderAddr <- getAccountAddress senderAccount
-            updateCredentialKeys senderAddr index keys
-            return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
-          else
-            return (TxReject CredentialHolderDidNotSign, energyCost, usedEnergy)
+          let ownerCheck = OrdMap.member index $ tsSignatures sigs
+          unless ownerCheck $ rejectTransaction CredentialHolderDidNotSign
+          return index
+    k ls index = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      senderAddr <- getAccountAddress senderAccount
+      updateCredentialKeys senderAddr index keys
+      return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
 
 -- * Chain updates
@@ -1293,17 +1297,21 @@ handleUpdateCredentials ::
 handleUpdateCredentials wtc cdis removeRegIds threshold =
   withDeposit wtc c k
   where
-    credentialcost = Cost.updateCredentialsCost (map (ID.credNumKeys . ID.credPubKeys) . OrdMap.elems $ cdis)
-    c = tickEnergy credentialcost
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
-    k ls _ = do
+    c = do
+      tickEnergy Cost.updateCredentialsBaseCost
+      creds <- getAccountCredentials senderAccount
+      tickEnergy $ Cost.updateCredentialsVariableCost (OrdMap.size creds) (map (ID.credNumKeys . ID.credPubKeys) . OrdMap.elems $ cdis)
+      return creds
+
+    k ls existingCredentials = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       cryptoParams <- getCryptoParams
-      existingCredentials <- getAccountCredentials senderAccount
       senderAddress <- getAccountAddress senderAccount
+
       -- check that all credentials that are to be removed actually exist.
       -- This produces:
       --  * a list of credential regIds that were supposed to be removed, but don't exist on the account,
@@ -1330,7 +1338,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                          in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
 
       -- check that the new threshold is no more than the number of credentials
-      -- 
+      --
       let thresholdCheck = toInteger (OrdMap.size existingCredentials) + toInteger (OrdMap.size cdis) >= toInteger (Set.size indicesToRemove) + toInteger threshold
 
       let firstCredNotRemoved = 0 `notElem` indicesToRemove
