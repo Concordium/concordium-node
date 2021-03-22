@@ -200,6 +200,7 @@ startSyncRunner sr@SyncRunner{..} = do
                         mblock <- bakeForSlot syncBakerIdentity candidateSlot
                         return (mblock, candidateSlot, shutdown)
                       else do
+                        logEvent Runner LLWarning $ "Skipped trying to bake for slots from " ++ show candidateSlot ++ " to " ++ show curSlot
                         mblock <- bakeForSlot syncBakerIdentity curSlot
                         return (mblock, curSlot, shutdown)
                     else
