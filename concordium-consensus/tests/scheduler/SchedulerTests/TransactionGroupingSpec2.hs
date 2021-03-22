@@ -36,10 +36,10 @@ import SchedulerTests.Helpers
 -- * Definition of test cases
 
 initialBlockState :: BlockState PV
-initialBlockState = blockStateWithAlesAccount 200000 Acc.emptyAccounts
+initialBlockState = blockStateWithAlesAccount 2000000 Acc.emptyAccounts
 
 maxBlockEnergy :: Types.Energy
-maxBlockEnergy = Types.Energy 20000
+maxBlockEnergy = 20000
 
 data ExpectedResult
   = Added

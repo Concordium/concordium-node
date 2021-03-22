@@ -27,6 +27,8 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.BakerInfo
 
 -- FIXME: Figure out where to put this constant.
+-- |Maximum number of incoming encrypted amounts on an account before we start
+-- aggregating the oldest one.
 maxNumIncoming :: Int
 maxNumIncoming = 32
 
