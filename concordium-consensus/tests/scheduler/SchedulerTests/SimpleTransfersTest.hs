@@ -30,31 +30,35 @@ shouldReturnP action f = action >>= (`shouldSatisfy` f)
 
 initialBlockState :: BlockState PV
 initialBlockState = blockStateWithAlesAccount
-    10000000
-    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 10000000) Acc.emptyAccounts)
+    1000000
+    (Acc.putAccountWithRegIds (mkAccount thomasVK thomasAccount 1000000) Acc.emptyAccounts)
 
 transactionsInput :: [TransactionJSON]
 transactionsInput =
+  -- transfer 10000 from A to A
   [TJSON { payload = Transfer {toaddress = alesAccount, amount = 10000 }
-         , metadata = makeDummyHeader alesAccount 1 1000
+         , metadata = makeDummyHeader alesAccount 1 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
+  -- transfer 8800 from A to T
   ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 8800 }
-         , metadata = makeDummyHeader alesAccount 2 1000
+         , metadata = makeDummyHeader alesAccount 2 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
-  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 9870000 }
-         , metadata = makeDummyHeader alesAccount 3 1000
+  -- transfer everything from from A to T
+  -- the (100 *) is conversion between NRG and GTU
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 1000000 - 8800 - 3 * 100 * fromIntegral simpleTransferCost }
+         , metadata = makeDummyHeader alesAccount 3 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
-  ,TJSON { payload = Transfer {toaddress = alesAccount, amount = 10000 }
-         , metadata = makeDummyHeader thomasAccount 1 500
+  -- transfer 10000 back from T to A
+  ,TJSON { payload = Transfer {toaddress = alesAccount, amount = 100 * fromIntegral simpleTransferCost }
+         , metadata = makeDummyHeader thomasAccount 1 simpleTransferCost
          , keys = [(0, [(0, thomasKP)])]
          }
-    -- the next transaction should fail because the balance on alesAccount is now 1282, which is
-    -- less than 600 + 700
-  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 60000 }
-         , metadata = makeDummyHeader alesAccount 4 700
+    -- the next transaction should fail because the balance on A is now exactly enough to cover the transfer cost
+  ,TJSON { payload = Transfer {toaddress = thomasAccount, amount = 1 }
+         , metadata = makeDummyHeader alesAccount 4 simpleTransferCost
          , keys = [(0, [(0, alesKP)])]
          }
   ]
@@ -86,17 +90,19 @@ testSimpleTransfer = do
 checkSimpleTransferResult :: TestResult -> Assertion
 checkSimpleTransferResult (suc, fails, alesamount, thomasamount) = do
   assertEqual "There should be no failed transactions." [] fails
-  assertBool "Last transaction is rejected." reject
+  reject
   assertBool "Initial transactions are accepted." nonreject
-  assertEqual "Amount on first account." alesamount (10000000 - 100 * 4 * fromIntegral simpleTransferCost - 8800 - 9870000 + 10000)
-  assertEqual "Amount on the second account." thomasamount (10000000 - 100 * fromIntegral simpleTransferCost + 8800 + 9870000 - 10000)
+  assertEqual "Amount on the A account." 0 alesamount 
+  assertEqual "Amount on the T account." (2000000 - 5 * 100 * fromIntegral simpleTransferCost) thomasamount
   where
     nonreject = all (\case (_, Types.TxSuccess{}) -> True
                            (_, Types.TxReject{}) -> False)
                     (init suc)
     reject = case last suc of
-               (_, Types.TxReject (Types.AmountTooLarge _ _)) -> True
-               _ -> False
+               (_, Types.TxReject (Types.AmountTooLarge addr amnt)) -> do
+                 assertEqual "Sending from A" (Types.AddressAccount alesAccount) addr
+                 assertEqual "Exactly 1microGTU" 1 amnt
+               err -> assertFailure $ "Incorrect result of the last transaction: " ++ show (snd err)
 
 tests :: SpecWith ()
 tests =

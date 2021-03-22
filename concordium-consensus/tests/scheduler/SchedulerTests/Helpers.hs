@@ -2,7 +2,7 @@
 module SchedulerTests.Helpers where
 
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 import qualified Concordium.Scheduler.Types as Types
 
 getResults :: [(a, TransactionSummary)] -> [(a, ValidResult)]
@@ -13,7 +13,7 @@ getResults = map (\(x, r) -> (x, tsResult r))
 --
 -- * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
 simpleTransferCost :: Energy
-simpleTransferCost = Cost.checkHeader (Types.transactionHeaderSize + 42) 1
+simpleTransferCost = Cost.baseCost (Types.transactionHeaderSize + 41) 1 + Cost.simpleTransferCost
 
 -- |Protocol version
 type PV = 'Types.P1

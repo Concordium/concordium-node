@@ -92,21 +92,31 @@ callRegenesisCallback  cb arc bs = BS.useAsCStringLen bs $
 -- +----------+---------+
 -- |Identifier|Module   |
 -- +==========+=========+
--- |1         |Runner   |
+-- |0         |Runner   |
 -- +----------+---------+
--- |2         |Afgjort  |
+-- |1         |Afgjort  |
 -- +----------+---------+
--- |3         |Birk     |
+-- |2         |Birk     |
 -- +----------+---------+
--- |4         |Crypto   |
+-- |3         |Crypto   |
 -- +----------+---------+
--- |5         |Kontrol  |
+-- |4         |Kontrol  |
 -- +----------+---------+
--- |6         |Skov     |
+-- |5         |Skov     |
 -- +----------+---------+
--- |7         |Baker    |
+-- |6         |Baker    |
 -- +----------+---------+
--- |8         |External |
+-- |7         |External |
+-- +----------+---------+
+-- |8         |GlobalState|
+-- +----------+---------+
+-- |9         |BlockState|
+-- +----------+---------+
+-- |10        |TreeState|
+-- +----------+---------+
+-- |11        |LMDB     |
+-- +----------+---------+
+-- |12        |Scheduler|
 -- +----------+---------+
 --
 -- The second argument represents the Log Level which is interpreted as follows:
@@ -250,6 +260,11 @@ runWithConsensus PassiveRunnerWithLog{..} = runSkovPassive passiveSyncRunnerWith
 defaultEarlyBlockThreshold :: Timestamp
 defaultEarlyBlockThreshold = 30000
 
+-- |Default value for maximum baking delay.
+-- Set to 10 seconds.
+defaultMaxBakingDelay :: Timestamp
+defaultMaxBakingDelay = 10000
+
 data StartResult = StartSuccess
                  | StartGenesisFailure
                  | StartBakerIdentityFailure
@@ -312,6 +327,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
               rpTreeStateDir = appData </> "treestate",
               rpBlockStateFile = appData </> "blockstate",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
+              rpMaxBakingDelay = defaultMaxBakingDelay,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
@@ -388,6 +404,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
               rpTreeStateDir = appData </> "treestate",
               rpBlockStateFile = appData </> "blockstate",
               rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
+              rpMaxBakingDelay = defaultMaxBakingDelay,
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay

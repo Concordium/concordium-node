@@ -104,8 +104,7 @@ maintainTransactions bp FilteredTransactions{..} = do
     -- We first commit all valid transactions to the current block slot to prevent them being purged.
     let bh = getHash bp
     let slot = blockSlot bp
-    zipWithM_ (\tx i -> do
-                  commitTransaction slot bh (fst tx) i) ftAdded [0..]
+    zipWithM_ (\tx -> commitTransaction slot bh (fst tx)) ftAdded [0..]
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> TS.getRuntimeParameters
