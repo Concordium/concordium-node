@@ -226,7 +226,6 @@ data PersistentAccount (pv :: ProtocolVersion) = PersistentAccount {
   -- |Current public account balance.
   ,_accountAmount :: !Amount
   -- |List of encrypted amounts on the account.
-  -- TODO (MRA) create bufferedref list
   ,_accountEncryptedAmount :: !(BufferedRef PersistentAccountEncryptedAmount)
   -- |Schedule of releases on the account.
   ,_accountReleaseSchedule :: !(BufferedRef AccountReleaseSchedule)

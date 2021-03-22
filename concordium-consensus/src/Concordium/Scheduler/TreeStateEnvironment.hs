@@ -554,8 +554,8 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
-
-    maxBlockEnergy <- gdMaxBlockEnergy <$> getGenesisData
+    genData <- getGenesisData
+    let maxBlockEnergy = gdMaxBlockEnergy genData
     let context = ContextState{
           _chainMetadata = cm,
           _maxBlockEnergy = maxBlockEnergy,
@@ -570,7 +570,6 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
 
     bshandle3 <- bsoSetTransactionOutcomes bshandle2 (map snd ftAdded)
     let counts = countFreeTransactions (map fst ftAdded) (isJust mfinInfo)
-    genData <- getGenesisData
     let updates' = (_1 %~ transactionTimeToSlot (gdGenesisTime genData) (gdSlotDuration genData))
                     <$> Map.toAscList updates
     bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'

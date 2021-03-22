@@ -25,7 +25,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate, stakedAmount)
@@ -41,41 +41,6 @@ import qualified Concordium.ID.Types as ID
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
     deriving(Eq, Show)
-
--- |A class to convert to and from 'Energy' used by the scheduler.
--- The function should satisfy
---
---   * @toEnergy (fromEnergy x) <= x@
-class ResourceMeasure a where
-  toEnergy :: a -> Energy
-  fromEnergy :: Energy -> a
-
-instance ResourceMeasure Energy where
-  {-# INLINE toEnergy #-}
-  toEnergy = id
-  {-# INLINE fromEnergy #-}
-  fromEnergy = id
-
--- |Measures the cost of running the interpreter.
-instance ResourceMeasure Wasm.InterpreterEnergy where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.fromInterpreterEnergy
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.toInterpreterEnergy
-
--- |Measures the cost of __storing__ the given amount of bytes.
-instance ResourceMeasure Wasm.ByteSize where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.storeBytes
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.maxStorage
-
--- |Measures the cost of __looking up__ the given amount of bytes.
-instance ResourceMeasure Cost.LookupByteSize where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.lookupBytes
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.maxLookup
 
 -- * Scheduler monad
 
@@ -916,21 +881,21 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
 --   this is not necessary for the correctness of this function. In the case
 --   where the returned energy exceeds remaining energy this function will
 --   return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
-withExternal :: (ResourceMeasure r, TransactionMonad pv m) => (r ->  m (Maybe (a, r))) -> m a
+withExternal :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r ->  m (Maybe (a, r))) -> m a
 withExternal f = do
   (availableEnergy, reason) <- getEnergy
-  f (fromEnergy availableEnergy) >>= \case
+  f (Cost.fromEnergy availableEnergy) >>= \case
     Nothing | BlockEnergy <- reason -> outOfBlockEnergy
     Nothing | TransactionEnergy <- reason -> rejectTransaction OutOfEnergy -- this sets remaining to 0
     Just (result, usedEnergy) -> do
       -- tickEnergy is safe even if usedEnergy > available energy, even though this case
       -- should not happen for well-behaved actions.
-      tickEnergy (toEnergy usedEnergy)
+      tickEnergy (Cost.toEnergy usedEnergy)
       return result
 
 -- |Like 'withExternal' but takes a pure action that only transforms energy and does
 -- not return a value. This is a convenience wrapper only.
-withExternalPure_ :: (ResourceMeasure r, TransactionMonad pv m) => (r -> Maybe r) -> m ()
+withExternalPure_ :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
 
 

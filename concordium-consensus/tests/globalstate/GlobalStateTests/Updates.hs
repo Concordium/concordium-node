@@ -19,9 +19,6 @@ import Concordium.GlobalState.AccountTransactionIndex
 import Concordium.Types.AnonymityRevokers
 import Concordium.GlobalState.Basic.BlockState as BS
 import Concordium.GlobalState.Basic.BlockState.Account
-import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import qualified Concordium.GlobalState.Basic.BlockState.AccountTable as AT
-import Concordium.GlobalState.Basic.BlockState.Accounts
 import Concordium.GlobalState.Basic.TreeState
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.BlockState
@@ -29,33 +26,22 @@ import Concordium.GlobalState.DummyData
 import Concordium.Types.IdentityProviders
 import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
-import qualified Concordium.GlobalState.Persistent.Accounts
-import qualified Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.Logger
 import Concordium.Types
-import Concordium.Types.HashableTo
 import Control.Exception
-import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
-import qualified  Control.Monad.Reader.Class as R
 import Control.Monad.Trans.Reader
-import Data.Aeson (eitherDecode)
-import Data.Foldable
 import Data.IORef
-import Data.List (nub, sort)
-import qualified Data.Map.Strict as OrdMap
 import Data.Proxy
 import Data.Time.Clock.POSIX
-import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 import System.FilePath
 import System.IO.Temp
 import Test.Hspec
-import Test.QuickCheck
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.VRF as VRF
