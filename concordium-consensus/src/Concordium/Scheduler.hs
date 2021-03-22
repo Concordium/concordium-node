@@ -1379,21 +1379,14 @@ handleRegisterData ::
   SchedulerMonad pv m
   => WithDepositContext m
   -> PayloadSize -- ^Serialized size of the data. Used for charging execution cost.
-  -> RegisteredData -- ^The data to register
+  -> RegisteredData -- ^The data to register.
   -> m (Maybe TransactionSummary)
 handleRegisterData wtc psize regData =
-  withDeposit wtc c k
+  withDeposit wtc c (defaultSuccess wtc)
   where
-    senderAccount = wtc ^. wtcSenderAccount
-    txHash = wtc ^. wtcTransactionHash
-    meta = wtc ^. wtcTransactionHeader
-
-    c = tickEnergy (Cost.registerData (fromIntegral psize))
-
-    k ls _ = do
-      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
-      return (TxSuccess [DataRegistered regData], energyCost, usedEnergy)
+    c = do
+      tickEnergy (Cost.registerData (fromIntegral psize))
+      return [DataRegistered regData]
 
 
 -- * Exposed methods.
