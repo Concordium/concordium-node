@@ -1239,8 +1239,6 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   getAccountCredentials acc = acc ^^. accountCredentials
 
-  getAccountMaxCredentialValidTo acc = acc ^^. accountMaxCredentialValidTo
-
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
   getAccountEncryptedAmount acc = loadPersistentAccountEncryptedAmount =<< loadBufferedRef (acc ^. accountEncryptedAmount)

@@ -320,11 +320,6 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         cs2 <- coerceBSMR (getAccountCredentials acc2)
         assert (cs1 == cs2) $ return cs1
 
-    getAccountMaxCredentialValidTo (acc1, acc2) = do
-        m1 <- coerceBSML (getAccountMaxCredentialValidTo acc1)
-        m2 <- coerceBSMR (getAccountMaxCredentialValidTo acc2)
-        assert (m1 == m2) $ return m1
-
     getAccountVerificationKeys (acc1, acc2) = do
         ks1 <- coerceBSML (getAccountVerificationKeys acc1)
         ks2 <- coerceBSMR (getAccountVerificationKeys acc2)
