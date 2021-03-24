@@ -12,7 +12,6 @@ import qualified SchedulerTests.AccountTransactionSpecs(tests)
 import qualified SchedulerTests.InitialAccountCreationSpec(tests)
 import qualified SchedulerTests.BakerTransactions(tests)
 import qualified SchedulerTests.RandomBakerTransactions(tests)
-import qualified SchedulerTests.CredentialTest(tests)
 import qualified SchedulerTests.TransactionExpirySpec(tests)
 import qualified SchedulerTests.BlockEnergyLimitSpec(tests)
 import qualified SchedulerTests.TransactionGroupingSpec2(tests)
@@ -41,7 +40,6 @@ main = hspec $ do
          SchedulerTests.InitialAccountCreationSpec.tests
          SchedulerTests.BakerTransactions.tests
          SchedulerTests.RandomBakerTransactions.tests
-         SchedulerTests.CredentialTest.tests
          SchedulerTests.TransactionExpirySpec.tests
          SchedulerTests.BlockEnergyLimitSpec.tests
          SchedulerTests.TransactionGroupingSpec2.tests

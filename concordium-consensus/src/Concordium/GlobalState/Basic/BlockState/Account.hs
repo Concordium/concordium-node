@@ -145,7 +145,6 @@ deserializeAccount cryptoParams = do
     (_accountCredentials, initialCredId) <- getCredentials
     _accountRemovedCredentials <- if asfHasRemovedCredentials then makeHashed <$> S.get else return emptyHashedRemovedCredentials
     let _accountVerificationKeys = getAccountInformation threshold _accountCredentials
-    let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
     let _accountAddress = fromMaybe (addressFromRegId initialCredId) preAddress
         _accountEncryptionKey = fromMaybe (makeEncryptionKey cryptoParams initialCredId) preEncryptionKey
     _accountNonce <- S.get
@@ -175,7 +174,6 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs = Account {
         _accountPersisting = makeAccountPersisting @pv PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId (cs Map.! initialCredentialIndex)),
         _accountCredentials = cs,
-        _accountMaxCredentialValidTo = maximum (validTo <$> cs),
         _accountVerificationKeys = getAccountInformation threshold cs,
         _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..

@@ -71,16 +71,6 @@ import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
 
--- |Check that there exists a valid credential in the context of the given chain
--- metadata.
-existsValidCredential :: AccountOperations m => ChainMetadata -> Account m -> m Bool
-existsValidCredential cm acc = do
-  -- check that the sender has at least one still valid credential.
-  expiry <- getAccountMaxCredentialValidTo acc
-  -- If the credential is still valid at the beginning of this slot then
-  -- we consider it valid. Otherwise we fail the transaction.
-  return $ isTimestampBefore (slotTime cm) expiry
-
 -- |Check that
 --  * the transaction has a valid sender,
 --  * the amount corresponding to the deposited energy is on the sender account,
@@ -118,8 +108,6 @@ checkHeader meta = do
 
       cm <- lift getChainMetadata
       when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
-      validCredExists <- existsValidCredential cm acc
-      unless validCredExists $ throwError . Just $ NoValidCredential
 
       -- After the successful credential check we check that the sender account
       -- has enough GTU to cover the deposited energy.
@@ -303,8 +291,6 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
               targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
               -- Check that the account has a valid credential and reject the transaction if not
               -- (it is not allowed to send to accounts without valid credential).
-              validCredExists <- existsValidCredential cm targetAccount
-              unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential twsTo)
 
               withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return senderAddress
 
@@ -438,9 +424,6 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
-          cm <- getChainMetadata
-          validCredExists <- existsValidCredential cm targetAccount
-          unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential toAddress)
 
           -- the expensive operations start now, so we charge.
           tickEnergy Cost.encryptedTransferCost
@@ -699,8 +682,6 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- However we are defensive here and reject the transaction, acting as if there is no credential.
   ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` ReceiverContractNoCredential cref
   cm <- getChainMetadata
-  validCredExists <- existsValidCredential cm ownerAccount
-  unless validCredExists $ rejectTransaction (ReceiverContractNoCredential cref)
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
   let receiveCtx = Wasm.ReceiveContext {
@@ -817,11 +798,6 @@ handleTransferAccount _origin accAddr sender transferamount = do
 
   -- Check whether target account exists and get it.
   targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
-  -- Check that the account has a valid credential and reject the transaction if not
-  -- (it is not allowed to send to accounts without valid credential).
-  cm <- getChainMetadata
-  validCredExists <- existsValidCredential cm targetAccount
-  unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential accAddr)
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withToAccountAmount sender targetAccount transferamount $

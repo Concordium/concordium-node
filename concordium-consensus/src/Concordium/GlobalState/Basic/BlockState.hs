@@ -457,8 +457,6 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountCredentials acc = return $ acc ^. accountCredentials
 
-  getAccountMaxCredentialValidTo acc = return $ acc ^. accountMaxCredentialValidTo
-
   getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
 
   getAccountEncryptedAmount acc = return $ acc ^. accountEncryptedAmount

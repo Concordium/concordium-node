@@ -70,7 +70,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialValidTo, CredentialRegistrationID)
+import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |The hashes of the block state components, which are combined
@@ -132,9 +132,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
   getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
-
-  -- |Get the last expiry time of a credential on the account.
-  getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
 
   -- -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
@@ -662,7 +659,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials
-  getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
@@ -672,7 +668,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
   {-# INLINE getAccountCredentials #-}
-  {-# INLINE getAccountMaxCredentialValidTo #-}
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}

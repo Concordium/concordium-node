@@ -306,7 +306,6 @@ newAccount cryptoParams _accountAddress credential = do
   let newPData = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
         _accountCredentials = creds,
-        _accountMaxCredentialValidTo = validTo credential,
         _accountVerificationKeys = getAccountInformation 1 creds,
         _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..
