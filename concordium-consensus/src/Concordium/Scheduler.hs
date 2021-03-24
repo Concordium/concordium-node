@@ -1270,6 +1270,11 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       tickEnergy Cost.updateCredentialsBaseCost
       creds <- getAccountCredentials senderAccount
       tickEnergy $ Cost.updateCredentialsVariableCost (OrdMap.size creds) (map (ID.credNumKeys . ID.credPubKeys) . OrdMap.elems $ cdis)
+      cm <- lift getChainMetadata
+      -- ensure none of the credentials have expired yet
+      forM_ cdis $ \cdi -> do
+        let expiry = ID.validTo cdi
+        unless (isTimestampBefore (slotTime cm) expiry) $ rejectTransaction InvalidCredentials
       return creds
 
     k ls existingCredentials = do
