@@ -70,7 +70,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialValidTo)
+import Concordium.ID.Types (AccountCredential, CredentialValidTo, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |The hashes of the block state components, which are combined
@@ -185,6 +185,10 @@ class AccountOperations m => BlockStateQuery m where
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (Account m))
+
+    -- |Query an account by the id of the credential that belonged to it.
+    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (Account m))
+
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -288,9 +292,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
-  -- |Check whether an the given credential registration ID exists.
-  -- Return @True@ iff so.
-  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m Bool
+  -- |Check whether an the given credential registration ID exists, and return
+  -- the account index of the account it is or was associated with.
+  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
 
   -- |Create and add an empty account with the given public key, address and credential.
   -- If an account with the given address already exists, @Nothing@ is returned.
@@ -470,8 +474,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- If the baker id refers to an account, the reward is paid to the account, and the
   -- address of the account is returned.  If the id does not refer to an account
   -- then no change is made and @Nothing@ is returned.
-  --
-  -- TODO: Change the interface to support new tokenomics.
   bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
   -- |Add an amount to the foundation account.
@@ -606,6 +608,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
+  getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
   getModuleList = lift . getModuleList
@@ -630,6 +633,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
+  {-# INLINE getAccountByCredId #-}
   {-# INLINE getBakerAccount #-}
   {-# INLINE getContractInstance #-}
   {-# INLINE getModuleList #-}

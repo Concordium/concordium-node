@@ -25,13 +25,13 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Exception (bracket)
 import Control.Monad hiding (fail)
-import Control.Monad.Fail
 import Control.Monad.Trans.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as OrdMap
 import Data.Serialize as S
 import qualified Data.Set as Set
+import qualified Data.Map.Strict as Map
 import Lens.Micro.Platform
 import System.FilePath
 import System.IO.Temp
@@ -40,19 +40,21 @@ import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
 
+import Control.Monad.IO.Class
+
 type PV = 'P1
 
 assertRight :: Either String a -> Assertion
 assertRight (Left e) = assertFailure e
 assertRight _ = return ()
 
-checkBinary :: (Show a, MonadFail m) => (a -> a -> Bool) -> a -> a -> String -> String -> String -> m ()
-checkBinary bop x y sbop sx sy = unless (bop x y) $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
+checkBinary :: (Show a, MonadIO m) => (a -> a -> Bool) -> a -> a -> String -> String -> String -> m ()
+checkBinary bop x y sbop sx sy = liftIO $ unless (bop x y) $ assertFailure $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
-checkBinaryM :: (Monad m, Show a, Show b, MonadFail m) => (a -> b -> m Bool) -> a -> b -> String -> String -> String -> m ()
+checkBinaryM :: (Monad m, Show a, Show b, MonadIO m) => (a -> b -> m Bool) -> a -> b -> String -> String -> String -> m ()
 checkBinaryM bop x y sbop sx sy = do
   satisfied <- bop x y
-  unless satisfied $ fail $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ show y ++ " (" ++ sy ++ ")"
+  unless satisfied $ liftIO $ assertFailure $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ show y ++ " (" ++ sy ++ ")"
 
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
@@ -89,7 +91,7 @@ data AccountAction
   | UpdateAccount AccountAddress (Account PV -> Account PV)
   | UnsafeGetAccount AccountAddress
   | RegIdExists ID.CredentialRegistrationID
-  | RecordRegId ID.CredentialRegistrationID
+  | RecordRegId ID.CredentialRegistrationID AccountIndex
   | FlushPersistent
   | ArchivePersistent
 
@@ -106,7 +108,7 @@ randomCredential :: Gen ID.CredentialRegistrationID
 randomCredential = ID.RegIdCred . generateGroupElementFromSeed dummyCryptographicParameters <$> arbitrary
 
 randomActions :: Gen [AccountAction]
-randomActions = sized (ra Set.empty Set.empty)
+randomActions = sized (ra Set.empty Map.empty)
   where
     randAccount = do
       address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
@@ -174,15 +176,16 @@ randomActions = sized (ra Set.empty Set.empty)
           rid <- randomCredential
           (RegIdExists rid :) <$> ra s rids (n -1)
         exExReg = do
-          rid <- elements (Set.toList rids)
+          (rid, _) <- elements (Map.toList rids)
           (RegIdExists rid :) <$> ra s rids (n -1)
         recRandReg = do
           rid <- randomCredential
-          (RecordRegId rid :) <$> ra s (Set.insert rid rids) (n -1)
+          ai <- AccountIndex <$> arbitrary
+          (RecordRegId rid ai :) <$> ra s (Map.insert rid ai rids) (n -1)
         recExReg = do
           -- This is not an expected case in practice
-          rid <- elements (Set.toList rids)
-          (RecordRegId rid :) <$> ra s rids (n -1)
+          (rid, ai) <- elements (Map.toList rids)
+          (RecordRegId rid ai :) <$> ra s rids (n -1)
 
 makePureAccount :: forall m pv. (MonadBlobStore m, IsProtocolVersion pv) => PA.PersistentAccount pv -> m (Account pv)
 makePureAccount PA.PersistentAccount {..} = do
@@ -202,7 +205,7 @@ makePureAccount PA.PersistentAccount {..} = do
       }
   return Account {_accountBaker = ab, ..}
 
-runAccountAction :: (MonadBlobStore m, MonadFail m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
+runAccountAction :: (MonadBlobStore m, MonadIO m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
   let ba' = B.putAccount acct ba
   pAcct <- PA.makePersistentAccount acct
@@ -247,9 +250,9 @@ runAccountAction (RegIdExists rid) (ba, pa) = do
   (pe, pa') <- P.regIdExists rid pa
   checkBinary (==) be pe "<->" "regid exists in basic" "regid exists in persistent"
   return (ba, pa')
-runAccountAction (RecordRegId rid) (ba, pa) = do
-  let ba' = B.recordRegId rid ba
-  pa' <- P.recordRegId rid pa
+runAccountAction (RecordRegId rid ai) (ba, pa) = do
+  let ba' = B.recordRegId rid ai ba
+  pa' <- P.recordRegId rid ai pa
   return (ba', pa')
 
 emptyTest :: SpecWith BlobStore

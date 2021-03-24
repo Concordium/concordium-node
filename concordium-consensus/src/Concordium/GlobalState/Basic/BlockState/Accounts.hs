@@ -6,7 +6,6 @@ module Concordium.GlobalState.Basic.BlockState.Accounts where
 
 import Data.Serialize
 import qualified Data.Map.Strict as Map
-import qualified Data.Set as Set
 import Lens.Micro.Platform
 import Lens.Micro.Internal (Ixed,Index,IxValue)
 import Concordium.Utils
@@ -44,8 +43,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts {
     accountMap :: !(Map.Map AccountAddress AccountIndex),
     -- |Hashed Merkle-tree of the accounts.
     accountTable :: !(AT.AccountTable pv),
-    -- |Set of 'ID.CredentialRegistrationID's that have been used for accounts.
-    accountRegIds :: !(Set.Set ID.CredentialRegistrationID)
+    -- |A mapping of 'ID.CredentialRegistrationID's to accounts on which they are used.
+    accountRegIds :: !(Map.Map ID.CredentialRegistrationID AccountIndex)
 }
 
 instance IsProtocolVersion pv => Show (Accounts pv) where
@@ -55,7 +54,7 @@ instance IsProtocolVersion pv => Show (Accounts pv) where
 
 -- |An 'Accounts' with no accounts.
 emptyAccounts :: Accounts pv
-emptyAccounts = Accounts Map.empty AT.Empty Set.empty
+emptyAccounts = Accounts Map.empty AT.Empty Map.empty
 
 -- |Add or modify a given account.
 -- If an account matching the given account's address does not exist,
@@ -64,18 +63,29 @@ emptyAccounts = Accounts Map.empty AT.Empty Set.empty
 -- If an account with the address already exists, 'accountTable' is updated
 -- to reflect the new state of the account.
 putAccount :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
-putAccount !acct Accounts{..} =
+putAccount !acct = snd . putAccountWithIndex acct
+
+-- |Add or modify a given account.
+-- If an account matching the given account's address does not exist,
+-- the account is created, giving it the next available account index,
+-- recording it in 'accountMap', and returning it.
+-- If an account with the address already exists, 'accountTable' is updated
+-- to reflect the new state of the account, and the index of the account is returned.
+putAccountWithIndex :: IsProtocolVersion pv => Account pv -> Accounts pv -> (AccountIndex, Accounts pv)
+putAccountWithIndex !acct Accounts{..} =
   case Map.lookup addr accountMap of
     Nothing -> let (i, newAccountTable) = AT.append acct accountTable
-               in Accounts (Map.insert addr i accountMap) newAccountTable accountRegIds
-    Just i -> Accounts accountMap (accountTable & ix i .~ acct) accountRegIds
+               in (i, Accounts (Map.insert addr i accountMap) newAccountTable accountRegIds)
+    Just i -> (i, Accounts accountMap (accountTable & ix i .~ acct) accountRegIds)
 
   where addr = acct ^. accountAddress
+
 
 -- |Equivalent to calling putAccount and recordRegId in sequence.
 putAccountWithRegIds :: IsProtocolVersion pv => Account pv -> Accounts pv -> Accounts pv
 putAccountWithRegIds !acct accts =
-  foldl' (\accs currentAcc -> recordRegId (ID.credId currentAcc) accs) (putAccount acct accts) (acct ^. accountCredentials)
+  foldl' (\accs currentCred -> recordRegId (ID.credId currentCred) idx accs) initialAccts (acct ^. accountCredentials)
+  where (idx, initialAccts) = putAccountWithIndex acct accts
 
 -- |Determine if an account with the given address exists.
 exists :: AccountAddress -> Accounts pv -> Bool
@@ -134,17 +144,18 @@ unsafeGetAccount addr Accounts{..} = case Map.lookup addr accountMap of
 -- |Check that an account registration ID is not already on the chain.
 -- See the foundation (Section 4.2) for why this is necessary.
 -- Return @True@ if the registration ID already exists in the set of known registration ids, and @False@ otherwise.
-regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Bool
-regIdExists rid Accounts{..} = rid `Set.member` accountRegIds
+regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Maybe AccountIndex
+regIdExists rid Accounts{..} = rid `Map.lookup` accountRegIds
 
--- |Record an account registration ID as used.
-recordRegId :: ID.CredentialRegistrationID -> Accounts pv -> Accounts pv
-recordRegId rid accs = accs { accountRegIds = Set.insert rid (accountRegIds accs) }
+-- |Record an account registration ID as used on the account.
+recordRegId :: ID.CredentialRegistrationID -> AccountIndex -> Accounts pv -> Accounts pv
+recordRegId rid idx accs = accs { accountRegIds = Map.insert rid idx (accountRegIds accs) }
 
 -- |Record multiple registration ids as used. This implementation is marginally
 -- more efficient than repeatedly calling `recordRegId`.
-recordRegIds :: [ID.CredentialRegistrationID] -> Accounts pv -> Accounts pv
-recordRegIds rids accs = accs { accountRegIds = Set.union (accountRegIds accs) (Set.fromAscList rids) }
+recordRegIds :: [(ID.CredentialRegistrationID, AccountIndex)] -> Accounts pv -> Accounts pv
+recordRegIds rids accs = accs { accountRegIds = Map.union (accountRegIds accs) (Map.fromAscList rids) }
+    -- since credentials can only be used on one account the union is well-defined, the maps should be disjoint.
 
 instance HashableTo H.Hash (Accounts pv) where
     getHash Accounts{..} = getHash accountTable
@@ -184,8 +195,8 @@ deserializeAccounts cryptoParams = do
               unless (_bakerIdentity (_accountBakerInfo bkr) == BakerId acctId) $
                 fail "BakerID does not match account index"
             let addRegId regids cred
-                  | cred `Set.member` regids = fail "Duplicate credential"
-                  | otherwise = return $ Set.insert cred regids
+                  | cred `Map.member` regids = fail "Duplicate credential"
+                  | otherwise = return $ Map.insert cred acctId regids
             newRegIds <- foldM addRegId accountRegIds $
                 (ID.credId <$> Map.elems (acct ^. accountCredentials))
                 ++ removedCredentialsToList (acct ^. accountRemovedCredentials . unhashed)

@@ -30,6 +30,7 @@ import Concordium.Types (AccountAddress, BakerId(..), AccountIndex(..), ModuleRe
 import Concordium.Utils
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Crypto.BlsSignature as Bls
+import qualified Concordium.ID.Types as IDTypes
 
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.GlobalState.Persistent.BlobStore
@@ -52,6 +53,7 @@ deriving via SHA256.Hash instance FixedTrieKey ModuleRef
 instance FixedTrieKey AccountAddress
 deriving via Word64 instance FixedTrieKey BakerId
 instance FixedTrieKey Bls.PublicKey
+instance FixedTrieKey IDTypes.CredentialRegistrationID -- FIXME: this is not the best instance, serialization is expensive.
 
 -- |Class for Trie keys that respect the 'Ord' instance.
 -- That is, @a `compare` b == unpackKey a `compare` unpackKey b@.

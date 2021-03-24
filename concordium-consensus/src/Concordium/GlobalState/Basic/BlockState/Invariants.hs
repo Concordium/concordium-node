@@ -28,13 +28,13 @@ checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ 
 
 invariantBlockState :: (IsProtocolVersion pv) => BlockState pv -> Amount -> Either String ()
 invariantBlockState bs extraBalance = do
-        (creds, amp, totalBalance, remainingIds, remainingKeys) <- foldM checkAccount (Set.empty, Map.empty, 0, bs ^. blockBirkParameters . birkActiveBakers . activeBakers, bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
+        (creds, amp, totalBalance, remainingIds, remainingKeys) <- foldM checkAccount (Map.empty, Map.empty, 0, bs ^. blockBirkParameters . birkActiveBakers . activeBakers, bs ^. blockBirkParameters . birkActiveBakers . aggregationKeys) (AT.toList $ Account.accountTable $ bs ^. blockAccounts)
         unless (Set.null remainingIds) $ Left $ "Active bakers with no baker record: " ++ show (Set.toList remainingIds)
         unless (Set.null remainingKeys) $ Left $ "Unaccounted for baker aggregation keys: " ++ show (Set.toList remainingKeys)
         instancesBalance <- foldM checkInstance 0 (bs ^.. blockInstances . foldInstances)
         checkEpochBakers (bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed)
         checkEpochBakers (bs ^. blockBirkParameters . birkNextEpochBakers . unhashed)
-        let untrackedRegIds = Set.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
+        let untrackedRegIds = Map.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
         unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
         let
             bank = bs ^. blockBank . unhashed
@@ -59,7 +59,7 @@ invariantBlockState bs extraBalance = do
         checkAccount (creds, amp, bal, bakerIds, bakerKeys) (i, acct) = do
             let addr = acct ^. accountAddress
             -- check that we didn't already find this credential
-            creds' <- foldM checkCred creds (acct ^. accountCredentials)
+            creds' <- foldM (checkCred i) creds (acct ^. accountCredentials)
             -- check that we didn't already find this same account
             when (Map.member addr amp) $ Left $ "Duplicate account address: " ++ show (acct ^. accountAddress)
             let lockedBalance = acct ^. accountReleaseSchedule . totalLockedUpBalance
@@ -74,9 +74,9 @@ invariantBlockState bs extraBalance = do
                         unless (Set.member (binfo ^. bakerAggregationVerifyKey) bakerKeys) $ Left "Baker aggregation key is missing from active bakers"
                         return (Set.delete (BakerId i) bakerIds, Set.delete (binfo ^. bakerAggregationVerifyKey) bakerKeys)
             return (creds', Map.insert addr i amp, bal + (acct ^. accountAmount), bakerIds', bakerKeys')
-        checkCred creds (ID.credId -> cred)
-            | cred `Set.member` creds = Left $ "Duplicate credential: " ++ show cred
-            | otherwise = return $ Set.insert cred creds
+        checkCred i creds (ID.credId -> cred)
+            | cred `Map.member` creds = Left $ "Duplicate credential: " ++ show cred
+            | otherwise = return $ Map.insert cred i creds
         checkEpochBakers EpochBakers{..} = do
             checkBinary (==) (Vec.length _bakerInfos) (Vec.length _bakerStakes) "==" "#baker infos" "#baker stakes"
             checkBinary (==) _bakerTotalStake (sum _bakerStakes) "==" "baker total stake" "sum of baker stakes"

@@ -10,6 +10,7 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Concordium.Scheduler.Environment
 
 import qualified Data.Kind as DK
+import Data.Maybe (isJust)
 import Data.HashMap.Strict as Map
 import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
@@ -174,7 +175,7 @@ instance (MonadReader ContextState m,
 
   {-# INLINE accountRegIdExists #-}
   accountRegIdExists !regid =
-    lift . flip bsoRegIdExists regid =<< use schedulerBlockState
+    lift . fmap isJust . flip bsoRegIdExists regid =<< use schedulerBlockState
 
   {-# INLINE commitModule #-}
   commitModule !iface = do
