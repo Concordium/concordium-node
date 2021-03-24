@@ -188,6 +188,17 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+    getAccountByCredId (ls, rs) cid = do
+        a1 <- coerceBSML (getAccountByCredId ls cid)
+        a2 <- coerceBSMR (getAccountByCredId rs cid)
+        case (a1, a2) of
+          (Just a1', Just a2') ->
+            assert ((getHash a1' :: H.Hash) == getHash a2') $
+              return $ Just (a1', a2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"
+          (_, Nothing) -> error $ "Cannot get account with credid " ++ show cid ++ " in right implementation"
     getBakerAccount (ls, rs) bid = do
         a1 <- coerceBSML (getBakerAccount ls bid)
         a2 <- coerceBSMR (getBakerAccount rs bid)

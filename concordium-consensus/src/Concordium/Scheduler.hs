@@ -135,24 +135,6 @@ checkHeader meta = do
 
       return (acc, cost)
 
--- TODO: When we have policies checking one sensible approach to rewarding
--- identity providers would be as follows.
---
--- - Each time we need to check a policy on an account all the identity
--- providers that have valid credentials deployed on that account are counted.
--- This means that if the same account is involved multiple times inside one
--- transaction then the identity providers on that account would be rewarded
--- multiple times.
---
--- An alternative design is that each identity provider involved in one
--- transaction is rewarded only once. To allow for this we will need to keep
--- track of the identity providers inside the transaction monad.
---
--- Another important point to resolve is how identity providers should be
--- rewarded in case of a rejected transaction. Should they be, or should they
--- not be. In particular when a transaction is rejected based on transaction
--- logic that is unrelated to identities.
-
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
 --

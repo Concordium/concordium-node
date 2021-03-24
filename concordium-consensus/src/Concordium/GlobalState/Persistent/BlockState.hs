@@ -871,6 +871,12 @@ doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccount addr (bspAccounts bsp)
 
+doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (PersistentAccount pv))
+doGetAccountByCredId pbs cid = do
+        bsp <- loadPBS pbs
+        Accounts.getAccountByCredId cid (bspAccounts bsp)
+
+
 doGetAccountIndex :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe AccountIndex)
 doGetAccountIndex pbs addr = do
         bsp <- loadPBS pbs
@@ -881,7 +887,7 @@ doAccountList pbs = do
         bsp <- loadPBS pbs
         Accounts.accountAddresses (bspAccounts bsp)
 
-doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
+doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
@@ -892,11 +898,12 @@ doCreateAccount pbs cryptoParams acctAddr credential = do
         bsp <- loadPBS pbs
         -- Add the account
         (res, accts1) <- Accounts.putNewAccount acct (bspAccounts bsp)
-        if res then do
-            -- Record the RegId
-            accts2 <- Accounts.recordRegId (ID.credId credential) accts1
+        case res of
+          Just idx -> do
+            -- Record the RegId since we created a new account.
+            accts2 <- Accounts.recordRegId (ID.credId credential) idx accts1
             (Just acct,) <$> storePBS pbs (bsp {bspAccounts = accts2})
-        else
+          Nothing -> -- the account was not created
             return (Nothing, pbs)
 
 doModifyAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
@@ -916,13 +923,22 @@ doSetAccountCredentialKeys pbs accAddress credIx credKeys = do
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentialKeys credIx credKeys) oldAccount
 
-doUpdateAccountCredentials :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> [ID.CredentialIndex] -> Map.Map ID.CredentialIndex ID.AccountCredential -> ID.AccountThreshold -> m (PersistentBlockState pv)
+doUpdateAccountCredentials :: (IsProtocolVersion pv, MonadBlobStore m) =>
+    PersistentBlockState pv
+    -> AccountAddress -- ^ Address of the account to update.
+    -> [ID.CredentialIndex] -- ^ List of credential indices to remove.
+    -> Map.Map ID.CredentialIndex ID.AccountCredential -- ^ New credentials to add.
+    -> ID.AccountThreshold -- ^ New account threshold
+    -> m (PersistentBlockState pv)
 doUpdateAccountCredentials pbs accAddress remove add thrsh = do
         bsp <- loadPBS pbs
-        (_, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
-        -- If we deploy a credential, record it
-        accts2 <- Accounts.recordRegIds (Map.elems $ ID.credId <$> add) accts1
-        storePBS pbs (bsp {bspAccounts = accts2})
+        (res, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
+        case res of
+          Just (idx, ()) -> do
+            -- If we deploy a credential, record it
+            accts2 <- Accounts.recordRegIds ((, idx) <$> Map.elems (ID.credId <$> add)) accts1
+            storePBS pbs (bsp {bspAccounts = accts2})
+          Nothing -> return pbs -- this should not happen, the precondition of this method is that the account exists. But doing nothing is safe.
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentials remove add thrsh) oldAccount
 
@@ -1091,7 +1107,7 @@ doProcessReleaseSchedule pbs ts = do
                       acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
                       return (nextTs, acc')
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
-                return (ba', case join toRead of
+                return (ba', case snd =<< toRead of
                                Just t -> (addr, t) : readded
                                Nothing -> readded)
           (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
@@ -1189,6 +1205,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getAccount = doGetAccount . hpbsPointers
+    getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
