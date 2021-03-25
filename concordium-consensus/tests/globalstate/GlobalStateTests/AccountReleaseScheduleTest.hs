@@ -100,7 +100,7 @@ createGS dbDir = do
   now <- utcTimeToTimestamp <$> getCurrentTime
   let
     n = 3
-    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyAuthorizations dummyChainParameters
+    genesis = makeTestingGenesisDataP1 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
     rp = defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }
     config = PairGSConfig (MTMBConfig rp genesis, DTDBConfig rp genesis)
   (x, y, (NoLogContext, NoLogContext)) <- runSilentLogger $ initialiseGlobalState config

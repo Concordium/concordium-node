@@ -295,8 +295,8 @@ instance (MonadReader ContextState m,
   {-# INLINE getCryptoParams #-}
   getCryptoParams = lift . bsoGetCryptoParams =<< use schedulerBlockState
 
-  {-# INLINE getUpdateAuthorizations #-}
-  getUpdateAuthorizations = lift . bsoGetCurrentAuthorizations =<< use schedulerBlockState
+  {-# INLINE getUpdateKeyCollection #-}
+  getUpdateKeyCollection = lift . bsoGetUpdateKeyCollection =<< use schedulerBlockState
 
   {-# INLINE getNextUpdateSequenceNumber #-}
   getNextUpdateSequenceNumber uty = do

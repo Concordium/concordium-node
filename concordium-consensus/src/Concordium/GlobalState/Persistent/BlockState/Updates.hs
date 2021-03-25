@@ -136,8 +136,12 @@ enqueue !t !e q = do
 
 -- |Update queues for all on-chain update types.
 data PendingUpdates = PendingUpdates {
-        -- |Updates to authorized update keys.
-        pAuthorizationQueue :: !(HashedBufferedRef (UpdateQueue Authorizations)),
+        -- |Updates to the root keys.
+        pRootKeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (HigherLevelKeys RootKeysKind))),
+        -- |Updates to the level 1 keys.
+        pLevel1KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue (HigherLevelKeys Level1KeysKind))),
+        -- |Updates to the level 2 keys.
+        pLevel2KeysUpdateQueue :: !(HashedBufferedRef (UpdateQueue Authorizations)),
         -- |Protocol updates.
         pProtocolQueue :: !(HashedBufferedRef (UpdateQueue ProtocolUpdate)),
         -- |Updates to the election difficulty parameter.
@@ -160,7 +164,9 @@ data PendingUpdates = PendingUpdates {
 
 instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
     getHashM PendingUpdates{..} = do
-        hAuthorizationQueue <- H.hashToByteString <$> getHashM pAuthorizationQueue
+        hRootKeysUpdateQueue <- H.hashToByteString <$> getHashM pRootKeysUpdateQueue
+        hLevel1KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel1KeysUpdateQueue
+        hLevel2KeysUpdateQueue <- H.hashToByteString <$> getHashM pLevel2KeysUpdateQueue
         hProtocolQueue <- H.hashToByteString <$> getHashM pProtocolQueue
         hElectionDifficultyQueue <- H.hashToByteString <$> getHashM pElectionDifficultyQueue
         hEuroPerEnergyQueue <- H.hashToByteString <$> getHashM pEuroPerEnergyQueue
@@ -171,7 +177,9 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
         hGASRewardsQueue <- H.hashToByteString <$> getHashM pGASRewardsQueue
         hBakerStakeThresholdQueue <- H.hashToByteString <$> getHashM pBakerStakeThresholdQueue
         return $! H.hash $
-            hAuthorizationQueue
+            hRootKeysUpdateQueue
+            <> hLevel1KeysUpdateQueue
+            <> hLevel2KeysUpdateQueue
             <> hProtocolQueue
             <> hElectionDifficultyQueue
             <> hEuroPerEnergyQueue
@@ -185,7 +193,9 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash PendingUpdates where
 instance (MonadBlobStore m)
         => BlobStorable m PendingUpdates where
     storeUpdate PendingUpdates{..} = do
-            (pAQ, aQ) <- storeUpdate pAuthorizationQueue
+            (pRKQ, rkQ) <- storeUpdate pRootKeysUpdateQueue
+            (pL1KQ, l1kQ) <- storeUpdate pLevel1KeysUpdateQueue
+            (pL2KQ, l2kQ) <- storeUpdate pLevel2KeysUpdateQueue
             (pPrQ, prQ) <- storeUpdate pProtocolQueue
             (pEDQ, edQ) <- storeUpdate pElectionDifficultyQueue
             (pEPEQ, epeQ) <- storeUpdate pEuroPerEnergyQueue
@@ -196,7 +206,9 @@ instance (MonadBlobStore m)
             (putGASRewardsQueue, newGASRewardsQueue) <- storeUpdate pGASRewardsQueue
             (putBakerStakeThresholdQueue, newBakerStakeThresholdQueue) <- storeUpdate pBakerStakeThresholdQueue
             let newPU = PendingUpdates {
-                    pAuthorizationQueue = aQ,
+                    pRootKeysUpdateQueue = rkQ,
+                    pLevel1KeysUpdateQueue = l1kQ,
+                    pLevel2KeysUpdateQueue = l2kQ,
                     pProtocolQueue = prQ,
                     pElectionDifficultyQueue = edQ,
                     pEuroPerEnergyQueue = epeQ,
@@ -207,7 +219,7 @@ instance (MonadBlobStore m)
                     pGASRewardsQueue = newGASRewardsQueue,
                     pBakerStakeThresholdQueue = newBakerStakeThresholdQueue
                 }
-            let putPU = pAQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ
+            let putPU = pRKQ >> pL1KQ >> pL2KQ >> pPrQ >> pEDQ >> pEPEQ >> pMGTUPEQ
                     >> putFoundationAccountQueue
                     >> putMintDistributionQueue
                     >> putTransactionFeeDistributionQueue
@@ -216,7 +228,9 @@ instance (MonadBlobStore m)
             return (putPU, newPU)
     store pu = fst <$> storeUpdate pu
     load = do
-        mAQ <- label "Authorization update queue" load
+        mRKQ <- label "Root keys update queue" load
+        mL1KQ <- label "Level 1 keys update queue" load
+        mL2KQ <- label "Level 2 keys update queue" load
         mPrQ <- label "Protocol update queue" load
         mEDQ <- label "Election difficulty update queue" load
         mEPEQ <- label "Euro per energy update queue" load
@@ -227,7 +241,9 @@ instance (MonadBlobStore m)
         mGASRewardsQueue <- label "GAS rewards update queue" load
         mBakerStakeThresholdQueue <- label "Baker minimum threshold update queue" load
         return $! do
-            pAuthorizationQueue <- mAQ
+            pRootKeysUpdateQueue <- mRKQ
+            pLevel1KeysUpdateQueue <- mL1KQ
+            pLevel2KeysUpdateQueue <- mL2KQ
             pProtocolQueue <- mPrQ
             pElectionDifficultyQueue <- mEDQ
             pEuroPerEnergyQueue <- mEPEQ
@@ -242,7 +258,9 @@ instance (MonadBlobStore m)
 instance (MonadBlobStore m) => Cacheable m PendingUpdates where
     cache PendingUpdates{..} =
         PendingUpdates
-            <$> cache pAuthorizationQueue
+            <$> cache pRootKeysUpdateQueue
+            <*> cache pLevel1KeysUpdateQueue
+            <*> cache pLevel2KeysUpdateQueue
             <*> cache pProtocolQueue
             <*> cache pElectionDifficultyQueue
             <*> cache pEuroPerEnergyQueue
@@ -256,7 +274,9 @@ instance (MonadBlobStore m) => Cacheable m PendingUpdates where
 -- |Serialize the pending updates.
 putPendingUpdatesV0 :: (MonadBlobStore m, MonadPut m) => PendingUpdates -> m ()
 putPendingUpdatesV0 PendingUpdates{..} = do
-        putUpdateQueueV0 =<< refLoad pAuthorizationQueue
+        putUpdateQueueV0 =<< refLoad pRootKeysUpdateQueue
+        putUpdateQueueV0 =<< refLoad pLevel1KeysUpdateQueue
+        putUpdateQueueV0 =<< refLoad pLevel2KeysUpdateQueue
         putUpdateQueueV0 =<< refLoad pProtocolQueue
         putUpdateQueueV0 =<< refLoad pElectionDifficultyQueue
         putUpdateQueueV0 =<< refLoad pEuroPerEnergyQueue
@@ -269,7 +289,7 @@ putPendingUpdatesV0 PendingUpdates{..} = do
 
 -- |Initial pending updates with empty queues.
 emptyPendingUpdates :: forall m. (MonadBlobStore m) => m PendingUpdates
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e
     where
         e :: MHashableTo m H.Hash (UpdateQueue a) => m (HashedBufferedRef (UpdateQueue a))
         e = makeHashedBufferedRef emptyUpdateQueue
@@ -277,7 +297,9 @@ emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> e <*> e <*> e <
 -- |Construct a persistent 'PendingUpdates' from an in-memory one.
 makePersistentPendingUpdates :: (MonadBlobStore m) => Basic.PendingUpdates -> m PendingUpdates
 makePersistentPendingUpdates Basic.PendingUpdates{..} = do
-        pAuthorizationQueue <- refMake =<< makePersistentUpdateQueue (_unhashed <$> _pAuthorizationQueue)
+        pRootKeysUpdateQueue <- refMake =<< makePersistentUpdateQueue _pRootKeysUpdateQueue
+        pLevel1KeysUpdateQueue <- refMake =<< makePersistentUpdateQueue _pLevel1KeysUpdateQueue
+        pLevel2KeysUpdateQueue <- refMake =<< makePersistentUpdateQueue _pLevel2KeysUpdateQueue
         pProtocolQueue <- refMake =<< makePersistentUpdateQueue _pProtocolQueue
         pElectionDifficultyQueue <- refMake =<< makePersistentUpdateQueue _pElectionDifficultyQueue
         pEuroPerEnergyQueue <- refMake =<< makePersistentUpdateQueue _pEuroPerEnergyQueue
@@ -292,7 +314,9 @@ makePersistentPendingUpdates Basic.PendingUpdates{..} = do
 -- |Convert a persistent 'PendingUpdates' to an in-memory 'Basic.PendingUpdates'.
 makeBasicPendingUpdates :: (MonadBlobStore m) => PendingUpdates -> m Basic.PendingUpdates
 makeBasicPendingUpdates PendingUpdates{..} = do
-        _pAuthorizationQueue <- makeBasicUpdateQueueHashed =<< refLoad pAuthorizationQueue
+        _pRootKeysUpdateQueue <- makeBasicUpdateQueue =<< refLoad pRootKeysUpdateQueue
+        _pLevel1KeysUpdateQueue <- makeBasicUpdateQueue =<< refLoad pLevel1KeysUpdateQueue
+        _pLevel2KeysUpdateQueue <- makeBasicUpdateQueue =<< refLoad pLevel2KeysUpdateQueue
         _pProtocolQueue <- makeBasicUpdateQueue =<< refLoad pProtocolQueue
         _pElectionDifficultyQueue <- makeBasicUpdateQueue =<< refLoad pElectionDifficultyQueue
         _pEuroPerEnergyQueue <- makeBasicUpdateQueue =<< refLoad pEuroPerEnergyQueue
@@ -307,7 +331,7 @@ makeBasicPendingUpdates PendingUpdates{..} = do
 -- |Current state of updatable parameters and update queues.
 data Updates = Updates {
         -- |Current update authorizations.
-        currentAuthorizations :: !(HashedBufferedRef (StoreSerialized Authorizations)),
+        currentKeyCollection :: !(HashedBufferedRef (StoreSerialized UpdateKeysCollection)),
         -- |Current protocol update.
         currentProtocolUpdate :: !(Nullable (HashedBufferedRef (StoreSerialized ProtocolUpdate))),
         -- |Current chain parameters.
@@ -318,7 +342,7 @@ data Updates = Updates {
 
 instance (MonadBlobStore m) => MHashableTo m H.Hash Updates where
     getHashM Updates{..} = do
-        hCA <- getHashM currentAuthorizations
+        hCA <- getHashM currentKeyCollection
         mHCPU <- mapM getHashM currentProtocolUpdate
         hCP <- getHashM currentParameters
         hPU <- getHashM pendingUpdates
@@ -333,25 +357,25 @@ instance (MonadBlobStore m) => MHashableTo m H.Hash Updates where
 instance (MonadBlobStore m)
         => BlobStorable m Updates where
     storeUpdate Updates{..} = do
-        (pCA, cA) <- storeUpdate currentAuthorizations
+        (pKC, kC) <- storeUpdate currentKeyCollection
         (pCPU, cPU) <- storeUpdate currentProtocolUpdate
         (pCP, cP) <- storeUpdate currentParameters
         (pPU, pU) <- storeUpdate pendingUpdates
         let newUpdates = Updates{
-                currentAuthorizations = cA,
+                currentKeyCollection = kC,
                 currentProtocolUpdate = cPU,
                 currentParameters = cP,
                 pendingUpdates = pU
             }
-        return (pCA >> pCPU >> pCP >> pPU, newUpdates)
+        return (pKC >> pCPU >> pCP >> pPU, newUpdates)
     store u = fst <$> storeUpdate u
     load = do
-        mCA <- label "Current authorizations" load
+        mKC <- label "Current key collection" load
         mCPU <- label "Current protocol update" load
         mCP <- label "Current parameters" load
         mPU <- label "Pending updates" load
         return $! do
-            currentAuthorizations <- mCA
+            currentKeyCollection <- mKC
             currentProtocolUpdate <- mCPU
             currentParameters <- mCP
             pendingUpdates <- mPU
@@ -359,16 +383,16 @@ instance (MonadBlobStore m)
 
 instance (MonadBlobStore m) => Cacheable m Updates where
     cache Updates{..} = Updates
-        <$> cache currentAuthorizations
+        <$> cache currentKeyCollection
         <*> cache currentProtocolUpdate
         <*> cache currentParameters
         <*> cache pendingUpdates
 
 -- |An initial 'Updates' with the given initial 'Authorizations'
 -- and 'ChainParameters'.
-initialUpdates :: (MonadBlobStore m) => Authorizations -> ChainParameters -> m Updates
-initialUpdates auths chainParams = do
-        currentAuthorizations <- makeHashedBufferedRef (StoreSerialized auths)
+initialUpdates :: (MonadBlobStore m) => UpdateKeysCollection -> ChainParameters -> m Updates
+initialUpdates initialKeyCollection chainParams = do
+        currentKeyCollection <- makeHashedBufferedRef (StoreSerialized initialKeyCollection)
         let currentProtocolUpdate = Null
         currentParameters <- makeHashedBufferedRef (StoreSerialized chainParams)
         pendingUpdates <- emptyPendingUpdates
@@ -377,7 +401,7 @@ initialUpdates auths chainParams = do
 -- |Make a persistent 'Updates' from an in-memory one.
 makePersistentUpdates :: (MonadBlobStore m) => Basic.Updates -> m Updates
 makePersistentUpdates Basic.Updates{..} = do
-        currentAuthorizations <- refMake (StoreSerialized (_unhashed _currentAuthorizations))
+        currentKeyCollection <- refMake (StoreSerialized (_unhashed _currentKeyCollection))
         currentProtocolUpdate <- case _currentProtocolUpdate of
             Nothing -> return Null
             Just pu -> Some <$> refMake (StoreSerialized pu)
@@ -388,9 +412,9 @@ makePersistentUpdates Basic.Updates{..} = do
 -- |Convert a persistent 'Updates' to an in-memory 'Basic.Updates'.
 makeBasicUpdates :: (MonadBlobStore m) => Updates -> m Basic.Updates
 makeBasicUpdates Updates{..} = do
-        hCA <- getHashM currentAuthorizations
-        ca <- unStoreSerialized <$> refLoad currentAuthorizations
-        let _currentAuthorizations = Hashed ca hCA
+        hKC <- getHashM currentKeyCollection
+        kc <- unStoreSerialized <$> refLoad currentKeyCollection
+        let _currentKeyCollection = Hashed kc hKC
         _currentProtocolUpdate <- case currentProtocolUpdate of
             Null -> return Nothing
             Some pu -> Just . unStoreSerialized <$> refLoad pu
@@ -421,17 +445,50 @@ processValueUpdates t uq noUpdate doUpdate = case ql of
             v <- unStoreSerialized <$> refLoad r
             return $! Map.insert tt v m
 
--- |Process authorization updates.
-processAuthorizationUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
-processAuthorizationUpdates t bu = do
+-- |Process root keys updates.
+processRootKeysUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processRootKeysUpdates t bu = do
         u@Updates{..} <- refLoad bu
-        authQueue <- refLoad (pAuthorizationQueue pendingUpdates)
-        processValueUpdates t authQueue (return (Map.empty, bu)) $ \newAuths newQ m -> (UVAuthorization <$> m,) <$> do
-            newpAuthQueue <- refMake newQ
-            refMake u{
-                    currentAuthorizations = newAuths,
-                    pendingUpdates = pendingUpdates{pAuthorizationQueue = newpAuthQueue}
-                }
+        rootKeysQueue <- refLoad (pRootKeysUpdateQueue pendingUpdates)
+        previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
+        processValueUpdates t rootKeysQueue (return (Map.empty, bu)) $ \newRootKeys newRootKeysQueue changes -> (UVRootKeys <$> changes,) <$> do
+          newRootKeysValue <- unStoreSerialized <$> refLoad newRootKeys
+          newKeyCollection <- refMake . StoreSerialized $ previousKeyCollection { rootKeys = newRootKeysValue }
+          newRootKeysQueueStored <- refMake newRootKeysQueue
+          refMake u {
+            currentKeyCollection = newKeyCollection,
+            pendingUpdates = pendingUpdates { pRootKeysUpdateQueue = newRootKeysQueueStored }
+            }
+
+-- |Process level 1 keys updates.
+processLevel1KeysUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processLevel1KeysUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        level1KeysQueue <- refLoad (pLevel1KeysUpdateQueue pendingUpdates)
+        previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
+        processValueUpdates t level1KeysQueue (return (Map.empty, bu)) $ \newLevel1Keys newLevel1KeysQueue changes -> (UVLevel1Keys <$> changes,) <$> do
+          newLevel1KeysValue <- unStoreSerialized <$> refLoad newLevel1Keys
+          newKeyCollection <- refMake . StoreSerialized $ previousKeyCollection { level1Keys = newLevel1KeysValue }
+          newLevel1KeysQueueStored <- refMake newLevel1KeysQueue
+          refMake u {
+            currentKeyCollection = newKeyCollection,
+            pendingUpdates = pendingUpdates { pLevel1KeysUpdateQueue = newLevel1KeysQueueStored }
+            }
+
+-- |Process level 2 keys updates.
+processLevel2KeysUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
+processLevel2KeysUpdates t bu = do
+        u@Updates{..} <- refLoad bu
+        level2KeysQueue <- refLoad (pLevel2KeysUpdateQueue pendingUpdates)
+        previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
+        processValueUpdates t level2KeysQueue (return (Map.empty, bu)) $ \newLevel2Keys newLevel2KeysQueue changes -> (UVLevel2Keys <$> changes,) <$> do
+          newLevel2KeysValue <- unStoreSerialized <$> refLoad newLevel2Keys
+          newKeyCollection <- refMake . StoreSerialized $ previousKeyCollection { level2Keys = newLevel2KeysValue }
+          newLevel2KeysQueueStored <- refMake newLevel2KeysQueue
+          refMake u {
+            currentKeyCollection = newKeyCollection,
+            pendingUpdates = pendingUpdates { pLevel2KeysUpdateQueue = newLevel2KeysQueueStored }
+            }
 
 -- |Process election difficulty updates.
 processElectionDifficultyUpdates :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
@@ -578,7 +635,9 @@ processProtocolUpdates t bu = do
 
 -- |Process all update queues.
 processUpdateQueues :: (MonadBlobStore m) => Timestamp -> BufferedRef Updates -> m (Map.Map TransactionTime UpdateValue, BufferedRef Updates)
-processUpdateQueues t = processAuthorizationUpdates t
+processUpdateQueues t = processRootKeysUpdates t
+        `pThen` processLevel1KeysUpdates t
+        `pThen` processLevel2KeysUpdates t
         `pThen` processProtocolUpdates t
         `pThen` processElectionDifficultyUpdates t
         `pThen` processEuroPerEnergyUpdates t
@@ -621,7 +680,6 @@ lookupNextUpdateSequenceNumber :: (MonadBlobStore m) => BufferedRef Updates -> U
 lookupNextUpdateSequenceNumber uref uty = do
         Updates{..} <- refLoad uref
         case uty of
-            UpdateAuthorization -> uqNextSequenceNumber <$> refLoad (pAuthorizationQueue pendingUpdates)
             UpdateProtocol -> uqNextSequenceNumber <$> refLoad (pProtocolQueue pendingUpdates)
             UpdateElectionDifficulty -> uqNextSequenceNumber <$> refLoad (pElectionDifficultyQueue pendingUpdates)
             UpdateEuroPerEnergy -> uqNextSequenceNumber <$> refLoad (pEuroPerEnergyQueue pendingUpdates)
@@ -631,13 +689,17 @@ lookupNextUpdateSequenceNumber uref uty = do
             UpdateTransactionFeeDistribution -> uqNextSequenceNumber <$> refLoad (pTransactionFeeDistributionQueue pendingUpdates)
             UpdateGASRewards -> uqNextSequenceNumber <$> refLoad (pGASRewardsQueue pendingUpdates)
             UpdateBakerStakeThreshold -> uqNextSequenceNumber <$> refLoad (pBakerStakeThresholdQueue pendingUpdates)
+            UpdateRootKeysWithRootKeys -> uqNextSequenceNumber <$> refLoad (pRootKeysUpdateQueue pendingUpdates)
+            UpdateLevel1KeysWithRootKeys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
+            UpdateLevel2KeysWithRootKeys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
+            UpdateLevel1KeysWithLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel1KeysUpdateQueue pendingUpdates)
+            UpdateLevel2KeysWithLevel1Keys -> uqNextSequenceNumber <$> refLoad (pLevel2KeysUpdateQueue pendingUpdates)
 
 -- |Enqueue an update in the appropriate queue.
 enqueueUpdate :: (MonadBlobStore m) => TransactionTime -> UpdateValue -> BufferedRef Updates -> m (BufferedRef Updates)
 enqueueUpdate effectiveTime payload uref = do
         u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
         newPendingUpdates <- case payload of
-            UVAuthorization auths -> enqueue effectiveTime auths pAuthorizationQueue <&> \newQ -> p{pAuthorizationQueue=newQ}
             UVProtocol auths -> enqueue effectiveTime auths pProtocolQueue <&> \newQ -> p{pProtocolQueue=newQ}
             UVElectionDifficulty auths -> enqueue effectiveTime auths pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue=newQ}
             UVEuroPerEnergy auths -> enqueue effectiveTime auths pEuroPerEnergyQueue <&> \newQ -> p{pEuroPerEnergyQueue=newQ}
@@ -647,6 +709,9 @@ enqueueUpdate effectiveTime payload uref = do
             UVTransactionFeeDistribution v -> enqueue effectiveTime v pTransactionFeeDistributionQueue <&> \newQ -> p {pTransactionFeeDistributionQueue=newQ}
             UVGASRewards v -> enqueue effectiveTime v pGASRewardsQueue <&> \newQ -> p {pGASRewardsQueue=newQ}
             UVBakerStakeThreshold v -> enqueue effectiveTime v pBakerStakeThresholdQueue <&> \newQ -> p {pBakerStakeThresholdQueue=newQ}
+            UVRootKeys v -> enqueue effectiveTime v pRootKeysUpdateQueue <&> \newQ -> p {pRootKeysUpdateQueue=newQ}
+            UVLevel1Keys v -> enqueue effectiveTime v pLevel1KeysUpdateQueue <&> \newQ -> p {pLevel1KeysUpdateQueue=newQ}
+            UVLevel2Keys v -> enqueue effectiveTime v pLevel2KeysUpdateQueue <&> \newQ -> p {pLevel2KeysUpdateQueue=newQ}
         refMake u{pendingUpdates = newPendingUpdates}
 
 -- |Get the current EnergyRate.
@@ -665,7 +730,7 @@ lookupCurrentParameters uref = do
 -- |Serialize updates in V0 format.
 putUpdatesV0 :: (MonadBlobStore m, MonadPut m) => Updates -> m ()
 putUpdatesV0 Updates{..} = do
-        sPut . unStoreSerialized =<< refLoad currentAuthorizations
+        sPut . unStoreSerialized =<< refLoad currentKeyCollection
         case currentProtocolUpdate of
             Null -> liftPut $ putWord8 0
             Some pu -> do

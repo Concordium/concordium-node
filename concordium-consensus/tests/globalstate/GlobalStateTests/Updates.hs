@@ -100,7 +100,7 @@ createGS dbDir = do
                                      emptyIdentityProviders
                                      emptyAnonymityRevokers
                                      maxBound
-                                     dummyAuthorizations
+                                     dummyKeyCollection
                                      dummyChainParameters
     rp = defaultRuntimeParameters { rpTreeStateDir = dbDir, rpBlockStateFile = dbDir </> "blockstate" }
     config = PairGSConfig (MTMBConfig rp genesis, DTDBConfig rp genesis)
