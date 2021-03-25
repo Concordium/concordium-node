@@ -106,6 +106,11 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
       bshUpdates
       (ebHash bshEpochBlocks))
 
+-- |An auxiliary data type to express restrictions on an account.
+-- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
+-- and an account that has a non-zero encrypted balance cannot add new credentials.
+data AccountAllowance = AllowedEncryptedTransfers | AllowedMultipleCredentials
+
 class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the address of the account
@@ -113,6 +118,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the current public account balance
   getAccountAmount :: Account m -> m Amount
+
+  -- |Check whether an account is allowed to perform the given action.
+  checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
   -- | Get the current public account available balance.
   -- This accounts for lock-up and staked amounts.
@@ -656,6 +664,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress
   getAccountAmount = lift. getAccountAmount
+  checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials
@@ -667,6 +676,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
+  {-# INLINE checkAccountIsAllowed #-}
   {-# INLINE getAccountCredentials #-}
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
