@@ -7,13 +7,9 @@ use std::{alloc::System, sync::RwLock};
 #[global_allocator]
 static A: System = System;
 
-use failure::Fallible;
+use failure::{Fallible, ResultExt};
 use mio::Poll;
 use parking_lot::Mutex as ParkingMutex;
-use rkv::{
-    backend::{Lmdb, LmdbEnvironment},
-    Manager, Rkv,
-};
 
 use concordium_node::{
     common::{P2PNodeId, PeerType},
@@ -50,7 +46,7 @@ use std::{
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
 #[cfg(feature = "instrumentation")]
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 #[tokio::main]
 async fn main() -> Fallible<()> {
@@ -61,7 +57,7 @@ async fn main() -> Fallible<()> {
     {
         concordium_node::plugins::staging_net::authenticate(&conf.cli.staging_net_token)
             .await
-            .expect("Staging network client authentication failed");
+            .context("Staging network client authentication failed")?;
     }
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
@@ -107,8 +103,11 @@ async fn main() -> Fallible<()> {
     #[cfg(feature = "instrumentation")]
     {
         let stats = node.stats.clone();
-        let pla =
-            conf.prometheus.prometheus_listen_addr.parse().expect("Invalid Prometheus address");
+        let pla = conf
+            .prometheus
+            .prometheus_listen_addr
+            .parse::<IpAddr>()
+            .context("Invalid Prometheus address")?;
         let plp = conf.prometheus.prometheus_listen_port;
         tokio::spawn(async move { stats.start_server(SocketAddr::new(pla, plp)).await });
     }
@@ -121,20 +120,8 @@ async fn main() -> Fallible<()> {
     // The push gateway to Prometheus thread
     start_push_gateway(&conf.prometheus, &node.stats, node.id());
 
-    let is_baker = conf.cli.baker.baker_credentials_file.is_some();
-
-    let data_dir_path = app_prefs.get_user_app_dir();
-    let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker, is_baker)
-        .expect("Can't get genesis data or private data. Aborting");
-    let gs_kvs_handle = Manager::<LmdbEnvironment>::singleton()
-        .write()
-        .expect("Can't write to the kvs manager for GlobalState purposes!")
-        .get_or_create(data_dir_path.as_ref(), Rkv::new::<Lmdb>)
-        .expect("Can't load the GlobalState kvs environment!");
-
-    if let Err(e) = gs_kvs_handle.write().unwrap().set_map_size(1024 * 1024 * 256) {
-        error!("Can't set up the desired RKV map size: {}", e);
-    }
+    let (gen_data, priv_data) = get_baker_data(&app_prefs, &conf.cli.baker)
+        .context("Can't get genesis data or private data. Aborting")?;
 
     let consensus_database_url = if conf.cli.transaction_outcome_logging {
         format!(
@@ -149,6 +136,7 @@ async fn main() -> Fallible<()> {
         String::new()
     };
 
+    let data_dir_path = app_prefs.get_user_app_dir();
     let mut database_directory = data_dir_path.to_path_buf();
     database_directory.push(concordium_node::configuration::DATABASE_SUB_DIRECTORY_NAME);
     if !database_directory.exists() {
@@ -178,7 +166,7 @@ async fn main() -> Fallible<()> {
     // Start the RPC server
     if !conf.cli.rpc.no_rpc_server {
         let mut serv = RpcServerImpl::new(node.clone(), Some(consensus.clone()), &conf.cli.rpc)
-            .expect("Can't create the RPC server");
+            .context("Cannot create RPC server.")?;
         tokio::spawn(async move {
             serv.start_server().await.expect("Can't start the RPC server");
         });
@@ -206,7 +194,7 @@ async fn main() -> Fallible<()> {
     consensus.start_baker();
 
     // Wait for the P2PNode to close
-    node.join().expect("The node thread panicked!");
+    node.join().context("The node thread panicked!")?;
 
     // Wait for the consensus queue threads to stop
     for consensus_queue_thread in consensus_queue_threads {
