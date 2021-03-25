@@ -76,7 +76,7 @@ initialPersistentAccountEncryptedAmount = do
 putAccountEncryptedAmountV0 :: (MonadBlobStore m) => PersistentAccountEncryptedAmount -> m (Maybe Put)
 putAccountEncryptedAmountV0 PersistentAccountEncryptedAmount{..} = do
     sAmt <- refLoad _selfAmount
-    if sAmt == mempty && _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount then
+    if isZeroEncryptedAmount sAmt && _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount then
       return Nothing
     else do
       ieas <- mapM refLoad _incomingEncryptedAmounts

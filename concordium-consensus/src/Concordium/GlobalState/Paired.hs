@@ -315,6 +315,11 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         n2 <- coerceBSMR (getAccountNonce acc2)
         assert (n1 == n2) $ return n1
 
+    checkAccountIsAllowed (acc1, acc2) a = do
+        b1 <- coerceBSML (checkAccountIsAllowed acc1 a)
+        b2 <- coerceBSMR (checkAccountIsAllowed acc2 a)
+        assert (b1 == b2) $ return b1
+
     getAccountCredentials (acc1, acc2) = do
         cs1 <- coerceBSML (getAccountCredentials acc1)
         cs2 <- coerceBSMR (getAccountCredentials acc2)

@@ -455,6 +455,9 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
+  checkAccountIsAllowed acc BS.AllowedEncryptedTransfers = return (Map.size (acc ^. accountCredentials) == 1)
+  checkAccountIsAllowed acc BS.AllowedMultipleCredentials = return . isZeroAccountEncryptedAmount $ acc ^. accountEncryptedAmount
+
   getAccountCredentials acc = return $ acc ^. accountCredentials
 
   getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys

@@ -41,6 +41,7 @@ import Concordium.Types.Execution ( TransactionSummary )
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Parameters as ID
+import Concordium.Crypto.EncryptedTransfers (isZeroEncryptedAmount)
 import Concordium.Types.Updates
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.BlobStore
@@ -1236,6 +1237,15 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
   getAccountAmount acc = return $ acc ^. accountAmount
 
   getAccountNonce acc = return $ acc ^. accountNonce
+
+  checkAccountIsAllowed acc AllowedEncryptedTransfers = do
+    creds <- getAccountCredentials acc
+    return (Map.size creds == 1)
+  checkAccountIsAllowed acc AllowedMultipleCredentials = do
+    PersistentAccountEncryptedAmount{..} <- loadBufferedRef (acc ^. accountEncryptedAmount)
+    if null _incomingEncryptedAmounts && isNothing _aggregatedAmount then do
+      isZeroEncryptedAmount <$> loadBufferedRef _selfAmount
+    else return False
 
   getAccountCredentials acc = acc ^^. accountCredentials
 

@@ -48,7 +48,7 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.BlockState (AccountOperations(..))
+import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
@@ -322,6 +322,9 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           -- the expensive operations start now, so we charge.
           tickEnergy Cost.transferToPublicCost
 
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
+
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
 
@@ -375,6 +378,9 @@ handleTransferToEncrypted wtc toEncrypted = do
 
           tickEnergy Cost.transferToEncryptedCost
 
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
+
           -- check that the sender actually owns the amount it claims to be transferred
           senderamount <- getCurrentAccountAvailableAmount senderAccount
           unless (senderamount >= toEncrypted) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) toEncrypted)
@@ -415,18 +421,27 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
         meta = wtc ^. wtcTransactionHeader
 
         c cryptoParams = do
+
           senderAddress <- getAccountAddress senderAccount
+
+          -- We charge as soon as we can even if we could in principle do some
+          -- checks that are cheaper.
+          tickEnergy Cost.encryptedTransferCost
+
           -- We do not allow sending encrypted transfers from an account to itself.
           -- There is no reason to do so in the current setup, and it causes some technical
           -- complications.
           when (toAddress == senderAddress) $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
+
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
 
-          -- the expensive operations start now, so we charge.
-          tickEnergy Cost.encryptedTransferCost
+          receiverAllowed <- checkAccountIsAllowed targetAccount AllowedEncryptedTransfers
+          unless receiverAllowed $ rejectTransaction NotAllowedToReceiveEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
@@ -1275,6 +1290,9 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       forM_ cdis $ \cdi -> do
         let expiry = ID.validTo cdi
         unless (isTimestampBefore (slotTime cm) expiry) $ rejectTransaction InvalidCredentials
+      -- and ensure that this account is allowed to have multiple credentials
+      allowed <- checkAccountIsAllowed senderAccount AllowedMultipleCredentials
+      unless allowed $ rejectTransaction NotAllowedMultipleCredentials
       return creds
 
     k ls existingCredentials = do
