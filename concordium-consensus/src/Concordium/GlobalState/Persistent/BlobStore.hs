@@ -687,6 +687,7 @@ instance MonadBlobStore m => BlobStorable m ()
 instance MonadBlobStore m => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m, Serialize (PersistingAccountData pv)) => BlobStorable m (PersistingAccountData pv)
 instance MonadBlobStore m => BlobStorable m Authorizations
+instance MonadBlobStore m => BlobStorable m (HigherLevelKeys a)
 instance MonadBlobStore m => BlobStorable m ProtocolUpdate
 instance MonadBlobStore m => BlobStorable m ExchangeRate
 instance MonadBlobStore m => BlobStorable m ElectionDifficulty

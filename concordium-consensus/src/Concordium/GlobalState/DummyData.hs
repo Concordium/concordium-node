@@ -83,7 +83,6 @@ dummyAuthorizations :: Authorizations
 dummyAuthorizations = Authorizations {
       asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
       asEmergency = theOnly,
-      asAuthorization = theOnly,
       asProtocol = theOnly,
       asParamElectionDifficulty = theOnly,
       asParamEuroPerEnergy = theOnly,
@@ -96,6 +95,23 @@ dummyAuthorizations = Authorizations {
     }
   where
     theOnly = AccessStructure (Set.singleton 0) 1
+
+{-# NOINLINE dummyHigherLevelKeys #-}
+{-# WARNING dummyHigherLevelKeys "Do not use in production." #-}
+dummyHigherLevelKeys :: HigherLevelKeys a
+dummyHigherLevelKeys = HigherLevelKeys {
+  hlkKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
+  hlkThreshold = 1
+  }
+
+{-# NOINLINE dummyKeyCollection #-}
+{-# WARNING dummyKeyCollection "Do not use in production." #-}
+dummyKeyCollection :: UpdateKeysCollection
+dummyKeyCollection = UpdateKeysCollection {
+  rootKeys = dummyHigherLevelKeys,
+  level1Keys = dummyHigherLevelKeys,
+  level2Keys = dummyAuthorizations
+  }
 
 {-# WARNING makeFakeBakers "Do not use in production" #-}
 -- |Make a given number of baker accounts for use in genesis.
@@ -143,7 +159,7 @@ makeTestingGenesisDataP1 ::
     -> IdentityProviders   -- ^List of initial identity providers.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> Energy  -- ^Maximum limit on the total stated energy of the transactions in a block
-    -> Authorizations -- ^Initial update authorizations
+    -> UpdateKeysCollection -- ^Initial update authorizations
     -> ChainParameters -- ^Initial chain parameters
     -> GenesisData 'P1
 makeTestingGenesisDataP1
@@ -156,7 +172,7 @@ makeTestingGenesisDataP1
   genesisIdentityProviders
   genesisAnonymityRevokers
   genesisMaxBlockEnergy
-  genesisAuthorizations
+  genesisUpdateKeys
   genesisChainParameters
     = GDP1 P1.GDP1Initial {
         genesisCore=P1.CoreGenesisParameters{..},
@@ -208,7 +224,7 @@ dummyChainParameters = makeChainParameters (makeElectionDifficulty 50000) 0.0001
 {-# WARNING createBlockState "Do not use in production" #-}
 createBlockState :: Accounts pv -> BlockState pv
 createBlockState accounts =
-    emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyAuthorizations dummyChainParameters &
+    emptyBlockState (emptyBirkParameters accounts) dummyCryptographicParameters dummyKeyCollection dummyChainParameters &
       (blockAccounts .~ accounts) .
       (blockBank . unhashed . Rewards.totalGTU .~ sum (map (_accountAmount . snd) (toList (accountTable accounts)))) .
       (blockIdentityProviders . unhashed .~ dummyIdentityProviders) .

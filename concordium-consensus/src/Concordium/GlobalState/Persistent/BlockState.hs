@@ -442,20 +442,20 @@ initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              -> [TransientAccount.Account pv]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> Authorizations
+             -> UpdateKeysCollection
              -> ChainParameters
              -> m (HashedPersistentBlockState pv)
-initialPersistentState ss cps accts ips ars auths chainParams = makePersistent $ Basic.initialState ss cps accts ips ars auths chainParams
+initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
 
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
-emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> m (PersistentBlockState pv)
-emptyBlockState bspBirkParameters cryptParams auths chainParams = do
+emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> m (PersistentBlockState pv)
+emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
-  bspUpdates <- refMake =<< initialUpdates auths chainParams
+  bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
   bspReleaseSchedule <- refMake Map.empty
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
@@ -1098,11 +1098,11 @@ doProcessReleaseSchedule pbs ts = do
           bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
           storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
 
-doGetCurrentAuthorizations :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Authorizations
-doGetCurrentAuthorizations pbs = do
+doGetUpdateKeyCollection :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UpdateKeysCollection
+doGetUpdateKeyCollection pbs = do
         bsp <- loadPBS pbs
         u <- refLoad (bspUpdates bsp)
-        unStoreSerialized <$> refLoad (currentAuthorizations u)
+        unStoreSerialized <$> refLoad (currentKeyCollection u)
 
 doEnqueueUpdate :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> TransactionTime -> UpdateValue -> m (PersistentBlockState pv)
 doEnqueueUpdate pbs effectiveTime payload = do
@@ -1272,7 +1272,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoProcessUpdateQueues = doProcessUpdateQueues
     bsoProcessReleaseSchedule = doProcessReleaseSchedule
-    bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
+    bsoGetUpdateKeyCollection = doGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
     bsoAddReleaseSchedule = doAddReleaseSchedule

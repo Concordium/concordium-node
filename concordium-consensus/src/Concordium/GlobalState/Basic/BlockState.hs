@@ -192,8 +192,8 @@ instance HashableTo StateHash (HashedBlockState pv) where
 
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
-emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> BlockState pv
-emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams = BlockState
+emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> BlockState pv
+emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chainParams = BlockState
           { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
             ..
           }
@@ -205,7 +205,7 @@ emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams =
       _blockBank = makeHashed Rewards.emptyBankStatus
       _blockIdentityProviders = makeHashed IPS.emptyIdentityProviders
       _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
-      _blockUpdates = initialUpdates auths chainParams
+      _blockUpdates = initialUpdates keysCollection chainParams
       _blockReleaseSchedule = Map.empty
       _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
@@ -748,8 +748,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                        & blockReleaseSchedule .~ blockReleaseSchedule''
 
 
-    {-# INLINE bsoGetCurrentAuthorizations #-}
-    bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations . unhashed
+    {-# INLINE bsoGetUpdateKeyCollection #-}
+    bsoGetUpdateKeyCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
 
     {-# INLINE bsoGetNextUpdateSequenceNumber #-}
     bsoGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
@@ -823,10 +823,10 @@ initialState :: (IsProtocolVersion pv)
              -> [Account pv]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> Authorizations
+             -> UpdateKeysCollection
              -> ChainParameters
              -> BlockState pv
-initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths chainParams = BlockState {..}
+initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCollection chainParams = BlockState {..}
   where
     _blockBirkParameters = initialBirkParameters genesisAccounts seedState
     _blockCryptographicParameters = makeHashed cryptoParams
@@ -839,7 +839,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths 
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-    _blockUpdates = initialUpdates auths chainParams
+    _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
     _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
@@ -896,7 +896,7 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
     _blockIdentityProviders = makeHashed genesisIdentityProviders
     _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-    _blockUpdates = initialUpdates genesisAuthorizations genesisChainParameters
+    _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
 genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNewState of

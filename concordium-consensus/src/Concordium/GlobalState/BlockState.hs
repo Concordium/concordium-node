@@ -520,7 +520,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
   -- |Get the current 'Authorizations' for validating updates.
-  bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
+  bsoGetUpdateKeyCollection :: UpdatableBlockState m -> m UpdateKeysCollection
 
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
@@ -708,7 +708,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
   bsoProcessReleaseSchedule s = lift . bsoProcessReleaseSchedule s
-  bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
+  bsoGetUpdateKeyCollection = lift . bsoGetUpdateKeyCollection
   bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
@@ -751,7 +751,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoProcessUpdateQueues #-}
   {-# INLINE bsoProcessReleaseSchedule #-}
-  {-# INLINE bsoGetCurrentAuthorizations #-}
+  {-# INLINE bsoGetUpdateKeyCollection #-}
   {-# INLINE bsoGetNextUpdateSequenceNumber #-}
   {-# INLINE bsoEnqueueUpdate #-}
   {-# INLINE bsoAddReleaseSchedule #-}
