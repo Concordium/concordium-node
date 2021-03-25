@@ -33,7 +33,7 @@ codegen-units = 1
 
 [dependencies]
 # Internal dependencies
-crypto_common = { path = "../concordium-base/rust-src/crypto_common" }
+crypto_common = { path = "../concordium-base/rust-src/crypto_common", features = ["encryption"] }
 
 # External dependencies
 parking_lot = "0.11"
@@ -69,7 +69,7 @@ lazy_static = "^1.2"
 base58check = "^0.1"
 serde = { version = "1.0", features = ["rc"] }
 hex = "0.4"
-
+rpassword = "5.0"
 
 # gRPC dependencies
 tonic = "0.4.1"

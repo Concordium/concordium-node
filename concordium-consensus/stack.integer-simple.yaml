@@ -18,6 +18,8 @@ flags:
     integer-gmp: false
   scientific:
     integer-simple: true
+  cryptonite:
+    integer-gmp: false
 
 ghc-options:
     "$everything": -fPIC
