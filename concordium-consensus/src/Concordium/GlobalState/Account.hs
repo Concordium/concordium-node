@@ -21,16 +21,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Constants
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.GlobalState.BakerInfo
-
--- FIXME: Figure out where to put this constant.
--- |Maximum number of incoming encrypted amounts on an account before we start
--- aggregating the oldest one.
-maxNumIncoming :: Int
-maxNumIncoming = 32
 
 -- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
