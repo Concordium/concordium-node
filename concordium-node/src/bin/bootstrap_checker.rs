@@ -49,7 +49,6 @@ fn main() -> Result<(), Error> {
         &conf,
         PeerType::Node,
         stats_export_service,
-        Some(data_dir_path),
         regenesis_arc,
     );
 

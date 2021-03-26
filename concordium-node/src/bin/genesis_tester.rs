@@ -63,6 +63,8 @@ pub fn main() -> Fallible<()> {
 
     ffi::start_haskell(&[]);
 
+    let regenesis_arc = std::sync::Arc::new(std::sync::RwLock::new(vec![]));
+
     match ConsensusContainer::new(
         u64::max_value(),
         u64::max_value(),
@@ -73,6 +75,7 @@ pub fn main() -> Fallible<()> {
         ConsensusLogLevel::Info,
         &tmp_dir.into_path(),
         &"",
+        regenesis_arc,
     ) {
         Err(e) => {
             println!("Error while starting consensus {}", e);
