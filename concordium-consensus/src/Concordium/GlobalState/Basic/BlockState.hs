@@ -347,6 +347,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getAccount bs aaddr =
       return $ bs ^? blockAccounts . ix aaddr
 
+    {-# INLINE getAccountByCredId #-}
+    getAccountByCredId bs cid =
+      let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix cid
+      in case mai of
+           Nothing -> return Nothing
+           Just ai -> return $ bs ^? blockAccounts . Accounts.indexedAccount ai
+
     {-# INLINE getBakerAccount #-}
     getBakerAccount bs (BakerId ai) =
       return $ bs ^? blockAccounts . Accounts.indexedAccount ai
@@ -448,9 +455,10 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
-  getAccountCredentials acc = return $ acc ^. accountCredentials
+  checkAccountIsAllowed acc BS.AllowedEncryptedTransfers = return (Map.size (acc ^. accountCredentials) == 1)
+  checkAccountIsAllowed acc BS.AllowedMultipleCredentials = return . isZeroAccountEncryptedAmount $ acc ^. accountEncryptedAmount
 
-  getAccountMaxCredentialValidTo acc = return $ acc ^. accountMaxCredentialValidTo
+  getAccountCredentials acc = return $ acc ^. accountCredentials
 
   getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
 
@@ -488,9 +496,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         where
             acct = newAccount gc addr cred
             accounts = bs ^. blockAccounts
-            newAccounts = Accounts.putAccount acct $
-                          Accounts.recordRegId (credId cred)
-                          accounts
+            newAccounts = Accounts.putAccountWithRegIds acct accounts
 
     bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
         where
@@ -521,9 +527,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             updatedAccount = updateCredentialKeys credIx newKeys account
 
     bsoUpdateAccountCredentials bs accountAddr remove add thrsh = return $! bs
-            & blockAccounts %~ Accounts.putAccount updatedAccount
-                              . Accounts.recordRegIds (Map.elems $ credId <$> add)
+            & blockAccounts %~ recordAllRegIds . updateAcct
         where
+            updateAcct accts = Accounts.putAccountWithIndex updatedAccount accts
+            recordAllRegIds (newIndex, newAccts) = Accounts.recordRegIds ((, newIndex) <$> credIdsToRecord) newAccts
+            credIdsToRecord = Map.elems $ credId <$> add
             account = bs ^. blockAccounts . singular (ix accountAddr)
             updatedAccount = updateCredentials remove add thrsh account
 

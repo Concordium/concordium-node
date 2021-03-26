@@ -15,6 +15,7 @@ import qualified Data.HashMap.Strict as HM
 import Control.Monad.State.Class
 
 import Concordium.Common.Version
+import Concordium.ID.Types (CredentialRegistrationID)
 import qualified Concordium.Scheduler.Types as AT
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.TreeState as TS
@@ -205,18 +206,21 @@ getInstances hash sfsRef = runStateQuery sfsRef $
   return $ toJSON (map iaddress ilist)
 
 -- |Get the account information for the given account.
+-- The account can be given either via an address, or via a credential registration id.
+-- In the latter case we lookup the account the credential is associated with, even if it was
+-- removed already.
+--
 -- Returns Null if account or block do not exist.
 -- Otherwise returns a list an object with
 --
 -- - accountAmount -- an integral non-negative value
--- - accountCredentials -- a list of versioned credential values.
+-- - accountCredentials -- a map of versioned credential values.
 -- - accountDelegation -- null or a baker id
 -- - accountEncryptedAmount -- an object detailing the current encrypted balance on the account (which consists of a number of encrypted amounts)
 -- - accountEncryptionKey -- the encryption key others can use to send to this account.
-getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> AccountAddress -> IO Value
-getAccountInfo hash sfsRef addr = runStateQuery sfsRef $
-  withBlockStateJSON hash $ \st ->
-  BS.getAccount st addr >>=
+getAccountInfo :: (SkovStateQueryable z m) => BlockHash -> z -> Either CredentialRegistrationID AccountAddress  -> IO Value
+getAccountInfo hash sfsRef pointer = runStateQuery sfsRef $
+  withBlockStateJSON hash $ \st -> either (BS.getAccountByCredId st) (BS.getAccount st) pointer >>=
       \case Nothing -> return Null
             Just acc -> do
               Nonce nonce <- BS.getAccountNonce acc

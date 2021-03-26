@@ -30,6 +30,7 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.Types
 import Concordium.ID.Types
+import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Finalization
 import Concordium.Types.Transactions
@@ -373,7 +374,6 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
 
     where
         logM = toLogMethod maxLogLevel lcbk
-        -- logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
         catchUpCallback = callCatchUpStatusCallback cucbk . encode
 
 
@@ -725,18 +725,32 @@ withAccountAddress cstr logm k = do
         jsonValueToCString Null
       Right acc -> k acc
 
--- |Get account information for the given block and instance. The block must be
+withCredIdOrAccountAddress :: CString -> (String -> IO ()) -> (Either CredentialRegistrationID AccountAddress -> IO CString) -> IO CString
+withCredIdOrAccountAddress cstr logm k = do
+  bs <- BS.packCString cstr
+  case addressFromBytes bs of
+      Left err -> do
+        case bsDeserializeBase16 bs of
+          Nothing -> do
+            logm $ "Could not decode address: " ++ err
+            jsonValueToCString Null
+          Just cid -> k (Left cid)
+      Right acc -> k (Right acc)
+
+
+-- |Get account information for the given block and identifier. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
--- address (second CString) must be given as a null-terminated string in Base58
--- encoding (same format as returned by 'getAccountList'). The return value is a
--- null-terminated, json encoded information.
--- The returned string should be freed by calling 'freeCStr'.
+-- identifier (second CString) must be given as a null-terminated string in
+-- either Base58 encoding (same format as returned by 'getAccountList') if it is
+-- an account address, or base 16 encoding if it is the credential registration
+-- id. The return value is a null-terminated, json encoded information. The
+-- returned string should be freed by calling 'freeCStr'.
 getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getAccountInfo cptr blockcstr cstr = do
     c <- deRefStablePtr cptr
     let logm = consensusLogMethod c
     logm External LLDebug "Received account info request."
-    withAccountAddress cstr (logm External LLDebug) $ \acc -> do
+    withCredIdOrAccountAddress cstr (logm External LLDebug) $ \acc -> do
         logm External LLDebug $ "Decoded address to: " ++ show acc
         withBlockHash blockcstr (logm External LLDebug) $ \hash -> do
           ainfo <- runConsensusQuery c (Get.getAccountInfo hash) acc
