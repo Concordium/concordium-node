@@ -7,6 +7,7 @@
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 module Concordium.GlobalState.Account where
 
+import qualified Data.Aeson as AE
 import Data.Bits
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
@@ -258,6 +259,33 @@ instance Serialize AccountBaker where
         | amt > _stakedAmount -> fail "Pending stake reduction is not a reduction in stake"
       _ -> return ()
     return AccountBaker{..}
+
+-- |ToJSON instance supporting consensus queries.
+instance AE.ToJSON AccountBaker where
+    toJSON ab = AE.object
+        ( [ "stakedAmount" AE..= (ab ^. stakedAmount),
+            "restakeEarnings" AE..= (ab ^. stakeEarnings),
+            "bakerId" AE..= (ab ^. accountBakerInfo . bakerIdentity),
+            "bakerElectionVerifyKey" AE..= (ab ^. accountBakerInfo . bakerElectionVerifyKey),
+            "bakerSignatureVerifyKey" AE..= (ab ^. accountBakerInfo . bakerSignatureVerifyKey),
+            "bakerAggregationVerifyKey" AE..= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
+            ]
+            <> case ab ^. bakerPendingChange of
+                NoChange -> []
+                ReduceStake amt ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "ReduceStake", "newStake" AE..= amt, "epoch" AE..= ep]]
+                RemoveBaker ep -> ["pendingChange" AE..= AE.object ["change" AE..= AE.String "RemoveBaker", "epoch" AE..= ep]]
+        )
+    toEncoding ab = AE.pairs $
+        "stakedAmount" AE..= (ab ^. stakedAmount) <>
+            "restakeEarnings" AE..= (ab ^. stakeEarnings) <>
+            "bakerId" AE..= (ab ^. accountBakerInfo . bakerIdentity) <>
+            "bakerElectionVerifyKey" AE..= (ab ^. accountBakerInfo . bakerElectionVerifyKey) <>
+            "bakerSignatureVerifyKey" AE..= (ab ^. accountBakerInfo . bakerSignatureVerifyKey) <>
+            "bakerAggregationVerifyKey" AE..= (ab ^. accountBakerInfo . bakerAggregationVerifyKey)
+            <> case ab ^. bakerPendingChange of
+                NoChange -> mempty
+                ReduceStake amt ep -> "pendingChange" AE..= AE.object ["change" AE..= AE.String "ReduceStake", "newStake" AE..= amt, "epoch" AE..= ep]
+                RemoveBaker ep -> "pendingChange" AE..= AE.object ["change" AE..= AE.String "RemoveBaker", "epoch" AE..= ep]
 
 instance HashableTo AccountBakerHash AccountBaker where
   getHash AccountBaker{..}

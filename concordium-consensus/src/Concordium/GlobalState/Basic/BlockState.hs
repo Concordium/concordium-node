@@ -757,6 +757,12 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
     {-# INLINE bsoEnqueueUpdate #-}
     bsoEnqueueUpdate bs effectiveTime payload = return $! bs & blockUpdates %~ enqueueUpdate effectiveTime payload
 
+    {-# INLINE bsoOverwriteElectionDifficulty #-}
+    bsoOverwriteElectionDifficulty bs newDifficulty = return $! bs & blockUpdates %~ overwriteElectionDifficulty newDifficulty
+
+    {-# INLINE bsoClearProtocolUpdate #-}
+    bsoClearProtocolUpdate bs = return $! bs & blockUpdates %~ clearProtocolUpdate
+
     {-# INLINE bsoAddReleaseSchedule #-}
     bsoAddReleaseSchedule bs rel = do
       let f relSchedule (addr, t) = Map.alter (\case
@@ -899,7 +905,7 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
     _blockUpdates = initialUpdates genesisAuthorizations genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
-genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGet getBlockState genesisNewState of
+genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGetLazy getBlockState genesisNewState of
   Left err -> Left $ "Could not deserialize genesis state: " ++ err
   Right bs
       | hbs ^. blockStateHash /= genesisStateHash -> Left "Could not deserialize genesis state: state hash is incorrect"

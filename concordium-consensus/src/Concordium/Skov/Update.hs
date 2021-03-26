@@ -497,3 +497,20 @@ doReceiveTransactionInternal tr slot =
               return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
+
+-- |Shutdown the skov, returning a list of pending transactions.
+doTerminateSkov :: (TreeStateMonad pv m, SkovMonad pv m) => m [BlockItem]
+doTerminateSkov = isShutDown >>= \case
+    False -> return []
+    True -> do
+        lfb <- lastFinalizedBlock
+        -- Make the last finalized block the focus block
+        -- and empty the pending transaction table.
+        putFocusBlock lfb
+        putPendingTransactions emptyPendingTransactionTable
+        -- Clear out all of the non-finalized blocks.
+        putBranches Seq.empty
+        wipePendingBlocks
+        markAllNonFinalizedDead
+        -- Clear out (and return) the non-finalized transactions.
+        wipeNonFinalizedTransactions

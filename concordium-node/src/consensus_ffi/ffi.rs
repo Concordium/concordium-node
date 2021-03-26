@@ -907,6 +907,7 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
             9 => "BlockState",
             10 => "TreeState",
             11 => "LMDB",
+            12 => "Scheduler",
             _ => "External",
         }
     }

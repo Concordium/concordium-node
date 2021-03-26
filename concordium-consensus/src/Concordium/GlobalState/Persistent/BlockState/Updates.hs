@@ -134,6 +134,16 @@ enqueue !t !e q = do
                 uqQueue = surviving Seq.|> (t, eref)
             }
 
+-- |Clear all pending updates from a queue.
+clearQueue :: (MonadIO m, Reference m ref (UpdateQueue e))
+    => ref (UpdateQueue e) -> m (ref (UpdateQueue e))
+clearQueue q = do
+        UpdateQueue{..} <- refLoad q
+        refMake $ UpdateQueue {
+                uqNextSequenceNumber = uqNextSequenceNumber,
+                uqQueue = Seq.empty
+            }
+
 -- |Update queues for all on-chain update types.
 data PendingUpdates = PendingUpdates {
         -- |Updates to authorized update keys.
@@ -648,6 +658,24 @@ enqueueUpdate effectiveTime payload uref = do
             UVGASRewards v -> enqueue effectiveTime v pGASRewardsQueue <&> \newQ -> p {pGASRewardsQueue=newQ}
             UVBakerStakeThreshold v -> enqueue effectiveTime v pBakerStakeThresholdQueue <&> \newQ -> p {pBakerStakeThresholdQueue=newQ}
         refMake u{pendingUpdates = newPendingUpdates}
+
+-- |Overwrite the election difficulty with the specified value and remove
+-- any pending updates to the election difficulty from the queue.
+overwriteElectionDifficulty :: (MonadBlobStore m) => ElectionDifficulty -> BufferedRef Updates -> m (BufferedRef Updates)
+overwriteElectionDifficulty newDifficulty uref = do
+    u@Updates{pendingUpdates = p@PendingUpdates{..}, ..} <- refLoad uref
+    StoreSerialized cp <- refLoad currentParameters
+    newCurrentParameters <- refMake $ StoreSerialized (cp & cpElectionDifficulty .~ newDifficulty)
+    newPendingUpdates <- clearQueue pElectionDifficultyQueue <&> \newQ -> p{pElectionDifficultyQueue=newQ}
+    refMake u{currentParameters = newCurrentParameters, pendingUpdates = newPendingUpdates}
+
+-- |Clear the protocol update and remove any pending protocol updates from
+-- the queue.
+clearProtocolUpdate :: (MonadBlobStore m) => BufferedRef Updates -> m (BufferedRef Updates)
+clearProtocolUpdate uref = do
+    u@Updates{pendingUpdates = p@PendingUpdates{..}} <- refLoad uref
+    newPendingUpdates <- clearQueue pProtocolQueue <&> \newQ -> p{pProtocolQueue=newQ}
+    refMake u{currentProtocolUpdate = Null, pendingUpdates = newPendingUpdates}
 
 -- |Get the current EnergyRate.
 lookupEnergyRate :: (MonadBlobStore m) => BufferedRef Updates -> m EnergyRate

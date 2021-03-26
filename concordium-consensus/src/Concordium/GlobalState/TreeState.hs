@@ -140,6 +140,8 @@ class (Eq (BlockPointerType m),
     markFinalized :: BlockHash -> FinalizationRecord -> m ()
     -- |Mark a block as pending (i.e. awaiting parent)
     markPending :: PendingBlock -> m ()
+    -- |Mark every live or pending block as dead.
+    markAllNonFinalizedDead :: m ()
     -- * Queries on genesis block
     -- |Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
@@ -196,6 +198,9 @@ class (Eq (BlockPointerType m),
     -- less than or equal to the given value, removing it from the pending
     -- table.  Returns 'Nothing' if there is no such pending block.
     takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
+    -- |Remove all blocks from the pending table. This is only intended to
+    -- be used on Skov shut down, when these blocks are no longer needed.
+    wipePendingBlocks :: m ()
 
     -- * Operations on the pending transaction table
     --
@@ -318,6 +323,12 @@ class (Eq (BlockPointerType m),
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
     -- |Lookup a transaction status by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
+    -- |Remove and return all non-finalized transactions from the transaction table.
+    -- This is intended for use in shutting down the Skov, since it disregards whether
+    -- transactions are present in blocks.
+    wipeNonFinalizedTransactions :: m [BlockItem]
+
+
     -- * Operations on statistics
     -- |Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
@@ -335,6 +346,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     markDead = lift . markDead
     markFinalized bh = lift . markFinalized bh
     markPending = lift . markPending
+    markAllNonFinalizedDead = lift markAllNonFinalizedDead
     getGenesisBlockPointer = lift getGenesisBlockPointer
     getGenesisData = lift getGenesisData
     getLastFinalized = lift getLastFinalized
@@ -350,6 +362,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     takePendingChildren = lift . takePendingChildren
     addPendingBlock = lift . addPendingBlock
     takeNextPendingUntil = lift . takeNextPendingUntil
+    wipePendingBlocks = lift wipePendingBlocks
     getFocusBlock = lift getFocusBlock
     putFocusBlock = lift . putFocusBlock
     getPendingTransactions = lift getPendingTransactions
@@ -363,6 +376,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     commitTransaction slot bh tr = lift . commitTransaction slot bh tr
     addCommitTransaction tr slot = lift $ addCommitTransaction tr slot
     purgeTransaction = lift . purgeTransaction
+    wipeNonFinalizedTransactions = lift wipeNonFinalizedTransactions
     markDeadTransaction bh = lift . markDeadTransaction bh
     lookupTransaction = lift . lookupTransaction
     getConsensusStatistics = lift getConsensusStatistics
@@ -375,6 +389,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE markDead #-}
     {-# INLINE markFinalized #-}
     {-# INLINE markPending #-}
+    {-# INLINE markAllNonFinalizedDead #-}
     {-# INLINE getGenesisBlockPointer #-}
     {-# INLINE getGenesisData #-}
     {-# INLINE getLastFinalized #-}
@@ -390,6 +405,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE takePendingChildren #-}
     {-# INLINE addPendingBlock #-}
     {-# INLINE takeNextPendingUntil #-}
+    {-# INLINE wipePendingBlocks #-}
     {-# INLINE getFocusBlock #-}
     {-# INLINE putFocusBlock #-}
     {-# INLINE getPendingTransactions #-}
@@ -403,6 +419,7 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad pv m) => TreeStateMonad pv (
     {-# INLINE commitTransaction #-}
     {-# INLINE addCommitTransaction #-}
     {-# INLINE purgeTransaction #-}
+    {-# INLINE wipeNonFinalizedTransactions #-}
     {-# INLINE lookupTransaction #-}
     {-# INLINE markDeadTransaction #-}
     {-# INLINE getConsensusStatistics #-}

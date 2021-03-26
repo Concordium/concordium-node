@@ -77,12 +77,23 @@ instance IsProtocolVersion pv => Show (SkovData pv bs) where
         "Branches: " ++ intercalate "," ( ('[':) . (++"]") . intercalate "," . map (take 6 . show . bpHash) <$> toList _branches)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
-initialSkovDataDefault :: IsProtocolVersion pv => GenesisData pv -> bs -> SkovData pv bs
+initialSkovDataDefault :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => GenesisData pv -> bs -> m (SkovData pv bs)
 initialSkovDataDefault = initialSkovData defaultRuntimeParameters
 
-initialSkovData :: IsProtocolVersion pv => RuntimeParameters -> GenesisData pv -> bs -> SkovData pv bs
-initialSkovData rp gd genState =
-  SkovData {
+-- |Create initial skov data based on a genesis block and its state.
+initialSkovData :: (IsProtocolVersion pv, BS.BlockStateQuery m, bs ~ BlockState m) => RuntimeParameters -> GenesisData pv -> bs -> m (SkovData pv bs)
+initialSkovData rp gd genState = do
+    acctAddrs <- BS.getAccountList genState
+    acctNonces <- foldM (\hm addr ->
+        BS.getAccount genState addr >>= \case
+            Nothing -> error "Invariant violation: listed account does not exist"
+            Just acct -> do
+                nonce <- BS.getAccountNonce acct
+                return $! HM.insert addr nonce hm) HM.empty acctAddrs
+    updSeqNums <- foldM (\m uty -> do
+        sn <- BS.getNextUpdateSequenceNumber genState uty
+        return $! Map.insert uty sn m) Map.empty [minBound..]
+    return $ SkovData {
             _blockTable = HM.singleton gbh (TS.BlockFinalized gb gbfin),
             _finalizedByHeightTable = HM.singleton 0 gb,
             _possiblyPendingTable = HM.empty,
@@ -93,7 +104,7 @@ initialSkovData rp gd genState =
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTable,
+            _transactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
             _transactionTablePurgeCounter = 0
@@ -149,6 +160,11 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
               finalizedByHeightTable . at (bpHeight bp) ?= bp
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?= TS.BlockPending pb
+    markAllNonFinalizedDead = blockTable %= fmap nonFinDead
+        where
+            nonFinDead TS.BlockPending{} = TS.BlockDead
+            nonFinDead TS.BlockAlive{} = TS.BlockDead
+            nonFinDead o = o
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = use finalizationList >>= \case
@@ -184,6 +200,9 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
+    wipePendingBlocks = do
+        possiblyPendingTable .= HM.empty
+        possiblyPendingQueue .= MPQ.empty
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
@@ -358,3 +377,17 @@ instance (bs ~ BlockState m, BS.BlockStateStorage m, Monad m, MonadIO m, MonadSt
           (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
         pendingTransactions .= newPT
+
+    wipeNonFinalizedTransactions = do
+        let consNonFin (_, Finalized{}) = id
+            consNonFin (bi, _) = (bi :)
+            isFin (_, Finalized{}) = True
+            isFin _ = False
+        -- The motivation for using foldr here is that the list will be consumed by iteration
+        -- almost immediately, so it is reasonable to build it lazily.
+        oldTransactions <- HM.foldr consNonFin [] <$> use (transactionTable . ttHashMap)
+        -- Filter to only the finalized transactions.
+        transactionTable %= (ttHashMap %~ HM.filter isFin)
+                . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
+                . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
+        return oldTransactions

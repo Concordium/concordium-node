@@ -15,7 +15,6 @@ import Control.Monad
 import Control.Exception
 import Data.ByteString as BS
 import Data.Serialize
-import Data.IORef
 import Control.Monad.IO.Class
 import Data.Time.Clock
 import System.IO.Error
@@ -53,7 +52,6 @@ data SyncRunner c = SyncRunner {
     syncBakerThread :: !(MVar ThreadId),
     syncLogMethod :: LogMethod IO,
     syncCallback :: SimpleOutMessage c -> IO (),
-    syncFinalizationCatchUpActive :: MVar (Maybe (IORef Bool)),
     syncContext :: !(SkovContext c),
     syncHandlePendingLive :: !(IO ()),
     syncTransactionPurgingThread :: !(MVar ThreadId),
@@ -108,7 +106,6 @@ makeSyncRunner syncLogMethod syncBakerIdentity config syncCallback cusCallback s
         syncState <- newMVar st0
         syncTransactionPurgingThread <- newEmptyMVar
         syncBakerThread <- newEmptyMVar
-        syncFinalizationCatchUpActive <- newMVar Nothing
         pendingLiveMVar <- newMVar Nothing
         let
             syncHandlePendingLive = bufferedHandlePendingLive (runStateQuery sr (getCatchUpStatus False) >>= cusCallback) pendingLiveMVar
@@ -136,7 +133,6 @@ runSkovTransaction sr@SyncRunner{..} a = runWithStateLog syncState syncLogMethod
 syncSkovHandlers :: forall c. SyncRunner c -> SkovHandlers ThreadTimer c LogIO
 syncSkovHandlers sr@SyncRunner{..} = SkovHandlers{
         shBroadcastFinalizationMessage = liftIO . syncCallback . SOMsgFinalization,
-        shBroadcastFinalizationRecord = liftIO . syncCallback . SOMsgFinalizationRecord,
         shOnTimeout = \timeout a -> liftIO $ makeThreadTimer timeout $ void $ runSkovTransaction sr a,
         shCancelTimer = liftIO . cancelThreadTimer,
         shPendingLive = liftIO syncHandlePendingLive
@@ -439,7 +435,7 @@ makeAsyncRunner logm bkr config = do
 -- database must have been exported using the same version as the expected one. Versions are
 -- right now incompatible.
 
--- |Handle an exception that happended during block import
+-- |Handle an exception that happened during block import
 handleImportException :: LogMethod IO -> IOException -> IO UpdateResult
 handleImportException logm e =
     if isDoesNotExistError e then do

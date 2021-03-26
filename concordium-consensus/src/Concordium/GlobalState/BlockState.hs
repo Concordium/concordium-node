@@ -528,6 +528,17 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Enqueue an update to take effect at the specified time.
   bsoEnqueueUpdate :: UpdatableBlockState m -> TransactionTime -> UpdateValue -> m (UpdatableBlockState m)
 
+  -- |Overwrite the election difficulty, removing any queued election difficulty updates.
+  -- This is intended to be used for protocol updates that affect the election difficulty in
+  -- tandem with the slot duration.
+  -- Note that this does not affect the next sequence number for election difficulty updates.
+  bsoOverwriteElectionDifficulty :: UpdatableBlockState m -> ElectionDifficulty -> m (UpdatableBlockState m)
+
+  -- |Clear the protocol update and any queued protocol updates.
+  -- This is intended to be used to reset things after a protocol update has taken effect.
+  -- This does not affect the next sequence number for protocol updates.
+  bsoClearProtocolUpdate :: UpdatableBlockState m -> m (UpdatableBlockState m)
+
   -- |Add the given accounts and timestamps to the per-block account release schedule.
   -- PRECONDITION: The given timestamp must be the first timestamp for a release for the given account.
   bsoAddReleaseSchedule :: UpdatableBlockState m -> [(AccountAddress, Timestamp)] -> m (UpdatableBlockState m)
@@ -711,6 +722,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
   bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
+  bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
+  bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
   bsoAddReleaseSchedule s l = lift $ bsoAddReleaseSchedule s l
   bsoGetEnergyRate = lift . bsoGetEnergyRate
   bsoGetChainParameters = lift . bsoGetChainParameters
@@ -754,6 +767,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoGetCurrentAuthorizations #-}
   {-# INLINE bsoGetNextUpdateSequenceNumber #-}
   {-# INLINE bsoEnqueueUpdate #-}
+  {-# INLINE bsoOverwriteElectionDifficulty #-}
+  {-# INLINE bsoClearProtocolUpdate #-}
   {-# INLINE bsoAddReleaseSchedule #-}
   {-# INLINE bsoGetEnergyRate #-}
   {-# INLINE bsoGetChainParameters #-}

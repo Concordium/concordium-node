@@ -261,6 +261,6 @@ class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
 
-instance (FinalizationMonad (SkovT h c m), MonadIO m, SkovMonad pv (SkovT h c m), TreeStateMonad pv (SkovT h c m), OnSkov (SkovT h c m)) =>
-        BakerMonad pv (SkovT h c m) where
+instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad pv (SkovT pv h c m), TreeStateMonad pv (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
+        BakerMonad pv (SkovT pv h c m) where
     bakeForSlot = doBakeForSlot

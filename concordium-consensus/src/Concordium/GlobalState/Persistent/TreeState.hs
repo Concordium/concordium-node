@@ -150,18 +150,18 @@ instance (bsp ~ TS.BlockStatePointer bs)
 
 -- |Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault
-    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs))
+    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => FilePath
     -> GenesisData pv
     -> bs
     -> ATIValues ati
     -> ATIContext ati
     -> TS.BlockStatePointer bs -- ^How to serialize the block state reference for inclusion in the table.
-    -> IO (SkovPersistentData pv ati bs)
+    -> m (SkovPersistentData pv ati bs)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
 initialSkovPersistentData
-    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs))
+    :: (IsProtocolVersion pv, Serialize (TS.BlockStatePointer bs), BlockStateQuery m, bs ~ BlockState m, MonadIO m)
     => RuntimeParameters
     -- ^Runtime parameters
     -> FilePath
@@ -176,12 +176,25 @@ initialSkovPersistentData
     -- ^Account transaction index configuration
     -> TS.BlockStatePointer bs
     -- ^Genesis block state
-    -> IO (SkovPersistentData pv ati bs)
+    -> m (SkovPersistentData pv ati bs)
 initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState = do
   gb <- makeGenesisPersistentBlockPointer gd genState genATI
   let gbh = bpHash gb
       gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-  initialDb <- initializeDatabase gb serState treeStateDir
+  initialDb <- liftIO $ initializeDatabase gb serState treeStateDir
+  -- When the state contains accounts, we must ensure that the transaction
+  -- table correctly reflects the account nonces, and similarly for
+  -- updates.
+  acctAddrs <- getAccountList genState
+  acctNonces <- foldM (\hm addr ->
+      getAccount genState addr >>= \case
+          Nothing -> error "Invariant violation: listed account does not exist"
+          Just acct -> do
+              nonce <- getAccountNonce acct
+              return $! HM.insert addr nonce hm) HM.empty acctAddrs
+  updSeqNums <- foldM (\m uty -> do
+      sn <- getNextUpdateSequenceNumber genState uty
+      return $! Map.insert uty sn m) Map.empty [minBound..]
   return SkovPersistentData {
             _blockTable = HM.singleton gbh (BlockFinalized 0),
             _possiblyPendingTable = HM.empty,
@@ -193,7 +206,7 @@ initialSkovPersistentData rp treeStateDir gd genState genATI atiContext serState
             _genesisBlockPointer = gb,
             _focusBlock = gb,
             _pendingTransactions = emptyPendingTransactionTable,
-            _transactionTable = emptyTransactionTable,
+            _transactionTable = emptyTransactionTableWithSequenceNumbers acctNonces updSeqNums,
             _transactionTablePurgeCounter = 0,
             _statistics = initialConsensusStatistics,
             _runtimeParameters = rp,
@@ -496,6 +509,11 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
               blockTable . at' bh ?=! BlockFinalized (finalizationIndex fr)
             _ -> return ()
     markPending pb = blockTable . at' (getHash pb) ?=! BlockPending pb
+    markAllNonFinalizedDead = blockTable %= fmap nonFinDead
+        where
+            nonFinDead BlockAlive{} = BlockDead
+            nonFinDead BlockPending{} = BlockDead
+            nonFinDead o = o
     getGenesisBlockPointer = use genesisBlockPointer
     getGenesisData = use genesisData
     getLastFinalized = do
@@ -561,6 +579,9 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 Nothing -> do
                     possiblyPendingQueue .= ppq
                     return Nothing
+    wipePendingBlocks = do
+        possiblyPendingTable .= HM.empty
+        possiblyPendingQueue .= MPQ.empty
     getFocusBlock = use focusBlock
     putFocusBlock bb = focusBlock .= bb
     getPendingTransactions = use pendingTransactions
@@ -772,3 +793,14 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
           (newTT, newPT) = purgeTables lastFinalizedSlot oldestArrivalTime currentTimestamp transactionTable' pendingTransactions'
         transactionTable .= newTT
         pendingTransactions .= newPT
+
+    wipeNonFinalizedTransactions = do
+        -- This assumes that the transaction table only
+        -- contains non-finalized transactions.
+        -- The motivation for using foldr here is that the list will be consumed by iteration
+        -- almost immediately, so it is reasonable to build it lazily.
+        oldTransactions <- HM.foldr ((:) . fst) [] <$> use (transactionTable . ttHashMap)
+        transactionTable %= (ttHashMap .~ HM.empty)
+            . (ttNonFinalizedTransactions %~ fmap (anftMap .~ Map.empty))
+            . (ttNonFinalizedChainUpdates %~ fmap (nfcuMap .~ Map.empty))
+        return oldTransactions

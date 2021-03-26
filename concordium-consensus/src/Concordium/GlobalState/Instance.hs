@@ -1,5 +1,7 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Concordium.GlobalState.Instance where
 
+import Data.Aeson
 import Data.Serialize
 import qualified Data.Set as Set
 
@@ -53,6 +55,30 @@ instance Show Instance where
 instance HashableTo H.Hash Instance where
     getHash = instanceHash
 
+-- |JSON instance to support consensus queries.
+instance ToJSON Instance where
+    toJSON istance =
+        object
+            [ "model" .= instanceModel istance,
+              "owner" .= instanceOwner params,
+              "amount" .= instanceAmount istance,
+              "methods" .= instanceReceiveFuns params,
+              "name" .= instanceInitName params,
+              "sourceModule" .= instanceContractModule params
+            ]
+      where
+        params = instanceParameters istance
+    toEncoding istance =
+        pairs $
+            "model" .= instanceModel istance
+                <> "owner" .= instanceOwner params
+                <> "amount" .= instanceAmount istance
+                <> "methods" .= instanceReceiveFuns params
+                <> "name" .= instanceInitName params
+                <> "sourceModule" .= instanceContractModule params
+      where
+        params = instanceParameters istance
+            
 makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> H.Hash
 makeInstanceParameterHash ca aa modRef conName = H.hashLazy $ runPutLazy $ do
         put ca

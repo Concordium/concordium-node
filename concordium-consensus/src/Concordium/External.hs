@@ -205,8 +205,8 @@ foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStat
 callCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> BS.ByteString -> IO ()
 callCatchUpStatusCallback cbk bs = BS.useAsCStringLen bs $ \(cdata, clen) -> invokeCatchUpStatusCallback cbk cdata (fromIntegral clen)
 
-type TreeConfig = DiskTreeDiskBlockConfig 'P1
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> GenesisData 'P1 -> TreeConfig
+type TreeConfig = DiskTreeDiskBlockConfig
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> GenesisData 'P1 -> TreeConfig 'P1
 makeGlobalStateConfig rt appData genData = DTDBConfig{
         dtdbRuntimeParameters = rt,
         dtdbTreeStateDirectory = appData </> "treestate",
@@ -214,8 +214,8 @@ makeGlobalStateConfig rt appData genData = DTDBConfig{
         dtdbGenesisData = genData
     }
 
-type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig 'P1
-makeGlobalStateConfigWithLog :: RuntimeParameters -> FilePath -> GenesisData 'P1 -> BS.ByteString -> TreeConfigWithLog
+type TreeConfigWithLog = DiskTreeDiskBlockWithLogConfig
+makeGlobalStateConfigWithLog :: RuntimeParameters -> FilePath -> GenesisData 'P1 -> BS.ByteString -> TreeConfigWithLog 'P1
 makeGlobalStateConfigWithLog rt appData genData txDBConnString = DTDBWLConfig{
         dtdbwlRuntimeParameters = rt,
         dtdbwlTreeStateDirectory = appData </> "treestate",
@@ -369,7 +369,7 @@ startConsensus maxBlock insertionsBeforePurge transactionsKeepAlive transactions
     where
         logM = toLogMethod maxLogLevel lcbk
         -- logT = if enableTransferLogging /= 0 then Just (toLogTransferMethod ltcbk) else Nothing
-        catchUpCallback = callCatchUpStatusCallback cucbk . encode
+        catchUpCallback = callCatchUpStatusCallback cucbk . runPut . putVersionedCatchUpStatus
 
 
 -- |Start consensus without a baker identity.
@@ -436,7 +436,7 @@ startConsensusPassive maxBlock insertionsBeforePurge transactionsPurgingDelay tr
                 return (toStartResult StartGenesisFailure)
     where
         logM = toLogMethod maxLogLevel lcbk
-        catchUpCallback = callCatchUpStatusCallback cucbk . encode
+        catchUpCallback = callCatchUpStatusCallback cucbk . runPut . putVersionedCatchUpStatus
 
 -- |Shuts down consensus, stopping any baker thread if necessary.
 -- The pointer is not valid after this function returns.
@@ -1024,7 +1024,7 @@ getCatchUpStatus cptr = do
         logm External LLDebug $ "Received request for catch-up status"
         cus <- runWithConsensus c (Skov.getCatchUpStatus True)
         logm External LLTrace $ "Replying with catch-up status = " ++ show cus
-        byteStringToCString $ encode (cus :: CatchUpStatus)
+        byteStringToCString $ runPut $ putVersionedCatchUpStatus cus
 
 -- |Callback for sending a message to a peer.
 -- The first argument is the peer to send to.
@@ -1068,7 +1068,7 @@ receiveCatchUpStatus cptr src cstr len limit cbk = do
       return (toReceiveResult ResultSuccess)
     else do
       bs <- BS.packCStringLen (cstr, fromIntegral len)
-      toReceiveResult <$> case decode bs :: Either String CatchUpStatus of
+      toReceiveResult <$> case runGet getExactVersionedCatchUpStatus bs of
           Left _ -> do
               logm External LLDebug "Deserialization of catch-up status message failed."
               return ResultSerializationFail

@@ -402,3 +402,17 @@ enqueueUpdate effectiveTime (UVMintDistribution upd) = pendingUpdates . pMintDis
 enqueueUpdate effectiveTime (UVTransactionFeeDistribution upd) = pendingUpdates . pTransactionFeeDistributionQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVGASRewards upd) = pendingUpdates . pGASRewardsQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVBakerStakeThreshold upd) = pendingUpdates . pBakerStakeThresholdQueue %~ enqueue effectiveTime upd
+
+-- |Overwrite the election difficulty with the specified value and remove
+-- any pending updates to the election difficulty from the queue.
+overwriteElectionDifficulty :: ElectionDifficulty -> Updates -> Updates
+overwriteElectionDifficulty newDifficulty =
+    (currentParameters . cpElectionDifficulty .~ newDifficulty) .
+    (pendingUpdates . pElectionDifficultyQueue . uqQueue .~ [])
+
+-- |Clear the protocol update and remove any pending protocol updates from
+-- the queue.
+clearProtocolUpdate :: Updates -> Updates
+clearProtocolUpdate =
+    (currentProtocolUpdate .~ Nothing) .
+    (pendingUpdates . pProtocolQueue . uqQueue .~ [])

@@ -179,7 +179,7 @@ makeLenses ''FinalizationState
 -- finalization round is constructed.
 -- NB: This function should for now only be used in a tree state that has no branches,
 -- and will raise an exception otherwise.
-recoverFinalizationState :: (MonadIO m, SkovQueryMonad pv m, BlockPointerMonad m)
+recoverFinalizationState :: (MonadIO m, SkovQueryMonad pv m)
                          => Maybe FinalizationInstance
                          -> m (FinalizationState timer)
 recoverFinalizationState mfinInstance = do
@@ -1080,3 +1080,7 @@ instance (FinalizationBaseMonad pv r s m) => FinalizationMonad (ActiveFinalizati
     finalizationReceiveRecord b fr = unlessShutDown $ receiveFinalizationRecord b fr
     finalizationUnsettledRecordAt = getQueuedFinalization
     finalizationUnsettledRecords = getQueuedFinalizationsBeyond
+    isFinalizationCommitteeMember =
+        use finCurrentRound >>= \case
+            PassiveCurrentRound _ -> return False
+            ActiveCurrentRound _ -> return True

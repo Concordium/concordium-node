@@ -258,7 +258,7 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
 
--- |References to the componenets that make up the block state.
+-- |References to the components that make up the block state.
 --
 -- This type is parametric in the protocol version (as opposed to defined
 -- as a data family) on the principle that the structure will be mostly
@@ -1110,6 +1110,18 @@ doEnqueueUpdate pbs effectiveTime payload = do
         u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
         storePBS pbs bsp{bspUpdates = u'}
 
+doOverwriteElectionDifficulty :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ElectionDifficulty -> m (PersistentBlockState pv)
+doOverwriteElectionDifficulty pbs newElectionDifficulty = do
+        bsp <- loadPBS pbs
+        u' <- overwriteElectionDifficulty newElectionDifficulty (bspUpdates bsp)
+        storePBS pbs bsp{bspUpdates = u'}
+
+doClearProtocolUpdate :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m (PersistentBlockState pv)
+doClearProtocolUpdate pbs = do
+        bsp <- loadPBS pbs
+        u' <- clearProtocolUpdate (bspUpdates bsp)
+        storePBS pbs bsp{bspUpdates = u'}
+
 doAddReleaseSchedule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> [(AccountAddress, Timestamp)] -> m (PersistentBlockState pv)
 doAddReleaseSchedule pbs rel = do
         bsp <- loadPBS pbs
@@ -1275,6 +1287,8 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
+    bsoOverwriteElectionDifficulty = doOverwriteElectionDifficulty
+    bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoAddReleaseSchedule = doAddReleaseSchedule
     bsoGetEnergyRate = doGetEnergyRate
     bsoGetChainParameters = doGetChainParameters
@@ -1292,7 +1306,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateStorage (Persi
 
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
-    purgeBlockState pbs = liftIO $ writeIORef (hpbsPointers pbs) (error "Block state purged")
+    purgeBlockState _ = return ()
 
     archiveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers

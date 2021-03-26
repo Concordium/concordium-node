@@ -364,7 +364,7 @@ getCryptographicParameters hash sfsRef = runStateQuery sfsRef $ do
             st <- queryBlockState bp
             Just . Versioned 0 <$> BS.getCryptographicParameters st
 
-getBlockInfo :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m)) => z -> String -> IO Value
+getBlockInfo :: (SkovStateQueryable z m) => z -> String -> IO Value
 getBlockInfo sfsRef blockHash = case readMaybe blockHash of
         Nothing -> return Null
         Just bh -> runStateQuery sfsRef $
@@ -395,12 +395,12 @@ getBlockInfo sfsRef blockHash = case readMaybe blockHash of
                             "blockStateHash" .= blockStateHash bp
                             ]
 
-getBlocksAtHeight :: (SkovStateQueryable z m, HashableTo BlockHash (BlockPointerType m))
+getBlocksAtHeight :: (SkovStateQueryable z m)
     => z -> BlockHeight -> IO Value
 getBlocksAtHeight sfsRef height = runStateQuery sfsRef $
     toJSONList . map hsh <$> Skov.getBlocksAtHeight height
 
-getAncestors :: (SkovStateQueryable z m, BlockPointerMonad m, HashableTo BlockHash (BlockPointerType m))
+getAncestors :: (SkovStateQueryable z m)
              => z -> String -> BlockHeight -> IO Value
 getAncestors sfsRef blockHash count = case readMaybe blockHash of
         Nothing -> return Null
