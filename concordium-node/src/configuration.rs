@@ -10,7 +10,7 @@ use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use structopt::{clap::AppSettings, StructOpt};
 
@@ -413,10 +413,18 @@ pub struct CommonConfig {
         default_value = "1000"
     )]
     pub network_ids: Vec<u16>,
-    #[structopt(long = "override-config-dir", help = "Override location of configuration files")]
-    pub config_dir: Option<String>,
-    #[structopt(long = "override-data-dir", help = "Override location of data files")]
-    pub data_dir: Option<String>,
+    #[structopt(
+        long = "config-dir",
+        help = "Location of configuration files.",
+        env = "CONCORDIUM_NODE_CONFIG_DIR"
+    )]
+    pub(crate) config_dir: PathBuf,
+    #[structopt(
+        long = "data-dir",
+        help = "Location of data files.",
+        env = "CONCORDIUM_NODE_DATA_DIR"
+    )]
+    pub(crate) data_dir: PathBuf,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
     #[structopt(
@@ -713,13 +721,13 @@ pub fn parse_config() -> Fallible<Config> {
 #[derive(Debug)]
 pub struct AppPreferences {
     preferences_map:     PreferencesMap<String>,
-    override_data_dir:   Option<String>,
-    override_config_dir: Option<String>,
+    override_data_dir:   PathBuf,
+    override_config_dir: PathBuf,
 }
 
 impl AppPreferences {
     /// Creates an `AppPreferences` object.
-    pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
+    pub fn new(override_conf: PathBuf, override_data: PathBuf) -> Self {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
         let mut new_prefs = match OpenOptions::new().read(true).write(true).open(&file_path) {
             Ok(file) => {
@@ -749,35 +757,10 @@ impl AppPreferences {
         new_prefs
     }
 
-    fn calculate_config_path(override_path: &Option<String>) -> PathBuf {
-        match override_path {
-            Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserConfig, &APP_INFO)
-                .expect("Filesystem error encountered when creating app_root"),
-        }
-    }
-
-    fn calculate_data_path(override_path: &Option<String>) -> PathBuf {
-        match override_path {
-            Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserData, &APP_INFO)
-                .expect("Filesystem error encountered when creating app_root"),
-        }
-    }
-
-    fn calculate_config_file_path(override_config_path: &Option<String>, key: &str) -> PathBuf {
-        match override_config_path {
-            Some(ref path) => {
-                let mut new_path = PathBuf::from(path);
-                new_path.push(&format!("{}.json", key));
-                new_path
-            }
-            None => {
-                let mut path = Self::calculate_config_path(&None);
-                path.push(&format!("{}.json", key));
-                path
-            }
-        }
+    fn calculate_config_file_path(config_path: &PathBuf, key: &str) -> PathBuf {
+        let mut new_path = config_path.clone();
+        new_path.push(&format!("{}.json", key));
+        new_path
     }
 
     /// Add a piece of config to the config map.
@@ -809,10 +792,8 @@ impl AppPreferences {
     pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
 
     /// Returns the path to the application directory.
-    pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
+    pub fn get_user_app_dir(&self) -> &Path { &self.override_data_dir }
 
     /// Returns the path to the config directory.
-    pub fn get_user_config_dir(&self) -> PathBuf {
-        Self::calculate_config_path(&self.override_config_dir)
-    }
+    pub fn get_user_config_dir(&self) -> &Path { &self.override_config_dir }
 }

@@ -1,6 +1,5 @@
 //! Test utilities.
 
-use chrono::{offset::Utc, DateTime};
 use failure::Fallible;
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use structopt::StructOpt;
@@ -9,7 +8,10 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     connection::ConnChange,
-    consensus_ffi::{blockchain_types::BlockHash, helpers::PacketType},
+    consensus_ffi::{
+        blockchain_types::BlockHash,
+        helpers::{PacketType, SHA256},
+    },
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkPacket, PacketDestination},
     p2p::{maintenance::spawn, P2PNode},
@@ -21,20 +23,16 @@ use crypto_common::Serial;
 use std::{
     io::Write,
     net::TcpListener,
-    str::FromStr,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Once, RwLock,
+        Arc, RwLock,
     },
     thread,
     time::Duration,
 };
 
-static INIT: Once = Once::new();
 static PORT_OFFSET: AtomicUsize = AtomicUsize::new(0);
 static PORT_START_NODE: u16 = 8888;
-
-const TESTCONFIG: &[&str] = &[];
 
 /// Returns the next available port.
 pub fn next_available_port() -> u16 {
@@ -50,8 +48,13 @@ pub fn next_available_port() -> u16 {
 }
 
 /// Produces a config object for test purposes.
+/// This has data and config dir set to some temporary directory.
+/// It is the responsibility of the test to delete those temporary directories.
 pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
-    let mut config = Config::from_iter(TESTCONFIG.iter()).add_options(
+    let td = tempfile::tempdir().expect("Cannot create temporary test directory.");
+    let test_config =
+        ["concordium_node".to_string(), "--config-dir=.".to_string(), "--data-dir=.".to_string()];
+    let mut config = Config::from_iter(test_config.iter()).add_options(
         Some("127.0.0.1".to_owned()),
         port,
         networks,
@@ -60,36 +63,13 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     config.connection.no_bootstrap_dns = true;
     config.connection.dnssec_disabled = true;
     config.cli.no_network = true;
+    let dir = td.into_path();
+    config.common.data_dir = dir.clone();
+    config.common.config_dir = dir;
     config
 }
 
-/// Initializes the global logger with an `env_logger` - just once.
-pub fn setup_logger() {
-    // @note It adds thread ID to each message.
-    INIT.call_once(|| {
-        let mut builder = env_logger::Builder::from_default_env();
-        builder
-            .format(|buf, record| {
-                let curr_thread = std::thread::current();
-                let now: DateTime<Utc> = std::time::SystemTime::now().into();
-                writeln!(
-                    buf,
-                    "[{} {} {} {:?}] {}",
-                    now.format("%c"),
-                    record.level(),
-                    record.target(),
-                    curr_thread.id(),
-                    record.args()
-                )
-            })
-            .init();
-    });
-}
-
-pub fn dummy_regenesis_blocks() -> Vec<BlockHash> {
-    vec![FromStr::from_str("0e8a30009f9cf7c7ab76929cf6bad057a20b7002fee6fe0be48682d32b331b91")
-        .unwrap()]
-}
+pub fn dummy_regenesis_blocks() -> Vec<BlockHash> { vec![BlockHash::from([0u8; SHA256 as usize])] }
 
 /// Creates a `P2PNode` for test purposes
 pub fn make_node_and_sync(
@@ -106,7 +86,7 @@ pub fn make_node_and_sync(
     let regenesis_arc = Arc::new(RwLock::new(regenesis_blocks));
 
     let stats = Arc::new(StatsExportService::new().unwrap());
-    let (node, poll) = P2PNode::new(None, &config, node_type, stats, None, regenesis_arc);
+    let (node, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc);
 
     spawn(&node, poll, None);
     Ok(node)

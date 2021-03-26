@@ -55,6 +55,7 @@ pub mod utils;
 pub mod concordium_dns;
 pub mod consensus_ffi;
 
+#[cfg(any(test, bench, feature = "test_utils"))]
 pub mod test_utils;
 
 #[cfg(feature = "s11n_capnp")]

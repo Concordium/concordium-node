@@ -17,13 +17,10 @@ mod tests {
         test_utils::*,
     };
     use failure::Fallible;
-    use std::{str::FromStr, thread, time::Duration};
+    use std::str::FromStr;
 
     #[test]
     fn test_ban_functionalities() -> Fallible<()> {
-        // either that or Node::new should have a bool for the creation of the banlist
-        thread::sleep(Duration::from_secs(5));
-
         let port = next_available_port();
         let node = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
 
