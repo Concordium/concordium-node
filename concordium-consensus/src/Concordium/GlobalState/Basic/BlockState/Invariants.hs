@@ -34,8 +34,7 @@ invariantBlockState bs extraBalance = do
         instancesBalance <- foldM checkInstance 0 (bs ^.. blockInstances . foldInstances)
         checkEpochBakers (bs ^. blockBirkParameters . birkCurrentEpochBakers . unhashed)
         checkEpochBakers (bs ^. blockBirkParameters . birkNextEpochBakers . unhashed)
-        let untrackedRegIds = Map.difference creds (bs ^. blockAccounts . to Account.accountRegIds)
-        unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
+        checkCredentialResults creds (bs ^. blockAccounts . to Account.accountRegIds)
         let
             bank = bs ^. blockBank . unhashed
             tenc = bank ^. Rewards.totalEncryptedGTU
@@ -81,3 +80,15 @@ invariantBlockState bs extraBalance = do
             checkBinary (==) (Vec.length _bakerInfos) (Vec.length _bakerStakes) "==" "#baker infos" "#baker stakes"
             checkBinary (==) _bakerTotalStake (sum _bakerStakes) "==" "baker total stake" "sum of baker stakes"
         checkInstance amount Instance{..} = return $! (amount + instanceAmount)
+
+        -- check that the two credential maps are the same, the one recorded in block state and the model one.
+        checkCredentialResults modelCreds actualCreds = do
+          let untrackedRegIds = Map.difference modelCreds actualCreds
+          unless (null untrackedRegIds) $ Left $ "Untracked account reg ids: " ++ show untrackedRegIds
+          -- now also check that all the indices are correct.
+          -- at this point we know that all the cred ids are the same
+          forM_ (Map.toList modelCreds) $ \(cid, ai) -> do
+            case Map.lookup cid actualCreds of
+              Nothing -> Left $ "Untracked reg id: " ++ show cid
+              Just ai' | ai /= ai' -> Left $ "Reg id account indices differ: " ++ show ai' ++ " /= " ++ show ai
+                       | otherwise -> return ()

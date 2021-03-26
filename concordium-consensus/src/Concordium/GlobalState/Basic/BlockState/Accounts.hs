@@ -141,9 +141,11 @@ unsafeGetAccount addr Accounts{..} = case Map.lookup addr accountMap of
                                        Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
                                        Just i -> accountTable ^?! ix i
 
--- |Check that an account registration ID is not already on the chain.
--- See the foundation (Section 4.2) for why this is necessary.
--- Return @True@ if the registration ID already exists in the set of known registration ids, and @False@ otherwise.
+-- |Check that an account registration ID is not already on the chain. See the
+-- foundation (Section 4.2) for why this is necessary. Return @Just ai@ if the
+-- registration ID already exists in the set of known registration ids, and @ai@
+-- is the account index of the account is or was associated with, and @Nothing@
+-- otherwise.
 regIdExists :: ID.CredentialRegistrationID -> Accounts pv -> Maybe AccountIndex
 regIdExists rid Accounts{..} = rid `Map.lookup` accountRegIds
 
