@@ -48,7 +48,7 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.BlockState (AccountOperations(..))
+import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
@@ -70,16 +70,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-
--- |Check that there exists a valid credential in the context of the given chain
--- metadata.
-existsValidCredential :: AccountOperations m => ChainMetadata -> Account m -> m Bool
-existsValidCredential cm acc = do
-  -- check that the sender has at least one still valid credential.
-  expiry <- getAccountMaxCredentialValidTo acc
-  -- If the credential is still valid at the beginning of this slot then
-  -- we consider it valid. Otherwise we fail the transaction.
-  return $ isTimestampBefore (slotTime cm) expiry
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -118,8 +108,6 @@ checkHeader meta = do
 
       cm <- lift getChainMetadata
       when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
-      validCredExists <- existsValidCredential cm acc
-      unless validCredExists $ throwError . Just $ NoValidCredential
 
       -- After the successful credential check we check that the sender account
       -- has enough GTU to cover the deposited energy.
@@ -134,24 +122,6 @@ checkHeader meta = do
       unless sigCheck (throwError . Just $ IncorrectSignature)
 
       return (acc, cost)
-
--- TODO: When we have policies checking one sensible approach to rewarding
--- identity providers would be as follows.
---
--- - Each time we need to check a policy on an account all the identity
--- providers that have valid credentials deployed on that account are counted.
--- This means that if the same account is involved multiple times inside one
--- transaction then the identity providers on that account would be rewarded
--- multiple times.
---
--- An alternative design is that each identity provider involved in one
--- transaction is rewarded only once. To allow for this we will need to keep
--- track of the identity providers inside the transaction monad.
---
--- Another important point to resolve is how identity providers should be
--- rewarded in case of a rejected transaction. Should they be, or should they
--- not be. In particular when a transaction is rejected based on transaction
--- logic that is unrelated to identities.
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
@@ -321,8 +291,6 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
               targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
               -- Check that the account has a valid credential and reject the transaction if not
               -- (it is not allowed to send to accounts without valid credential).
-              validCredExists <- existsValidCredential cm targetAccount
-              unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential twsTo)
 
               withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return senderAddress
 
@@ -353,6 +321,9 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
           senderAddress <- getAccountAddress senderAccount
           -- the expensive operations start now, so we charge.
           tickEnergy Cost.transferToPublicCost
+
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
@@ -407,6 +378,9 @@ handleTransferToEncrypted wtc toEncrypted = do
 
           tickEnergy Cost.transferToEncryptedCost
 
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
+
           -- check that the sender actually owns the amount it claims to be transferred
           senderamount <- getCurrentAccountAvailableAmount senderAccount
           unless (senderamount >= toEncrypted) $! rejectTransaction (AmountTooLarge (AddressAccount senderAddress) toEncrypted)
@@ -447,21 +421,27 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
         meta = wtc ^. wtcTransactionHeader
 
         c cryptoParams = do
+
           senderAddress <- getAccountAddress senderAccount
+
+          -- We charge as soon as we can even if we could in principle do some
+          -- checks that are cheaper.
+          tickEnergy Cost.encryptedTransferCost
+
           -- We do not allow sending encrypted transfers from an account to itself.
           -- There is no reason to do so in the current setup, and it causes some technical
           -- complications.
           when (toAddress == senderAddress) $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
+
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
-          cm <- getChainMetadata
-          validCredExists <- existsValidCredential cm targetAccount
-          unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential toAddress)
 
-          -- the expensive operations start now, so we charge.
-          tickEnergy Cost.encryptedTransferCost
+          receiverAllowed <- checkAccountIsAllowed targetAccount AllowedEncryptedTransfers
+          unless receiverAllowed $ rejectTransaction NotAllowedToReceiveEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
@@ -717,8 +697,6 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- However we are defensive here and reject the transaction, acting as if there is no credential.
   ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` ReceiverContractNoCredential cref
   cm <- getChainMetadata
-  validCredExists <- existsValidCredential cm ownerAccount
-  unless validCredExists $ rejectTransaction (ReceiverContractNoCredential cref)
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
   let receiveCtx = Wasm.ReceiveContext {
@@ -835,11 +813,6 @@ handleTransferAccount _origin accAddr sender transferamount = do
 
   -- Check whether target account exists and get it.
   targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
-  -- Check that the account has a valid credential and reject the transaction if not
-  -- (it is not allowed to send to accounts without valid credential).
-  cm <- getChainMetadata
-  validCredExists <- existsValidCredential cm targetAccount
-  unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential accAddr)
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withToAccountAmount sender targetAccount transferamount $
@@ -1312,6 +1285,14 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
       tickEnergy Cost.updateCredentialsBaseCost
       creds <- getAccountCredentials senderAccount
       tickEnergy $ Cost.updateCredentialsVariableCost (OrdMap.size creds) (map (ID.credNumKeys . ID.credPubKeys) . OrdMap.elems $ cdis)
+      cm <- lift getChainMetadata
+      -- ensure none of the credentials have expired yet
+      forM_ cdis $ \cdi -> do
+        let expiry = ID.validTo cdi
+        unless (isTimestampBefore (slotTime cm) expiry) $ rejectTransaction InvalidCredentials
+      -- and ensure that this account is allowed to have multiple credentials
+      allowed <- checkAccountIsAllowed senderAccount AllowedMultipleCredentials
+      unless allowed $ rejectTransaction NotAllowedMultipleCredentials
       return creds
 
     k ls existingCredentials = do

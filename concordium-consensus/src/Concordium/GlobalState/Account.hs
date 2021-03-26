@@ -21,16 +21,11 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.ID.Types
 import Concordium.Types
+import Concordium.Constants
 import Concordium.Types.HashableTo
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 
 import Concordium.GlobalState.BakerInfo
-
--- FIXME: Figure out where to put this constant.
--- |Maximum number of incoming encrypted amounts on an account before we start
--- aggregating the oldest one.
-maxNumIncoming :: Int
-maxNumIncoming = 32
 
 -- |A list of credential IDs that have been removed from an account.
 data RemovedCredentials
@@ -88,10 +83,6 @@ data PersistingAccountData (pv :: ProtocolVersion) = PersistingAccountData {
   -- |Current credentials. This map is always non-empty and (presently)
   -- will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
   ,_accountCredentials :: !(Map.Map CredentialIndex AccountCredential)
-  -- |Maximum "valid to" date of the current credentials. This is
-  -- provided as a convenience for determining whether an account has
-  -- a currently valid credential, and is derived from the credential map.
-  ,_accountMaxCredentialValidTo :: !CredentialValidTo
   -- |Credential IDs of removed credentials.
   ,_accountRemovedCredentials :: !(Hashed RemovedCredentials)
 }
@@ -104,7 +95,6 @@ instance (IsProtocolVersion pv) => Eq (PersistingAccountData pv) where
     && _accountEncryptionKey pad1 == _accountEncryptionKey pad2
     && _accountVerificationKeys pad1 == _accountVerificationKeys pad2
     && _accountCredentials pad1 == _accountCredentials pad2
-    && _accountMaxCredentialValidTo pad1 == _accountMaxCredentialValidTo pad2
     && _accountRemovedCredentials pad1 == _accountRemovedCredentials pad2
 
 instance (IsProtocolVersion pv) => Show (PersistingAccountData pv) where
@@ -122,8 +112,6 @@ type PersistingAccountDataHash = Hash.Hash
 -- * Only the 'aiThreshold' field of '_accountVerificationKeys' is stored, since
 --   this is sufficient to recover it from '_accountCredentials'.
 --
--- * '_accountMaxCredentialValidTo' is omitted, since it can also be recovered
---   from '_accountCredentials'.
 instance HashableTo PersistingAccountDataHash (PersistingAccountData pv) where
   getHash PersistingAccountData{..} = Hash.hashLazy $ runPutLazy $ do
     put _accountAddress
@@ -206,7 +194,6 @@ instance IsProtocolVersion pv => Serialize (PersistingAccountData pv) where
     threshold <- get
     _accountCredentials <- getSafeMapOf get get
     let _accountVerificationKeys = getAccountInformation threshold _accountCredentials
-    let _accountMaxCredentialValidTo = maximum (validTo <$> _accountCredentials)
     _accountRemovedCredentials <- makeHashed <$> get
     return PersistingAccountData{..}
 
@@ -350,13 +337,10 @@ updateAccountInformation threshold addCreds remove (AccountInformation oldCredKe
 -- * Any new threshold is at most the number of accounts remaining (and at least 1).
 updateCredentials :: (HasPersistingAccountData d pv) => [CredentialIndex] -> Map.Map CredentialIndex AccountCredential -> AccountThreshold -> d -> d
 updateCredentials cuRemove cuAdd cuAccountThreshold d =
-  -- maximum is safe here since there must always be at least one credential on the account.
-  d' & (accountMaxCredentialValidTo .~ maximum (validTo <$> allCredentials))
-  where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
-        d' = d & (accountCredentials %~ Map.union cuAdd . removeKeys)
+  d & (accountCredentials %~ Map.union cuAdd . removeKeys)
                & (accountVerificationKeys %~ updateAccountInformation cuAccountThreshold cuAdd cuRemove)
                & (accountRemovedCredentials %~ flip (foldl' (flip (addRemovedCredential . removedCredentialId))) cuRemove)
-        allCredentials = Map.elems (d' ^. accountCredentials)
+  where removeKeys = flip (foldl' (flip Map.delete)) cuRemove
         removedCredentialId cix = credId $ Map.findWithDefault (error "Removed credential key not found") cix (d ^. accountCredentials)
         
 
