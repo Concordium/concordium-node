@@ -22,7 +22,7 @@ mod tests {
     #[test]
     fn test_ban_functionalities() -> Fallible<()> {
         let port = next_available_port();
-        let node = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
+        let (node, dp) = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
 
         // Empty on init
         let reply = node.get_banlist()?;
@@ -65,6 +65,8 @@ mod tests {
         node.unban_node(to_ban2)?;
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
+
+        stop_node_delete_dirs(dp, node);
 
         Ok(())
     }
