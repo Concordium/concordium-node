@@ -240,7 +240,7 @@ mod tests {
     pub fn test_cloudflare_resolve_dns() {
         let res = resolve_dns_txt_record(
             "concordium.com",
-            &[IpAddr::from_str("1.1.1.1").unwrap()],
+            &[IpAddr::from_str("8.8.8.8").unwrap()],
             false,
         );
         match res {
