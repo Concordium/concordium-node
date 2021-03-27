@@ -12,7 +12,7 @@ use concordium_node::{
     p2p::{connectivity::send_broadcast_message, P2PNode},
     test_utils::{
         connect, dummy_regenesis_blocks, generate_random_data, make_node_and_sync,
-        next_available_port,
+        next_available_port, stop_node_delete_dirs,
     },
 };
 
@@ -38,13 +38,13 @@ fn main() -> Fallible<()> {
     log_builder.init();
 
     // create 2 nodes and connect them as peers
-    let node_1 = make_node_and_sync(
+    let (node_1, dp_1) = make_node_and_sync(
         next_available_port(),
         vec![100],
         PeerType::Node,
         dummy_regenesis_blocks(),
     )?;
-    let node_2 = make_node_and_sync(
+    let (node_2, dp_2) = make_node_and_sync(
         next_available_port(),
         vec![100],
         PeerType::Node,
@@ -80,7 +80,7 @@ fn main() -> Fallible<()> {
         let mut faulty_nodes = vec![];
 
         for i in 0..5 {
-            let faulty_node = make_node_and_sync(
+            let (faulty_node, fn_dp) = make_node_and_sync(
                 next_available_port(),
                 vec![100],
                 PeerType::Node,
@@ -92,19 +92,21 @@ fn main() -> Fallible<()> {
             } else {
                 connect(&node_2_ref, &faulty_node);
             }
-            faulty_nodes.push(faulty_node);
+            faulty_nodes.push((faulty_node, fn_dp));
         }
         thread::sleep(Duration::from_secs(5));
 
-        for faulty_node in faulty_nodes {
+        for (faulty_node, dp) in faulty_nodes {
             send_zeroes(&faulty_node);
             thread::sleep(Duration::from_secs(1));
-            faulty_node.close_and_join().unwrap();
+            stop_node_delete_dirs(dp, faulty_node);
         }
     });
 
-    node_1.join()?;
-    node_2.join()?;
+    // wait until all the messages are expected to be processed and cleanup.
+    thread::sleep(Duration::from_secs(5));
+    stop_node_delete_dirs(dp_1, node_1);
+    stop_node_delete_dirs(dp_2, node_2);
 
     println!("\n*** stress test complete ***\n");
 

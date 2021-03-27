@@ -29,8 +29,7 @@ use std::{
 };
 
 fn main() -> Result<(), Error> {
-    let (mut conf, app_prefs) = utils::get_config_and_logging_setup()?;
-    let data_dir_path = app_prefs.get_user_app_dir();
+    let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
     conf.connection.dnssec_disabled = true;
     conf.connection.no_bootstrap_dns = true;
@@ -44,7 +43,6 @@ fn main() -> Result<(), Error> {
         &conf,
         PeerType::Node,
         stats_export_service,
-        Some(data_dir_path),
         Arc::new(RwLock::new(vec![])),
     );
 

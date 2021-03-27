@@ -45,14 +45,8 @@ fn main() -> Result<(), Error> {
         _ => P2PNodeId::default().to_string(),
     };
 
-    let (node, poll) = P2PNode::new(
-        Some(id),
-        &conf,
-        PeerType::Bootstrapper,
-        stats_export_service,
-        Some(data_dir_path),
-        regenesis_arc,
-    );
+    let (node, poll) =
+        P2PNode::new(Some(id), &conf, PeerType::Bootstrapper, stats_export_service, regenesis_arc);
 
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

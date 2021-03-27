@@ -514,8 +514,8 @@ pub fn get_config_and_logging_setup() -> Fallible<(config::Config, config::AppPr
     }
 
     info!("Starting up {} version {}!", crate::APPNAME, crate::VERSION);
-    info!("Application data directory: {:?}", app_prefs.get_user_app_dir());
-    info!("Application config directory: {:?}", app_prefs.get_user_config_dir());
+    info!("Application data directory: {}", app_prefs.get_user_app_dir().to_string_lossy());
+    info!("Application config directory: {}", app_prefs.get_user_config_dir().to_string_lossy());
     info!(
         "Network: {}",
         if conf.cli.no_network {

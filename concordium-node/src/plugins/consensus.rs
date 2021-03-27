@@ -88,7 +88,7 @@ pub fn get_baker_data(
     conf: &configuration::BakerConfig,
     needs_private: bool,
 ) -> Fallible<(Vec<u8>, Option<Vec<u8>>)> {
-    let mut genesis_loc = app_prefs.get_user_app_dir();
+    let mut genesis_loc = app_prefs.get_user_app_dir().to_path_buf();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
 
     let genesis_data = match OpenOptions::new().read(true).open(&genesis_loc) {

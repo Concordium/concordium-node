@@ -149,7 +149,7 @@ async fn main() -> Fallible<()> {
         String::new()
     };
 
-    let mut database_directory = data_dir_path;
+    let mut database_directory = data_dir_path.to_path_buf();
     database_directory.push(concordium_node::configuration::DATABASE_SUB_DIRECTORY_NAME);
     if !database_directory.exists() {
         std::fs::create_dir_all(&database_directory)?;
@@ -271,16 +271,7 @@ fn instantiate_node(
         }
     };
 
-    let data_dir_path = app_prefs.get_user_app_dir();
-
-    P2PNode::new(
-        node_id,
-        &conf,
-        PeerType::Node,
-        stats_export_service,
-        Some(data_dir_path),
-        regenesis_arc,
-    )
+    P2PNode::new(node_id, &conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {

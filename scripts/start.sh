@@ -14,13 +14,13 @@ ARGS=""
 # Set overrides for configuration and data store paths
 if [ -n "$CONFIG_DIR" ];
 then
-    ARGS="$ARGS --override-config-dir $CONFIG_DIR"
+    ARGS="$ARGS --config-dir $CONFIG_DIR"
     mkdir -p $CONFIG_DIR
 fi
 
 if [ -n "$DATA_DIR" ];
 then
-    ARGS="$ARGS --override-data-dir $DATA_DIR"
+    ARGS="$ARGS --data-dir $DATA_DIR"
     mkdir -p $DATA_DIR
     cd $DATA_DIR
 fi

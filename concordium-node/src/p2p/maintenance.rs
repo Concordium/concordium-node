@@ -31,7 +31,7 @@ use crate::{
         peers::check_peers,
     },
     plugins::consensus::{check_peer_states, update_peer_list},
-    read_or_die, spawn_or_die,
+    spawn_or_die,
     stats_export_service::StatsExportService,
     utils, write_or_die,
 };
@@ -171,7 +171,7 @@ impl NetworkDumper {
     fn new(ip: IpAddr, id: P2PNodeId, config: &Config) -> Self {
         let (dump_tx, dump_rx) = crossbeam_channel::bounded(config::DUMP_QUEUE_DEPTH);
         let (act_tx, act_rx) = crossbeam_channel::bounded(config::DUMP_SWITCH_QUEUE_DEPTH);
-        create_dump_thread(ip, id, dump_rx, act_rx, &config.common.data_dir);
+        create_dump_thread(ip, id, dump_rx, act_rx, config.common.data_dir.clone());
 
         Self {
             switch: act_tx,
@@ -210,7 +210,6 @@ impl P2PNode {
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
-        data_dir_path: Option<PathBuf>,
         regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
     ) -> (Arc<Self>, Poll) {
         let addr = if let Some(ref addy) = conf.common.listen_address {
@@ -307,7 +306,7 @@ impl P2PNode {
                 PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
                 PeerType::Node => 0,
             },
-            data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
+            data_dir_path: conf.common.data_dir.clone(),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
             catch_up_batch_limit: conf.connection.catch_up_batch_limit,
@@ -517,9 +516,22 @@ impl P2PNode {
         queues_stopped
     }
 
-    /// Joins the threads spawned by the node.
+    /// Waits for all the spawned threads to terminate.
+    /// This may panic or deadlock (depending on platform) if used from two
+    /// different node threads.
     pub fn join(&self) -> Fallible<()> {
-        for handle in mem::take(&mut *write_or_die!(self.threads)) {
+        // try to acquire the thread handles.
+        let handles = {
+            match self.threads.write() {
+                Ok(mut wlock) => mem::replace::<Vec<_>>(&mut wlock, Vec::new()),
+                // if unsuccessful then most likely some other thread acquired the threads lock and
+                // panicked. There is not much we can easily do, so we just do nothing and
+                // terminate.
+                Err(_) => Vec::new(),
+            }
+            // write lock released
+        };
+        for handle in handles {
             if let Err(e) = handle.join() {
                 error!("Can't join a node thread: {:?}", e);
             }
@@ -528,6 +540,9 @@ impl P2PNode {
     }
 
     /// Shut the node down gracefully and terminate its threads.
+    /// This method should only be called once by the thread that created the
+    /// node. It may panic or deadlock (depending on platform) if used from
+    /// two different node threads.
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
@@ -596,10 +611,6 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             if now.duration_since(log_time)
                 >= Duration::from_secs(node.config.housekeeping_interval)
             {
-                if cfg!(test) && read_or_die!(node.connections()).is_empty() {
-                    panic!("the test timed out: no valid connections available");
-                }
-
                 connection_housekeeping(&node);
                 if node.peer_type() != PeerType::Bootstrapper {
                     node.measure_connection_latencies();
@@ -724,10 +735,6 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
             Err(e) => error!("Can't bootstrap: {:?}", e),
         }
     }
-}
-
-impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
 }
 
 fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {

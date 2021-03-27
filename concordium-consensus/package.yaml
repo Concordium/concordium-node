@@ -71,7 +71,7 @@ default-extensions:
 
 flags:
   dynamic:
-    manual: False
+    manual: True
     default: True
 
 library:
