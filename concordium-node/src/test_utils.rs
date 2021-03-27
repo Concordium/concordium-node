@@ -69,15 +69,43 @@ pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     config
 }
 
+/// This is a dummy type to make sure nobody accidentally uses *delete_dirs
+/// functions on nodes not obtained via make_node_and_sync
+/// This deliberately does not have copy or clone to provide protection against
+/// accidents.
+pub struct DeletePermission {
+    _private: (),
+}
+
+/// Stop the node's threads (using close_and_join) and **delete its data
+/// directory**. This is only meant to be used in combination with
+/// `make_node_and_sync`. Panic on any errors.
+pub fn stop_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
+    node.close_and_join().expect("Could not stop node's threads.");
+    std::fs::remove_dir_all(&node.config.data_dir_path)
+        .expect("Could not delete node's data directory");
+}
+
+/// Wait for the node's threads to terminate and **delete its data directory**.
+/// This is only meant to be used in combination with `make_node_and_sync`.
+/// Panic on any errors.
+pub fn wait_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
+    node.join().expect("Could not stop node's threads.");
+    std::fs::remove_dir_all(&node.config.data_dir_path)
+        .expect("Could not delete node's data directory");
+}
+
 pub fn dummy_regenesis_blocks() -> Vec<BlockHash> { vec![BlockHash::from([0u8; SHA256 as usize])] }
 
 /// Creates a `P2PNode` for test purposes
+/// This creates a temporary directory for the node's config and data
+/// directories. It is the responsibility of the test to delete the directory.
 pub fn make_node_and_sync(
     port: u16,
     networks: Vec<u16>,
     node_type: PeerType,
     regenesis_blocks: Vec<BlockHash>,
-) -> Fallible<Arc<P2PNode>> {
+) -> Fallible<(Arc<P2PNode>, DeletePermission)> {
     // locally-run tests and benches can be polled with a much greater frequency
     let mut config = get_test_config(port, networks);
     config.cli.no_network = true;
@@ -89,7 +117,9 @@ pub fn make_node_and_sync(
     let (node, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc);
 
     spawn(&node, poll, None);
-    Ok(node)
+    Ok((node, DeletePermission {
+        _private: (),
+    }))
 }
 
 /// Connects `source` and `target` nodes

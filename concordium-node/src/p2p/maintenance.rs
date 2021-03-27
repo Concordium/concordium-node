@@ -516,9 +516,22 @@ impl P2PNode {
         queues_stopped
     }
 
-    /// Joins the threads spawned by the node.
+    /// Waits for all the spawned threads to terminate.
+    /// This may panic or deadlock (depending on platform) if used from two
+    /// different node threads.
     pub fn join(&self) -> Fallible<()> {
-        for handle in mem::take(&mut *write_or_die!(self.threads)) {
+        // try to acquire the thread handles.
+        let handles = {
+            match self.threads.write() {
+                Ok(mut wlock) => mem::replace::<Vec<_>>(&mut wlock, Vec::new()),
+                // if unsuccessful then most likely some other thread acquired the threads lock and
+                // panicked. There is not much we can easily do, so we just do nothing and
+                // terminate.
+                Err(_) => Vec::new(),
+            }
+            // write lock released
+        };
+        for handle in handles {
             if let Err(e) = handle.join() {
                 error!("Can't join a node thread: {:?}", e);
             }
@@ -527,6 +540,9 @@ impl P2PNode {
     }
 
     /// Shut the node down gracefully and terminate its threads.
+    /// This method should only be called once by the thread that created the
+    /// node. It may panic or deadlock (depending on platform) if used from
+    /// two different node threads.
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
@@ -719,10 +735,6 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
             Err(e) => error!("Can't bootstrap: {:?}", e),
         }
     }
-}
-
-impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
 }
 
 fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
