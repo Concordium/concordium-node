@@ -694,8 +694,8 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- and reject the transaction if not.
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
-  -- However we are defensive here and reject the transaction, acting as if there is no credential.
-  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` ReceiverContractNoCredential cref
+  -- However we are defensive here and reject the transaction instead of panicking in case it does not.
+  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
   cm <- getChainMetadata
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
