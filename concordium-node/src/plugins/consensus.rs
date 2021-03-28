@@ -83,10 +83,10 @@ pub fn stop_consensus_layer(container: ConsensusContainer) {
 }
 
 /// Obtains the genesis data and baker's private data.
+/// If the baker private data is encrypted this will query for the password.
 pub fn get_baker_data(
     app_prefs: &configuration::AppPreferences,
     conf: &configuration::BakerConfig,
-    needs_private: bool,
 ) -> Fallible<(Vec<u8>, Option<Vec<u8>>)> {
     let mut genesis_loc = app_prefs.get_user_app_dir().to_path_buf();
     genesis_loc.push(FILE_NAME_GENESIS_DATA);
@@ -102,21 +102,25 @@ pub fn get_baker_data(
         Err(e) => bail!("Can't open the genesis file ({})!", e),
     };
 
-    let private_data = if needs_private {
-        let credentials_loc = if let Some(path) = &conf.baker_credentials_file {
-            std::path::PathBuf::from(path)
-        } else {
-            bail!("Baker credentials file not supplied.")
-        };
-        match OpenOptions::new().read(true).open(&credentials_loc) {
-            Ok(mut file) => {
-                let mut read_data = vec![];
-                match file.read_to_end(&mut read_data) {
-                    Ok(_) => Some(read_data),
-                    Err(_) => bail!("Couldn't open up private baker file for reading"),
-                }
-            }
+    let private_data = if let Some(path) = &conf.baker_credentials_file {
+        let read_data = match std::fs::read(&path) {
+            Ok(read_data) => read_data,
             Err(e) => bail!("Can't open the baker credentials file ({})!", e),
+        };
+        if conf.decrypt_baker_credentials {
+            let et = serde_json::from_slice(&read_data)?;
+            let pass = rpassword::read_password_from_tty(Some(
+                "Enter password to decrypt baker credentials: ",
+            ))?;
+            match crypto_common::encryption::decrypt(&pass.into(), &et) {
+                Ok(d) => Some(d),
+                Err(_) => bail!(
+                    "Could not decrypt baker credentials. Most likely the password you provided \
+                     is incorrect."
+                ),
+            }
+        } else {
+            Some(read_data)
         }
     } else {
         None
