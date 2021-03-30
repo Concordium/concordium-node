@@ -10,12 +10,12 @@ name: Run rustfmt
 
 on:
   push:
-    branches: master
+    branches: main
     paths:
     - '.github/workflows/rustfmt.yaml'
     - '**.rs'
   pull_request:
-    branches: master
+    branches: main
     paths:
     - '.github/workflows/rustfmt.yaml'
     - '**.rs'
@@ -39,7 +39,7 @@ jobs:
     - name: Checkout
       uses: actions/checkout@v2
       with:
-        token: ${{ secrets.CONCORDIUM_CI }}
+        # token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
 
     - name: Install Rust

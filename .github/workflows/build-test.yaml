@@ -15,7 +15,7 @@ name: Build and test
 
 on:
   push:
-    branches: master
+    branches: main
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
@@ -27,7 +27,7 @@ on:
     - 'concordium-consensus/haskell-lmdb'
 
   pull_request:
-    branches: master
+    branches: main
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
