@@ -1,15 +1,15 @@
 [submodule "concordium-grpc-api"]
 	path = concordium-grpc-api
-	url = ../grpc-api.git
+	url = ../concordium-grpc-api.git
 [submodule "deps/external/noiseexplorer_xx"]
 	path = deps/external/noiseexplorer_xx
-	url = ../rust/external/noiseexplorer_xx
+	url = ../noiseexplorer_xx.git
 [submodule "concordium-base"]
 	path = concordium-base
 	url = ../concordium-base.git
 [submodule "concordium-consensus/haskell-lmdb"]
 	path = concordium-consensus/haskell-lmdb
-	url = ../external/lmdb.git
+	url = ../haskell-lmdb.git
 [submodule "concordium-consensus/smart-contracts"]
 	path = concordium-consensus/smart-contracts
-	url = ../smart-contracts.git
+	url = ../concordium-wasm-smart-contracts.git
