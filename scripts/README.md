@@ -1,11 +1,11 @@
 # Scripts for the concordium-node
 
-This is a collection of scripts that create different docker 
+This is a collection of scripts that create different docker
 containers to run the project.
 
 ## [`build-binaries.sh`](./build-binaries.sh)
 
-This script builds the project in debug or release mode and with `static` or 
+This script builds the project in debug or release mode and with `static` or
 `profiling` flags. It is used by the Dockerfiles in here.
 
 ## [`start.sh`](./start.sh)
@@ -27,7 +27,7 @@ The [`distribution`](./distribution) folder contains the scripts to build and pu
 ## Static libraries
 
 The [`static-libraries`](./static-libraries) folder contains scripts to build the haskell static version of
-the consensus that can be used to compile the node with the flags `static/profiling` enabled, allowing for 
+the consensus that can be used to compile the node with the flags `static/profiling` enabled, allowing for
 profiling and making the user not need to install the Haskell ecosystem to run the node.
 
 ### [`download-static-libraries.sh`](./download-static-libraries)
@@ -35,22 +35,29 @@ profiling and making the user not need to install the Haskell ecosystem to run t
 Using the [`static-libraries/LATEST_STATIC_LIBRARIES`](static-libraries/LATEST_STATIC_LIBRARIES) file
 this script downloads a set of static libraries [built by Jenkins](../jenkinsfiles/static-libraries.Jenkinsfile).
 
+## Genesis
 
-## Downloader scripts
+Contains scripts and auxiliary files for creating genesis setups for testing.
 
-Some scripts are meant to be used for downloading different complementary data
-that might be needed to run the node properly.
+The [./genesis/generate-test-genesis.py](./genesis/generate-test-genesis.py)
+should be run from the [./genesis](./genesis/) directory. It supports two modes,
+either running with host binaries directly (see the script for how to specify
+paths) or using a docker image with all the tools. The docker image can be
+specified via an environment variable (see the script for details). The mode can
+be controlled by setting or unsetting the `USE_DOCKER` environment variable.
 
-### [`download-genesis-data.sh`](./download-genesis-data.sh)
+Of note is the environment variable `PURGE` which, if set, will make the script
+delete the `genesis_data` directory before generating fresh genesis data.
 
-Using the [`GENESIS_DATA_VERSION`](./GENESIS_DATA_VERSION) file this script downloads tar archives with
-configurations for running the network with a different set of bakers. These
-archives come from building the [genesis-data](https://gitlab.com/Concordium/genesis-data) 
-repository.
+An example invocation using the docker image is
 
-### [`download-genesis-complementary-bundle.sh`](./download-genesis-complementary-bundle.sh)
+```console
+USE_DOCKER= ./generate-test-genesis.py
+```
 
-Using the [`GENESIS_DATA_VERSION`](./GENESIS_DATA_VERSION) file this script downloads some configuration 
-files that are used together with the genesis data, namely anonymity revokers 
-and identity providers private keys, additional accounts, global cryptographic
-parameters.
+The script requires python3, and if USE_DOCKER is enabled, the `docker` package, installed. The latter can
+be achieved by, for example,
+
+```console
+pip3 install docker
+```
