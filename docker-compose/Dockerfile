@@ -1,5 +1,36 @@
 # syntax=docker/dockerfile:experimental
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.18 as build
+
+# This is a multi-stage build process
+#
+# Stage one builds a number of genesis configurations inside the genesis-tools image
+#
+# Stage two buils the node, the collector, the collector backend, and the wallet-proxy
+#
+# The final image collects all the binaries in a minimal package without build dependencies.
+# Inside the image there are private keys for all the bakers and accounts, as well as genesis.dat
+# files for the configurations that are built.
+# The genesis configurations are in the /genesis-data directory, in subdirectories
+# named genesis-$NUM_BAKERS-bakers.
+
+FROM ghcr.io/abizjak/genesis-tools:0.5 as genesis-builder
+
+# Build all the relevant genesis files and embed them in the image itself.
+COPY scripts/genesis/ /genesis
+WORKDIR /genesis
+RUN apt-get update && apt-get install python3 -y
+# Use globally installed tools
+ARG GENESIS_DAT_TOOL=genesis
+ARG GENERATE_UPDATE_KEYS=generate-update-keys
+ARG CLIENT_TOOL=client
+ARG GENESIS_ACCOUNTS_TOOL=genesis_tool
+# And build images for different configurations. Currently for 1, 5, 10, and 25
+# bakers using the default genesis.json configuration.
+RUN GENESIS_DIR=./out/genesis-1-bakers NUM_BAKERS=1 python3 generate-test-genesis.py
+RUN GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesis.py
+RUN GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py
+RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
+
+FROM ghcr.io/abizjak/base:0.18 as build
 
 ARG consensus_profiling
 ENV CONSENSUS_PROFILING=$consensus_profiling
@@ -14,7 +45,7 @@ RUN --mount=type=ssh ./scripts/download-static-libs.sh
 RUN --mount=type=ssh ./build-binaries.sh "collector"
 RUN chmod +x /build/start.sh
 
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
 
 # Baker id gen
 # TODO Why does it need a nightly compiler?
@@ -23,7 +54,7 @@ WORKDIR /baker_id_gen
 RUN rustup install nightly-2020-06-10 && cargo +nightly-2020-06-10 build --release
 
 # Wallet-proxy
-RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch master git@gitlab.com:Concordium/tools/wallet-proxy.git /wallet-proxy
+RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch main git@github.com:Concordium/concordium-wallet-proxy.git /wallet-proxy
 WORKDIR /wallet-proxy
 RUN stack build --copy-bins --ghc-options -j4 --local-bin-path target
 
@@ -37,9 +68,8 @@ EXPOSE 10000
 
 RUN apt update && apt -y install unbound curl postgresql-server-dev-12 libnuma1
 
-# Genesis data files.
-COPY --from=build /build/genesis-data /genesis-data
-COPY --from=build /build/genesis-complementary-bundle /genesis-complementary-bundle
+# Genesis data files for all configurations.
+COPY --from=genesis-builder /genesis/out/ /genesis-data
 
 # Node files.
 COPY --from=build /build/concordium-node/target/debug/concordium-node /concordium-node

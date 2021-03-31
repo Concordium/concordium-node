@@ -18,8 +18,6 @@ pipeline {
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
                     sh '''\
-                           ./scripts/download-genesis-data.sh
-                           ./scripts/download-genesis-complementary-bundle.sh
                            ./docker-compose/build.sh latest false
                            docker push concordium/dev-node:latest
                        '''

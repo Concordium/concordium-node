@@ -17,6 +17,15 @@ Two parameterized `docker-compose` files are available:
 It seems like there was an option that included a Middleware instance in the past.
 Including this will be attempted once the Wallet Proxy setup has been fixed.
 
+## Accounts
+
+The images come with accounts with private keys for the accounts that are
+defined in genesis. This includes baker accounts. These keys are located in
+`/genesis-data/genesis-$NUM_BAKERS-bakers/` directories. The baker accounts are
+under the `bakers` subdirectory, and any additional accounts are under the
+`accounts` subdirectory. They can be copied out either via `docker cp` when a
+container is running, or via `docker run` and mapping /genesis-data to a host directory.
+
 ### Example
 
 To boot a cluster of 5 nodes (no wallet-proxy), use the command
