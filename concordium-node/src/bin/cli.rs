@@ -35,6 +35,7 @@ use concordium_node::{
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
     utils::{self, get_config_and_logging_setup},
 };
+use rand::Rng;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -226,7 +227,7 @@ fn instantiate_node(
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
             None => {
-                let new_id: P2PNodeId = Default::default();
+                let new_id: P2PNodeId = rand::thread_rng().gen();
                 Some(new_id.to_string())
             }
             Some(id) => Some(id),
@@ -249,7 +250,7 @@ fn instantiate_node(
     ) {
         Some(id) => Some(id),
         None => {
-            let new_id: P2PNodeId = Default::default();
+            let new_id: P2PNodeId = rand::thread_rng().gen();
             if !app_prefs
                 .set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(new_id.to_string()))
             {

@@ -5,6 +5,7 @@ use crossbeam_channel::{self, Receiver, Sender};
 use failure::Fallible;
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
+use rand::Rng;
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -244,7 +245,7 @@ impl P2PNode {
                 P2PNodeId::from_str(&s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
             }
         } else {
-            P2PNodeId::default()
+            rand::thread_rng().gen::<P2PNodeId>()
         };
 
         info!("My Node ID is {}", id);
@@ -263,7 +264,11 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from((peer_type, id, SocketAddr::new(ip, own_peer_port)));
+        let self_peer = P2PPeer {
+            id,
+            peer_type,
+            addr: SocketAddr::new(ip, own_peer_port),
+        };
 
         // TODO: Remove surrounding block expr once cargo fmt has been updated in
         // pipeline.
@@ -652,8 +657,9 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 let mut conns = write_or_die!(node.connections());
                 // Remove previous connection from same `PeerId`, as this is then to be seen
                 // as a reconnect.
-                conns.retain(|_, c| c.remote_id() != conn.remote_id());
                 conns.insert(conn.token, conn);
+                // FIXME: How are we preventing a DOS that swamps the node with (post-handshake)
+                // connections, preventing it to connect to useful nodes?
                 node.bump_last_peer_update();
             }
         }
@@ -663,11 +669,9 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
 
             let curr_peer_count = current_peers.len();
 
-            let applicable_candidates = peers.iter().filter(|candidate| {
-                !current_peers
-                    .iter()
-                    .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
-            });
+            let applicable_candidates = peers
+                .iter()
+                .filter(|candidate| !current_peers.iter().any(|peer| peer.addr == candidate.addr));
 
             for peer in applicable_candidates {
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
@@ -689,14 +693,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                 );
             }
-        }
-        ConnChange::ExpulsionById(remote_id) => {
-            warn!("Soft-banning remote id {} due to a breach of protocol", remote_id);
-            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
-            write_or_die!(node.connection_handler.soft_bans).insert(
-                BanId::NodeId(remote_id),
-                Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
-            );
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);

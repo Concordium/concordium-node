@@ -1,14 +1,16 @@
 //! Incoming network message handing.
 
 use crate::{
-    common::{p2p_peer::PeerStats, P2PNodeId, PeerType},
+    common::{
+        p2p_peer::{PeerStats, RemotePeerId},
+        PeerType,
+    },
     configuration::{is_compatible_version, is_compatible_wire_version, MAX_PEER_NETWORKS},
     connection::{ConnChange, Connection},
     network::{
         Handshake, NetworkMessage, NetworkPacket, NetworkPayload, NetworkRequest, NetworkResponse,
         PacketDestination,
     },
-    p2p::bans::BanId,
     plugins::consensus::*,
     read_or_die,
 };
@@ -27,7 +29,7 @@ impl Connection {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 return self.handle_handshake_req(handshake, conn_stats);
             }
-            _ => self.remote_id().ok_or_else(|| format_err!("handshake not concluded yet"))?,
+            _ => self.remote_peer.local_id,
         };
 
         match msg.payload {
@@ -74,9 +76,9 @@ impl Connection {
     ) -> Fallible<()> {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
-        if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
-            bail!("Rejecting handshake: banned node.");
-        }
+        // if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
+        //     bail!("Rejecting handshake: banned node.");
+        // }
         if !is_compatible_version(&handshake.node_version) {
             bail!("Rejecting handshake: incompatible client ({}).", handshake.node_version);
         }
@@ -126,7 +128,7 @@ impl Connection {
 
     fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
 
-    fn handle_incoming_packet(&self, pac: NetworkPacket, peer_id: P2PNodeId) -> Fallible<()> {
+    fn handle_incoming_packet(&self, pac: NetworkPacket, peer_id: RemotePeerId) -> Fallible<()> {
         let is_broadcast = match pac.destination {
             PacketDestination::Broadcast(..) => true,
             _ => false,

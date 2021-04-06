@@ -9,7 +9,10 @@ use semver::Version;
 pub use self::buckets::Buckets;
 
 use crate::{
-    common::{p2p_peer::P2PPeer, P2PNodeId},
+    common::{
+        p2p_peer::{P2PPeer, RemotePeerId},
+        P2PNodeId,
+    },
     consensus_ffi::blockchain_types::BlockHash,
 };
 
@@ -19,7 +22,7 @@ pub type WireProtocolVersion = u8;
 
 /// The Wire protocol version. Incompatible versions (checked in
 /// `configuration::is_compatible_wire_version`) will be rejected as it is
-/// assumed they will use different messages or expect a different communcation
+/// assumed they will use different messages or expect a different communication
 /// flow. This value is sent in the Handshake request.
 pub const WIRE_PROTOCOL_VERSION: WireProtocolVersion = 0;
 
@@ -127,7 +130,7 @@ pub struct NetworkPacket {
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub enum PacketDestination {
     /// A single node.
-    Direct(P2PNodeId),
+    Direct(RemotePeerId),
     /// All peers, optionally excluding the ones in the vector.
-    Broadcast(#[cfg_attr(feature = "s11n_serde", serde(skip))] Vec<P2PNodeId>),
+    Broadcast(#[cfg_attr(feature = "s11n_serde", serde(skip))] Vec<RemotePeerId>),
 }

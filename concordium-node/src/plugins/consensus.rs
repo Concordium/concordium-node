@@ -3,7 +3,7 @@ use crossbeam_channel::TrySendError;
 use failure::Fallible;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId},
+    common::{get_current_stamp, p2p_peer::RemotePeerId},
     configuration::{self, MAX_CATCH_UP_TIME},
     connection::ConnChange,
     consensus_ffi::{
@@ -132,8 +132,8 @@ pub fn get_baker_data(
 /// Handles packets coming from other peers.
 pub fn handle_pkt_out(
     node: &P2PNode,
-    dont_relay_to: Vec<P2PNodeId>,
-    peer_id: P2PNodeId,
+    dont_relay_to: Vec<RemotePeerId>,
+    peer_id: RemotePeerId,
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -148,10 +148,10 @@ pub fn handle_pkt_out(
     };
 
     let request = ConsensusMessage::new(
-        MessageType::Inbound(peer_id.0, distribution_mode),
+        MessageType::Inbound(peer_id, distribution_mode),
         packet_type,
         Arc::from(msg),
-        dont_relay_to.into_iter().map(P2PNodeId::as_raw).collect(),
+        dont_relay_to,
         None,
     );
 
@@ -198,7 +198,7 @@ pub fn handle_consensus_outbound_msg(node: &P2PNode, message: ConsensusMessage) 
             send_consensus_msg_to_net(
                 node,
                 Vec::new(),
-                Some(P2PNodeId(peer)),
+                Some(peer),
                 (message.payload.clone(), message.variant),
             );
         }
@@ -206,7 +206,7 @@ pub fn handle_consensus_outbound_msg(node: &P2PNode, message: ConsensusMessage) 
         send_consensus_msg_to_net(
             node,
             message.dont_relay_to(),
-            message.target_peer().map(P2PNodeId),
+            message.target_peer(),
             (message.payload, message.variant),
         );
     }
@@ -234,7 +234,7 @@ pub fn handle_consensus_inbound_msg(
         _ => false,
     };
 
-    let source = P2PNodeId(request.source_peer());
+    let source = request.source_peer();
 
     if node.config.no_rebroadcast_consensus_validation {
         if !drop_message && request.distribution_mode() == DistributionMode::Broadcast {
@@ -283,12 +283,11 @@ pub fn handle_consensus_inbound_msg(
 
 fn send_msg_to_consensus(
     node: &P2PNode,
-    source_id: P2PNodeId,
+    source_id: RemotePeerId,
     consensus: &ConsensusContainer,
     message: &ConsensusMessage,
 ) -> Fallible<ConsensusFfiResponse> {
     let payload = &message.payload[1..]; // non-empty, already checked
-    let raw_id = source_id.as_raw();
 
     let consensus_response = match message.variant {
         Block => consensus.send_block(payload),
@@ -296,7 +295,7 @@ fn send_msg_to_consensus(
         FinalizationMessage => consensus.send_finalization(payload),
         FinalizationRecord => consensus.send_finalization_record(payload),
         CatchUpStatus => {
-            consensus.receive_catch_up_status(payload, raw_id, node.config.catch_up_batch_limit)
+            consensus.receive_catch_up_status(payload, source_id, node.config.catch_up_batch_limit)
         }
     };
 
@@ -311,8 +310,8 @@ fn send_msg_to_consensus(
 
 fn send_consensus_msg_to_net(
     node: &P2PNode,
-    dont_relay_to: Vec<u64>,
-    target_id: Option<P2PNodeId>,
+    dont_relay_to: Vec<RemotePeerId>,
+    target_id: Option<RemotePeerId>,
     (payload, msg_desc): (Arc<[u8]>, PacketType),
 ) {
     let sent = if let Some(target_id) = target_id {
@@ -320,7 +319,7 @@ fn send_consensus_msg_to_net(
     } else {
         send_broadcast_message(
             node,
-            dont_relay_to.into_iter().map(P2PNodeId).collect(),
+            dont_relay_to.into_iter().collect(),
             node.config.default_network,
             payload,
         )
@@ -340,7 +339,7 @@ fn send_consensus_msg_to_net(
 pub fn update_peer_list(node: &P2PNode) {
     trace!("The peers have changed; updating the catch-up peer list");
 
-    let peer_ids = node.get_node_peer_ids();
+    let peer_ids = node.get_node_peer_tokens();
 
     let mut peers = write_or_die!(node.peers);
     // remove global state peers whose connections were dropped
@@ -367,24 +366,24 @@ pub fn update_peer_list(node: &P2PNode) {
 /// Try to catch up with a peer, if one is pending.
 fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut PeerList) {
     if let Some(id) = peers.next_pending() {
-        debug!("Attempting to catch up with peer {:016x}", id);
+        debug!("Attempting to catch up with peer {:?}", id);
         peers.catch_up_stamp = get_current_stamp();
         let sent = send_direct_message(
             node,
-            P2PNodeId(id),
+            id,
             node.config.default_network,
             consensus.get_catch_up_status(),
         );
         if sent > 0 {
             info!(
-                "Sent a direct message to peer {} containing a {}",
-                P2PNodeId(id),
+                "Sent a direct message to peer {:?} containing a {}",
+                id,
                 PacketType::CatchUpStatus
             );
         } else {
             // If no packets were sent, then this must not be a valid peer,
             // so remove it from the peers.
-            debug!("Could not send catch-up message to peer {}", P2PNodeId(id));
+            debug!("Could not send catch-up message to peer {:?}", id);
             peers.catch_up_peer = None;
             peers.peer_states.remove(&id);
         }
@@ -399,21 +398,21 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
         let peers = read_or_die!(node.peers);
         (peers.catch_up_peer, peers.catch_up_stamp)
     };
-    if let Some(id) = catch_up_peer {
-        if let Some(token) = node.find_conn_token_by_id(P2PNodeId(id)) {
+    if let Some(peer_id) = catch_up_peer {
+        if read_or_die!(node.connections()).get(&peer_id.to_token()).is_some() {
             if now > catch_up_stamp + MAX_CATCH_UP_TIME {
                 // Try to remove the peer since it timed-out.
-                debug!("Peer {:016x} took too long to catch up; dropping", id);
+                debug!("Peer {} took too long to catch up; dropping", peer_id);
                 // This function may not actually remove the peer, so we do not assume
                 // that it will be removed.
-                node.register_conn_change(ConnChange::RemovalByToken(token));
+                node.register_conn_change(ConnChange::RemovalByToken(peer_id.to_token()));
             }
         } else {
             // Connection no longer exists
-            debug!("Connection to catch-up-in-progress peer {:016x} no longer exists", id);
+            debug!("Connection to catch-up-in-progress peer {} no longer exists", peer_id);
             let peers = &mut write_or_die!(node.peers);
             peers.catch_up_peer = None;
-            peers.peer_states.remove(&id);
+            peers.peer_states.remove(&peer_id);
             try_catch_up(node, consensus, peers);
         }
     } else {
@@ -463,18 +462,18 @@ fn update_peer_states(
             ConsensusFfiResponse::InvalidResult => {
                 // Remove the peer since it is incompatible with us.
                 debug!(
-                    "Catching up with peer {:016x} resulted in incompatible globalstates, \
-                     dropping and soft-banning",
+                    "Catching up with peer {:?} resulted in incompatible globalstates, dropping \
+                     and soft-banning",
                     source_peer
                 );
-                node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
+                node.register_conn_change(ConnChange::ExpulsionByToken(source_peer.to_token()));
             }
             ConsensusFfiResponse::DeserializationError => {
                 debug!(
-                    "The peer {:016x} sent a malformed catchup message, dropping and soft-banning",
+                    "The peer {:?} sent a malformed catchup message, dropping and soft-banning",
                     source_peer
                 );
-                node.register_conn_change(ConnChange::ExpulsionById(P2PNodeId(source_peer)));
+                node.register_conn_change(ConnChange::ExpulsionByToken(source_peer.to_token()));
             }
             e => error!("Unexpected return from `receiveCatchUpStatus`: {:?}", e),
         }
@@ -499,7 +498,7 @@ fn update_peer_states(
                     send_consensus_msg_to_net(
                         node,
                         Vec::new(),
-                        Some(P2PNodeId(non_pending_peer)),
+                        Some(non_pending_peer),
                         (request.payload.clone(), request.variant),
                     );
                 }
