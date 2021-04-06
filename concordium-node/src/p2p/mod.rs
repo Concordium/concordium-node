@@ -12,12 +12,11 @@ pub use self::maintenance::{Connections, P2PNode};
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{P2PNodeId, PeerType},
+        common::{p2p_peer::RemotePeerId, PeerType},
         p2p::bans::BanId,
         test_utils::*,
     };
     use failure::Fallible;
-    use std::str::FromStr;
 
     #[test]
     fn test_ban_functionalities() -> Fallible<()> {
@@ -28,7 +27,7 @@ mod tests {
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban1 = BanId::NodeId(P2PNodeId::from_str("0000000000000022")?);
+        let to_ban1 = BanId::NodeId(RemotePeerId::from(22usize));
 
         // Insertion by id
         node.ban_node(to_ban1)?;

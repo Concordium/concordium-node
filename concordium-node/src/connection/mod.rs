@@ -17,7 +17,7 @@ use crate::dumper::DumpItem;
 use crate::{
     common::{
         get_current_stamp,
-        p2p_peer::{P2PPeer, PeerStats},
+        p2p_peer::{P2PPeer, PeerStats, RemotePeerId},
         P2PNodeId, PeerType, RemotePeer,
     },
     configuration::MAX_PEER_NETWORKS,
@@ -295,8 +295,6 @@ impl ConnectionStats {
 pub enum ConnChange {
     /// To be soft-banned by ip and removed from the list of connections.
     ExpulsionByToken(Token),
-    /// To be soft-banned by node id and removed from the list of connections.
-    ExpulsionById(P2PNodeId),
     /// Prospect node address to attempt to connect to.
     NewConn(SocketAddr, PeerType),
     /// Prospect peers to possibly connect to.
@@ -306,7 +304,7 @@ pub enum ConnChange {
     /// To be removed from the list of connections.
     RemovalByToken(Token),
     /// Remove any connection to a peer with the given node id.
-    RemovalByNodeId(P2PNodeId),
+    RemovalByNodeId(RemotePeerId),
     /// Remove any connection to a peer with the given IP address.
     RemovalByIp(IpAddr),
 }
@@ -541,12 +539,7 @@ impl Connection {
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
-        let remote_peer = P2PPeer::from((
-            self.remote_peer.peer_type,
-            id,
-            SocketAddr::new(self.remote_peer.addr.ip(), peer_port),
-        ));
-        self.populate_remote_end_networks(remote_peer, nets);
+        self.populate_remote_end_networks(self.remote_peer, nets);
         self.handler.register_conn_change(ConnChange::Promotion(self.token));
         debug!("Concluded handshake with peer {}", id);
     }
@@ -566,7 +559,7 @@ impl Connection {
     }
 
     /// Register connection's remote end networks.
-    pub fn populate_remote_end_networks(&mut self, peer: P2PPeer, networks: &Networks) {
+    pub fn populate_remote_end_networks(&mut self, peer: RemotePeer, networks: &Networks) {
         self.remote_end_networks.extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
@@ -583,8 +576,11 @@ impl Connection {
 
         self.remote_end_networks.insert(network);
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, self.remote_end_networks.to_owned());
+        write_or_die!(self.handler.buckets()).update_network_ids(
+            self.remote_peer.local_id,
+            peer,
+            self.remote_end_networks.to_owned(),
+        );
         Ok(())
     }
 
@@ -593,8 +589,11 @@ impl Connection {
         self.remote_end_networks.remove(&network);
 
         let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, self.remote_end_networks.to_owned());
+        write_or_die!(self.handler.buckets()).update_network_ids(
+            self.remote_peer.local_id,
+            peer,
+            self.remote_end_networks.to_owned(),
+        );
         Ok(())
     }
 
@@ -640,18 +639,21 @@ impl Connection {
         nets: Networks,
         conn_stats: &[PeerStats],
     ) -> Fallible<()> {
-        let requestor =
-            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
+        let requestor = self.remote_peer.local_id;
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
                 let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
-                    Ok(read_or_die!(self.handler.buckets()).get_random_nodes(
-                        &requestor,
-                        self.handler.config.bootstrapper_peer_list_size,
-                        &nets,
-                        partition,
-                    ))
+                    Ok(read_or_die!(self.handler.buckets())
+                        .get_random_nodes(
+                            &requestor,
+                            self.handler.config.bootstrapper_peer_list_size,
+                            &nets,
+                            partition,
+                        )
+                        .iter()
+                        .filter_map(RemotePeer::peer)
+                        .collect())
                 };
 
                 #[cfg(not(feature = "malicious_testing"))]
@@ -676,9 +678,11 @@ impl Connection {
             PeerType::Node => {
                 let nodes = conn_stats
                     .iter()
-                    .filter(|stat| P2PNodeId(stat.id) != requestor.id)
-                    .map(|stat| {
-                        P2PPeer::from((stat.peer_type, P2PNodeId(stat.id), stat.external_address()))
+                    .filter(|stat| stat.local_id != requestor)
+                    .map(|stat| P2PPeer {
+                        id:        stat.self_id,
+                        addr:      stat.external_address(),
+                        peer_type: stat.peer_type,
                     })
                     .collect::<Vec<_>>();
 
@@ -691,7 +695,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending a PeerList to peer {}", requestor.id);
+            debug!("Sending a PeerList to peer {:?}", requestor);
 
             let mut serialized = Vec::with_capacity(256);
             only_fbs!(resp.serialize(&mut serialized)?);
@@ -699,7 +703,7 @@ impl Connection {
 
             Ok(())
         } else {
-            debug!("I don't have any peers to share with peer {}", requestor.id);
+            debug!("I don't have any peers to share with peer {:?}", requestor);
             Ok(())
         }
     }
