@@ -12,7 +12,7 @@
 # The genesis configurations are in the /genesis-data directory, in subdirectories
 # named genesis-$NUM_BAKERS-bakers.
 
-FROM ghcr.io/abizjak/genesis-tools:0.5 as genesis-builder
+FROM concordium/genesis-tools:0.5 as genesis-builder
 
 # Build all the relevant genesis files and embed them in the image itself.
 COPY scripts/genesis/ /genesis
@@ -30,7 +30,7 @@ RUN GENESIS_DIR=./out/genesis-5-bakers NUM_BAKERS=5 python3 generate-test-genesi
 RUN GENESIS_DIR=./out/genesis-10-bakers NUM_BAKERS=10 python3 generate-test-genesis.py
 RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-genesis.py
 
-FROM ghcr.io/abizjak/base:0.18 as build
+FROM concordium/base:0.19 as build
 
 ARG consensus_profiling
 ENV CONSENSUS_PROFILING=$consensus_profiling
