@@ -3,7 +3,7 @@
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use crypto_common::{Buffer, Deserial, Serial};
 use failure::Fallible;
-use rand::distributions::{Distribution, Uniform};
+use rand::distributions::{Distribution, Standard, Uniform};
 use std::fmt;
 
 pub type PeerId = u64;
@@ -11,18 +11,17 @@ pub type PeerId = u64;
 /// The basic identifier of a node.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
+#[repr(transparent)]
 pub struct P2PNodeId(pub PeerId);
 
-impl Default for P2PNodeId {
-    fn default() -> Self {
-        let mut rng = rand::thread_rng();
-        let n = Uniform::from(0..PeerId::max_value()).sample(&mut rng);
-        P2PNodeId(n)
+impl Distribution<P2PNodeId> for Standard {
+    fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> P2PNodeId {
+        P2PNodeId(Uniform::new(0, PeerId::max_value()).sample(rng))
     }
 }
 
-// This is implemented manually so that the ID is printed in hex so that
-// it can be recognized.
+/// This is implemented manually so that the ID is printed in hex so that
+/// it can be recognized.
 impl fmt::Debug for P2PNodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:016x}", self.0) }
 }

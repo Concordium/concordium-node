@@ -5,7 +5,7 @@ use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use structopt::StructOpt;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, PeerType},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, PeerType},
     configuration::Config,
     connection::ConnChange,
     consensus_ffi::{
@@ -156,7 +156,7 @@ fn generate_fake_block(size: usize) -> Fallible<Vec<u8>> {
 /// given size.
 pub fn create_random_packet(size: usize) -> NetworkMessage {
     netmsg!(NetworkPacket, NetworkPacket {
-        destination: PacketDestination::Direct(P2PNodeId::default()),
+        destination: PacketDestination::Direct(rand::thread_rng().gen::<RemotePeerId>()),
         network_id:  NetworkId::from(thread_rng().gen::<u16>()),
         message:     generate_fake_block(size).unwrap(),
     })

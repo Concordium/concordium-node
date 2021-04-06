@@ -10,7 +10,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use semver::Version;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
     connection::{ConnChange, Connection, MessageSendingPriority},
     lock_or_die, netmsg,
@@ -101,9 +101,9 @@ impl P2PNode {
     /// Find a connection token of the connection to the given peer, if such a
     /// connection exists.
     /// NB: This acquires and releases a read lock on the node's connections.
-    pub fn find_conn_token_by_id(&self, id: P2PNodeId) -> Option<Token> {
+    pub fn find_conn_token_by_id(&self, id: RemotePeerId) -> Option<Token> {
         read_or_die!(self.connections()).values().find_map(|conn| {
-            if conn.remote_id() == Some(id) {
+            if conn.remote_peer.local_id == id {
                 Some(conn.token)
             } else {
                 None
@@ -174,14 +174,14 @@ impl P2PNode {
                 if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
-                    let mut peers = self.get_node_peer_ids();
-                    peers.retain(|id| !dont_relay_to.contains(&P2PNodeId(*id)));
+                    let mut peers = self.get_node_peer_tokens();
+                    peers.retain(|token| !dont_relay_to.contains(&token));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );
                     peers
                         .choose_multiple(&mut rng, peers_to_take as usize)
-                        .map(|id| P2PNodeId(*id))
+                        .copied()
                         .collect::<Vec<_>>()
                 } else {
                     dont_relay_to.to_owned()
@@ -220,10 +220,9 @@ impl P2PNode {
         });
 
         let mut sent = 0;
-        if let Some(target_id) = target {
+        if let Some(target_token) = target {
             // direct messages
-            let filter =
-                |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
+            let filter = |conn: &Connection| conn.remote_peer.local_id == target_token;
 
             for _ in 0..copies {
                 sent += self.send_over_all_connections(&serialized, &filter);
@@ -367,6 +366,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let remote_peer = RemotePeer {
         id: Default::default(),
         addr,
+        local_id: token.into(),
         external_port: addr.port(),
         peer_type: PeerType::Node,
     };
@@ -407,7 +407,7 @@ pub fn connect(
     }
 
     // Don't connect to ourselves
-    if node.self_peer.addr == peer_addr || peer_id == Some(node.id()) {
+    if node.self_peer.addr == peer_addr {
         bail!("Attempted to connect to myself");
     }
 
@@ -427,15 +427,8 @@ pub fn connect(
 
     // Don't connect to established peers with a known P2PNodeId or IP+port
     for conn in read_or_die!(node.connections()).values() {
-        if conn.remote_addr() == peer_addr || (peer_id.is_some() && conn.remote_id() == peer_id) {
-            bail!(
-                "Already connected to {}",
-                if let Some(id) = peer_id {
-                    id.to_string()
-                } else {
-                    peer_addr.to_string()
-                }
-            );
+        if conn.remote_addr() == peer_addr {
+            bail!("Already connected to {}", peer_addr.to_string());
         }
     }
 
@@ -449,6 +442,7 @@ pub fn connect(
             let remote_peer = RemotePeer {
                 id: Default::default(),
                 addr: peer_addr,
+                local_id: token.into(),
                 external_port: peer_addr.port(),
                 peer_type,
             };
@@ -557,13 +551,11 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
 /// list, belongs to the same network, and doesn't belong to a bootstrapper.
 fn is_valid_broadcast_target(
     conn: &Connection,
-    peers_to_skip: &[P2PNodeId],
+    peers_to_skip: &[RemotePeerId],
     network_id: NetworkId,
 ) -> bool {
-    let peer_id = conn.remote_peer.id.unwrap(); // safe, post-handshake
-
     conn.remote_peer.peer_type != PeerType::Bootstrapper
-        && !peers_to_skip.contains(&peer_id)
+        && !peers_to_skip.contains(&conn.remote_peer.local_id)
         && conn.remote_end_networks.contains(&network_id)
 }
 
@@ -571,7 +563,7 @@ fn is_valid_broadcast_target(
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
-    target_id: P2PNodeId,
+    target_id: RemotePeerId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> usize {
@@ -582,7 +574,7 @@ pub fn send_direct_message(
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,
-    dont_relay_to: Vec<P2PNodeId>,
+    dont_relay_to: Vec<RemotePeerId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> usize {
@@ -592,8 +584,8 @@ pub fn send_broadcast_message(
 #[inline]
 fn send_message_over_network(
     node: &P2PNode,
-    target_id: Option<P2PNodeId>,
-    dont_relay_to: Vec<P2PNodeId>,
+    target_id: Option<RemotePeerId>,
+    dont_relay_to: Vec<RemotePeerId>,
     network_id: NetworkId,
     message: Arc<[u8]>,
 ) -> usize {

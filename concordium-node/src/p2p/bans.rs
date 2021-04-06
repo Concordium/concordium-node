@@ -4,7 +4,7 @@ use byteorder::{ReadBytesExt, WriteBytesExt};
 use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};
 
-use crate::{common::P2PNodeId, connection::ConnChange, p2p::P2PNode};
+use crate::{common::p2p_peer::RemotePeerId, connection::ConnChange, p2p::P2PNode};
 use crypto_common::{Buffer, Deserial, Serial};
 
 use std::net::{IpAddr, SocketAddr};
@@ -16,7 +16,7 @@ const BAN_STORE_NAME: &str = "bans";
 /// A node can be banned either by its id node or
 /// by its address - IP or IP+port.
 pub enum BanId {
-    NodeId(P2PNodeId),
+    NodeId(RemotePeerId),
     Ip(IpAddr),
     Socket(SocketAddr),
 }
@@ -40,7 +40,7 @@ impl Serial for BanId {
 impl Deserial for BanId {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> Fallible<Self> {
         let bn = match source.read_u8()? {
-            0 => BanId::NodeId(P2PNodeId::deserial(source)?),
+            0 => BanId::NodeId(RemotePeerId::deserial(source)?),
             1 => BanId::Ip(IpAddr::deserial(source)?),
             _ => bail!("Unsupported type of `BanNode`"),
         };

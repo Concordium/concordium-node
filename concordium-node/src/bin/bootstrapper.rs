@@ -19,6 +19,7 @@ use failure::{ensure, Error};
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
+use rand::Rng;
 
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = get_config_and_logging_setup()?;
@@ -42,7 +43,7 @@ fn main() -> Result<(), Error> {
 
     let id = match conf.common.id {
         Some(ref x) => x.to_owned(),
-        _ => P2PNodeId::default().to_string(),
+        _ => rand::thread_rng().gen::<P2PNodeId>().to_string(),
     };
 
     let (node, poll) =

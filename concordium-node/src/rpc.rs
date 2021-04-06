@@ -2,7 +2,7 @@
 //! calls.
 
 use crate::{
-    common::{grpc_api::*, P2PNodeId, PeerType},
+    common::{grpc_api::*, p2p_peer::RemotePeerId, PeerType},
     configuration,
     connection::ConnChange,
     failure::Fallible,
@@ -299,7 +299,7 @@ impl P2p for RpcServerImpl {
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
             .map(|peer| peer_stats_response::PeerStats {
-                node_id:          format!("{:0>16x}", peer.id),
+                node_id:          format!("{}", peer.self_id),
                 packets_sent:     peer.msgs_sent,
                 packets_received: peer.msgs_received,
                 latency:          peer.latency,
@@ -328,11 +328,11 @@ impl P2p for RpcServerImpl {
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
             .map(|peer| PeerElement {
-                node_id: Some(format!("{:0>16x}", peer.id)),
+                node_id: Some(format!("{}", peer.self_id)),
                 ip:      Some(peer.addr.ip().to_string()),
                 port:    Some(peer.addr.port() as u32),
                 // We map the state, and if there's no state dwe default to pending
-                catchup_status: match peer_catchup_stats.get(&peer.id) {
+                catchup_status: match peer_catchup_stats.get(&peer.local_id) {
                     Some(&status) => status as i32,
                     _ => peer_element::CatchupStatus::Pending as i32,
                 },
@@ -417,7 +417,7 @@ impl P2p for RpcServerImpl {
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
             (Some(node_id), None) => {
-                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+                RemotePeerId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
             }
             (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
             _ => None,
@@ -449,7 +449,7 @@ impl P2p for RpcServerImpl {
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
             (Some(node_id), None) => {
-                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+                RemotePeerId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
             }
             (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
             _ => None,

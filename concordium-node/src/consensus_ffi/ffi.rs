@@ -1,4 +1,5 @@
 use crate::{
+    common::p2p_peer::RemotePeerId,
     consensus_ffi::{
         blockchain_types::BlockHash,
         catch_up::*,
@@ -640,12 +641,12 @@ impl ConsensusContainer {
     pub fn receive_catch_up_status(
         &self,
         request: &[u8],
-        peer_id: PeerId,
+        peer_id: RemotePeerId,
         object_limit: i64,
     ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,
-            peer_id,
+            peer_id.remote_peer_id as u64,
             request.as_ptr(),
             request.len() as i64,
             object_limit,
@@ -776,7 +777,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
         let full_payload = Arc::from(full_payload);
 
         let msg = ConsensusMessage::new(
-            MessageType::Outbound(Some(peer_id)),
+            MessageType::Outbound(Some((peer_id as usize).into())),
             PacketType::FinalizationMessage,
             full_payload,
             vec![],
@@ -836,13 +837,13 @@ pub extern "C" fn broadcast_callback(msg_type: i64, msg: *const u8, msg_length: 
 }
 
 pub extern "C" fn direct_callback(
-    peer_id: PeerId,
+    peer_id: u64,
     msg_type: i64,
     msg: *const c_char,
     msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-    sending_callback!(Some(peer_id), msg_type, msg, msg_length, None);
+    sending_callback!(Some((peer_id as usize).into()), msg_type, msg, msg_length, None);
 }
 
 pub extern "C" fn catchup_status_callback(msg: *const u8, msg_length: i64) {
