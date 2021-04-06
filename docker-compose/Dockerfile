@@ -45,13 +45,12 @@ RUN --mount=type=ssh ./scripts/download-static-libs.sh
 RUN --mount=type=ssh ./build-binaries.sh "collector"
 RUN chmod +x /build/start.sh
 
-RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com ~/.ssh/known_hosts
 
 # Baker id gen
-# TODO Why does it need a nightly compiler?
-RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch master git@gitlab.com:Concordium/tools/baker_id_gen.git /baker_id_gen
+RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch main git@github.com:Concordium/concordium-tools-baker-id-gen.git /baker_id_gen
 WORKDIR /baker_id_gen
-RUN rustup install nightly-2020-06-10 && cargo +nightly-2020-06-10 build --release
+RUN cargo build --release
 
 # Wallet-proxy
 RUN --mount=type=ssh git clone --recurse-submodules --depth 1 --branch main git@github.com:Concordium/concordium-wallet-proxy.git /wallet-proxy
