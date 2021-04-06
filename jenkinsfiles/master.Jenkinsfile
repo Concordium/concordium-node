@@ -10,9 +10,9 @@ pipeline {
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
                     sh '''\
-                           ./scripts/download-genesis-data.sh
-                           ./scripts/testnet-deployments/build-testnet-production-release.sh release false
-                       '''
+                        ./scripts/download-genesis-data.sh
+                        ./scripts/testnet-deployments/build-testnet-production-release.sh release false
+                    '''.stripIndent()
                 }
             }
         }
