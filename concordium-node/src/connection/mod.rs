@@ -362,8 +362,6 @@ impl MessageQueues {
 pub struct Connection {
     /// A reference to the parent node.
     handler: Arc<P2PNode>,
-    /// The poll token of the connection's socket.
-    pub token: Token,
     /// The connection's representation as a peer object.
     pub remote_peer: RemotePeer,
     /// Low-level connection objects.
@@ -376,7 +374,7 @@ pub struct Connection {
 }
 
 impl PartialEq for Connection {
-    fn eq(&self, other: &Self) -> bool { self.token == other.token }
+    fn eq(&self, other: &Self) -> bool { self.token() == other.token() }
 }
 
 impl Eq for Connection {}
@@ -423,7 +421,6 @@ impl Connection {
 
         Ok(Self {
             handler: Arc::clone(handler),
-            token,
             remote_peer,
             low_level,
             remote_end_networks: Default::default(),
@@ -431,6 +428,10 @@ impl Connection {
             pending_messages: MessageQueues::new(1024, 128),
         })
     }
+
+    #[inline]
+    /// The poll token of the connection's socket.
+    pub fn token(&self) -> Token { self.remote_peer.local_id.to_token() }
 
     /// Obtain the connection's latency.
     pub fn get_latency(&self) -> u64 { self.stats.get_latency() }
@@ -540,7 +541,7 @@ impl Connection {
             self.handler.update_last_bootstrap();
         }
         self.populate_remote_end_networks(self.remote_peer, nets);
-        self.handler.register_conn_change(ConnChange::Promotion(self.token));
+        self.handler.register_conn_change(ConnChange::Promotion(self.token()));
         debug!("Concluded handshake with peer {}", id);
     }
 
@@ -643,6 +644,7 @@ impl Connection {
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
+                // select random nodes that are post-handshake
                 let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
                     Ok(read_or_die!(self.handler.buckets())
                         .get_random_nodes(

@@ -104,7 +104,7 @@ impl P2PNode {
     pub fn find_conn_token_by_id(&self, id: RemotePeerId) -> Option<Token> {
         read_or_die!(self.connections()).values().find_map(|conn| {
             if conn.remote_peer.local_id == id {
-                Some(conn.token)
+                Some(conn.token())
             } else {
                 None
             }
@@ -120,7 +120,7 @@ impl P2PNode {
             .chain(read_or_die!(self.connections()).values())
             .filter_map(|conn| {
                 if conn.remote_peer.addr.ip() == ip_addr {
-                    Some(conn.token)
+                    Some(conn.token())
                 } else {
                     None
                 }
@@ -251,7 +251,7 @@ impl P2PNode {
             .map(|(_, conn)| conn)
             .chain(write_or_die!(self.connections()).par_iter_mut().map(|(_, conn)| conn))
             .for_each(|conn| {
-                if events.iter().any(|event| event.token() == conn.token && event.is_writable()) {
+                if events.iter().any(|event| event.token() == conn.token() && event.is_writable()) {
                     conn.low_level.notify_writable();
                 }
 
@@ -260,28 +260,30 @@ impl P2PNode {
                 {
                     error!("[sending to {}] {}", conn, e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
-                        self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                        self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                     } else {
-                        self.register_conn_change(ConnChange::ExpulsionByToken(conn.token));
+                        self.register_conn_change(ConnChange::ExpulsionByToken(conn.token()));
                     }
                     return;
                 }
 
-                if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
+                if events.iter().any(|event| event.token() == conn.token() && event.is_readable()) {
                     match conn.read_stream(&conn_stats) {
                         Err(e) => {
                             error!("[receiving from {}] {}", conn, e);
                             if let Ok(_io_err) = e.downcast::<io::Error>() {
-                                self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                             } else {
-                                self.register_conn_change(ConnChange::ExpulsionByToken(conn.token));
+                                self.register_conn_change(ConnChange::ExpulsionByToken(
+                                    conn.token(),
+                                ));
                             }
                             return;
                         }
                         Ok(false) => {
                             // The connection was closed by the peer.
                             debug!("Connection to {} closed by peer", conn);
-                            self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                            self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                             return;
                         }
                         Ok(true) => {}
@@ -289,7 +291,7 @@ impl P2PNode {
                 }
 
                 let closed_or_error = |event: &Event| {
-                    event.token() == conn.token
+                    event.token() == conn.token()
                         && (event.is_read_closed() || event.is_write_closed() || event.is_error())
                 };
 
@@ -299,7 +301,7 @@ impl P2PNode {
                     // and might catch a failure sooner in the case where we do not currently have
                     // anything to write.
                     debug!("Closing connection to {}", conn);
-                    self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                    self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                 }
             })
     }
@@ -372,7 +374,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     };
 
     let conn = Connection::new(node, socket, token, remote_peer, false)?;
-    candidates_lock.insert(conn.token, conn);
+    candidates_lock.insert(conn.token(), conn);
 
     Ok(token)
 }
@@ -430,10 +432,8 @@ pub fn connect(
             if conn.remote_addr().ip() == peer_addr.ip() {
                 bail!("Already connected to IP {}", peer_addr.ip());
             }
-        } else {
-            if conn.remote_addr() == peer_addr {
-                bail!("Already connected to {}", peer_addr);
-            }
+        } else if conn.remote_addr() == peer_addr {
+            bail!("Already connected to {}", peer_addr);
         }
     }
 
@@ -453,7 +453,7 @@ pub fn connect(
             };
 
             let conn = Connection::new(node, socket, token, remote_peer, true)?;
-            candidates_lock.insert(conn.token, conn);
+            candidates_lock.insert(conn.token(), conn);
 
             if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
                 conn.low_level.send_handshake_message_a()?;

@@ -5,7 +5,7 @@ use crossbeam_channel::{self, Receiver, Sender};
 use failure::Fallible;
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rand::{Rng, prelude::SliceRandom, thread_rng};
+use rand::{prelude::SliceRandom, thread_rng, Rng};
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -657,7 +657,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
                 let mut conns = write_or_die!(node.connections());
-                conns.insert(conn.token, conn);
+                conns.insert(conn.token(), conn);
                 // FIXME: How are we preventing a DOS that swamps the node with (post-handshake)
                 // connections, preventing it to connect to useful nodes?
                 node.bump_last_peer_update();
@@ -670,7 +670,8 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             let curr_peer_count = current_peers.len();
 
             // Shuffle the peers we received try to discover more useful peers over time
-            // and not get stuck continuously connecting to useless ones, and then dropping connections.
+            // and not get stuck continuously connecting to useless ones, and then dropping
+            // connections.
             peers.shuffle(&mut thread_rng());
 
             // Try to connect to each peer in turn.

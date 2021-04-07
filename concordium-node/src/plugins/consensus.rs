@@ -376,14 +376,14 @@ fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut Peer
         );
         if sent > 0 {
             info!(
-                "Sent a direct message to peer {:?} containing a {}",
+                "Sent a direct message to peer {} containing a {}",
                 id,
                 PacketType::CatchUpStatus
             );
         } else {
             // If no packets were sent, then this must not be a valid peer,
             // so remove it from the peers.
-            debug!("Could not send catch-up message to peer {:?}", id);
+            debug!("Could not send catch-up message to peer {}", id);
             peers.catch_up_peer = None;
             peers.peer_states.remove(&id);
         }
