@@ -366,7 +366,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
     let remote_peer = RemotePeer {
-        id: Default::default(),
+        self_id: Default::default(),
         addr,
         local_id: token.into(),
         external_port: addr.port(),
@@ -445,7 +445,7 @@ pub fn connect(
             let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
             let remote_peer = RemotePeer {
-                id: None,
+                self_id: None,
                 addr: peer_addr,
                 local_id: token.into(),
                 external_port: peer_addr.port(),
@@ -552,7 +552,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     }
 }
 
-/// A connetion is applicable for a broadcast if it is not in the exclusion
+/// A connection is applicable for a broadcast if it is not in the exclusion
 /// list, belongs to the same network, and doesn't belong to a bootstrapper.
 fn is_valid_broadcast_target(
     conn: &Connection,

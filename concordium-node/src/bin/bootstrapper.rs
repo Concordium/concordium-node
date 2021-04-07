@@ -15,7 +15,7 @@ use concordium_node::{
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
-use failure::{ensure, Error};
+use failure::{ensure, Error, ResultExt};
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -33,7 +33,10 @@ fn main() -> Result<(), Error> {
         .regenesis_block_hashes
         .clone()
         .unwrap_or_else(|| data_dir_path.join(std::path::Path::new("genesis_hash")));
-    let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&std::fs::read(fname)?)?;
+    let regenesis_hashes_bytes = std::fs::read(&fname)
+        .context(format!("Could not open file {} with genesis hashes.", fname.to_string_lossy()))?;
+    let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&regenesis_hashes_bytes)
+        .context("Could not parse genesis hashes.")?;
     let regenesis_arc: Arc<RwLock<Vec<BlockHash>>> = Arc::new(RwLock::new(regenesis_blocks));
 
     ensure!(

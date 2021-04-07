@@ -366,7 +366,7 @@ pub fn update_peer_list(node: &P2PNode) {
 /// Try to catch up with a peer, if one is pending.
 fn try_catch_up(node: &P2PNode, consensus: &ConsensusContainer, peers: &mut PeerList) {
     if let Some(id) = peers.next_pending() {
-        debug!("Attempting to catch up with peer {:?}", id);
+        debug!("Attempting to catch up with peer {}", id);
         peers.catch_up_stamp = get_current_stamp();
         let sent = send_direct_message(
             node,

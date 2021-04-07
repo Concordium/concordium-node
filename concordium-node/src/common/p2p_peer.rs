@@ -1,4 +1,4 @@
-//! Peer objects.
+//! Types related to identifying peers.
 
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use crypto_common::{Buffer, Deserial, Fallible, Serial};
@@ -34,6 +34,14 @@ impl fmt::Display for PeerType {
     }
 }
 
+/// Identifier we assign to a peer when they connect. This is a purely local
+/// identifier that is never transmitted over the network, but it is used
+/// internally to keep track of peers (e.g., during catchup) and to ban them.
+///
+/// This peer identifier is currently tied to a connection, meaning that for
+/// each active connection there is exactly one RemotePeerId, and this peer id
+/// is used to poll as the `mio` token when querying sockets for incoming
+/// packets.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
@@ -41,6 +49,7 @@ pub struct RemotePeerId {
     pub(crate) remote_peer_id: usize,
 }
 
+/// Sample a random id uniformly among the possible values.
 impl Distribution<RemotePeerId> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> RemotePeerId {
         RemotePeerId {
@@ -49,12 +58,14 @@ impl Distribution<RemotePeerId> for Standard {
     }
 }
 
+/// Display as a 0-padded hex value.
 impl Display for RemotePeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016x}", self.remote_peer_id)
     }
 }
 
+/// Parse from a (possibly 0 padded) hex value.
 impl std::str::FromStr for RemotePeerId {
     type Err = failure::Error;
 
@@ -66,6 +77,13 @@ impl std::str::FromStr for RemotePeerId {
             Err(e) => bail!("Invalid Remote Peer Id ({})", e),
         }
     }
+}
+
+/// This assumes that usize is not more than 64-bits, which is the case on
+/// existing platforms.
+impl From<RemotePeerId> for u64 {
+    #[inline]
+    fn from(x: RemotePeerId) -> Self { x.remote_peer_id as u64 }
 }
 
 impl From<usize> for RemotePeerId {
@@ -86,6 +104,7 @@ impl From<mio::Token> for RemotePeerId {
     }
 }
 
+/// Serialize as big endian 8 bytes.
 impl Serial for RemotePeerId {
     fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
         (self.remote_peer_id as u64).serial(target);
@@ -101,16 +120,82 @@ impl Deserial for RemotePeerId {
 }
 
 impl RemotePeerId {
+    /// Convert a peer id to a mio Token. This is deliberately made into a
+    /// method rather than implementing a From trait for documentation
+    /// purposes; the name documents intent better then `::from` or `.into`
+    /// would.
     #[inline]
     pub fn to_token(self) -> mio::Token { mio::Token(self.remote_peer_id) }
 }
 
-/// Defines a node in the network.
+/// A remote node in the network.
+#[derive(Debug, Copy, Clone, Eq)]
+pub struct RemotePeer {
+    /// Id by which the node wants to be identified.
+    /// None before the handshake is complete, `Some` after
+    /// the handshake completes.
+    /// This id is only used in logging and externally, i.e., when
+    /// reporting peers. It is not used by the node for managing peers.
+    pub self_id: Option<P2PNodeId>,
+    /// Our local address of the node.
+    pub addr: SocketAddr,
+    /// Our local identifier for the peer.
+    pub local_id: RemotePeerId,
+    /// External port communicated to us by the node itself as part of the
+    /// handshake. This is the port that the node can be reached at to
+    /// initiate connections, as a result this is the port that is
+    /// advertised as part of the peer list we serve.
+    pub external_port: u16,
+    pub peer_type: PeerType,
+}
+
+// This instance is only used for storing peers in buckets, in which case
+// it makes sense the way it is defined, but if it is needed for some other
+// purpose then it should be considered whether it is adequate to only compare
+// the ids.
+impl PartialEq for RemotePeer {
+    fn eq(&self, other: &Self) -> bool { self.local_id == other.local_id }
+}
+
+// This instance is only used for storing peers in buckets, in which case
+// it makes sense the way it is defined, but if it is needed for some other
+// purpose then it should be considered whether it is adequate to only hash the
+// ids.
+impl Hash for RemotePeer {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.local_id.hash(state); }
+}
+
+impl RemotePeer {
+    /// Converts a remote peer to a peer object suitable for transmitting over
+    /// the netwrok, as long as its id is known, i.e., as long as it is
+    /// post-handshake.
+    pub fn peer(&self) -> Option<P2PPeer> {
+        if let Some(id) = self.self_id {
+            Some(P2PPeer {
+                id,
+                addr: self.external_addr(),
+                peer_type: self.peer_type,
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Gets the external socket address of a remote peer.
+    pub fn external_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.addr.ip(), self.external_port)
+    }
+}
+
+/// Information about a peer that is transmitted over the network.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 pub struct P2PPeer {
     /// The peer's chosen identifier.
     pub id: P2PNodeId,
+    /// The peer's address. Note that this is the address they advertise as part
+    /// of the handshake, and thus it is ostensibly the address where it
+    /// listens to for new connections.
     pub addr: SocketAddr,
     pub peer_type: PeerType,
 }
@@ -126,50 +211,6 @@ impl P2PPeer {
 impl Display for P2PPeer {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}/{}:{}", self.id, self.addr.ip(), self.addr.port())
-    }
-}
-
-/// Defines a remote node in the network.
-#[derive(Debug, Copy, Clone, Eq)]
-pub struct RemotePeer {
-    /// Id by which the node wants to be identifier.
-    /// None before the handshake is complete, `Some` after
-    /// the handshake completes.
-    pub id: Option<P2PNodeId>,
-    /// Our local address of the node.
-    pub addr: SocketAddr,
-    /// Our local identifier for the peer.
-    pub local_id: RemotePeerId,
-    pub external_port: u16,
-    pub peer_type: PeerType,
-}
-
-impl PartialEq for RemotePeer {
-    fn eq(&self, other: &Self) -> bool { self.local_id == other.local_id }
-}
-
-impl Hash for RemotePeer {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.local_id.hash(state); } // FIXME: Check that this instance is good.
-}
-
-impl RemotePeer {
-    /// Converts a remote peer to a regular peer object, as long as its id is
-    /// known.
-    pub fn peer(&self) -> Option<P2PPeer> {
-        if let Some(id) = self.id {
-            Some(P2PPeer {
-                id,
-                addr: self.addr,
-                peer_type: self.peer_type,
-            })
-        } else {
-            None
-        }
-    }
-
-    /// Gets the external socket address of a remote peer.
-    pub fn external_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.addr.ip(), self.external_port)
     }
 }
 
@@ -215,6 +256,9 @@ impl PeerStats {
     }
 
     /// Gets the external address of the peer.
+    /// NB: This is the address on which we can connect to the peer, which is
+    /// in general different from the address we are currently connected to
+    /// them.
     pub fn external_address(&self) -> SocketAddr {
         SocketAddr::new(self.addr.ip(), self.external_port)
     }

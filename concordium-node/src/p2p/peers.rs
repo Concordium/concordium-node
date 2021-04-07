@@ -22,7 +22,7 @@ impl P2PNode {
             .map(|conn| {
                 PeerStats::new(
                     conn.remote_peer.local_id,
-                    conn.remote_peer.id.unwrap(), // safe - always available post-handshake
+                    conn.remote_peer.self_id.unwrap(), // safe - always available post-handshake
                     conn.remote_addr(),
                     conn.remote_peer_external_port(),
                     conn.remote_peer_type(),
