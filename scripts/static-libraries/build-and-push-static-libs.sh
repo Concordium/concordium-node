@@ -35,12 +35,6 @@ mv out/static-consensus-binaries-$GHC_VERSION.tar.gz out/static-consensus-binari
 aws s3 cp out/static-consensus-$VERSION_TAG.tar.gz s3://static-libraries.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 aws s3 cp out/static-consensus-binaries-$VERSION_TAG.tar.gz s3://static-libraries.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
-# Commit and push changes
-# rm -rf out
-# echo "Going to push to branch $GIT_BRANCH"
-# echo $VERSION_TAG > scripts/static-libraries/LATEST_STATIC_LIBRARIES
-# git add scripts/static-libraries/LATEST_STATIC_LIBRARIES
-# CI is skipped by default for these commits as the CI doesn't use the
-# static libraries so the outcome would be the same as in the previous commit.
-# git commit -m "Jenkins: push $VERSION_TAG static libraries. [skip ci]"
-# git push origin HEAD:$BRANCH
+echo "The static libraries are pushed to S3/static-libraries bucket with version $VERSION_TAG."
+echo "To record this in the concordium-node repository run"
+echo "echo $VERSION_TAG > scripts/static-libraries/LATEST_STATIC_LIBRARIES"
