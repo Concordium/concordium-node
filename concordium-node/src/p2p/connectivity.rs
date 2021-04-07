@@ -411,24 +411,29 @@ pub fn connect(
         bail!("Attempted to connect to myself");
     }
 
+    // FIXME: This is linear in the size of the ban list, which is a potential
+    // problem. It's unclear what a realistic number of bans can be, but we
+    // likely need to revise this.
     if read_or_die!(node.connection_handler.soft_bans)
         .iter()
         .any(|(ip, _)| *ip == BanId::Ip(peer_addr.ip()) || *ip == BanId::Socket(peer_addr))
     {
-        bail!("Refusing to connect to a soft-banned IP ({:?})", peer_addr.ip());
+        bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
     }
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());
 
-    if candidates_lock.values().any(|cc| cc.remote_addr() == peer_addr) {
-        bail!("Already connected to {}", peer_addr.to_string());
-    }
-
-    // Don't connect to established peers with a known P2PNodeId or IP+port
-    for conn in read_or_die!(node.connections()).values() {
-        if conn.remote_addr() == peer_addr {
-            bail!("Already connected to {}", peer_addr.to_string());
+    // Don't connect to established peers on a given IP + port
+    for conn in read_or_die!(node.connections()).values().chain(candidates_lock.values()) {
+        if node.config.disallow_multiple_peers_on_ip {
+            if conn.remote_addr().ip() == peer_addr.ip() {
+                bail!("Already connected to IP {}", peer_addr.ip());
+            }
+        } else {
+            if conn.remote_addr() == peer_addr {
+                bail!("Already connected to {}", peer_addr);
+            }
         }
     }
 
@@ -440,7 +445,7 @@ pub fn connect(
             let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
             let remote_peer = RemotePeer {
-                id: Default::default(),
+                id: None,
                 addr: peer_addr,
                 local_id: token.into(),
                 external_port: peer_addr.port(),

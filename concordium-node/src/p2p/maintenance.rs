@@ -5,7 +5,7 @@ use crossbeam_channel::{self, Receiver, Sender};
 use failure::Fallible;
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
-use rand::Rng;
+use rand::{Rng, prelude::SliceRandom, thread_rng};
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -62,6 +62,7 @@ pub struct NodeConfig {
     pub bootstrap_server: String,
     pub dns_resolvers: Vec<String>,
     pub dnssec_disabled: bool,
+    pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     pub max_allowed_nodes: u16,
     pub relay_broadcast_percentage: f64,
@@ -293,6 +294,7 @@ impl P2PNode {
                 &conf.connection.dns_resolver,
             ),
             dnssec_disabled: conf.connection.dnssec_disabled,
+            disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 max
@@ -655,25 +657,25 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
                 let mut conns = write_or_die!(node.connections());
-                // Remove previous connection from same `PeerId`, as this is then to be seen
-                // as a reconnect.
                 conns.insert(conn.token, conn);
                 // FIXME: How are we preventing a DOS that swamps the node with (post-handshake)
                 // connections, preventing it to connect to useful nodes?
                 node.bump_last_peer_update();
             }
         }
-        ConnChange::NewPeers(peers) => {
+        ConnChange::NewPeers(mut peers) => {
             let mut new_peers = 0;
             let current_peers = node.get_peer_stats(Some(PeerType::Node));
 
             let curr_peer_count = current_peers.len();
 
-            let applicable_candidates = peers
-                .iter()
-                .filter(|candidate| !current_peers.iter().any(|peer| peer.addr == candidate.addr));
+            // Shuffle the peers we received try to discover more useful peers over time
+            // and not get stuck continuously connecting to useless ones, and then dropping connections.
+            peers.shuffle(&mut thread_rng());
 
-            for peer in applicable_candidates {
+            // Try to connect to each peer in turn.
+            // If we are already connected to a peer, this will fail.
+            for peer in peers {
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
                 if connect(node, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                     new_peers += 1;
