@@ -42,7 +42,7 @@ RUN --mount=type=ssh ./build-static-libraries.sh
 # And build the node
 FROM concordium/base:0.19 as build
 
-ARG GHC_VERSION=8.10.4
+ARG ghc_version=8.10.4
 ARG consensus_profiling
 ENV CONSENSUS_PROFILING=$consensus_profiling
 
@@ -53,9 +53,9 @@ COPY scripts/build-binaries.sh /build/build-binaries.sh
 # Node
 WORKDIR /build
 # Copy static libraries that were built by the static-builder into the correct place, which is concordium-node/deps/static/linux
-COPY --from=static-builder /build/static-consensus-$GHC_VERSION.tar.gz .
+COPY --from=static-builder /build/static-consensus-${ghc_version}.tar.gz .
 RUN mkdir -p concordium-node/deps/static-libs/linux
-RUN tar -xf static-consensus-$GHC_VERSION.tar.gz && cd target && cp -r * ../concordium-node/deps/static-libs/linux/
+RUN tar -xf static-consensus-${ghc_version}.tar.gz && cd target && cp -r * ../concordium-node/deps/static-libs/linux/
 # And then start the build of the rust parts of the node.
 RUN --mount=type=ssh ./build-binaries.sh "collector"
 RUN chmod +x /build/start.sh
