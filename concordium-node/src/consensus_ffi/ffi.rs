@@ -25,6 +25,10 @@ use std::{
     },
 };
 
+/// A type used in this module to document that a given value is intended
+/// to be used as a peer id.
+type PeerIdFFI = u64;
+
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
     pub fn hs_init_with_rtsopts(argc: &c_int, argv: *const *const *const c_char);
@@ -242,7 +246,7 @@ type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type BroadcastCallback = extern "C" fn(i64, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(*const u8, i64);
 type DirectMessageCallback =
-    extern "C" fn(peer_id: PeerId, message_type: i64, msg: *const c_char, msg_len: i64);
+    extern "C" fn(peer_id: PeerIdFFI, message_type: i64, msg: *const c_char, msg_len: i64);
 type RegenesisCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>, *const u8);
 type RegenesisFreeCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>);
 
@@ -356,7 +360,7 @@ extern "C" {
     pub fn getCatchUpStatus(consensus: *mut consensus_runner) -> *const u8;
     pub fn receiveCatchUpStatus(
         consensus: *mut consensus_runner,
-        peer_id: PeerId,
+        peer_id: PeerIdFFI,
         msg: *const u8,
         msg_len: i64,
         object_limit: i64,
@@ -646,7 +650,7 @@ impl ConsensusContainer {
     ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,
-            peer_id.remote_peer_id as u64,
+            peer_id.into(),
             request.as_ptr(),
             request.len() as i64,
             object_limit,
@@ -766,7 +770,11 @@ impl TryFrom<u8> for CallbackType {
     }
 }
 
-pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
+pub extern "C" fn on_finalization_message_catchup_out(
+    peer_id: PeerIdFFI,
+    data: *const u8,
+    len: i64,
+) {
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
