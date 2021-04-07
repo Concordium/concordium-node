@@ -32,7 +32,7 @@ RUN GENESIS_DIR=./out/genesis-25-bakers NUM_BAKERS=25 python3 generate-test-gene
 
 
 # Build static consensus libraries
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/static-libraries:0.18 as static-builder
+FROM concordium/static-libraries:0.19 as static-builder
 COPY scripts/static-libraries/build-static-libraries.sh /build-static-libraries.sh
 COPY . /build
 ARG GHC_VERSION=8.10.4
