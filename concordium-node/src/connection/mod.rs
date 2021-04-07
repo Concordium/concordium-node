@@ -437,7 +437,7 @@ impl Connection {
     pub fn get_latency(&self) -> u64 { self.stats.get_latency() }
 
     /// Obtain the node id related to the connection, if available.
-    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.id }
+    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.self_id }
 
     /// Obtain the type of the peer associated with the connection.
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
@@ -534,7 +534,7 @@ impl Connection {
 
     /// Concludes the connection's handshake process.
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16, nets: &Networks) {
-        self.remote_peer.id = Some(id);
+        self.remote_peer.self_id = Some(id);
         self.remote_peer.external_port = peer_port;
         self.handler.stats.peers_inc();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
@@ -542,7 +542,7 @@ impl Connection {
         }
         self.populate_remote_end_networks(self.remote_peer, nets);
         self.handler.register_conn_change(ConnChange::Promotion(self.token()));
-        debug!("Concluded handshake with peer {}", id);
+        debug!("Concluded handshake with peer {}(their id {})", self.remote_peer.local_id, id);
     }
 
     /// Queues a message to be sent to the connection.
@@ -576,12 +576,9 @@ impl Connection {
         );
 
         self.remote_end_networks.insert(network);
-        let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets()).update_network_ids(
-            self.remote_peer.local_id,
-            peer,
-            self.remote_end_networks.to_owned(),
-        );
+        ensure!(self.remote_peer.self_id.is_some(), "missing handshake");
+        write_or_die!(self.handler.buckets())
+            .update_network_ids(self.remote_peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
@@ -589,12 +586,9 @@ impl Connection {
     pub fn remove_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
         self.remote_end_networks.remove(&network);
 
-        let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
-        write_or_die!(self.handler.buckets()).update_network_ids(
-            self.remote_peer.local_id,
-            peer,
-            self.remote_end_networks.to_owned(),
-        );
+        ensure!(self.remote_peer.self_id.is_some(), "missing handshake");
+        write_or_die!(self.handler.buckets())
+            .update_network_ids(self.remote_peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 

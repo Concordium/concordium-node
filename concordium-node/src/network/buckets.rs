@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PPeer, PeerType, RemotePeer},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, PeerType, RemotePeer},
     network::Networks,
 };
 
@@ -59,22 +59,10 @@ impl Buckets {
     }
 
     /// Update the networks of a node in the bucket.
-    pub fn update_network_ids(
-        &mut self,
-        local_id: RemotePeerId,
-        peer: P2PPeer,
-        networks: Networks,
-    ) {
+    pub fn update_network_ids(&mut self, peer: RemotePeer, networks: Networks) {
         let bucket = &mut self.buckets[0];
-        let rp = RemotePeer {
-            id: Some(peer.id),
-            addr: peer.addr,
-            local_id,
-            external_port: peer.addr.port(),
-            peer_type: peer.peer_type,
-        };
         bucket.replace(Node {
-            peer: rp,
+            peer,
             networks,
             last_seen: get_current_stamp(),
         });
@@ -155,7 +143,7 @@ mod tests {
 
         // Create two peers with the same local id but different everything else.
         let p2p_peer = RemotePeer {
-            id: Some(rand::thread_rng().gen::<P2PNodeId>()),
+            self_id: Some(rand::thread_rng().gen::<P2PNodeId>()),
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8888),
             local_id,
             external_port: 8888,
@@ -163,7 +151,7 @@ mod tests {
         };
 
         let p2p_duplicate_peer = RemotePeer {
-            id: Some(rand::thread_rng().gen::<P2PNodeId>()),
+            self_id: Some(rand::thread_rng().gen::<P2PNodeId>()),
             addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
             local_id,
             external_port: 8889,
