@@ -58,7 +58,7 @@ pub const DUMP_QUEUE_DEPTH: usize = 100;
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
 // connection-related consts
-/// Maximum time (in ms) a node's connection can remain unreachable.
+/// Maximum time (in s) a node's connection can remain unreachable.
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
 /// Maximum time (in ms) a bootstrapper can hold a connection to a node.
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 20_000;
@@ -298,6 +298,11 @@ pub struct ConnectionConfig {
                 validation will be performed"
     )]
     pub dnssec_disabled: bool,
+    #[structopt(
+        long = "disallow-multiple-peers-on-ip",
+        help = "Disallow multiple peers on the same IP address."
+    )]
+    pub disallow_multiple_peers_on_ip: bool,
     #[structopt(long = "dns-resolver", help = "DNS resolver to use")]
     pub dns_resolver: Vec<String>,
     #[structopt(
