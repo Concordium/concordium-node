@@ -13,15 +13,6 @@ fn command_output(cmd: &mut Command) -> String {
 }
 
 fn main() -> std::io::Result<()> {
-    // Compile the Cap'n'Proto schema
-    #[cfg(feature = "s11n_capnp")]
-    capnpc::CompilerCommand::new()
-        .src_prefix("src/network/serialization")
-        .file("src/network/serialization/p2p.capnp")
-        .output_path("target/")
-        .run()
-        .expect("Can't compile the Cap'n'Proto schema");
-
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
     // Compile the flatbuffers schema
     println!("cargo:rerun-if-changed={}/src/network/serialization/schema.fbs", cargo_dir);

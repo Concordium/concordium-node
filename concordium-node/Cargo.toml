@@ -14,7 +14,6 @@ license-file = "../LICENSE"
 [features]
 default = []
 test_utils = [ "tempfile" ]
-s11n_capnp = ["capnp", "capnpc"]
 s11n_serde = ["serde_derive"]
 s11n_serde_cbor = ["s11n_serde", "serde_cbor"]
 s11n_serde_msgpack = ["s11n_serde", "rmp-serde"]
@@ -85,7 +84,6 @@ reqwest = { version = "0.11.2", default-features = false, optional = true, featu
 mime = { version = "0.3", optional = true }
 futures = { version = "0.3", optional = true }
 serde_derive = { version = "1.0", optional = true }
-capnp = { version = "0.13", optional = true }
 serde_cbor = { version = "0.11", optional = true }
 rmp-serde = { version = "0.15.4", optional = true }
 serde_json = { version = "1" }
@@ -105,7 +103,6 @@ libc = "0.2"
 
 [build-dependencies]
 tonic-build = { version = "0.4.1", default-features = false, features = ["transport", "prost"] }
-capnpc = { version = "0.13", optional = true }
 flatc-rust = "0.2.0"
 walkdir = "2"
 
