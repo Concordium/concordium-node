@@ -658,8 +658,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
                 let mut conns = write_or_die!(node.connections());
                 conns.insert(conn.token(), conn);
-                // FIXME: How are we preventing a DOS that swamps the node with (post-handshake)
-                // connections, preventing it to connect to useful nodes?
                 node.bump_last_peer_update();
             }
         }
