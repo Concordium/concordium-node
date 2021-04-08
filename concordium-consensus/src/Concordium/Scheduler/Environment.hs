@@ -843,8 +843,8 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
 
   {-# INLINE getEnergy #-}
   getEnergy = do
-    beLeft <- use blockEnergyLeft
-    txLeft <- use energyLeft
+    beLeft <- use' blockEnergyLeft
+    txLeft <- use' energyLeft
     if beLeft < txLeft
     then return (beLeft, BlockEnergy)
     else return (txLeft, TransactionEnergy)
