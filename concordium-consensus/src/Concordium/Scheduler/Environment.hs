@@ -856,9 +856,7 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
       case reason of
         BlockEnergy -> outOfBlockEnergy
         TransactionEnergy -> rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
-    else do
-      energyLeft -= tick
-      blockEnergyLeft -= tick
+    else modify ((energyLeft -~ tick) . (blockEnergyLeft -~ tick))
 
   {-# INLINE rejectTransaction #-}
   rejectTransaction OutOfEnergy = energyLeft .= 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
