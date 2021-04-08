@@ -1474,7 +1474,7 @@ handleRegisterData wtc regData =
 -- TODO: We might need to add a real-time timeout at which point we stop processing transactions.
 filterTransactions :: forall m pv. (SchedulerMonad pv m, TimeMonad m)
                    => Integer -- ^Maximum block size in bytes.
-                   -> UTCTime
+                   -> UTCTime -- ^Timeout for block construction. 
                    -> [TransactionGroup] -- ^Transactions to make a block out of.
                    -> m FilteredTransactions
 filterTransactions maxSize timeout groups0 = do
