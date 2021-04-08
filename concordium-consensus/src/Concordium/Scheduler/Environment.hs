@@ -15,8 +15,10 @@ import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import Data.Foldable
 
-import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
+import Control.Monad.RWS.Strict
+import Control.Monad.Trans.Reader (ReaderT, runReaderT)
+import Control.Monad.Trans.State (StateT, runStateT)
 
 import Lens.Micro.Platform
 
@@ -513,12 +515,20 @@ data TransactionContext = TransactionContext{
 
 makeLenses ''TransactionContext
 
+-- |A monad transformer adding reading an environment of type @r@
+-- and updating a state of type @s@ to an inner monad @m@.
+type RST r s m = ReaderT r (StateT s m)
+
+-- |Unwrap an RST computation as a function.
+runRST :: RST r s m a -> r -> s -> m (a, s)
+runRST rst r s = flip runStateT s . flip runReaderT r $ rst
+
 -- |A concrete implementation of TransactionMonad based on SchedulerMonad. We
 -- use the continuation monad transformer instead of the ExceptT transformer in
 -- order to avoid expensive bind operation of the latter. The bind operation is
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
-newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RWST TransactionContext () LocalState m) a }
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
 runLocalT :: SchedulerMonad pv m
@@ -531,7 +541,7 @@ runLocalT :: SchedulerMonad pv m
           -> m (Either (Maybe RejectReason) a, LocalState)
 runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
   let s = LocalState{_changeSet = emptyCS txHash,..}
-  (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
+  (a, s') <- runRST (runContT st (return . Right)) ctx s
   return (a, s')
 
   where !ctx = TransactionContext{..}
@@ -682,7 +692,7 @@ defaultSuccess wtc = \ls events -> do
 
 {-# INLINE liftLocal #-}
 liftLocal :: Monad m => m a -> LocalT r m a
-liftLocal m = LocalT (ContT (\k -> RWST (\r s -> m >>= \f -> runRWST (k f) r s)))
+liftLocal m = LocalT (ContT (\k -> (lift . lift) m >>= k))
 
 
 instance MonadTrans (LocalT r) where
