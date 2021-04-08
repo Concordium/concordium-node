@@ -642,7 +642,7 @@ impl Connection {
                 let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
                     Ok(read_or_die!(self.handler.buckets())
                         .get_random_nodes(
-                            &requestor,
+                            requestor,
                             self.handler.config.bootstrapper_peer_list_size,
                             &nets,
                             partition,

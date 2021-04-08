@@ -69,15 +69,11 @@ impl Buckets {
     }
 
     /// Returns all the nodes in buckets.
-    fn get_all_nodes(&self, sender: Option<&RemotePeerId>, networks: &Networks) -> Vec<RemotePeer> {
+    fn get_all_nodes(&self, sender: Option<RemotePeerId>, networks: &Networks) -> Vec<RemotePeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.peer_type == PeerType::Node
-                && if let Some(sender) = sender {
-                    node.peer.local_id != *sender
-                } else {
-                    true
-                }
+                && Some(node.peer.local_id) != sender
                 && (networks.is_empty() || !node.networks.is_disjoint(networks))
         };
 
@@ -99,7 +95,7 @@ impl Buckets {
     /// Returns the desired number of nodes from the buckets.
     pub fn get_random_nodes(
         &self,
-        sender: &RemotePeerId,
+        sender: RemotePeerId,
         number: usize,
         networks: &Networks,
         partition: bool,
