@@ -21,6 +21,7 @@ import Data.Foldable
 import Data.Maybe
 import Data.Word
 import Control.Monad
+import Concordium.TimeMonad
 
 import Concordium.Types
 import Concordium.Logger
@@ -50,7 +51,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Scheduler as Sch
 
 newtype BlockStateMonad (pv :: ProtocolVersion) w state m a = BSM { _runBSM :: RWST ContextState w state m a}
-    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger)
+    deriving (Functor, Applicative, Monad, MonadState state, MonadReader ContextState, MonadTrans, MonadWriter w, MonadLogger, TimeMonad)
 
 deriving via (BSOMonadWrapper pv ContextState w state (MGSTrans (RWST ContextState w state) m))
     instance
@@ -502,7 +503,7 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
 -- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
 -- and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock :: forall m pv.
-  (BlockPointerMonad m, TreeStateMonad pv m, MonadLogger m)
+  (BlockPointerMonad m, TreeStateMonad pv m, MonadLogger m, TimeMonad m)
   => Slot -- ^Slot number of the block to bake
   -> Timestamp -- ^Unix timestamp of the beginning of the slot.
   -> BlockPointerType m -- ^Parent pointer from which to start executing
@@ -554,6 +555,9 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
 
     -- lookup the maximum block size as mandated by the tree state
     maxSize <- rpBlockSize <$> getRuntimeParameters
+    timeoutDuration <- rpBlockTimeout <$> getRuntimeParameters
+    now <- currentTime
+    let timeout = timestampToUTCTime $ addDuration (utcTimeToTimestamp now) timeoutDuration
     genData <- getGenesisData
     let maxBlockEnergy = gdMaxBlockEnergy genData
     let context = ContextState{
@@ -562,7 +566,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
           _accountCreationLimit = chainParams ^. cpAccountCreationLimit
           }
     (ft@Sch.FilteredTransactions{..}, finState) <-
-        runBSM (Sch.filterTransactions (fromIntegral maxSize) transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)
+        runBSM (Sch.filterTransactions (fromIntegral maxSize) timeout transactionGroups) context (mkInitialSS bshandle1 :: LogSchedulerState m)
     -- FIXME: At some point we should log things here using the same logging infrastructure as in consensus.
 
     let usedEnergy = finState ^. schedulerEnergyUsed
