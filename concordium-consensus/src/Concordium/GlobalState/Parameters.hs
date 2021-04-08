@@ -77,6 +77,8 @@ data RuntimeParameters = RuntimeParameters {
   -- applies to the blocks produced by this baker, we will still accept blocks
   -- of arbitrary size from other bakers.
   rpBlockSize :: !Int,
+  -- |Timeout of block construction.
+  rpBlockTimeout :: !Duration,
   -- |Treestate storage directory.
   rpTreeStateDir :: !FilePath,
   -- |BlockState storage file.
@@ -103,6 +105,7 @@ data RuntimeParameters = RuntimeParameters {
 defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
+  rpBlockTimeout = 3000, -- 3 seconds
   rpTreeStateDir = "treestate",
   rpBlockStateFile = "blockstate",
   rpEarlyBlockThreshold = 30000, -- 30 seconds
@@ -115,6 +118,7 @@ defaultRuntimeParameters = RuntimeParameters {
 instance FromJSON RuntimeParameters where
   parseJSON = withObject "RuntimeParameters" $ \v -> do
     rpBlockSize <- v .: "blockSize"
+    rpBlockTimeout <- v .: "blockTimeout"
     rpTreeStateDir <- v .: "treeStateDir"
     rpBlockStateFile <- v .: "blockStateFile"
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"

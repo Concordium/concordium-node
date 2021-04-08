@@ -41,6 +41,8 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Scheduler.WasmIntegration as Wasm
 import Concordium.Scheduler.Types
 import Concordium.Scheduler.Environment
+import Data.Time
+import Concordium.TimeMonad
 
 import qualified Data.Serialize as S
 import qualified Data.ByteString as BS
@@ -1470,11 +1472,12 @@ handleRegisterData wtc regData =
 -- and `ftUnprocessedCredentials`.
 --
 -- TODO: We might need to add a real-time timeout at which point we stop processing transactions.
-filterTransactions :: forall m pv. (SchedulerMonad pv m)
+filterTransactions :: forall m pv. (SchedulerMonad pv m, TimeMonad m)
                    => Integer -- ^Maximum block size in bytes.
+                   -> UTCTime
                    -> [TransactionGroup] -- ^Transactions to make a block out of.
                    -> m FilteredTransactions
-filterTransactions maxSize groups0 = do
+filterTransactions maxSize timeout groups0 = do
   maxEnergy <- getMaxBlockEnergy
   credLimit <- getAccountCreationLimit
   ftTrans <- runNext maxEnergy 0 credLimit emptyFilteredTransactions groups0
@@ -1503,7 +1506,8 @@ filterTransactions maxSize groups0 = do
             runUpdateInstructions currentSize currentFts (ui : uis) = do
               -- Update instructions use no energy, so we only consider size
               let csize = currentSize + fromIntegral (wmdSize ui)
-              if csize <= maxSize then
+              now <- currentTime
+              if csize <= maxSize && now < timeout then
                 -- Chain updates have no account footprint
                 handleChainUpdate ui >>= \case
                   TxInvalid reason -> case uis of
@@ -1543,7 +1547,8 @@ filterTransactions maxSize groups0 = do
                   energyCost = Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c)
                   cenergy = totalEnergyUsed + fromIntegral energyCost
               -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
-              if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy then
+              now <- currentTime
+              if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy && now < timeout then
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
                       let newFts = fts { ftFailedCredentials = (c, reason) : ftFailedCredentials fts}
@@ -1573,7 +1578,8 @@ filterTransactions maxSize groups0 = do
               let csize = currentSize + fromIntegral (transactionSize t)
                   tenergy = transactionGasAmount t
                   cenergy = totalEnergyUsed + tenergy
-              if csize <= maxSize && cenergy <= maxEnergy then
+              now <- currentTime
+              if csize <= maxSize && cenergy <= maxEnergy && now < timeout then
                 -- The transaction fits regarding both block energy limit and max transaction size.
                 -- Thus try to add the transaction by executing it.
                 observeTransactionFootprint (dispatch t) >>= \case
