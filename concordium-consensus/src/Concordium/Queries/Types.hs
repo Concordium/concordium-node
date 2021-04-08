@@ -103,6 +103,7 @@ data NextAccountNonce = NextAccountNonce
 
 $(deriveJSON defaultOptions{fieldLabelModifier = firstLower . dropWhile isLower} ''NextAccountNonce)
 
+-- |Result type for @getBlockInfo@ query.
 data BlockInfo = BlockInfo
     { -- |The block hash
       biBlockHash :: BlockHash,
@@ -300,3 +301,15 @@ instance ToJSON BlockTransactionStatus where
             [ "status" .= String "finalized",
               "result" .= outcome
             ]
+
+-- |Result of a baker status query.
+data BakerStatus
+    = -- |The baker is a member of the current committee
+      ActiveBaker
+    | -- |The account has a baker, but it is not yet in the committee
+      InactiveBaker
+    | -- |The baker id does not correspond with a current baker
+      NoBaker
+    | -- |The baker may exist, but the keys do not match
+      BadKeys
+    deriving (Eq, Ord, Show)

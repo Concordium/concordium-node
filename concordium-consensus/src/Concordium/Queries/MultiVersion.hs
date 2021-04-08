@@ -7,6 +7,7 @@
 module Concordium.Queries.MultiVersion where
 
 import Control.Monad
+import Control.Monad.Reader
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -21,11 +22,14 @@ import Concordium.Types
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Parameters
 import Concordium.Types.SeedState
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.Afgjort.Finalize.Types (FinalizationCommittee (..), PartyInfo (..))
 import Concordium.Afgjort.Monad
+import Concordium.Birk.Bake
+import Concordium.GlobalState.Account (accountBakerInfo)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
@@ -261,6 +265,51 @@ getBlockSummary = liftSkovQueryBlock $ \bp -> do
     bsUpdates <- BS.getUpdates bs
     return BlockSummary{..}
 
+-- |Get the total amount of GTU in existence and status of the reward accounts.
+getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
+getRewardStatus = liftSkovQueryBlock $ \bp -> do
+    reward <- BS.getRewardStatus =<< blockState bp
+    return $
+        RewardStatus
+            { rsTotalAmount = reward ^. totalGTU,
+              rsTotalEncryptedAmount = reward ^. totalEncryptedGTU,
+              rsBakingRewardAccount = reward ^. bakingRewardAccount,
+              rsFinalizationRewardAccount = reward ^. finalizationRewardAccount,
+              rsGasAccount = reward ^. gasAccount
+            }
+
+-- |Get the birk parameters that applied when a given block was baked.
+getBlockBirkParameters :: BlockHash -> MVR gsconf finconf (Maybe BlockBirkParameters)
+getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
+    bs <- blockState bp
+    bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
+    bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs
+    FullBakers{..} <- BS.getCurrentEpochBakers bs
+    let resolveBaker FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} = do
+            let bsBakerId = _bakerIdentity
+            let bsBakerLotteryPower = fromIntegral _bakerStake / fromIntegral bakerTotalStake
+            -- This should never return Nothing
+            bacct <- BS.getBakerAccount bs _bakerIdentity
+            bsBakerAccount <- mapM BS.getAccountAddress bacct
+            return BakerSummary{..}
+    bbpBakers <- mapM resolveBaker fullBakerInfos
+    return BlockBirkParameters{..}
+
+-- |Get the cryptographic parameters of the chain at a given block.
+-- The result is versioned (which will currently always be version 0).
+getCryptographicParameters :: BlockHash -> MVR gsconf finconf (Maybe (Versioned CryptographicParameters))
+getCryptographicParameters = liftSkovQueryBlock $ \bp -> do
+    bs <- blockState bp
+    Versioned 0 <$> BS.getCryptographicParameters bs
+
+-- |Get all of the identity providers registered in the system as of a given block.
+getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])
+getAllIdentityProviders = liftSkovQueryBlock $ BS.getAllIdentityProviders <=< blockState
+
+-- |Get all of the anonymity revokers registered in the system as of a given block.
+getAllAnonymityRevokers :: BlockHash -> MVR gsconf finconf (Maybe [ArInfo])
+getAllAnonymityRevokers = liftSkovQueryBlock $ BS.getAllAnonymityRevokers <=< blockState
+
 -- |Get the ancestors of a block (including itself) up to a maximum
 -- length.
 getAncestors :: BlockHash -> BlockHeight -> MVR gsconf finconf (Maybe [BlockHash])
@@ -285,10 +334,14 @@ getAccountList :: BlockHash -> MVR gsconf finconf (Maybe [AccountAddress])
 getAccountList = liftSkovQueryBlock $ BS.getAccountList <=< blockState
 
 -- |Get a list of all smart contract instances in the block state.
-getInstances :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
-getInstances =
+getInstanceList :: BlockHash -> MVR gsconf finconf (Maybe [ContractAddress])
+getInstanceList =
     liftSkovQueryBlock $
         fmap (fmap iaddress) . BS.getContractInstanceList <=< blockState
+
+-- |Get the list of modules present as of a given block.
+getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
+getModuleList = liftSkovQueryBlock $ BS.getModuleList <=< blockState
 
 -- |Get the details of an account in the block state.
 getAccountInfo :: BlockHash -> AccountAddress -> MVR gsconf finconf (Maybe AccountInfo)
@@ -321,40 +374,6 @@ getInstanceInfo blockHash caddr =
             )
             blockHash
 
--- |Get the total amount of GTU in existence and status of the reward accounts.
-getRewardStatus :: BlockHash -> MVR gsconf finconf (Maybe RewardStatus)
-getRewardStatus = liftSkovQueryBlock $ \bp -> do
-    reward <- BS.getRewardStatus =<< blockState bp
-    return $
-        RewardStatus
-            { rsTotalAmount = reward ^. totalGTU,
-              rsTotalEncryptedAmount = reward ^. totalEncryptedGTU,
-              rsBakingRewardAccount = reward ^. bakingRewardAccount,
-              rsFinalizationRewardAccount = reward ^. finalizationRewardAccount,
-              rsGasAccount = reward ^. gasAccount
-            }
-
--- |Get the birk parameters that applied when a given block was baked.
-getBlockBirkParameters :: BlockHash -> MVR gsconf finconf (Maybe BlockBirkParameters)
-getBlockBirkParameters = liftSkovQueryBlock $ \bp -> do
-    bs <- blockState bp
-    bbpElectionDifficulty <- BS.getCurrentElectionDifficulty bs
-    bbpElectionNonce <- currentLeadershipElectionNonce <$> BS.getSeedState bs
-    FullBakers{..} <- BS.getCurrentEpochBakers bs
-    let resolveBaker FullBakerInfo{_bakerInfo = BakerInfo{..}, ..} = do
-            let bsBakerId = _bakerIdentity
-            let bsBakerLotteryPower = fromIntegral _bakerStake / fromIntegral bakerTotalStake
-            -- This should never return Nothing
-            bacct <- BS.getBakerAccount bs _bakerIdentity
-            bsBakerAccount <- mapM BS.getAccountAddress bacct
-            return BakerSummary{..}
-    bbpBakers <- mapM resolveBaker fullBakerInfos
-    return BlockBirkParameters{..}
-
--- |Get the list of modules present as of a given block.
-getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
-getModuleList = liftSkovQueryBlock $ BS.getModuleList <=< blockState
-
 -- |Get the source of a module as it was deployed to the chain.
 getModuleSource :: BlockHash -> ModuleRef -> MVR gsconf finconf (Maybe Wasm.WasmModule)
 getModuleSource blockHash modRef =
@@ -365,14 +384,6 @@ getModuleSource blockHash modRef =
                 BS.getModule bs modRef
             )
             blockHash
-
--- |Get all of the identity providers registered in the system as of a given block.
-getAllIdentityProviders :: BlockHash -> MVR gsconf finconf (Maybe [IpInfo])
-getAllIdentityProviders = liftSkovQueryBlock $ BS.getAllIdentityProviders <=< blockState
-
--- |Get all of the anonymity revokers registered in the system as of a given block.
-getAllAnonymityRevokers :: BlockHash -> MVR gsconf finconf (Maybe [ArInfo])
-getAllAnonymityRevokers = liftSkovQueryBlock $ BS.getAllAnonymityRevokers <=< blockState
 
 -- ** Transaction indexed
 
@@ -432,3 +443,35 @@ getTransactionStatusInBlock trHash blockHash =
 -- |Check whether the node is currently a member of the finalization committee.
 checkIsCurrentFinalizer :: MVR gsconf finconf Bool
 checkIsCurrentFinalizer = liftSkovQueryLatest isFinalizationCommitteeMember
+
+-- |Determine the status of the baker with respect to the current best block.
+getBakerStatusBestBlock :: MVR gsconf finconf BakerStatus
+getBakerStatusBestBlock =
+    asks mvBaker >>= \case
+        Nothing -> return NoBaker
+        Just Baker{bakerIdentity = bakerIdent} -> liftSkovQueryLatest $ do
+            bb <- bestBlock
+            bs <- queryBlockState bb
+            bakers <- BS.getCurrentEpochBakers bs
+            case fullBaker bakers (bakerId bakerIdent) of
+                Just fbinfo
+                    -- Current baker with valid keys
+                    | validateBakerKeys (fbinfo ^. bakerInfo) bakerIdent ->
+                        return $ ActiveBaker (bakerId bakerIdent)
+                    -- Current baker, but invalid keys
+                    | otherwise -> return $ BadKeys (bakerId bakerIdent)
+                Nothing ->
+                    -- Not a current baker
+                    BS.getBakerAccount bs (bakerId bakerIdent) >>= \case
+                        Just acc ->
+                            -- Account is valid
+                            BS.getAccountBaker acc >>= \case
+                                -- Account has no registered baker
+                                Nothing -> return NoBaker
+                                Just ab
+                                    -- Registered baker with valid keys
+                                    | validateBakerKeys (ab ^. accountBakerInfo) bakerIdent ->
+                                        return $ InactiveBaker (bakerId bakerIdent)
+                                    -- Registered baker with invalid keys
+                                    | otherwise -> return $ BadKeys (bakerId bakerIdent)
+                        Nothing -> return NoBaker

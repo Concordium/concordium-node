@@ -295,7 +295,7 @@ extern "C" {
         block_data: *const u8,
         data_length: i64,
     ) -> i64;
-    pub fn receiveFinalization(
+    pub fn receiveFinalizationMessage(
         consensus: *mut consensus_runner,
         finalization_data: *const u8,
         data_length: i64,

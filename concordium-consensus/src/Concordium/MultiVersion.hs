@@ -18,6 +18,7 @@ import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.ByteString (ByteString)
+import qualified Data.ByteString.Lazy as LBS
 import Data.IORef
 import Data.Kind
 import Data.Serialize
@@ -26,7 +27,7 @@ import Data.Time
 import qualified Data.Vector as Vec
 import System.FilePath
 
-import Concordium.Logger
+import Concordium.Logger hiding (Baker)
 import Concordium.Types
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
@@ -36,11 +37,9 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockMonads (BlockPointerMonad)
-import Concordium.GlobalState.BlockState (BlockStateStorage)
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.TreeState (GlobalStateTypes, TreeStateMonad)
+import Concordium.GlobalState.TreeState (TreeStateMonad)
 import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
 import Concordium.TimeMonad
@@ -642,6 +641,7 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
             logEvent External LLDebug err
             return ResultSerializationFail
         Right catchUp -> do
+            logEvent External LLDebug $ "Catch-up status message deserialized: " ++ show catchUp
             vvec <- liftIO . readIORef =<< asks mvVersions
             case vvec Vec.!? fromIntegral gi of
                 -- If we have a (re)genesis as the given index then...
@@ -662,7 +662,11 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                                 mvr
                         -- Send out the messages, where necessary.
                         forM_ mmsgs $ \(blocksFins, cusResp) -> do
+                            mvLog mvr External LLTrace $
+                                "Sending " ++ show (length blocksFins) ++ " blocks/finalization records"
                             forM_ blocksFins $ uncurry catchUpCallback
+                            mvLog mvr External LLDebug $
+                                "Catch-up response status message: " ++ show cusResp
                             catchUpCallback MessageCatchUpStatus $
                                 runPut $ putVersionedCatchUpStatus cusResp
                         return res
@@ -680,6 +684,19 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                     -- if the peer (also!) has no genesis at this index, we do not reply
                     -- or initiate catch-up
                     NoGenesisCatchUpStatus -> return ResultSuccess
+
+-- |Get the catch-up status for the current version of the chain.  This returns the current
+-- genesis index, as well as the catch-up request message serialized with its version.
+getCatchUpRequest :: forall gsconf finconf. MVR gsconf finconf (GenesisIndex, LBS.ByteString)
+getCatchUpRequest = do
+        mvr <- ask
+        vvec <- liftIO $ readIORef $ mvVersions mvr
+        case Vec.last vvec of
+            (EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+                st <- liftIO $ readIORef $ vcState vc
+                cus <- evalSkovT (getCatchUpStatus @pv True) (mvrSkovHandlers vc mvr) (vcContext vc) st
+                return (fromIntegral (Vec.length vvec), runPutLazy $ putVersionedCatchUpStatus cus)
+
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
