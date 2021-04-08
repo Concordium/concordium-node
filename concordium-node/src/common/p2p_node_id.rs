@@ -8,7 +8,9 @@ use std::fmt;
 
 pub type PeerId = u64;
 
-/// The basic identifier of a node.
+/// An identifier used by the node to identify itself to its peers.
+/// It is only in a descriptive manner, for logging and sending to other peers,
+/// not for identifying peers locally by the node.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "s11n_serde", derive(Serialize, Deserialize))]
 #[repr(transparent)]
