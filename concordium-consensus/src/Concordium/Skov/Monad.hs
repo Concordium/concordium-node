@@ -263,9 +263,7 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateStorage m => BlockS
 deriving via (MGSTrans SkovQueryMonadT m) instance PerAccountDBOperations m => PerAccountDBOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateOperations m => BlockStateOperations (SkovQueryMonadT m)
 
-instance (Monad m,
-          BlockStateQuery m,
-          TS.TreeStateMonad pv m)
+instance (TS.TreeStateMonad pv m)
           => SkovQueryMonad pv (SkovQueryMonadT m) where
     {- - INLINE resolveBlock - -}
     resolveBlock = lift . doResolveBlock

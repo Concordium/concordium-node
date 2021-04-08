@@ -9,6 +9,7 @@ import Data.Time.Clock
 
 import qualified Concordium.Afgjort.CSS.NominationSet as NS
 import Concordium.Afgjort.Finalize
+import Concordium.Afgjort.FinalizationQueue
 import Concordium.Afgjort.ABBA
 import Concordium.Afgjort.WMVBA
 import Concordium.TimeMonad
@@ -108,3 +109,18 @@ notifyBuffer handleMsg bufId = do
                     finBuffer . fbDelays %= Map.delete bufId
                     logEvent Runner LLTrace $ "Flushing buffered message on notify. expectedNotifyTime=" ++ show expectedNotifyTime ++ " notifyTime=" ++ show notifyTime
                     handleMsg msg
+
+-- |A 'FinalizationState' equipped with a 'FinalizationBuffer'.
+data BufferedFinalizationState t = BufferedFinalizationState {
+        _bfsFinalization :: !(FinalizationState t),
+        _bfsBuffer :: !FinalizationBuffer
+    }
+    deriving(Show)
+makeLenses ''BufferedFinalizationState
+
+instance FinalizationQueueLenses (BufferedFinalizationState t) where
+    finQueue = bfsFinalization . finQueue
+instance FinalizationStateLenses (BufferedFinalizationState t) t where
+    finState = bfsFinalization
+instance FinalizationBufferLenses (BufferedFinalizationState t) where
+    finBuffer = bfsBuffer
