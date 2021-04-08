@@ -63,7 +63,7 @@ jobs:
         #token: ${{ secrets.CONCORDIUM_CI }}
         submodules: recursive
     - name: Install system packages
-      run: sudo apt-get -y install liblmdb-dev flatbuffers-compiler capnproto libunbound-dev
+      run: sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
 
     # Set up Rust and restore dependencies and targets from cache.
     # This must be done before checking the Rust sources (obviously)
@@ -164,7 +164,6 @@ jobs:
         cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,staging_net,database_emitter --all -- -Dclippy::all
     - name: Run clippy (with features 's11n_*')
       run: |
-        cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_capnp --all -- -Dclippy::all
         cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_cbor --all -- -Dclippy::all
         cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_msgpack --all -- -Dclippy::all
 
