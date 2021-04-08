@@ -17,6 +17,7 @@ on:
     - '**.rs'
   pull_request:
     branches: main
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
     - '.github/workflows/rustfmt.yaml'
     - 'concordium-node/rustfmt.toml'
