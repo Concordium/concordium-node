@@ -234,7 +234,7 @@ runWithIntermediateStates = do
   let (res, state, feeTotal) = foldl' (\(acc, st, fees) tx ->
                             let (Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions dummyBlockSize (Types.fromTransactions [tx]))
+                                    (Sch.filterTransactions dummyBlockSize dummyBlockTimeout (Types.fromTransactions [tx]))
                                     dummyChainMeta
                                     maxBound
                                     maxBound

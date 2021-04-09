@@ -29,6 +29,7 @@ import Concordium.GlobalState.Basic.BlockState.Accounts as Acc
 import Concordium.GlobalState.Basic.BlockState.Invariants
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
+import Data.Time
 
 -- |Protocol version
 type PV = 'P1
@@ -67,6 +68,8 @@ data TestParameters = TestParameters
   , tpMaxCredentials :: CredentialsPerBlockLimit
     -- | Limit on the total size of the processed transactions.
   , tpSizeLimit :: Integer
+    -- | Block construction timeout
+  , tpBlockTimeout :: UTCTime
   }
 
 defaultParams :: TestParameters
@@ -76,6 +79,7 @@ defaultParams = TestParameters
   , tpEnergyLimit = maxBound
   , tpMaxCredentials = maxBound
   , tpSizeLimit = fromIntegral $ (maxBound :: Int)
+  , tpBlockTimeout = dummyBlockTimeout
   }
 
 -- | A test case for executing a list of transactions, specifying 'ResultSpec's for the result
@@ -114,7 +118,7 @@ runWithIntermediateStates TestParameters{..} transactions = do
     foldl' (\(acc, st, feesAccum) tx ->
                             let (ft@Sch.FilteredTransactions{..}, st') =
                                   Types.runSI
-                                    (Sch.filterTransactions tpSizeLimit (fromTransactions [tx]))
+                                    (Sch.filterTransactions tpSizeLimit tpBlockTimeout (fromTransactions [tx]))
                                     tpChainMeta
                                     tpEnergyLimit
                                     tpMaxCredentials

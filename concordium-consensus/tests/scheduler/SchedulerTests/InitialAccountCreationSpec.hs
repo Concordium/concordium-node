@@ -48,7 +48,7 @@ testAccountCreation ::
 testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
             dummyChainMeta
             maxBound
             maxBound

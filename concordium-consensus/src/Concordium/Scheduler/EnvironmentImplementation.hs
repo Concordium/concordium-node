@@ -16,6 +16,8 @@ import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
 import Data.Functor.Identity
 
+import Data.Time
+import Concordium.TimeMonad
 import Lens.Micro.Platform
 
 import Control.Monad.Reader
@@ -330,6 +332,10 @@ newtype SchedulerImplementation pv a = SchedulerImplementation { _runScheduler :
     deriving (Functor, Applicative, Monad, MonadReader ContextState, MonadState (PBSSS pv))
     deriving (StaticInformation, AccountOperations, MonadLogger)
       via (BSOMonadWrapper pv ContextState () (PBSSS pv) (MGSTrans (RWSTBS pv) (PureBlockStateMonad pv Identity)))
+
+--Dummy implementation of TimeMonad, for testing. 
+instance TimeMonad (SchedulerImplementation pv) where
+  currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
 
 instance Monad m => MonadLogger (RWSTBS pv m) where
   logEvent source level event = RWSTBS (RWST (\_ s -> return ((), s, [(source, level, event)])))
