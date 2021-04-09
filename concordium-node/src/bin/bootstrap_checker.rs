@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
+use failure::ResultExt;
 use std::{
     alloc::System,
     sync::{Arc, RwLock},
@@ -50,7 +51,8 @@ fn main() -> Result<(), Error> {
         PeerType::Node,
         stats_export_service,
         regenesis_arc,
-    );
+    )
+    .context("Failed to create the node.")?;
 
     spawn(&node, poll, None);
 

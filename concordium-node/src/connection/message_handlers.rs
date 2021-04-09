@@ -29,7 +29,14 @@ impl Connection {
             NetworkPayload::NetworkRequest(NetworkRequest::Handshake(handshake), ..) => {
                 return self.handle_handshake_req(handshake, conn_stats);
             }
-            _ => self.remote_peer.local_id,
+            _ => {
+                ensure!(
+                    self.is_post_handshake(),
+                    "Connection to {} has not yet completed the handshake.",
+                    self.remote_peer.local_id
+                );
+                self.remote_peer.local_id
+            }
         };
 
         match msg.payload {
@@ -76,9 +83,6 @@ impl Connection {
     ) -> Fallible<()> {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
-        // if self.handler.is_banned(BanId::NodeId(handshake.remote_id))? {
-        //     bail!("Rejecting handshake: banned node.");
-        // }
         if !is_compatible_version(&handshake.node_version) {
             bail!("Rejecting handshake: incompatible client ({}).", handshake.node_version);
         }
@@ -125,6 +129,9 @@ impl Connection {
 
         Ok(())
     }
+
+    /// Check whether the connection has completed the handshake.
+    fn is_post_handshake(&self) -> bool { self.remote_peer.self_id.is_some() }
 
     fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
 

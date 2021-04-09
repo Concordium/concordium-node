@@ -7,7 +7,10 @@ use crate::{
     connection::ConnChange,
     failure::Fallible,
     network::NetworkId,
-    p2p::{bans::BanId, P2PNode},
+    p2p::{
+        bans::{BanId, PersistedBanId},
+        P2PNode,
+    },
     read_or_die,
 };
 
@@ -424,9 +427,9 @@ impl P2p for RpcServerImpl {
         };
 
         if let Some(to_ban) = banned_node {
-            match self.node.ban_node(to_ban) {
-                Ok(_) => Ok(Response::new(BoolResponse {
-                    value: true,
+            match self.node.drop_and_maybe_ban_node(to_ban) {
+                Ok(value) => Ok(Response::new(BoolResponse {
+                    value,
                 })),
                 Err(e) => {
                     warn!("couldn't fulfill a BanNode request: {}", e);
@@ -447,11 +450,8 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        let banned_node = match (&req.node_id, &req.ip) {
-            (Some(node_id), None) => {
-                RemotePeerId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
-            }
-            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
+        let banned_node = match req.ip {
+            Some(ref ip) => IpAddr::from_str(&ip.to_string()).ok().map(PersistedBanId::Ip),
             _ => None,
         };
 
@@ -721,18 +721,13 @@ impl P2p for RpcServerImpl {
             banlist
                 .into_iter()
                 .map(|banned_node| {
-                    let node_id = Some(match banned_node {
-                        BanId::NodeId(id) => id.to_string(),
-                        _ => "*".to_owned(),
-                    });
-                    let ip = Some(match banned_node {
-                        BanId::Ip(addr) => addr.to_string(),
-                        _ => "*".to_owned(),
-                    });
+                    let ip = match banned_node {
+                        PersistedBanId::Ip(addr) => addr.to_string(),
+                    };
 
                     PeerElement {
-                        node_id,
-                        ip,
+                        node_id: Some("*".to_owned()), // we do not record the id of banned peers.
+                        ip: Some(ip),
                         port: None,
                         /// a banned peer is always in state pending for
                         /// catch-up

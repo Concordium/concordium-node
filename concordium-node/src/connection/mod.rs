@@ -699,7 +699,7 @@ impl Connection {
 
             Ok(())
         } else {
-            debug!("I don't have any peers to share with peer {:?}", requestor);
+            debug!("I don't have any peers to share with peer {}", requestor);
             Ok(())
         }
     }

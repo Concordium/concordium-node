@@ -66,7 +66,8 @@ async fn main() -> Fallible<()> {
 
     // The P2PNode thread
     let (node, poll) =
-        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone());
+        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
+            .context("Failed to create the node.")?;
 
     // Signal handling closure. so we shut down cleanly
     let signal_closure = |signal_handler_node: &Arc<P2PNode>,
@@ -223,7 +224,7 @@ fn instantiate_node(
     app_prefs: &mut config::AppPreferences,
     stats_export_service: Arc<StatsExportService>,
     regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
-) -> (Arc<P2PNode>, Poll) {
+) -> Fallible<(Arc<P2PNode>, Poll)> {
     let node_id = match conf.common.id.clone() {
         None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
             None => {

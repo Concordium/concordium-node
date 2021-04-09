@@ -114,7 +114,7 @@ pub fn make_node_and_sync(
     let regenesis_arc = Arc::new(RwLock::new(regenesis_blocks));
 
     let stats = Arc::new(StatsExportService::new().unwrap());
-    let (node, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc);
+    let (node, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc)?;
 
     spawn(&node, poll, None);
     Ok((node, DeletePermission {
