@@ -63,8 +63,8 @@ impl ConsensusMessage {
 impl fmt::Display for ConsensusMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let party_name = match self.direction {
-            MessageType::Inbound(peer_id, _) => format!("from peer {:?}", peer_id),
-            MessageType::Outbound(Some(peer_id)) => format!("to peer {:?}", peer_id),
+            MessageType::Inbound(peer_id, _) => format!("from peer {}", peer_id),
+            MessageType::Outbound(Some(peer_id)) => format!("to peer {}", peer_id),
             _ => "from our consensus layer".to_owned(),
         };
 
