@@ -82,7 +82,7 @@ runTransactions = do
   txs <- processUngroupedTransactions transactionsInput
   let (Sch.FilteredTransactions{..}, _) =
           Types.runSI
-          (Sch.filterTransactions dummyBlockSize txs)
+          (Sch.filterTransactions dummyBlockSize dummyBlockTimeout txs)
           dummyChainMeta
           maxBound
           maxBound

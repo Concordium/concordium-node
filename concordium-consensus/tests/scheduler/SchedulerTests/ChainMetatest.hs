@@ -53,7 +53,7 @@ testChainMeta :: IO TestResult
 testChainMeta = do
     transactions <- processUngroupedTransactions transactionInputs
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
             chainMeta
             maxBound
             maxBound
