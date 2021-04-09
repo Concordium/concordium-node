@@ -261,7 +261,7 @@ testGroups groups = do
     -- It is only required that the order of 'ts' corresponds to the order in 'groups'.
     ts <- processGroupedTransactions groups
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout ts)
             dummyChainMeta
             maxBlockEnergy
             maxBound

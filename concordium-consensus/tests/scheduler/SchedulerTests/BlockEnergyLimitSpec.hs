@@ -73,7 +73,7 @@ testMaxBlockEnergy = do
     let ts = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 cdi1) : ts' -- dummy arrival time of 0
 
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize ts)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout ts)
             dummyChainMeta
             maxBlockEnergy
             maxBound
