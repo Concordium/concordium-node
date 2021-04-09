@@ -462,15 +462,15 @@ fn update_peer_states(
             ConsensusFfiResponse::InvalidResult => {
                 // Remove the peer since it is incompatible with us.
                 debug!(
-                    "Catching up with peer {:?} resulted in incompatible globalstates, dropping \
-                     and soft-banning",
+                    "Catching up with peer {} resulted in incompatible globalstates, dropping and \
+                     soft-banning",
                     source_peer
                 );
                 node.register_conn_change(ConnChange::ExpulsionByToken(source_peer.to_token()));
             }
             ConsensusFfiResponse::DeserializationError => {
                 debug!(
-                    "The peer {:?} sent a malformed catchup message, dropping and soft-banning",
+                    "The peer {} sent a malformed catchup message, dropping and soft-banning",
                     source_peer
                 );
                 node.register_conn_change(ConnChange::ExpulsionByToken(source_peer.to_token()));

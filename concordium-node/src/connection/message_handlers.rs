@@ -131,7 +131,7 @@ impl Connection {
     }
 
     /// Check whether the connection has completed the handshake.
-    fn is_post_handshake(&self) -> bool { self.remote_peer.self_id.is_some() }
+    pub(crate) fn is_post_handshake(&self) -> bool { self.remote_peer.self_id.is_some() }
 
     fn handle_pong(&self) -> Fallible<()> { self.stats.notify_pong() }
 

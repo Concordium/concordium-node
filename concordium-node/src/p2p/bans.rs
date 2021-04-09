@@ -53,7 +53,7 @@ impl Serial for PersistedBanId {
     fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
         match self {
             PersistedBanId::Ip(addr) => {
-                target.write_u8(0).expect("Writing to memory is infallible."); // ditto
+                target.write_u8(0).expect("Writing to memory is infallible.");
                 addr.serial(target);
             }
         }
