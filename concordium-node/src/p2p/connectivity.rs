@@ -375,10 +375,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
             }
         }
 
-        if read_or_die!(node.connection_handler.soft_bans)
-            .keys()
-            .any(|ip| *ip == BanId::Ip(addr.ip()))
-        {
+        if node.connection_handler.is_soft_banned(addr) {
             warn!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
             return Ok(None);
         }
@@ -442,14 +439,9 @@ pub fn connect(
     }
 
     // Or to soft-banned nodes.
-    {
-        let soft_bans = read_or_die!(node.connection_handler.soft_bans);
-        if soft_bans.get(&BanId::Ip(peer_addr.ip())).is_some()
-            || soft_bans.get(&BanId::Socket(peer_addr)).is_some()
-        {
-            bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
-        }
-    } // release the soft_bans lock
+    if node.connection_handler.is_soft_banned(peer_addr) {
+        bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
+    }
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());

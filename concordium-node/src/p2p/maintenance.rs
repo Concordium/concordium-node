@@ -32,7 +32,7 @@ use crate::{
         peers::check_peers,
     },
     plugins::consensus::{check_peer_states, update_peer_list},
-    spawn_or_die,
+    read_or_die, spawn_or_die,
     stats_export_service::StatsExportService,
     utils, write_or_die,
 };
@@ -160,6 +160,14 @@ impl ConnectionHandler {
             total_received: Default::default(),
             total_sent: Default::default(),
         }
+    }
+
+    /// Check whether the given address is soft-banned.
+    /// NB: This acquires and releases a read lock to the `soft_bans` structure.
+    pub(crate) fn is_soft_banned(&self, addr: SocketAddr) -> bool {
+        let soft_bans = read_or_die!(self.soft_bans);
+        soft_bans.get(&BanId::Ip(addr.ip())).is_some()
+            || soft_bans.get(&BanId::Socket(addr)).is_some()
     }
 }
 

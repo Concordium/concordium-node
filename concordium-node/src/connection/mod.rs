@@ -576,7 +576,7 @@ impl Connection {
         );
 
         self.remote_end_networks.insert(network);
-        ensure!(self.remote_peer.self_id.is_some(), "missing handshake");
+        ensure!(self.is_post_handshake(), "missing handshake");
         write_or_die!(self.handler.buckets())
             .update_network_ids(self.remote_peer, self.remote_end_networks.to_owned());
         Ok(())
@@ -586,7 +586,7 @@ impl Connection {
     pub fn remove_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
         self.remote_end_networks.remove(&network);
 
-        ensure!(self.remote_peer.self_id.is_some(), "missing handshake");
+        ensure!(self.is_post_handshake(), "missing handshake");
         write_or_die!(self.handler.buckets())
             .update_network_ids(self.remote_peer, self.remote_end_networks.to_owned());
         Ok(())
