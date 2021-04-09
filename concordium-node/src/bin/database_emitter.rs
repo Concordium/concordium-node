@@ -19,7 +19,7 @@ use concordium_node::{
     utils,
 };
 use crypto_common::serialize::Serial;
-use failure::{bail, Error};
+use failure::{bail, Fallible, ResultExt};
 use std::{
     fs::File,
     io::prelude::*,
@@ -28,7 +28,7 @@ use std::{
     time::Duration,
 };
 
-fn main() -> Result<(), Error> {
+fn main() -> Fallible<()> {
     let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
     conf.connection.dnssec_disabled = true;
@@ -44,7 +44,8 @@ fn main() -> Result<(), Error> {
         PeerType::Node,
         stats_export_service,
         Arc::new(RwLock::new(vec![])),
-    );
+    )
+    .context("Failed to create the node")?;
 
     spawn(&node, poll, None);
 

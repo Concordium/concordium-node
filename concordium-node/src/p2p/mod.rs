@@ -13,7 +13,7 @@ pub use self::maintenance::{Connections, P2PNode};
 mod tests {
     use crate::{
         common::{p2p_peer::RemotePeerId, PeerType},
-        p2p::bans::BanId,
+        p2p::bans::{BanId, PersistedBanId},
         test_utils::*,
     };
     use failure::Fallible;
@@ -30,35 +30,24 @@ mod tests {
         let to_ban1 = BanId::NodeId(RemotePeerId::from(22usize));
 
         // Insertion by id
-        node.ban_node(to_ban1)?;
+        node.drop_and_maybe_ban_node(to_ban1)?;
         let reply = node.get_banlist()?;
-        assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban1);
+        // bans by id are not persisted.
+        assert_eq!(reply.len(), 0);
 
-        // Duplicates check
-        node.ban_node(to_ban1)?;
-        let reply = node.get_banlist()?;
-        assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban1);
-
-        // Deletion by id
-        node.unban_node(to_ban1)?;
-        let reply = node.get_banlist()?;
-        assert!(reply.is_empty());
-
-        let to_ban2 = BanId::Ip("127.0.0.1".parse()?);
+        let to_ban2 = PersistedBanId::Ip("127.0.0.1".parse()?);
 
         // Insertion by ip
-        node.ban_node(to_ban2)?;
+        node.drop_and_maybe_ban_node(to_ban2.into())?;
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban2);
+        assert_eq!(reply[0], to_ban2.into());
 
         // Duplicates check
-        node.ban_node(to_ban2)?;
+        node.drop_and_maybe_ban_node(to_ban2.into())?;
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban2);
+        assert_eq!(reply[0], to_ban2.into());
 
         // Deletion by ip
         node.unban_node(to_ban2)?;
