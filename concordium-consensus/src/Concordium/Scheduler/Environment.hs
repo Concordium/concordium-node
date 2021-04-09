@@ -17,8 +17,8 @@ import Data.Foldable
 
 import Control.Monad.Cont hiding (cont)
 import Control.Monad.RWS.Strict
-import Control.Monad.Trans.Reader (ReaderT, runReaderT)
-import Control.Monad.Trans.State (StateT, runStateT)
+import Control.Monad.Trans.Reader (ReaderT(..), runReaderT)
+import Control.Monad.Trans.State.Strict (StateT(..), runStateT)
 
 import Lens.Micro.Platform
 
@@ -519,7 +519,7 @@ makeLenses ''TransactionContext
 -- and updating a state of type @s@ to an inner monad @m@.
 type RST r s m = ReaderT r (StateT s m)
 
--- |Unwrap an RST computation as a function.
+-- |Unwrap a RST computation as a function.
 runRST :: RST r s m a -> r -> s -> m (a, s)
 runRST rst r s = flip runStateT s . flip runReaderT r $ rst
 
@@ -692,7 +692,7 @@ defaultSuccess wtc = \ls events -> do
 
 {-# INLINE liftLocal #-}
 liftLocal :: Monad m => m a -> LocalT r m a
-liftLocal m = LocalT (ContT (\k -> (lift . lift) m >>= k))
+liftLocal m = LocalT (ContT (\k -> ReaderT (\r -> StateT (\s -> m >>= \f -> runRST (k f) r s))))
 
 
 instance MonadTrans (LocalT r) where
@@ -856,6 +856,7 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
       case reason of
         BlockEnergy -> outOfBlockEnergy
         TransactionEnergy -> rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
+    -- The lazy 'modify' reduces memory consumption significantly in this case.
     else modify ((energyLeft -~ tick) . (blockEnergyLeft -~ tick))
 
   {-# INLINE rejectTransaction #-}
