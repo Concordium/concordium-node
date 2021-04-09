@@ -22,6 +22,7 @@ import Data.Maybe
 import Data.Word
 import Control.Monad
 import Concordium.TimeMonad
+import Data.Time
 
 import Concordium.Types
 import Concordium.Logger
@@ -557,7 +558,7 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     maxSize <- rpBlockSize <$> getRuntimeParameters
     timeoutDuration <- rpBlockTimeout <$> getRuntimeParameters
     now <- currentTime
-    let timeout = timestampToUTCTime $ addDuration (utcTimeToTimestamp now) timeoutDuration
+    let timeout = addUTCTime (durationToNominalDiffTime timeoutDuration) now
     genData <- getGenesisData
     let maxBlockEnergy = gdMaxBlockEnergy genData
     let context = ContextState{

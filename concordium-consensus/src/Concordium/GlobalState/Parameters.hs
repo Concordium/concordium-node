@@ -77,7 +77,10 @@ data RuntimeParameters = RuntimeParameters {
   -- applies to the blocks produced by this baker, we will still accept blocks
   -- of arbitrary size from other bakers.
   rpBlockSize :: !Int,
-  -- |Timeout of block construction.
+  -- |Timeout of block construction, i.e. the maximum time (in milliseconds) it
+  -- may take to construct a block. After this amount of time, we will stop
+  -- processing transaction groups in `filterTransactions` in Scheduler.hs
+  -- and mark the rest as unprocessed. 
   rpBlockTimeout :: !Duration,
   -- |Treestate storage directory.
   rpTreeStateDir :: !FilePath,
