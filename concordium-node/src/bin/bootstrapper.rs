@@ -50,7 +50,8 @@ fn main() -> Result<(), Error> {
     };
 
     let (node, poll) =
-        P2PNode::new(Some(id), &conf, PeerType::Bootstrapper, stats_export_service, regenesis_arc);
+        P2PNode::new(Some(id), &conf, PeerType::Bootstrapper, stats_export_service, regenesis_arc)
+            .context("Failed to create the network node.")?;
 
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

@@ -2,7 +2,7 @@
 
 use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
-use failure::Fallible;
+use failure::{Fallible, ResultExt};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
 use rand::{prelude::SliceRandom, thread_rng, Rng};
@@ -59,6 +59,8 @@ pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
+    /// Do not persistent bans on startup.
+    pub no_clear_bans: bool,
     pub bootstrap_server: String,
     pub dns_resolvers: Vec<String>,
     pub dnssec_disabled: bool,
@@ -213,18 +215,15 @@ impl P2PNode {
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
         regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
-    ) -> (Arc<Self>, Poll) {
+    ) -> Fallible<(Arc<Self>, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
-            format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
-                warn!("Supplied listen address coulnd't be parsed");
-                format!("0.0.0.0:{}", conf.common.listen_port)
-                    .parse()
-                    .expect("Port not properly formatted. Crashing.")
-            })
+            let ip_addr = addy.parse::<IpAddr>().context(
+                "Supplied listen address could not be parsed. The address must be a valid IP \
+                 address.",
+            )?;
+            SocketAddr::new(ip_addr, conf.common.listen_port)
         } else {
-            format!("0.0.0.0:{}", conf.common.listen_port)
-                .parse()
-                .expect("Port not properly formatted. Crashing.")
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), conf.common.listen_port)
         };
 
         trace!("Creating a new P2PNode");
@@ -257,7 +256,7 @@ impl P2PNode {
         let poll_registry = poll.registry().try_clone().expect("Can't clone the poll registry");
         poll_registry
             .register(&mut server, SELF_TOKEN, Interest::READABLE)
-            .expect("Couldn't register server with poll!");
+            .context("Could not register server with poll!")?;
 
         let own_peer_port = if let Some(own_port) = conf.common.external_port {
             own_port
@@ -288,6 +287,7 @@ impl P2PNode {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
+            no_clear_bans: conf.connection.no_clear_bans,
             bootstrap_server: conf.connection.bootstrap_server.clone(),
             dns_resolvers: utils::get_resolvers(
                 &conf.connection.resolv_conf,
@@ -357,7 +357,7 @@ impl P2PNode {
             .write()
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
-            .unwrap();
+            .context("Could not create or obtain the ban database.")?;
 
         let node = Arc::new(P2PNode {
             poll_registry,
@@ -374,9 +374,11 @@ impl P2PNode {
             peers: Default::default(),
         });
 
-        node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        if !node.config.no_clear_bans {
+            node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        }
 
-        (node, poll)
+        Ok((node, poll))
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
@@ -588,10 +590,11 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 continue;
             }
 
-            // perform socket reads and writes in parallel across connections
             // check for new connections
             for i in 0..events.iter().filter(|event| event.token() == SELF_TOKEN).count() {
-                accept(&node).map_err(|e| error!("{}", e)).ok();
+                if let Err(e) = accept(&node) {
+                    error!("{}", e)
+                }
                 if i == 9 {
                     warn!("too many connection attempts received at once; dropping the rest");
                     break;
@@ -611,6 +614,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 check_peer_states(&node, consensus);
             }
 
+            // perform socket reads and writes in parallel across connections
             pool.install(|| node.process_network_events(&events));
 
             // Run periodic tasks

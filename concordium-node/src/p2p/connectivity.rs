@@ -19,7 +19,11 @@ use crate::{
         WIRE_PROTOCOL_VERSION,
     },
     only_fbs,
-    p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
+    p2p::{
+        bans::{BanId, PersistedBanId},
+        maintenance::attempt_bootstrap,
+        P2PNode,
+    },
     read_or_die, write_or_die,
 };
 
@@ -329,10 +333,22 @@ impl P2PNode {
     }
 }
 
-/// Accept an incoming network connection.
-pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
+/// Attempt to accept an incoming network connection.
+/// - If the connection is from a banned peer return Ok(None).
+/// - If an error occurs, e.g., fail to accept the socket connection, or fail to
+///   register with the poll registry return Err
+/// - Else return the new connection token that can be used to poll for incoming
+///   data.
+pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
+
+    // if we fail to read the database we allow the connection.
+    // This is fine as long as we assume that nobody can corrupt our ban database.
+    if node.is_banned(PersistedBanId::Ip(addr.ip())).unwrap_or(false) {
+        warn!("Connection attempt from a banned IP {}.", addr.ip());
+        return Ok(None);
+    }
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());
@@ -347,17 +363,24 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
             bail!("Too many connections, rejecting attempt from {}", addr);
         }
 
-        if candidates_lock.values().any(|conn| conn.remote_addr() == addr)
-            || conn_read_lock.values().any(|conn| conn.remote_addr() == addr)
-        {
-            bail!("Duplicate connection attempt from {}; rejecting", addr);
+        for conn in candidates_lock.values().chain(conn_read_lock.values()) {
+            if conn.remote_addr().ip() == addr.ip() {
+                if node.config.disallow_multiple_peers_on_ip {
+                    bail!("Already connected to IP {}", addr.ip());
+                } else if conn.remote_addr().port() == addr.port()
+                    || conn.remote_peer.external_port == addr.port()
+                {
+                    bail!("Duplicate connection attempt from {}; rejecting", addr);
+                }
+            }
         }
 
         if read_or_die!(node.connection_handler.soft_bans)
             .keys()
             .any(|ip| *ip == BanId::Ip(addr.ip()))
         {
-            bail!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
+            warn!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
+            return Ok(None);
         }
     }
 
@@ -376,7 +399,7 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let conn = Connection::new(node, socket, token, remote_peer, false)?;
     candidates_lock.insert(conn.token(), conn);
 
-    Ok(token)
+    Ok(Some(token))
 }
 
 /// Connect to another node with the specified address and optionally peer id,
@@ -413,26 +436,31 @@ pub fn connect(
         bail!("Attempted to connect to myself");
     }
 
-    // FIXME: This is linear in the size of the ban list, which is a potential
-    // problem. It's unclear what a realistic number of bans can be, but we
-    // likely need to revise this.
-    if read_or_die!(node.connection_handler.soft_bans)
-        .iter()
-        .any(|(ip, _)| *ip == BanId::Ip(peer_addr.ip()) || *ip == BanId::Socket(peer_addr))
-    {
-        bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
+    // Don't connect to banned IPs.
+    if node.is_banned(PersistedBanId::Ip(peer_addr.ip())).unwrap_or(false) {
+        bail!("Refusing to connect to a banned IP ({})", peer_addr.ip());
     }
+
+    // Or to soft-banned nodes.
+    {
+        let soft_bans = read_or_die!(node.connection_handler.soft_bans);
+        if soft_bans.get(&BanId::Ip(peer_addr.ip())).is_some()
+            || soft_bans.get(&BanId::Socket(peer_addr)).is_some()
+        {
+            bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
+        }
+    } // release the soft_bans lock
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());
 
-    // Don't connect to established peers on a given IP + port
+    // Don't connect to established connections on a given IP + port
     for conn in read_or_die!(node.connections()).values().chain(candidates_lock.values()) {
         if node.config.disallow_multiple_peers_on_ip {
             if conn.remote_addr().ip() == peer_addr.ip() {
                 bail!("Already connected to IP {}", peer_addr.ip());
             }
-        } else if conn.remote_addr() == peer_addr {
+        } else if conn.remote_addr() == peer_addr || conn.remote_peer.external_addr() == peer_addr {
             bail!("Already connected to {}", peer_addr);
         }
     }

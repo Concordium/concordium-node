@@ -274,6 +274,8 @@ pub struct ConnectionConfig {
     pub max_allowed_nodes_percentage: u16,
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_bootstrap_dns: bool,
+    #[structopt(long = "no-clear-bans", help = "Do not clear the ban database on start.")]
+    pub no_clear_bans: bool,
     #[structopt(
         long = "relay-broadcast-percentage",
         help = "The percentage of peers to relay broadcasted messages to",

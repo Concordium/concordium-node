@@ -167,8 +167,8 @@ impl Hash for RemotePeer {
 
 impl RemotePeer {
     /// Converts a remote peer to a peer object suitable for transmitting over
-    /// the netwrok, as long as its id is known, i.e., as long as it is
-    /// post-handshake.
+    /// the network, as long as its id is known, i.e., as long as it is
+    /// post-handshake post-handshake.
     pub fn peer(&self) -> Option<P2PPeer> {
         if let Some(id) = self.self_id {
             Some(P2PPeer {
