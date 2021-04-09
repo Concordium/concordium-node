@@ -1470,8 +1470,6 @@ handleRegisterData wtc regData =
 -- block state).
 -- There is no guarantee for any order in `ftFailed`, `ftFailedCredentials`, `ftUnprocessed`
 -- and `ftUnprocessedCredentials`.
---
--- TODO: We might need to add a real-time timeout at which point we stop processing transactions.
 filterTransactions :: forall m pv. (SchedulerMonad pv m, TimeMonad m)
                    => Integer -- ^Maximum block size in bytes.
                    -> UTCTime -- ^Timeout for block construction. 
