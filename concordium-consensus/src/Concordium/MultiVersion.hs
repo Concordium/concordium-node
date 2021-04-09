@@ -4,6 +4,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -168,7 +169,10 @@ data VersionedConfiguration gsconf finconf (pv :: ProtocolVersion) = VersionedCo
       -- by a thread that holds the global lock.
       vcState :: !(IORef (SkovState (SkovConfig pv gsconf finconf UpdateHandler))),
       -- |The genesis index
-      vcIndex :: GenesisIndex
+      vcIndex :: GenesisIndex,
+      -- |Shutdown the skov. This should only be called by a thread that holds the global lock
+      -- and the configuration should not be used subsequently.
+      vcShutdown :: LogIO ()
     }
 
 -- |'SkovConfig' instantiated for the multi-version runner.
@@ -192,7 +196,8 @@ type VersionedSkovM gsconf finconf pv =
 data EVersionedConfiguration gsconf finconf
     = forall (pv :: ProtocolVersion).
         ( SkovMonad pv (VersionedSkovM gsconf finconf pv),
-          FinalizationMonad (VersionedSkovM gsconf finconf pv)
+          FinalizationMonad (VersionedSkovM gsconf finconf pv),
+          BakerMonad pv (VersionedSkovM gsconf finconf pv)
         ) =>
       EVersionedConfiguration (VersionedConfiguration gsconf finconf pv)
 
@@ -226,6 +231,7 @@ class MultiVersion gsconf finconf where
 instance
     ( forall pv. IsProtocolVersion pv => SkovMonad pv (VersionedSkovM gsconf finconf pv),
       forall pv. IsProtocolVersion pv => FinalizationMonad (VersionedSkovM gsconf finconf pv),
+      forall pv. IsProtocolVersion pv => BakerMonad pv (VersionedSkovM gsconf finconf pv),
       forall pv. IsProtocolVersion pv => TreeStateMonad pv (VersionedSkovM gsconf finconf pv)
     ) =>
     MultiVersion gsconf finconf
@@ -250,6 +256,8 @@ data MultiVersionRunner gsconf finconf = MultiVersionRunner
     { mvConfiguration :: !(MultiVersionConfiguration gsconf finconf),
       mvCallbacks :: !Callbacks,
       mvBaker :: !(Maybe Baker),
+      -- |Thread that periodically purges uncommitted transactions.
+      mvTransactionPurgingThread :: !(MVar ThreadId),
       -- |Vector of states, indexed by the genesis index.
       -- This is only ever updated by extending the vector, and only while
       -- the write lock is held.
@@ -282,11 +290,18 @@ instance MonadLogger (MVR gsconf finconf) where
 -- released.
 withWriteLock :: MVR gsconf finconf a -> MVR gsconf finconf a
 {-# INLINE withWriteLock #-}
-withWriteLock a = MVR $ \mvr@MultiVersionRunner{..} ->
+withWriteLock a = MVR $ \mvr -> withWriteLockIO mvr (runMVR a mvr)
+
+-- |Perform an action while holding the global state write lock.
+-- If the action throws an exception, this ensures that the lock is
+-- released.
+withWriteLockIO :: MultiVersionRunner gsconf finconf -> IO a -> IO a
+{-# INLINE withWriteLockIO #-}
+withWriteLockIO MultiVersionRunner{..} a =
     bracketOnError (takeMVar mvWriteLock) (tryPutMVar mvWriteLock) $ \_ -> do
         tid <- myThreadId
         mvLog Runner LLTrace $ "Acquired global state lock on thread " ++ show tid
-        res <- runMVR a mvr
+        res <- a
         putMVar mvWriteLock ()
         mvLog Runner LLTrace $ "Released global state lock on thread " ++ show tid
         return res
@@ -328,6 +343,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
                         )
                         mvLog
                 vcState <- newIORef st
+                let vcShutdown = shutdownSkov vcContext =<< liftIO (readIORef vcState)
                 let newEConfig :: VersionedConfiguration gsconf finconf pv
                     newEConfig = VersionedConfiguration{..}
                 writeIORef mvVersions (oldVersions `Vec.snoc` newVersion newEConfig)
@@ -344,6 +360,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
 -- new instances of consensus and shutting down the old one (which is still available for queries).
 -- However, if the new protocol is unknown, no update will take place, but the old consensus will
 -- effectively stop accepting blocks.
+-- It is assumed that the thread holds the write lock.
 checkForProtocolUpdate ::
     forall gc fc pv.
     ( MultiVersionStateConfig gc,
@@ -435,10 +452,99 @@ makeMultiVersionRunner
         mvVersions <- newIORef Vec.empty
         mvWriteLock <- newEmptyMVar
         mvCatchUpStatusBuffer <- newMVar BufferEmpty
+        mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
         runMVR (newGenesis genesis) mvr
         putMVar mvWriteLock ()
+        startTransactionPurgingThread mvr
         return mvr
+
+-- |Start a thread to periodically purge uncommitted transactions.
+-- This is only intended to be called once, during 'makeMultiVersionRunner'.
+-- Calling it a second time is expected to deadlock.
+startTransactionPurgingThread :: MultiVersionRunner gsconf finconf -> IO ()
+startTransactionPurgingThread mvr@MultiVersionRunner{..} =
+    putMVar mvTransactionPurgingThread <=< forkIO $
+        ( do
+            mvLog Runner LLInfo "Transaction purging thread started."
+            forever $ do
+                threadDelay delay
+                mvLog Runner LLTrace "Purging transactions."
+                withWriteLockIO mvr $ do
+                    EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
+                    runMVR (liftSkovUpdate vc purgeTransactions) mvr
+        )
+            `finally` mvLog Runner LLInfo "Transaction purging thread stopped."
+  where
+    delay = rpTransactionsPurgingDelay (mvcRuntimeParameters mvConfiguration) * 1_000_000
+
+startBaker :: MultiVersionRunner gsconf finconf -> IO ()
+startBaker MultiVersionRunner{mvBaker = Nothing, ..} =
+    mvLog
+        Runner
+        LLError
+        "Attempted to start baker thread, but consensus was started without baker credentials."
+startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
+    _ <- forkOS $ do
+        tid <- myThreadId
+        started <- tryPutMVar bakerThread tid
+        if started
+            then do
+                mvLog Runner LLInfo "Starting baker thread"
+                bakerLoop 0 `finally` mvLog Runner LLInfo "Exiting baker thread"
+            else mvLog Runner LLInfo "Starting baker thread aborted: baker is already running"
+    -- This synchronises on the baker MVar to ensure that a baker should definitely be
+    -- running before startBaker returns.
+    modifyMVarMasked_ bakerThread return
+  where
+    bakerLoop :: Slot -> IO ()
+    bakerLoop slot = do
+        (genIndex, res) <-
+            withWriteLockIO mvr $ do
+                EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
+                (vcIndex vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity slot)) mvr
+        case res of
+            BakeSuccess slot' block -> do
+                broadcastBlock mvCallbacks genIndex block
+                bakerLoop slot'
+            BakeWaitUntil slot' ts -> do
+                now <- utcTimeToTimestamp <$> currentTime
+                when (now < ts) $ threadDelay $ fromIntegral (tsMillis (ts - now)) * 1_000
+                bakerLoop slot'
+            BakeShutdown -> do
+                -- Note that on a successful protocol update this should not occur because a new
+                -- genesis should be started up when the old one is shut down within the same
+                -- critical region. i.e. while the write lock is held.
+                -- If the protocol update was unsuccessful (i.e. we do not know how to continue)
+                -- then exiting the baker thread is the appropriate behaviour
+                mvLog Runner LLInfo "Consensus is shut down; baking will terminate."
+                -- Since we are exiting the baker thread without being killed, we drain the MVar.
+                -- This may not be necessary, but should ensure that the thread can be garbage
+                -- collected.
+                void $ takeMVar bakerThread
+
+-- |Stop the baker thread associated with a 'MultiVersionRunner'.
+stopBaker :: MultiVersionRunner gsconf finconf -> IO ()
+stopBaker MultiVersionRunner{mvBaker = Nothing, ..} =
+    mvLog
+        Runner
+        LLError
+        "Attempted to stop baker thread, but consensus was started without baker credentials."
+stopBaker MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
+    mask_ $ tryTakeMVar bakerThread >>= \case
+        Nothing -> mvLog Runner LLWarning "Attempted to stop baker thread, but it was not running."
+        Just thrd -> killThread thrd
+
+shutdownMultiVersionRunner :: MultiVersionRunner gsconf finconf -> IO ()
+shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
+    -- Kill the baker thread, if any.
+    forM_ mvBaker $ \Baker{..} -> tryTakeMVar bakerThread >>= mapM_ killThread
+    -- Kill the transaction purging thread, if any.
+    tryTakeMVar mvTransactionPurgingThread >>= mapM_ killThread
+    -- Acquire the write lock. This prevents further updates, as they will block.
+    takeMVar mvWriteLock
+    versions <- readIORef mvVersions
+    runLoggerT (forM_ versions $ \(EVersionedConfiguration vc) -> vcShutdown vc) mvLog
 
 -- |Lift a skov action to the 'MVR' monad, running it on a
 -- particular 'VersionedConfiguration'. Note that this does not
@@ -689,14 +795,13 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
 -- genesis index, as well as the catch-up request message serialized with its version.
 getCatchUpRequest :: forall gsconf finconf. MVR gsconf finconf (GenesisIndex, LBS.ByteString)
 getCatchUpRequest = do
-        mvr <- ask
-        vvec <- liftIO $ readIORef $ mvVersions mvr
-        case Vec.last vvec of
-            (EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
-                st <- liftIO $ readIORef $ vcState vc
-                cus <- evalSkovT (getCatchUpStatus @pv True) (mvrSkovHandlers vc mvr) (vcContext vc) st
-                return (fromIntegral (Vec.length vvec), runPutLazy $ putVersionedCatchUpStatus cus)
-
+    mvr <- ask
+    vvec <- liftIO $ readIORef $ mvVersions mvr
+    case Vec.last vvec of
+        (EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
+            st <- liftIO $ readIORef $ vcState vc
+            cus <- evalSkovT (getCatchUpStatus @pv True) (mvrSkovHandlers vc mvr) (vcContext vc) st
+            return (fromIntegral (Vec.length vvec), runPutLazy $ putVersionedCatchUpStatus cus)
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.

@@ -23,7 +23,7 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
 import Concordium.Birk.Bake
-import Concordium.Constants (defaultEarlyBlockThreshold)
+import Concordium.Constants (defaultEarlyBlockThreshold, defaultMaxBakingDelay)
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
 import Concordium.ID.Types
@@ -216,6 +216,7 @@ data StartResult
     | StartIOException
     | StartInitException InitException
 
+-- |Convert a 'StartResult' to an 'Int64'.
 toStartResult :: StartResult -> Int64
 toStartResult =
     \case
@@ -233,6 +234,7 @@ toStartResult =
                 GenesisBlockIncorrect _ -> 9
                 DatabaseInvariantViolation _ -> 10
 
+-- |Catch exceptions which may occur at start up and return an appropriate exit code.
 handleStartExceptions :: LogMethod IO -> IO StartResult -> IO Int64
 handleStartExceptions logM c =
     toStartResult
@@ -371,6 +373,7 @@ startConsensus
             RuntimeParameters
                 { rpBlockSize = fromIntegral maxBlock,
                   rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
+                  rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
@@ -479,10 +482,32 @@ startConsensusPassive
             RuntimeParameters
                 { rpBlockSize = fromIntegral maxBlock,
                   rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
+                  rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
                   rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
                   rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay
                 }
+
+-- |Shut down consensus, stopping any baker thread if necessary.
+-- The pointer is not valid after this function returns.
+stopConsensus :: StablePtr ConsensusRunner -> IO ()
+stopConsensus cptr = mask_ $ do
+    ConsensusRunner mvr <- deRefStablePtr cptr
+    MV.shutdownMultiVersionRunner mvr
+    freeStablePtr cptr
+
+-- |Start the baker thread.  Calling this mare than once does not start additional baker threads.
+startBaker :: StablePtr ConsensusRunner -> IO ()
+startBaker cptr = mask_ $ do
+    ConsensusRunner mvr <- deRefStablePtr cptr
+    MV.startBaker mvr
+
+-- |Stop a baker thread.  The baker thread may be restarted by calling 'startBaker'.
+-- This does not otherwise affect the consensus.
+stopBaker :: StablePtr ConsensusRunner -> IO ()
+stopBaker cptr = mask_ $ do
+    ConsensusRunner mvr <- deRefStablePtr cptr
+    MV.stopBaker mvr
 
 -- * Receive functions
 
@@ -635,6 +660,10 @@ receiveCatchUpStatus cptr src genIndex cstr len limit cbk =
                 let catchUpCallback = callDirectMessageCallback cbk src
                 runMVR (MV.receiveCatchUpStatus genIndex bs CatchUpConfiguration{..}) mvr
 
+-- |Get a catch-up status message for requesting catch-up with peers.
+-- The genesis index and string pointer are loaded into the given pointers.
+-- The return value is the length of the string.
+-- The string should be freed by calling 'freeCStr'.
 getCatchUpStatus ::
     -- |Consensus pointer
     StablePtr ConsensusRunner ->
@@ -647,7 +676,7 @@ getCatchUpStatus cptr genIndexPtr resPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     (genIndex, resBS) <- runMVR MV.getCatchUpRequest mvr
     poke genIndexPtr genIndex
-    poke resPtr =<<  toCString resBS
+    poke resPtr =<< toCString resBS
     return (LBS.length resBS)
 
 -- * Queries
@@ -1048,9 +1077,9 @@ foreign export ccall
         Ptr (StablePtr ConsensusRunner) ->
         IO Int64
 
--- foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
--- foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
--- foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
+foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
+foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
+foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall receiveBlock :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
@@ -1061,7 +1090,12 @@ foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO 
 foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
 foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 
--- foreign export ccall getCatchUpStatus :: StablePtr ConsensusRunner -> IO CString
+foreign export ccall
+    getCatchUpStatus ::
+        StablePtr ConsensusRunner ->
+        Ptr GenesisIndex ->
+        Ptr CString ->
+        IO Int64
 foreign export ccall
     receiveCatchUpStatus ::
         StablePtr ConsensusRunner ->

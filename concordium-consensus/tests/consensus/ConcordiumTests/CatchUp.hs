@@ -117,7 +117,7 @@ initialiseStatesDictator n = do
         res <- liftIO $ mapM (\(bid, binfo, acct, kp) -> do
                                 let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                                 let config = SkovConfig
-                                        (MTMBConfig defaultRuntimeParameters gen)
+                                        (MTMBConfig defaultRuntimeParameters{rpEarlyBlockThreshold=maxBound} gen)
                                         (ActiveFinalization fininst)
                                         NoHandler
                                 (initCtx, initState) <- liftIO $ runSilentLogger (initialiseSkov config)

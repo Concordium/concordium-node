@@ -93,32 +93,6 @@ getFinalizationState _ _ (gsCtx, gsState) mInst = fst <$> evalRWST (runGlobalSta
   where comp :: GlobalState pv c (FinalizationState timer)
         comp = recoverFinalizationState mInst
 
-{-
--- |An instance @c@ of 'SkovConfiguration' defines a configuration for
--- executing the 'SkovT' monad.
-class (
-        forall pv. HasGlobalStateContext (SkovGSContext c pv) (SkovContext c pv),
-        forall pv. HasGlobalState (SkovGSState c pv) (SkovState c pv)
-        ) => SkovConfiguration c where
-    -- |The type of contexts (i.e. read only data) for the configuration type.
-    data SkovContext c pv
-    -- |The type of states for the configuration type.
-    data SkovState c pv
-    -- |A type representing the global state part of 'SkovState'.
-    -- We require 'HasGlobalState (SkovGSState c) (SkovState c)'.
-    type SkovGSState c pv
-    -- |A type representing the global state context part of 'SkovContext'.
-    -- We require 'HasGlobalStateContext (SkovGSContext c) (SkovContext c)'.
-    type SkovGSContext c pv
-    -- |A type representing the log context of 'SkovContext'. For the moment this is only
-    -- (optionally) the index of transactions per account.
-    type SkovLogContext c pv
-    -- |Create an initial context and state from a given configuration.
-    initialiseSkov :: c -> LogIO (SkovContext c pv, SkovState c pv)
-    -- |Free any resources when we are done with the context and state.
-    shutdownSkov :: SkovContext c pv -> SkovState c pv -> LogIO ()
--}
-
 class HandlerConfig handlerconfig where
     type HCContext handlerconfig
     type HCState handlerconfig
@@ -424,6 +398,7 @@ instance (
     {- - INLINE handleCatchUpStatus - -}
     handleCatchUpStatus = doHandleCatchUp
     terminateSkov = doTerminateSkov
+    purgeTransactions = doPurgeTransactions
 
 class (Monad m, HandlerConfig c) => HandlerConfigHandlers c m | m -> c where
     handleBlock :: BlockPointerType m -> m ()

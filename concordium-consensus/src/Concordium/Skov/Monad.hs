@@ -141,7 +141,8 @@ data MessageType
     
 class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m -> pv where
     -- |Store a block in the block table and add it to the tree
-    -- if possible.
+    -- if possible. This also checks that the block is not early in the sense that its received
+    -- time predates its slot time by more than the early block threshold.
     storeBlock :: PendingBlock -> m UpdateResult
     -- |Add a transaction to the transaction table.
     receiveTransaction :: BlockItem -> m UpdateResult
@@ -159,6 +160,9 @@ class (SkovQueryMonad pv m, TimeMonad m, MonadLogger m) => SkovMonad pv m | m ->
     -- |Clean up the Skov state once it is shut down (i.e. a protocol update has
     -- occurred). Returns a list of non-finalized transactions.
     terminateSkov :: m [BlockItem]
+    -- |Purge uncommitted transactions from the transaction table.  This can be called
+    -- periodically to clean up transactions that are not committed to any block.
+    purgeTransactions :: m ()
 
 
 instance (Monad (t m), MonadTrans t, SkovQueryMonad pv m) => SkovQueryMonad pv (MGSTrans t m) where
@@ -214,6 +218,7 @@ instance (MonadLogger (t m), MonadTrans t, SkovMonad pv m) => SkovMonad pv (MGST
     trustedFinalize = lift . trustedFinalize
     handleCatchUpStatus peerCUS = lift . handleCatchUpStatus peerCUS
     terminateSkov = lift terminateSkov
+    purgeTransactions = lift purgeTransactions
     {- - INLINE storeBlock - -}
     {- - INLINE receiveTransaction - -}
     {- - INLINE trustedFinalize - -}

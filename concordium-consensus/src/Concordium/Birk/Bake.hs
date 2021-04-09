@@ -1,7 +1,9 @@
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE
     DeriveGeneric, OverloadedStrings, UndecidableInstances, MonoLocalBinds, ScopedTypeVariables #-}
 module Concordium.Birk.Bake(
   BakerIdentity(..),
+  BakeResult(..),
   bakerSignPublicKey,
   bakerElectionPublicKey,
   validateBakerKeys,
@@ -11,7 +13,7 @@ import GHC.Generics
 import Control.Monad.Trans.Maybe
 import Control.Monad.Trans
 import Control.Monad
-
+import Data.ByteString(ByteString)
 import Data.Serialize
 import Data.Aeson(FromJSON, parseJSON, withObject, (.:))
 import Data.List (foldl')
@@ -253,6 +255,54 @@ doBakeForSlot ident@BakerIdentity{..} slot = runMaybeT $ do
 
     return newbp
 
+-- |Result of attempting to bake a block.
+data BakeResult
+    = -- |A block was successfully baked, at the given slot. The serialized, versioned block
+      -- is returned.
+      BakeSuccess !Slot !ByteString
+    | -- |We have attempted to bake up to the specified slot; try again after the timestamp.
+      BakeWaitUntil !Slot !Timestamp
+    | -- |The consensus is shut down, so we cannot bake.
+      BakeShutdown
+
+-- |Try to bake for a slot later than the given slot, up to the current slot.
+doTryBake :: forall pv m.
+    (FinalizationMonad m, SkovMonad pv m, TreeStateMonad pv m, MonadIO m, OnSkov m) =>
+    -- |Baker identity
+    BakerIdentity ->
+    -- |Last slot that we attempted to bake for
+    Slot ->
+    m BakeResult
+doTryBake bid lastSlot = unlessShutdown $ do
+    lastFinSlot <- getLastFinalizedSlot
+    curSlot <- getCurrentSlot
+    slotDuration <- gdSlotDuration <$> TS.getGenesisData
+    maxBakingDelay <- rpMaxBakingDelay <$> TS.getRuntimeParameters
+    -- Determine the maximum number of slots in the past we can bake for.
+    let maxDelaySlots = Slot $ durationMillis maxBakingDelay `div` durationMillis slotDuration
+    -- Determine the oldest slot that we could bake for given that we can only bake maxDelaySlots
+    -- in the past. This avoids underflow. We can never bake for slot 0.
+    let oldestViableSlot = if curSlot <= maxDelaySlots then 1 else curSlot - maxDelaySlots
+    -- The starting slot is the minimum slot that is at least the oldest viable slot and 
+    -- greater than both the last finalized slot and lost slot baked for.
+    let startSlot = max oldestViableSlot (max lastFinSlot lastSlot + 1)
+    -- Try baking from the candidate slot up to the current slot.
+    let bakeLoop candidate
+            | candidate > curSlot = do
+                ts <- getSlotTimestamp (curSlot + 1)
+                return $ BakeWaitUntil curSlot ts
+            | otherwise =
+                doBakeForSlot bid candidate >>= \case
+                    Nothing -> bakeLoop (candidate + 1)
+                    Just block -> return $ BakeSuccess candidate $ runPut $
+                      putVersionedBlock (protocolVersion @pv) block
+    bakeLoop startSlot
+  where
+    unlessShutdown a =
+        isShutDown >>= \case
+            True -> return BakeShutdown
+            False -> a
+
 class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- |Create a block pointer for the given slot.
     -- This function is in charge of accumulating the pending transactions and
@@ -260,7 +310,10 @@ class (SkovMonad pv m, FinalizationMonad m) => BakerMonad pv m where
     -- pending transaction table and block table. It will also update the focus block
     -- to the newly created block.
     bakeForSlot :: BakerIdentity -> Slot -> m (Maybe (BlockPointerType m))
+    -- |Try to bake for a slot later than the given slot, up to the current slot.
+    tryBake :: BakerIdentity -> Slot -> m BakeResult
 
 instance (FinalizationMonad (SkovT pv h c m), MonadIO m, SkovMonad pv (SkovT pv h c m), TreeStateMonad pv (SkovT pv h c m), OnSkov (SkovT pv h c m)) =>
         BakerMonad pv (SkovT pv h c m) where
     bakeForSlot = doBakeForSlot
+    tryBake = doTryBake
