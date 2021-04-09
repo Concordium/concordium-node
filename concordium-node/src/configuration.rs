@@ -196,6 +196,12 @@ pub struct BakerConfig {
     )]
     pub maximum_block_size: u32,
     #[structopt(
+        long = "block-construction-timeout",
+        help = "Block construction timeout in milliseconds",
+        default_value = "3000"
+    )]
+    pub block_construction_timeout: u32,
+    #[structopt(
         long = "transaction-insertions-before-purge",
         help = "Number of transaction insertions between purges on the transaction table",
         default_value = "1000"

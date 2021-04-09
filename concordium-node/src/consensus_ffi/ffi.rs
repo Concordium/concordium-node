@@ -409,11 +409,11 @@ extern "C" {
 // TODO : Simplify arguments to function, or group with struct
 #[allow(clippy::too_many_arguments)]
 pub fn get_consensus_ptr(
-    max_block_size: u64,
-    block_construction_timeout: u64,
-    insertions_before_purging: u64,
-    transaction_keep_alive: u64,
-    transactions_purging_delay: u64,
+    max_block_size: u32,
+    block_construction_timeout: u32,
+    insertions_before_purging: u32,
+    transaction_keep_alive: u32,
+    transactions_purging_delay: u32,
     genesis_data: Vec<u8>,
     private_data: Option<Vec<u8>>,
     maximum_log_level: ConsensusLogLevel,
