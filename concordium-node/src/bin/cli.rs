@@ -12,7 +12,7 @@ use mio::Poll;
 use parking_lot::Mutex as ParkingMutex;
 
 use concordium_node::{
-    common::{P2PNodeId, PeerType},
+    common::PeerType,
     configuration as config,
     consensus_ffi::{
         blockchain_types::BlockHash,
@@ -225,43 +225,30 @@ fn instantiate_node(
     stats_export_service: Arc<StatsExportService>,
     regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
 ) -> Fallible<(Arc<P2PNode>, Poll)> {
-    let node_id = match conf.common.id.clone() {
-        None => match app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID) {
-            None => {
-                let new_id: P2PNodeId = rand::thread_rng().gen();
-                Some(new_id.to_string())
-            }
-            Some(id) => Some(id),
-        },
-        Some(id) => Some(id),
-    };
-
-    if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, node_id.clone()) {
-        error!("Failed to persist own node id");
-    };
-
-    match conf.common.id.clone().map_or(
-        app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID),
-        |id| {
-            if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(id.clone())) {
-                error!("Failed to persist own node id");
-            };
-            Some(id)
-        },
-    ) {
-        Some(id) => Some(id),
+    // If the node id is supplied on the command line (in the conf argument) use it.
+    // Otherwise try to look it up from the persistent config.
+    let node_id = match conf.common.id {
         None => {
-            let new_id: P2PNodeId = rand::thread_rng().gen();
-            if !app_prefs
-                .set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(new_id.to_string()))
-            {
-                error!("Failed to persist own node id");
-            };
-            Some(new_id.to_string())
+            let maybe_id =
+                app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID).context(
+                    "Could not read ID from persistent config.\nFix or delete the \
+                     `main.config.json` file in the configuration directory.",
+                )?;
+            // we generate a fresh id here if it is not already present so that it can be
+            // stored in the persistent config, even though this is duplicating
+            // the logic from the node.
+            maybe_id.unwrap_or_else(|| rand::thread_rng().gen())
         }
+        Some(id) => id,
     };
 
-    P2PNode::new(node_id, &conf, PeerType::Node, stats_export_service, regenesis_arc)
+    // Failing to persist the node id does not stop the node starting.
+    // This failure is unlikely.
+    if !app_prefs.set_config(config::APP_PREFERENCES_PERSISTED_NODE_ID, Some(node_id)) {
+        error!("Failed to persist own node id.");
+    };
+
+    P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {
