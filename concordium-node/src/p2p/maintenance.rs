@@ -237,31 +237,37 @@ impl P2PNode {
         trace!("Creating a new P2PNode");
 
         let ip = if let Some(ref addy) = conf.common.listen_address {
-            IpAddr::from_str(addy)
-                .unwrap_or_else(|_| P2PNode::get_ip().expect("Couldn't retrieve my own ip"))
+            IpAddr::from_str(addy).context("Could not parse the provided listen address.")?
         } else {
-            P2PNode::get_ip().expect("Couldn't retrieve my own ip")
+            P2PNode::get_ip().ok_or_else(|| {
+                format_err!("Could not compute my own ip. Use `--listen-address` to specify it.")
+            })?
         };
 
         let id = if let Some(s) = supplied_id {
             if s.chars().count() != 16 {
-                panic!(
+                bail!(
                     "Incorrect ID specified; expected a zero-padded, hex-encoded u64 that's 16 \
                      characters long."
                 );
             } else {
-                P2PNodeId::from_str(&s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
+                P2PNodeId::from_str(&s).context("The provided PeerId is malformed.")?
             }
         } else {
             rand::thread_rng().gen::<P2PNodeId>()
         };
 
         info!("My Node ID is {}", id);
-        debug!("Listening on {}:{}", ip, conf.common.listen_port);
+        info!("Listening on {}:{}", ip, conf.common.listen_port);
 
-        let poll = Poll::new().expect("Couldn't create poll");
-        let mut server = TcpListener::bind(addr).expect("Couldn't listen on port");
-        let poll_registry = poll.registry().try_clone().expect("Can't clone the poll registry");
+        let poll =
+            Poll::new().context("Could not create the poll to listen for incoming connections.")?;
+        let mut server = TcpListener::bind(addr).context(format!(
+            "Could not listen on the given listen-port ({}).",
+            conf.common.listen_port
+        ))?;
+        let poll_registry =
+            poll.registry().try_clone().context("Could not clone the poll registry.")?;
         poll_registry
             .register(&mut server, SELF_TOKEN, Interest::READABLE)
             .context("Could not register server with poll!")?;

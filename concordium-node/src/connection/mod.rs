@@ -691,7 +691,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending a PeerList to peer {:?}", requestor);
+            debug!("Sending a PeerList to peer {}", requestor);
 
             let mut serialized = Vec::with_capacity(256);
             only_fbs!(resp.serialize(&mut serialized)?);
