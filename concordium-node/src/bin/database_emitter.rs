@@ -39,7 +39,7 @@ fn main() -> Fallible<()> {
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     let (node, poll) = P2PNode::new(
-        conf.common.id.clone(),
+        conf.common.id,
         &conf,
         PeerType::Node,
         stats_export_service,

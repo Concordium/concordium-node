@@ -1,16 +1,18 @@
 //! The client's parameters and constants used by other modules.
 
 use crate::{
+    common::P2PNodeId,
     connection::DeduplicationHashAlgorithm,
     network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
 };
 use app_dirs2::*;
-use failure::Fallible;
+use failure::{Fallible, ResultExt};
 use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 use structopt::{clap::AppSettings, StructOpt};
 
@@ -401,7 +403,7 @@ pub struct CommonConfig {
         help = "Set forced node id (64 bit unsigned integer in zero padded HEX. Must be 16 \
                 characters long)"
     )]
-    pub id: Option<String>,
+    pub id: Option<P2PNodeId>,
     #[structopt(
         long = "listen-port",
         short = "p",
@@ -766,7 +768,7 @@ impl AppPreferences {
                 _ => panic!("Can't write to config file!"),
             },
         };
-        new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION.to_string()));
+        new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));
         new_prefs
     }
 
@@ -777,9 +779,9 @@ impl AppPreferences {
     }
 
     /// Add a piece of config to the config map.
-    pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
+    pub fn set_config<X: ToString>(&mut self, key: &str, value: Option<X>) -> bool {
         match value {
-            Some(val) => self.preferences_map.insert(key.to_string(), val),
+            Some(val) => self.preferences_map.insert(key.to_string(), val.to_string()),
             _ => self.preferences_map.remove(&key.to_string()),
         };
         let file_path =
@@ -802,7 +804,19 @@ impl AppPreferences {
     }
 
     /// Get a piece of config from the config map.
-    pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
+    /// If the value is not present return Ok(None), if it is present, but
+    /// cannot be parsed as the requested type return an error.
+    pub fn get_config<X: FromStr<Err = failure::Error>>(&self, key: &str) -> Fallible<Option<X>> {
+        match self.preferences_map.get(key) {
+            Some(x_str) => {
+                let x = X::from_str(x_str).context(
+                    "Cannot parse value from the persistent configuration as the requried type.",
+                )?;
+                Ok(Some(x))
+            }
+            None => Ok(None),
+        }
+    }
 
     /// Returns the path to the application directory.
     pub fn get_user_app_dir(&self) -> &Path { &self.override_data_dir }
