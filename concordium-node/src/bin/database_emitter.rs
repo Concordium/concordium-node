@@ -57,7 +57,8 @@ fn main() -> Fallible<()> {
         ) {
             Ok(addrs) => {
                 for addr in addrs {
-                    let _ = connect(&node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
+                    let _ = connect(&node, PeerType::Node, addr, None, false)
+                        .map_err(|e| error!("{}", e));
                 }
             }
             Err(err) => error!("Can't parse configured addresses to connect to: {}", err),

@@ -33,7 +33,7 @@ use concordium_node::{
     rpc::RpcServerImpl,
     spawn_or_die,
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
-    utils::{self, get_config_and_logging_setup},
+    utils::get_config_and_logging_setup,
 };
 use rand::Rng;
 use std::{
@@ -189,7 +189,7 @@ async fn main() -> Fallible<()> {
 
     // Connect to nodes (args and bootstrap)
     if !conf.cli.no_network {
-        establish_connections(&conf, &node);
+        establish_connections(&conf, &node)?;
     }
 
     // start baking
@@ -251,26 +251,21 @@ fn instantiate_node(
     P2PNode::new(Some(node_id), &conf, PeerType::Node, stats_export_service, regenesis_arc)
 }
 
-fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) {
+fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> Fallible<()> {
     info!("Starting the P2P layer");
-    connect_to_config_nodes(&conf.connection, node);
+    connect_to_config_nodes(node)?;
     if !conf.connection.no_bootstrap_dns {
         attempt_bootstrap(node);
     }
+    Ok(())
 }
 
-fn connect_to_config_nodes(conf: &config::ConnectionConfig, node: &Arc<P2PNode>) {
-    for connect_to in &conf.connect_to {
-        match utils::parse_host_port(&connect_to, &node.config.dns_resolvers, conf.dnssec_disabled)
-        {
-            Ok(addrs) => {
-                for addr in addrs {
-                    let _ = connect(node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
-                }
-            }
-            Err(err) => error!("Can't parse configured addresses to connect to: {}", err),
-        }
-    }
+fn connect_to_config_nodes(node: &Arc<P2PNode>) -> Fallible<()> {
+    node.config
+        .favorite_addresses
+        .iter()
+        .map(|&addr| connect(node, PeerType::Node, addr, None, false))
+        .collect()
 }
 
 fn start_consensus_message_threads(

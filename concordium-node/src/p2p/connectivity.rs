@@ -376,9 +376,11 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
 /// registering it as the given peer type.
 pub fn connect(
     node: &Arc<P2PNode>,
-    peer_type: PeerType,
-    peer_addr: SocketAddr,
-    peer_id: Option<P2PNodeId>,
+    peer_type: PeerType, /* type of the peer we are connecting to. This is a our expectation of
+                          * what the peer will be, not what it actually is. */
+    peer_addr: SocketAddr,      // address to connect to
+    peer_id: Option<P2PNodeId>, // id of the peer we are connecting to, if known
+    respect_max_peers: bool,    // whether this should respect the maximum peeers setting or not.
 ) -> Fallible<()> {
     debug!(
         "Attempting to connect to {}{}",
@@ -390,7 +392,7 @@ pub fn connect(
         }
     );
 
-    if peer_type == PeerType::Node {
+    if respect_max_peers && peer_type == PeerType::Node {
         let current_peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
         if current_peer_count >= node.config.max_allowed_nodes {
             bail!(
@@ -512,15 +514,23 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     }
 
     // if the number of peers exceeds the desired value, close a random selection of
-    // post-handshake connections to lower it
+    // post-handshake non-favorite connections to lower it
     if peer_type == PeerType::Node {
         let max_allowed_nodes = node.config.max_allowed_nodes;
         let peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
         if peer_count > max_allowed_nodes {
+            // drop connections to any non-favorite peers.
             let mut rng = rand::thread_rng();
             let to_drop = read_or_die!(node.connections())
-                .keys()
-                .copied()
+                .iter()
+                .filter_map(|(&token, conn)| {
+                    // only consider non-favorite connections for removal
+                    if node.is_favorite_connection(conn) {
+                        None
+                    } else {
+                        Some(token)
+                    }
+                })
                 .choose_multiple(&mut rng, (peer_count - max_allowed_nodes) as usize);
 
             node.remove_connections(&to_drop);
@@ -536,7 +546,17 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
         }
     }
 
+    // Try to connect to any favorite peers we are not connected to.
+    for favorite in node.unconnected_favorites() {
+        if let Err(e) = connect(node, PeerType::Node, favorite, None, false) {
+            warn!("Cannot establish connection to a named peer {} due to {}", favorite, e)
+        }
+    }
+
     // reconnect to bootstrappers after a specified amount of time
+    // It's unclear whether we should always be doing this, even if we have enough
+    // peer. But the current logic is to try to bootstrap again, and if we have
+    // too many peers drop a subset of them.
     if !node.config.no_bootstrap_dns
         && peer_type == PeerType::Node
         && curr_stamp >= node.get_last_bootstrap() + node.config.bootstrapping_interval * 1000
