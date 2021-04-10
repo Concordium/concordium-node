@@ -38,7 +38,11 @@ impl std::str::FromStr for P2PNodeId {
     fn from_str(s: &str) -> Fallible<Self> {
         match PeerId::from_str_radix(s, 16) {
             Ok(n) => Ok(P2PNodeId(n)),
-            Err(e) => bail!("Invalid Node Id ({})", e),
+            Err(e) => bail!(
+                "Invalid Node Id: ({}). The Node Id should be a hexadecimal string at most 16 \
+                 characters long.",
+                e
+            ),
         }
     }
 }

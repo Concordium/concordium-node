@@ -216,9 +216,11 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    /// Creates a new node and its Poll.
+    /// Creates a new node and its Poll. If the node id is provided the node
+    /// will be started with that Peer ID. If it is not a fresh one will be
+    /// generated.
     pub fn new(
-        supplied_id: Option<String>,
+        supplied_id: Option<P2PNodeId>,
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
@@ -244,18 +246,7 @@ impl P2PNode {
             })?
         };
 
-        let id = if let Some(s) = supplied_id {
-            if s.chars().count() != 16 {
-                bail!(
-                    "Incorrect ID specified; expected a zero-padded, hex-encoded u64 that's 16 \
-                     characters long."
-                );
-            } else {
-                P2PNodeId::from_str(&s).context("The provided PeerId is malformed.")?
-            }
-        } else {
-            rand::thread_rng().gen::<P2PNodeId>()
-        };
+        let id = supplied_id.unwrap_or_else(|| rand::thread_rng().gen::<P2PNodeId>());
 
         info!("My Node ID is {}", id);
         info!("Listening on {}:{}", ip, conf.common.listen_port);
