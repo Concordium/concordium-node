@@ -38,7 +38,7 @@ use crate::{
 };
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     mem,
     net::{
         IpAddr::{self, V4, V6},
@@ -59,13 +59,17 @@ pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
-    /// Do not persistent bans on startup.
+    /// Do not clear persistent bans on startup.
     pub no_clear_bans: bool,
     pub bootstrap_server: String,
     pub dns_resolvers: Vec<String>,
     pub dnssec_disabled: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
+    /// Nodes to try and keep the connections to.
+    /// The IP addresses are resolved on startup and during execution we
+    /// only keep them instead of the domain name.
+    pub favorite_addresses: HashSet<SocketAddr>,
     pub max_allowed_nodes: u16,
     pub relay_broadcast_percentage: f64,
     pub poll_interval: u64,
@@ -271,19 +275,21 @@ impl P2PNode {
             addr: SocketAddr::new(ip, own_peer_port),
         };
 
+        let dns_resolvers =
+            utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
+        let favorite_addresses = parse_config_nodes(&conf.connection, &dns_resolvers)?;
+
         let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
             no_clear_bans: conf.connection.no_clear_bans,
             bootstrap_server: conf.connection.bootstrap_server.clone(),
-            dns_resolvers: utils::get_resolvers(
-                &conf.connection.resolv_conf,
-                &conf.connection.dns_resolver,
-            ),
+            dns_resolvers,
             dnssec_disabled: conf.connection.dnssec_disabled,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
+            favorite_addresses,
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 max
             } else {
@@ -383,6 +389,40 @@ impl P2PNode {
     #[inline]
     pub fn conn_candidates(&self) -> &Mutex<Connections> {
         &self.connection_handler.conn_candidates
+    }
+
+    /// Check whether the given connection is one of the connections to the
+    /// favorite nodes.
+    /// Favorite nodes are identified by the pair of IP and port.
+    pub fn is_favorite_connection(&self, conn: &Connection) -> bool {
+        // Because it can be that either we are connected to them, or they are connected
+        // to us, we check both the address we are connected to them, as well as
+        // the external port the peer advertises. This latter is not great if it
+        // is possible that a malicious node is on the same IP as one of the
+        // favorite ones but in the absence of a global identifier there's
+        // little else we can do.
+        self.config.favorite_addresses.contains(&conn.remote_addr())
+            || self.config.favorite_addresses.contains(&conn.remote_peer.external_addr())
+    }
+
+    /// Get the list of unconnected favorite peers.
+    pub fn unconnected_favorites(&self) -> HashSet<SocketAddr> {
+        let mut ret = self.config.favorite_addresses.clone();
+        for conn in read_or_die!(self.connections()).values() {
+            ret.remove(&conn.remote_addr());
+            ret.remove(&conn.remote_peer.external_addr());
+        }
+        ret
+    }
+
+    /// Check whether any of the node's peers has the addr as either the remote
+    /// addrs or the advertised address (i.e., the address where they listen
+    /// for incoming connections) NB: This needs to acquire a read lock on
+    /// the connections object.
+    pub fn is_connected(&self, addr: SocketAddr) -> bool {
+        read_or_die!(self.connections())
+            .values()
+            .any(|conn| conn.remote_addr() == addr || conn.remote_peer.external_addr() == addr)
     }
 
     /// A convenience method for accessing the collection of  node's networks.
@@ -635,7 +675,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
 fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
     match conn_change {
         ConnChange::NewConn(addr, peer_type) => {
-            if let Err(e) = connect(node, peer_type, addr, None) {
+            if let Err(e) = connect(node, peer_type, addr, None, true) {
                 error!("Can't connect to the desired address: {}", e);
             }
         }
@@ -660,13 +700,13 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             // Try to connect to each peer in turn.
             // If we are already connected to a peer, this will fail.
             for peer in peers {
-                trace!("Got info for peer {} ({})", peer.id, peer.addr);
-                if connect(node, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
-                    new_peers += 1;
-                }
-
                 if new_peers + curr_peer_count >= node.config.desired_nodes_count as usize {
                     break;
+                }
+
+                trace!("Got info for peer {} ({})", peer.id, peer.addr);
+                if connect(node, PeerType::Node, peer.addr, Some(peer.id), true).is_ok() {
+                    new_peers += 1;
                 }
             }
         }
@@ -730,4 +770,18 @@ fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {
         }
         V6(_) => None,
     }
+}
+
+/// Parse and potentially resolve IPs (via DNS) of nodes supplied on startup.
+fn parse_config_nodes(
+    conf: &config::ConnectionConfig,
+    dns_resolvers: &[String],
+) -> Fallible<HashSet<SocketAddr>> {
+    let mut out = HashSet::new();
+    for connect_to in &conf.connect_to {
+        let new_addresses =
+            utils::parse_host_port(connect_to, dns_resolvers, conf.dnssec_disabled)?;
+        out.extend(new_addresses)
+    }
+    Ok(out)
 }
