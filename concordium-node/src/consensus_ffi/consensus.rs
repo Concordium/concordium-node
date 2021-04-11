@@ -208,15 +208,15 @@ impl std::fmt::Display for ConsensusType {
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
-    pub max_block_size:            u64,
-    pub block_construction_timeout:u64,
-    pub insertions_before_purging: u64,
-    pub transaction_keep_alive:    u64,
-    pub is_baking:                 Arc<AtomicBool>,
-    pub consensus:                 Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:                   Arc<[u8]>,
-    pub consensus_type:            ConsensusType,
-    pub database_connection_url:   String,
+    pub max_block_size:             u64,
+    pub block_construction_timeout: u64,
+    pub insertions_before_purging:  u64,
+    pub transaction_keep_alive:     u64,
+    pub is_baking:                  Arc<AtomicBool>,
+    pub consensus:                  Arc<AtomicPtr<consensus_runner>>,
+    pub genesis:                    Arc<[u8]>,
+    pub consensus_type:             ConsensusType,
+    pub database_connection_url:    String,
 }
 
 impl ConsensusContainer {
