@@ -70,6 +70,7 @@ pub fn main() -> Fallible<()> {
         u64::max_value(),
         u64::max_value(),
         u64::max_value(),
+        u64::max_value(),
         genesis_data,
         private_data.clone(),
         ConsensusLogLevel::Info,
