@@ -9,12 +9,12 @@ genesis_path="${GENESIS_PATH}"
 base_image_tag="${BASE_IMAGE_TAG}"
 
 DOCKER_BUILDKIT=1 docker build \
-  --build-arg genesis_ref="${genesis_ref}"
-  --build-arg genesis_path="${genesis_path}"
-  --build-arg base_image_tag="${base_image_tag}"
-  --label genesis_ref="${genesis_ref}"
-  --label genesis_path="${genesis_path}"
-  --label base_image_tag="${base_image_tag}"
+  --build-arg genesis_ref="${genesis_ref}" \
+  --build-arg genesis_path="${genesis_path}" \
+  --build-arg base_image_tag="${base_image_tag}" \
+  --label genesis_ref="${genesis_ref}" \
+  --label genesis_path="${genesis_path}" \
+  --label base_image_tag="${base_image_tag}" \
   -t "concordium/staging-client:${version}" \
   -f scripts/distribution/stagenet.Dockerfile \
   --ssh default \
