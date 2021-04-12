@@ -68,7 +68,8 @@ impl Buckets {
         });
     }
 
-    /// Returns all the nodes in buckets.
+    /// Returns all the nodes in buckets with the possible exception of the
+    /// sender, if it is supplied.
     fn get_all_nodes(&self, sender: Option<RemotePeerId>, networks: &Networks) -> Vec<RemotePeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
