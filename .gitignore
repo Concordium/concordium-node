@@ -50,3 +50,4 @@ concordium-node/deps/static-libs
 hie.yaml
 **/**/TAGS
 /scripts/genesis/genesis-tmp.json
+.DS_Store
