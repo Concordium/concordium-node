@@ -1,5 +1,7 @@
 # concordium-node
 
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](https://github.com/Concordium/.github/blob/main/.github/CODE_OF_CONDUCT.md)
+
 This repository contains the implementation of the concordium p2p node with its
 dependencies. It is split into two parts
 
