@@ -639,15 +639,19 @@ impl Connection {
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
                 // select random nodes that are post-handshake
-                let random_nodes = Ok(read_or_die!(self.handler.buckets())
-                .get_random_nodes(
-                    requestor,
-                    self.handler.config.bootstrapper_peer_list_size,
-                    &nets,
-                )
-                .iter()
-                .filter_map(RemotePeer::peer)
-                .collect())
+                let get_random_nodes = || -> Fallible<Vec<P2PPeer>> {
+                    Ok(read_or_die!(self.handler.buckets())
+                        .get_random_nodes(
+                            requestor,
+                            self.handler.config.bootstrapper_peer_list_size,
+                            &nets,
+                        )
+                        .iter()
+                        .filter_map(RemotePeer::peer)
+                        .collect())
+                };
+
+                let random_nodes = get_random_nodes()?;
 
                 if !random_nodes.is_empty()
                     && random_nodes.len()
