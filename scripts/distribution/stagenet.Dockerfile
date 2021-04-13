@@ -70,5 +70,5 @@ RUN sha256sum /genesis.dat
 
 COPY ./scripts/distribution/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/distribution/concordium.conf /etc/supervisor/conf.d/concordium.conf
-COPY ./scripts/distribution/stagenet.sh /start.sh
-ENTRYPOINT [ "/start.sh" ]
+COPY ./scripts/distribution/docker-entrypoint.sh /docker-entrypoint.sh
+ENTRYPOINT [ "/docker-entrypoint.sh" ]
