@@ -209,7 +209,8 @@ impl P2PNode {
             sent += self.send_over_all_connections(&serialized, &filter);
         } else {
             // broadcast messages
-            let filter = |conn: &Connection| is_valid_broadcast_target(conn, &peers_to_skip, network_id);
+            let filter =
+                |conn: &Connection| is_valid_broadcast_target(conn, &peers_to_skip, network_id);
             sent += self.send_over_all_connections(&serialized, &filter);
         }
 
