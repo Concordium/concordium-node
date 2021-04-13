@@ -7,12 +7,14 @@ pipeline {
             }
         }
         stage('build') {
-            environment {
-                DOCKER_BUILDKIT = 1
-            }
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
-                    sh './scripts/distribution/build-and-push-staging-client.sh'
+                    sh '''\
+                        GENESIS_REF="${genesis_ref}" \
+                        GENESIS_PATH="${genesis_path}" \
+                        BASE_IMAGE_TAG="${base_image_tag}" \
+                          ./scripts/distribution/build-and-push-stagenet.sh
+                    '''
                 }
             }
         }

@@ -1,7 +1,20 @@
 # syntax=docker/dockerfile:experimental
 
 # Build node.
-FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/base:0.17 as build
+ARG base_image_tag
+
+# Clone genesis-data.
+FROM alpine/git:latest as genesis-data
+ARG genesis_ref
+ARG genesis_path
+WORKDIR /tmp
+RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@gitlab.com:Concordium/genesis-data.git
+RUN ls -R && \
+    mv "genesis-data/${genesis_path}/generated-data" /genesis-data
+
+# Build node.
+FROM concordium/base:${base_image_tag} as build
 
 ARG consensus_profiling=false
 ENV CONSENSUS_PROFILING=$consensus_profiling
@@ -10,18 +23,12 @@ COPY . /build-project
 WORKDIR /build-project
 
 COPY ./scripts/start.sh ./start.sh
-COPY ./genesis-data ./genesis-data
 COPY ./scripts/build-binaries.sh ./build-binaries.sh
 
-RUN --mount=type=ssh ./scripts/download-static-libs.sh
-RUN --mount=type=ssh ./build-binaries.sh "collector,staging_net" release && \
+RUN ./scripts/download-static-libs.sh
+RUN ./build-binaries.sh "collector,staging_net" release && \
     strip /build-project/concordium-node/target/release/concordium-node && \
-    strip /build-project/concordium-node/target/release/node-collector && \
-    cd /build-project/genesis-data && \
-    tar -xf 20-bakers.tar.gz && \
-    cd genesis_data && \
-    sha256sum genesis.dat && \
-    cp genesis.dat /build-project/
+    strip /build-project/concordium-node/target/release/node-collector
 
 FROM 192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium/node-dashboard:0.1.0-alpha as node-dashboard
 
@@ -58,10 +65,10 @@ COPY --from=node-dashboard /nginx.conf /etc/nginx/sites-enabled/node-dashboard
 COPY --from=build /build-project/concordium-node/target/release/concordium-node /concordium-node
 COPY --from=build /build-project/concordium-node/target/release/node-collector /node-collector
 COPY --from=build /build-project/start.sh /start.sh
-COPY --from=build /build-project/genesis.dat /genesis.dat
+COPY --from=genesis-data /genesis-data/genesis.dat /genesis.dat
 RUN sha256sum /genesis.dat
 
 COPY ./scripts/distribution/supervisord.conf /etc/supervisor/supervisord.conf
 COPY ./scripts/distribution/concordium.conf /etc/supervisor/conf.d/concordium.conf
-COPY ./scripts/distribution/staging-net-client.sh /staging-net-client.sh
-ENTRYPOINT [ "/staging-net-client.sh" ]
+COPY ./scripts/distribution/docker-entrypoint.sh /docker-entrypoint.sh
+ENTRYPOINT [ "/docker-entrypoint.sh" ]
