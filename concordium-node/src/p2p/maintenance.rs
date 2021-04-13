@@ -88,10 +88,6 @@ pub struct NodeConfig {
     pub socket_write_size: usize,
     pub no_rebroadcast_consensus_validation: bool,
     pub drop_rebroadcast_probability: Option<f64>,
-    #[cfg(feature = "malicious_testing")]
-    pub partition_network_for_time: Option<usize>,
-    #[cfg(feature = "malicious_testing")]
-    pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
     pub socket_so_linger: Option<u16>,
@@ -275,19 +271,6 @@ impl P2PNode {
             addr: SocketAddr::new(ip, own_peer_port),
         };
 
-        // TODO: Remove surrounding block expr once cargo fmt has been updated in
-        // pipeline.
-        #[cfg(feature = "malicious_testing")]
-        let breakage = {
-            if let (Some(ty), Some(tgt), Some(lvl)) =
-                (&conf.cli.breakage_type, conf.cli.breakage_target, conf.cli.breakage_level)
-            {
-                Some((ty.to_owned(), tgt, lvl))
-            } else {
-                None
-            }
-        };
-
         let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
@@ -340,13 +323,6 @@ impl P2PNode {
                 PeerType::Node => conf.cli.drop_rebroadcast_probability,
                 _ => None,
             },
-            #[cfg(feature = "malicious_testing")]
-            partition_network_for_time: match peer_type {
-                PeerType::Bootstrapper => conf.bootstrapper.partition_network_for_time,
-                _ => None,
-            },
-            #[cfg(feature = "malicious_testing")]
-            breakage,
             bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
             default_network: NetworkId::from(conf.common.network_ids[0]), // always present
             socket_so_linger: conf.connection.socket_so_linger,

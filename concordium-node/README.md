@@ -34,7 +34,6 @@ Do remember to clone recursively or use `git submodule update --init --recursive
 * database_emitter - enables building the database emitter binary to inject a database exported to a set of nodes
 * genesis_tester - a tool used by a CI to validate the genesis data
 * dedup_benchmarks - enable support in the benchmarks for deduplication queues
-* malicious_testing - enables cli options for malicious testing (breakage and network partitioning)
 
 ## Building the node
 
