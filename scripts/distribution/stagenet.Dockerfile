@@ -8,8 +8,9 @@ FROM alpine/git:latest as genesis-data
 ARG genesis_ref
 ARG genesis_path
 WORKDIR /tmp
-RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@gitlab.com:Concordium/genesis-data.git && ls -R
-COPY "genesis-data/${genesis_path}/generated-data" /genesis-data
+RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@gitlab.com:Concordium/genesis-data.git && \
+    ls -R && \
+    mv "genesis-data/${genesis_path}/generated-data" /genesis-data
 
 # Build node.
 FROM concordium/base:${base_image_tag} as build
