@@ -17,7 +17,7 @@ RUN apt-get update && \
     apt-get install -y unbound ca-certificates libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /out/$build_type/node-collector-backend /node-collector-backend
+COPY --from=build /out/$build_type/node-collector /node-collector
 COPY --from=build /out/start.sh /start.sh
 
 ENTRYPOINT ["/start.sh"]
