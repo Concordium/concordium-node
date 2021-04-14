@@ -69,7 +69,7 @@ pub struct NodeConfig {
     /// Nodes to try and keep the connections to.
     /// The IP addresses are resolved on startup and during execution we
     /// only keep them instead of the domain name.
-    pub favorite_addresses: HashSet<SocketAddr>,
+    pub favorite_addresses: RwLock<HashSet<SocketAddr>>,
     pub max_allowed_nodes: u16,
     pub relay_broadcast_percentage: f64,
     pub poll_interval: u64,
@@ -277,7 +277,7 @@ impl P2PNode {
 
         let dns_resolvers =
             utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-        let favorite_addresses = parse_config_nodes(&conf.connection, &dns_resolvers)?;
+        let favorite_addresses = RwLock::new(parse_config_nodes(&conf.connection, &dns_resolvers)?);
 
         let config = NodeConfig {
             no_net: conf.cli.no_network,
@@ -401,13 +401,13 @@ impl P2PNode {
         // is possible that a malicious node is on the same IP as one of the
         // favorite ones but in the absence of a global identifier there's
         // little else we can do.
-        self.config.favorite_addresses.contains(&conn.remote_addr())
-            || self.config.favorite_addresses.contains(&conn.remote_peer.external_addr())
+        let addrs = read_or_die!(self.config.favorite_addresses);
+        addrs.contains(&conn.remote_addr()) || addrs.contains(&conn.remote_peer.external_addr())
     }
 
     /// Get the list of unconnected favorite peers.
     pub fn unconnected_favorites(&self) -> HashSet<SocketAddr> {
-        let mut ret = self.config.favorite_addresses.clone();
+        let mut ret = read_or_die!(self.config.favorite_addresses).clone();
         for conn in read_or_die!(self.connections()).values() {
             ret.remove(&conn.remote_addr());
             ret.remove(&conn.remote_peer.external_addr());
@@ -674,9 +674,17 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
 /// Process a change to the set of connections.
 fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
     match conn_change {
-        ConnChange::NewConn(addr, peer_type) => {
-            if let Err(e) = connect(node, peer_type, addr, None, true) {
+        ConnChange::NewConn {
+            addr,
+            peer_type,
+            favorite,
+        } => {
+            // for favorites we do not respect the max peer bound, for normal peers
+            // that are automatically discovered we do
+            if let Err(e) = connect(node, peer_type, addr, None, !favorite) {
                 error!("Can't connect to the desired address: {}", e);
+            } else if favorite && !write_or_die!(node.config.favorite_addresses).insert(addr) {
+                info!("New favorite address recorded {}", favorite);
             }
         }
         ConnChange::Promotion(token) => {
@@ -724,13 +732,9 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             trace!("Removing connection with token {:?}", token);
             node.remove_connection(token);
         }
-        ConnChange::RemovalByNodeId(remote_id) => {
-            trace!("Removing connection to {} by node id.", remote_id);
-            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
-        }
-        ConnChange::RemovalByIp(ip_addr) => {
-            trace!("Removing all connections to IP {}", ip_addr);
-            node.remove_connections(&node.find_conn_tokens_by_ip(ip_addr));
+        ConnChange::RemoveAllByTokens(tokens) => {
+            trace!("Removing all connection tokens {:?}", tokens);
+            node.remove_connections(&tokens);
         }
     }
 }
@@ -751,7 +755,11 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
             Ok(nodes) => {
                 for addr in nodes {
                     info!("Using bootstrapper {}", addr);
-                    node.register_conn_change(ConnChange::NewConn(addr, PeerType::Bootstrapper));
+                    node.register_conn_change(ConnChange::NewConn {
+                        addr,
+                        peer_type: PeerType::Bootstrapper,
+                        favorite: false,
+                    });
                 }
             }
             Err(e) => error!("Can't bootstrap: {:?}", e),

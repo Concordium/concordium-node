@@ -13,10 +13,11 @@ pub use self::maintenance::{Connections, P2PNode};
 mod tests {
     use crate::{
         common::{p2p_peer::RemotePeerId, PeerType},
-        p2p::bans::{BanId, PersistedBanId},
+        p2p::bans::PersistedBanId,
         test_utils::*,
     };
     use failure::Fallible;
+    use std::net::IpAddr;
 
     #[test]
     fn test_ban_functionalities() -> Fallible<()> {
@@ -27,30 +28,39 @@ mod tests {
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban1 = BanId::NodeId(RemotePeerId::from(22usize));
+        let to_ban1 = RemotePeerId::from(22usize);
 
         // Insertion by id
-        node.drop_and_maybe_ban_node(to_ban1)?;
+        assert!(
+            !node.drop_by_id(to_ban1),
+            "Should have returned false since the peer does not exist."
+        );
         let reply = node.get_banlist()?;
         // bans by id are not persisted.
         assert_eq!(reply.len(), 0);
 
-        let to_ban2 = PersistedBanId::Ip("127.0.0.1".parse()?);
+        let to_ban2 = "127.0.0.1".parse::<IpAddr>()?;
 
         // Insertion by ip
-        node.drop_and_maybe_ban_node(to_ban2.into())?;
+        assert!(
+            !node.drop_by_ip_and_ban(to_ban2)?,
+            "Should have returned falsae since the peer does not exist."
+        );
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban2.into());
+        assert_eq!(reply[0], PersistedBanId::Ip(to_ban2));
 
         // Duplicates check
-        node.drop_and_maybe_ban_node(to_ban2.into())?;
+        assert!(
+            !node.drop_by_ip_and_ban(to_ban2)?,
+            "Should have banned the same IP again, returning false since no peer exists."
+        );
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban2.into());
+        assert_eq!(reply[0], PersistedBanId::Ip(to_ban2));
 
         // Deletion by ip
-        node.unban_node(to_ban2)?;
+        node.unban_node(PersistedBanId::Ip(to_ban2))?;
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 

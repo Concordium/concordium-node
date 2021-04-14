@@ -98,8 +98,8 @@ impl P2PNode {
         write_or_die!(self.connection_handler.networks).insert(network_id);
     }
 
-    /// Find a connection token of the connection to the given peer, if such a
-    /// connection exists.
+    /// Find a connection token of the connection to the given post-handshake
+    /// peer, if such a connection exists.
     /// NB: This acquires and releases a read lock on the node's connections.
     pub fn find_conn_token_by_id(&self, id: RemotePeerId) -> Option<Token> {
         read_or_die!(self.connections()).values().find_map(|conn| {
@@ -109,6 +109,22 @@ impl P2PNode {
                 None
             }
         })
+    }
+
+    /// Find a connection to the given address. We assume at most one such
+    /// exists.
+    /// NB: This acquires and releases a read lock on the node's connections.
+    pub fn find_conn_to(&self, addr: SocketAddr) -> Option<Token> {
+        read_or_die!(self.connections())
+            .values()
+            .chain(lock_or_die!(self.conn_candidates()).values())
+            .find_map(|conn| {
+                if conn.remote_addr() == addr {
+                    Some(conn.token())
+                } else {
+                    None
+                }
+            })
     }
 
     /// Find connection tokens for all connections to the given ip address.
@@ -165,6 +181,12 @@ impl P2PNode {
             self.bump_last_peer_update();
         }
         removed_candidates || removed_peers
+    }
+
+    /// Close connection to the given address, if any.
+    pub fn remove_connection_to_addr(&self, addr: SocketAddr) {
+        lock_or_die!(self.conn_candidates()).retain(|_, conn| conn.remote_addr() != addr);
+        write_or_die!(self.connections()).retain(|_, conn| conn.remote_addr() != addr);
     }
 
     fn process_network_packet(&self, inner_pkt: NetworkPacket) -> Fallible<usize> {
