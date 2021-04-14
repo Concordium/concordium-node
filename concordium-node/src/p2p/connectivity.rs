@@ -447,12 +447,13 @@ pub fn connect(
                 peer_type,
             };
 
-            let conn = Connection::new(node, socket, token, remote_peer, true)?;
+            let mut conn = Connection::new(node, socket, token, remote_peer, true)?;
+            // send the initial handshake
+            conn.low_level.send_handshake_message_a()?;
+            // and record the connection candidate. Note that we maintain the
+            // connection candidates lock so it is OK to only insert the connection at the
+            // end here.
             candidates_lock.insert(conn.token(), conn);
-
-            if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
-                conn.low_level.send_handshake_message_a()?;
-            }
 
             Ok(())
         }
@@ -469,7 +470,8 @@ pub fn connect(
 }
 
 /// Perform a round of connection maintenance, e.g. removing inactive ones.
-pub fn connection_housekeeping(node: &Arc<P2PNode>) {
+/// Return whether we attempted to bootstrap.
+pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     debug!("Running connection housekeeping");
 
     let curr_stamp = get_current_stamp();
@@ -553,15 +555,18 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
         }
     }
 
-    // reconnect to bootstrappers after a specified amount of time
+    // Reconnect to bootstrappers after a specified amount of time.
     // It's unclear whether we should always be doing this, even if we have enough
-    // peer. But the current logic is to try to bootstrap again, and if we have
+    // peers. But the current logic is to try to bootstrap again, and if we have
     // too many peers drop a subset of them.
     if !node.config.no_bootstrap_dns
         && peer_type == PeerType::Node
         && curr_stamp >= node.get_last_bootstrap() + node.config.bootstrapping_interval * 1000
     {
         attempt_bootstrap(node);
+        true
+    } else {
+        false
     }
 }
 
