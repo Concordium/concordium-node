@@ -235,7 +235,7 @@ impl ConsensusContainer {
         max_log_level: ConsensusLogLevel,
         appdata_dir: &PathBuf,
         database_connection_url: &str,
-        regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+        regenesis_arc: Arc<Regenesis>,
     ) -> Fallible<Self> {
         info!("Starting up the consensus layer");
 
@@ -315,4 +315,32 @@ impl ConsensusContainer {
     pub fn is_baking(&self) -> bool { self.is_baking.load(Ordering::SeqCst) }
 
     pub fn is_active(&self) -> bool { self.consensus_type == ConsensusType::Active }
+}
+
+/// A Regenesis object consists of a list of the genesis block hashes and a flag
+/// that is set when regenesis occurs to trigger catch-up with peers.
+pub struct Regenesis {
+    /// The list of genesis blocks.
+    pub blocks: RwLock<Vec<BlockHash>>,
+    /// A flag that is set to indicate that peers should be added to the
+    /// catch-up queue.
+    pub trigger_catchup: AtomicBool,
+}
+
+impl Default for Regenesis {
+    fn default() -> Self {
+        Regenesis {
+            blocks:          RwLock::new(vec![]),
+            trigger_catchup: AtomicBool::new(false),
+        }
+    }
+}
+
+impl Regenesis {
+    pub fn from_blocks(regenesis_blocks: Vec<BlockHash>) -> Self {
+        Regenesis {
+            blocks:          RwLock::new(regenesis_blocks),
+            trigger_catchup: AtomicBool::new(false),
+        }
+    }
 }

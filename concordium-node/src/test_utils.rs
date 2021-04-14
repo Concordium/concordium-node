@@ -9,7 +9,7 @@ use crate::{
     common::{get_current_stamp, P2PNodeId, PeerType},
     configuration::Config,
     connection::ConnChange,
-    consensus_ffi::{blockchain_types::BlockHash, helpers::PacketType},
+    consensus_ffi::{blockchain_types::BlockHash, consensus::Regenesis, helpers::PacketType},
     netmsg,
     network::{NetworkId, NetworkMessage, NetworkPacket, PacketDestination},
     p2p::{maintenance::spawn, P2PNode},
@@ -24,7 +24,7 @@ use std::{
     str::FromStr,
     sync::{
         atomic::{AtomicUsize, Ordering},
-        Arc, Once, RwLock,
+        Arc, Once,
     },
     thread,
     time::Duration,
@@ -103,7 +103,7 @@ pub fn make_node_and_sync(
     config.cli.no_network = true;
     config.cli.poll_interval = 1;
     config.connection.housekeeping_interval = 10;
-    let regenesis_arc = Arc::new(RwLock::new(regenesis_blocks));
+    let regenesis_arc = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     let stats = Arc::new(StatsExportService::new().unwrap());
     let (node, poll) = P2PNode::new(None, &config, node_type, stats, None, regenesis_arc);

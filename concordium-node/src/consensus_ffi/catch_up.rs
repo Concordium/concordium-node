@@ -79,4 +79,14 @@ impl PeerList {
         self.catch_up_peer = next;
         next
     }
+
+    /// Mark all of the up-to-date peers as pending.
+    pub fn mark_all_pending(&mut self) {
+        for (peer_id, status) in self.peer_states.iter_mut() {
+            if *status == PeerStatus::UpToDate {
+                *status = PeerStatus::Pending;
+                self.pending_queue.push_back(*peer_id);
+            }
+        }
+    }
 }

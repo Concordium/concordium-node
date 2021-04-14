@@ -20,7 +20,7 @@ use std::{
     ptr, slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Once, RwLock,
+        Arc, Once,
     },
 };
 
@@ -247,8 +247,8 @@ type DirectMessageCallback = extern "C" fn(
     msg: *const c_char,
     msg_len: i64,
 );
-type RegenesisCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>, *const u8);
-type RegenesisFreeCallback = unsafe extern "C" fn(*const RwLock<Vec<BlockHash>>);
+type RegenesisCallback = unsafe extern "C" fn(*const Regenesis, *const u8);
+type RegenesisFreeCallback = unsafe extern "C" fn(*const Regenesis);
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -263,7 +263,7 @@ extern "C" {
         private_data_len: i64,
         broadcast_callback: BroadcastCallback,
         catchup_status_callback: CatchUpStatusCallback,
-        regenesis_arc: *const RwLock<Vec<BlockHash>>,
+        regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
         regenesis_callback: RegenesisCallback,
         maximum_log_level: u8,
@@ -282,7 +282,7 @@ extern "C" {
         genesis_data: *const u8,
         genesis_data_len: i64,
         catchup_status_callback: CatchUpStatusCallback,
-        regenesis_arc: *const RwLock<Vec<BlockHash>>,
+        regenesis_arc: *const Regenesis,
         free_regenesis_arc: RegenesisFreeCallback,
         regenesis_callback: RegenesisCallback,
         maximum_log_level: u8,
@@ -429,7 +429,7 @@ pub fn get_consensus_ptr(
     maximum_log_level: ConsensusLogLevel,
     appdata_dir: &PathBuf,
     database_connection_url: &str,
-    regenesis_arc: Arc<RwLock<Vec<BlockHash>>>,
+    regenesis_arc: Arc<Regenesis>,
 ) -> Fallible<*mut consensus_runner> {
     let genesis_data_len = genesis_data.len();
 
@@ -900,23 +900,23 @@ pub extern "C" fn catchup_status_callback(genesis_index: u32, msg: *const u8, ms
 }
 
 /// A callback function that will append a regenesis block to the list of known
-/// regenesis hashes.
+/// regenesis hashes, and raise a flag indicating that all peers should be
+/// marked for catch-up.
 ///
 /// # Safety
 ///
-/// The first argument has to be an Arc<RwLock<Vec<BlockHash>>> which was
+/// The first argument has to be an Arc<Regenesis> which was
 /// converted into raw, as it will be casted into that type. The second argument
 /// has to be a pointer to a bytestring of length 32.
-pub unsafe extern "C" fn regenesis_callback(
-    ptr: *const RwLock<Vec<BlockHash>>,
-    block_hash: *const u8,
-) {
+pub unsafe extern "C" fn regenesis_callback(ptr: *const Regenesis, block_hash: *const u8) {
     trace!("Regenesis callback hit");
     let arc = Arc::from_raw(ptr);
-    write_or_die!(arc).push(
+    write_or_die!(arc.blocks).push(
         BlockHash::new(std::slice::from_raw_parts(block_hash, 32))
             .expect("The slice is exactly 32 bytes so ::new must succeed."),
     );
+    arc.trigger_catchup.store(true, Ordering::Release);
+
     // The pointer must remain valid, so we use into_raw to prevent the reference
     // count from being decremented.
     Arc::into_raw(arc);
@@ -926,9 +926,9 @@ pub unsafe extern "C" fn regenesis_callback(
 ///
 /// # Safety
 ///
-/// The given pointer must be an Arc<RwLock<Vec<BlockHash>>> which was converted
+/// The given pointer must be an Arc<Regenesis> which was converted
 /// into raw.
-pub unsafe extern "C" fn free_regenesis_arc(ptr: *const RwLock<Vec<BlockHash>>) {
+pub unsafe extern "C" fn free_regenesis_arc(ptr: *const Regenesis) {
     if ptr.is_null() {
         return;
     }

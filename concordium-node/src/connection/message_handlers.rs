@@ -94,7 +94,7 @@ impl Connection {
         }
 
         {
-            let our_blocks = read_or_die!(self.handler.config.regenesis_arc);
+            let our_blocks = read_or_die!(self.handler.config.regenesis_arc.blocks);
             // we will consider that the list of regenesis blocks is sorted
             // by height, so we check sequentially.
             let common_blocks = our_blocks

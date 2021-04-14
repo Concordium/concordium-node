@@ -315,7 +315,7 @@ impl P2PNode {
                 networks:       read_or_die!(self.networks()).iter().copied().collect(),
                 node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,
                 wire_versions:  vec![WIRE_PROTOCOL_VERSION],
-                genesis_blocks: self.config.regenesis_arc.read().expect("").clone(),
+                genesis_blocks: self.config.regenesis_arc.blocks.read().unwrap().clone(),
                 proof:          vec![],
             })
         );
