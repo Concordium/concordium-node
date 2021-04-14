@@ -30,6 +30,7 @@ use concordium_node::{
         *,
     },
     plugins::{self, consensus::*},
+    read_or_die,
     rpc::RpcServerImpl,
     spawn_or_die,
     stats_export_service::{instantiate_stats_export_engine, StatsExportService},
@@ -261,11 +262,14 @@ fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> Fallible
 }
 
 fn connect_to_config_nodes(node: &Arc<P2PNode>) -> Fallible<()> {
-    node.config
-        .favorite_addresses
-        .iter()
-        .map(|&addr| connect(node, PeerType::Node, addr, None, false))
-        .collect()
+    // clone the addresses to release the lock before the relatively expensive
+    // connect calls.
+    let conns = read_or_die!(node.config.favorite_addresses).clone();
+    // The use of collect means that entire computation will fail if any connections
+    // fail. This is sensible behaviour for this function which is meant to be
+    // used during startup, and the behaviour is that the node will fail to
+    // start unless all favorites can be connected to.
+    conns.iter().map(|&addr| connect(node, PeerType::Node, addr, None, false)).collect()
 }
 
 fn start_consensus_message_threads(
