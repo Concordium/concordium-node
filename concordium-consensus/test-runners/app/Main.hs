@@ -4,54 +4,63 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
+
 module Main where
 
 import Control.Concurrent
-import Control.Monad
-import System.Random
-import Data.Time.Clock.POSIX
-import System.IO
-import Data.Serialize
-import Data.Word
 import Control.Exception
-import System.Directory
+import Control.Monad
 import qualified Data.Map as Map
+import Data.Serialize
+import Data.Time.Clock.POSIX
+import Data.Word
+import System.Directory
+import System.IO
+import System.Random
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.TimerMonad
-import Concordium.Types.HashableTo
-import Concordium.Types.IdentityProviders
-import Concordium.GlobalState.Parameters
-import Concordium.Types.Transactions
-import Concordium.Types.Updates
+import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
+import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Instance
+import Concordium.GlobalState.Parameters
+import Concordium.TimerMonad
 import Concordium.Types.AnonymityRevokers
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState
+import Concordium.Types.HashableTo
+import Concordium.Types.IdentityProviders
+import Concordium.Types.Transactions
+import Concordium.Types.Updates
+
 -- import Concordium.GlobalState.Paired
 import Concordium.Kontrol (currentTimestamp)
 
-import Concordium.Logger
-import Concordium.Types
-import Concordium.Runner
-import Concordium.Skov
-import Concordium.Getters
-import Concordium.Afgjort.Finalize (FinalizationInstance(..))
+import Concordium.Afgjort.Finalize (FinalizationInstance (..))
 import Concordium.Birk.Bake
+import Concordium.Getters
+import Concordium.Logger
+import Concordium.Runner
+import Concordium.Skov hiding (receiveTransaction)
+import Concordium.Types
 
 --import Debug.Trace
-import Concordium.Startup
-import qualified Concordium.Types.DummyData as Dummy
-import qualified Concordium.GlobalState.DummyData as Dummy
+
 import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState.DummyData (dummyAuthorizations)
+import qualified Concordium.GlobalState.DummyData as Dummy
+import Concordium.MultiVersion
+import qualified Concordium.ProtocolUpdate.P1.Reboot as P1.Reboot
+import Concordium.Startup
+import qualified Concordium.Types.DummyData as Dummy
+import qualified Data.ByteString as BS
+import Data.IORef
+import System.FilePath
 
 -- Protocol version
 type PV = 'P1
 
+{-
 nContracts :: Int
 nContracts = 2
 
@@ -77,24 +86,6 @@ difficultyUpdateTransactions (Timestamp ts) = [u 1 99000 60 120, u 2 10000 120 1
                     ruiPayload = ElectionDifficultyUpdatePayload (makeElectionDifficulty diff)
                 }
                 (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
-
-protocolUpdateTransactions :: Timestamp -> [BlockItem]
-protocolUpdateTransactions (Timestamp ts) = [ui]
-    where
-        ui = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
-                RawUpdateInstruction {
-                    ruiSeqNumber = 1,
-                    ruiEffectiveTime = fromIntegral (ts `div` 1000) + 60,
-                    ruiTimeout = fromIntegral (ts `div` 1000) + 30,
-                    ruiPayload = ProtocolUpdatePayload ProtocolUpdate {
-                        puMessage = "Updating",
-                        puSpecificationURL = "http://concordium.com",
-                        puSpecificationHash = Hash.hash "blah",
-                        puSpecificationAuxiliaryData = ""
-                    }
-                }
-                (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
-
 
 sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
 sendTransactions bakerId chan (t : ts) = do
@@ -177,7 +168,6 @@ dummyIdentityProviders = emptyIdentityProviders
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
-
 type TreeConfig = DiskTreeDiskBlockConfig PV
 makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
 makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
@@ -225,7 +215,7 @@ main = do
                                     hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
                                     hFlush logFile
         --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
-        gsconfig <- makeGlobalStateConfig 
+        gsconfig <- makeGlobalStateConfig
                         defaultRuntimeParameters
                         ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
                         ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
@@ -259,3 +249,186 @@ main = do
                     putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
                     loop
     loop
+-}
+
+numberOfBakers :: Num n => n
+numberOfBakers = 5
+
+myFinalizationParameters :: FinalizationParameters
+myFinalizationParameters =
+    defaultFinalizationParameters
+        { finalizationCommitteeMaxSize = 3 * numberOfBakers + 1,
+          finalizationSkipShrinkFactor = 0.8,
+          finalizationSkipGrowFactor = 1.25,
+          finalizationAllowZeroDelay = True
+        }
+
+updatePayload :: ProtocolUpdate
+updatePayload =
+    ProtocolUpdate
+        { puMessage = "Rebooting consensus",
+          puSpecificationURL = "https://concordium.com",
+          puSpecificationHash = P1.Reboot.updateHash,
+          puSpecificationAuxiliaryData =
+            encode $
+                P1.Reboot.UpdateData
+                    { updateSlotDuration = 2000,
+                      updateElectionDifficulty = makeElectionDifficulty 50000,
+                      updateEpochLength = 20,
+                      updateMaxBlockEnergy = Energy maxBound,
+                      updateFinalizationParameters = myFinalizationParameters
+                    }
+        }
+
+protocolUpdateTransactions :: Timestamp -> [BlockItem]
+protocolUpdateTransactions (Timestamp ts) = [ui]
+  where
+    ui =
+        addMetadata id 0 $
+            ChainUpdate $
+                makeUpdateInstruction
+                    RawUpdateInstruction
+                        { ruiSeqNumber = 1,
+                          ruiEffectiveTime = fromIntegral (ts `div` 1000) + 60,
+                          ruiTimeout = fromIntegral (ts `div` 1000) + 30,
+                          ruiPayload = ProtocolUpdatePayload updatePayload
+                        }
+                    (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
+
+transferTransactions :: StdGen -> [BlockItem]
+transferTransactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
+  where
+    trs n (amnt : amnts) =
+        Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) n : trs (n + 1) amnts
+    trs _ _ = error "Ran out of transaction data"
+
+data MonitorEvent
+    = MEBlock GenesisIndex BS.ByteString
+    | MERegenesis BlockHash
+
+-- |A loop that continuously reads the monitor channel and prints a graphviz directed graph to
+-- stdout.
+monitorLoop :: Chan MonitorEvent -> IO ()
+monitorLoop chan =
+    bracket_ (putStrLn "digraph {") (putStrLn "}") $
+        forever $
+            readChan chan >>= \case
+                MEBlock _ bs -> do
+                    now <- getCurrentTime
+                    case deserializeExactVersionedPendingBlock (protocolVersion @PV) bs now of
+                        Left err -> error $ "Failed to deserialize a block: " ++ err
+                        Right pb -> do
+                            let bh = pbHash pb
+                            let block = pbBlock pb
+                            let ts = blockTransactions block
+                            let finInfo = case bfBlockFinalizationData (bbFields block) of
+                                    NoFinalizationData -> ""
+                                    BlockFinalizationData fr -> "\\lfin.wits:" ++ show (finalizationProofParties $ finalizationProof fr)
+                            putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++ "\"];"
+                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
+                            case blockFinalizationData block of
+                                NoFinalizationData -> return ()
+                                BlockFinalizationData fr ->
+                                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
+                            hFlush stdout
+                MERegenesis bh -> do
+                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show bh ++ "\",shape=rectangle,style=filled,color=blue];"
+                    hFlush stdout
+
+type Distribution x = StdGen -> (x, StdGen)
+
+eventually :: Distribution Int -> IO a -> IO ()
+eventually distr act = void $
+    forkIO $ do
+        delay <- getStdRandom distr
+        threadDelay delay
+        void act
+
+-- | 'quadDelay f' is a distribution of up to roughly 'f' minutes (in microseconds).
+-- Smaller delays are more likely, because this is based on squaring a uniform distribution.
+quadDelay :: Double -> Distribution Int
+quadDelay factor g = (r, g')
+    where
+        (r0, g') = randomR (0, 7800) g
+        r = truncate $ factor * fromInteger (r0*r0 `div` 10)
+
+-- data Peers 
+
+
+callbacks :: IORef [MultiVersionRunner gsconfig finconfig] -> Chan MonitorEvent -> Callbacks
+callbacks mvrRef monitorChan = Callbacks{..}
+  where
+    broadcastBlock gi bs = do
+        writeChan monitorChan $ MEBlock gi bs
+        mvrs <- readIORef mvrRef
+        forM_ mvrs $ \mvr -> eventually (quadDelay 0.05) $ runMVR (receiveBlock gi bs) mvr
+    broadcastFinalizationMessage gi bs = do
+        mvrs <- readIORef mvrRef
+        forM_ mvrs $ \mvr -> eventually (quadDelay 0.05) $ runMVR (receiveFinalizationMessage gi bs) mvr
+    broadcastFinalizationRecord gi bs = do
+        mvrs <- readIORef mvrRef
+        forM_ mvrs $ \mvr -> eventually (quadDelay 0.05) $ runMVR (receiveFinalizationRecord gi bs) mvr
+    notifyCatchUpStatus _ _ = return ()
+    notifyRegenesis gbh = writeChan monitorChan $ MERegenesis gbh
+
+config :: FilePath -> BakerIdentity -> MultiVersionConfiguration DiskTreeDiskBlockConfig (BufferedFinalization ThreadTimer)
+config dataPath bid = MultiVersionConfiguration{..}
+  where
+    mvcTXLogConfig = ()
+    mvcStateConfig = DiskStateConfig dataPath
+    mvcFinalizationConfig =
+        BufferedFinalization
+            ( FinalizationInstance
+                (bakerSignKey bid)
+                (bakerElectionKey bid)
+                (bakerAggregationKey bid)
+            )
+    mvcRuntimeParameters = defaultRuntimeParameters
+
+startTransactionThread :: [BlockItem] -> MultiVersionRunner gsconfig finconfig -> IO ThreadId
+startTransactionThread trs0 mvr = forkIO $ transactionLoop trs0
+  where
+    transactionLoop [] = return ()
+    transactionLoop (tr : trs) = do
+        threadDelay 500
+        _ <- runMVR (receiveTransaction (runPut $ putVersionedBlockItemV0 tr)) mvr
+        transactionLoop trs
+
+main :: IO ()
+main = do
+    -- Set genesis at the next whole second
+    now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1) * 1000) <$> currentTimestamp
+    let (genesisData, bakerIdentities, _) =
+            makeGenesisData @PV
+                now
+                numberOfBakers
+                2000
+                myFinalizationParameters
+                Dummy.dummyCryptographicParameters
+                Dummy.dummyIdentityProviders
+                Dummy.dummyArs
+                [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
+                (Energy maxBound)
+                dummyAuthorizations
+                (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
+    mvrRef <- newIORef []
+    monitorChan <- newChan
+    let cbks = callbacks mvrRef monitorChan
+    mvrs <- forM bakerIdentities $ \(bid, _) -> do
+        let s = show now ++ "-" ++ show (bakerId bid)
+            d = "data" </> ("db" ++ s)
+        createDirectoryIfMissing True d
+        let bconfig = config d bid
+        logFile <- openFile ("consensus-" ++ s ++ ".log") WriteMode
+        let blogger src lvl msg = {- when (lvl == LLInfo) $ -} do
+                timestamp <- getCurrentTime
+                hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
+                hFlush logFile
+        makeMultiVersionRunner bconfig cbks (Just bid) blogger (PVGenesisData genesisData)
+    writeIORef mvrRef mvrs
+    -- Start the bakers
+    forM_ mvrs startBaker
+    trTrans <- transferTransactions <$> newStdGen
+    let transactions = protocolUpdateTransactions now ++ trTrans
+    forM_ mvrs $ startTransactionThread transactions
+    monitorLoop monitorChan

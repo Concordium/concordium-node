@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 module Concordium.Getters where
-
+{-
 import Lens.Micro.Platform hiding ((.=))
 
 import Concordium.Kontrol.BestBlock
@@ -489,3 +489,4 @@ getAllIdentityProviders hash sfsRef = runStateQuery sfsRef $
 getAllAnonymityRevokers :: (SkovStateQueryable z m) => BlockHash -> z -> IO Value
 getAllAnonymityRevokers hash sfsRef = runStateQuery sfsRef $
   withBlockStateJSON hash $ \st -> toJSON <$> BS.getAllAnonymityRevokers st
+-}

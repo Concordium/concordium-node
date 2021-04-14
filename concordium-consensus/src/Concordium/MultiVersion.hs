@@ -41,10 +41,12 @@ import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState (TreeStateMonad)
+import Concordium.ImportExport
 import Concordium.ProtocolUpdate
 import Concordium.Skov as Skov
 import Concordium.TimeMonad
 import Concordium.TimerMonad
+import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow)
 
 -- |Handler configuration for supporting protocol updates.
 data UpdateHandler = UpdateHandler
@@ -103,10 +105,25 @@ data MultiVersionConfiguration gsconf finconf = MultiVersionConfiguration
       mvcRuntimeParameters :: !RuntimeParameters
     }
 
-class (GlobalStateConfig gsconf) => MultiVersionStateConfig (gsconf :: ProtocolVersion -> Type) where
+-- |This class provides a mechanism for instantiating a global state configuration for a new
+-- genesis.
+class
+    (GlobalStateConfig gsconf) =>
+    MultiVersionStateConfig (gsconf :: ProtocolVersion -> Type)
+    where
+    -- |Type of state configuration data.
     type StateConfig gsconf
+    -- |Type of transaction logging data.
     type TXLogConfig gsconf
-    globalStateConfig :: IsProtocolVersion pv => StateConfig gsconf -> TXLogConfig gsconf -> RuntimeParameters -> GenesisIndex -> GenesisData pv -> gsconf pv
+    -- |Create a global state configuration for a specific genesis.
+    globalStateConfig ::
+        IsProtocolVersion pv =>
+        StateConfig gsconf ->
+        TXLogConfig gsconf ->
+        RuntimeParameters ->
+        GenesisIndex ->
+        GenesisData pv ->
+        gsconf pv
 
 instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
     type StateConfig DiskTreeDiskBlockConfig = DiskStateConfig
@@ -142,7 +159,7 @@ data Callbacks = Callbacks
       -- | Broadcast a (versioned) finalization record on the network.
       -- TODO: Possibly deprecate this.
       broadcastFinalizationRecord :: GenesisIndex -> ByteString -> IO (),
-      -- |Send a catch-up status message to app (non-pending) peers.
+      -- |Send a catch-up status message to all (non-pending) peers.
       -- This should be used when a pending block becomes live.
       -- The status message should be neither a request nor a response.
       notifyCatchUpStatus :: GenesisIndex -> ByteString -> IO (),
@@ -277,7 +294,10 @@ newtype MVR gsconf finconf a = MVR {runMVR :: MultiVersionRunner gsconf finconf 
           Monad,
           MonadIO,
           MonadReader (MultiVersionRunner gsconf finconf),
-          TimeMonad
+          TimeMonad,
+          MonadThrow,
+          MonadCatch,
+          MonadMask
         )
         via (ReaderT (MultiVersionRunner gsconf finconf) IO)
 
@@ -330,13 +350,22 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) =
               mvConfiguration = MultiVersionConfiguration{..},
               ..
             } -> do
+                mvLog Runner LLInfo $
+                    "Starting new chain with genesis block: "
+                        ++ show (genesisBlockHash gd)
                 oldVersions <- readIORef mvVersions
                 let vcIndex = fromIntegral (length oldVersions)
                 (vcContext, st) <-
                     runLoggerT
                         ( initialiseSkov
                             ( SkovConfig @pv @gsconf @finconf
-                                (globalStateConfig mvcStateConfig mvcTXLogConfig mvcRuntimeParameters vcIndex gd)
+                                ( globalStateConfig
+                                    mvcStateConfig
+                                    mvcTXLogConfig
+                                    mvcRuntimeParameters
+                                    vcIndex
+                                    gd
+                                )
                                 mvcFinalizationConfig
                                 UpdateHandler
                             )
@@ -478,6 +507,8 @@ startTransactionPurgingThread mvr@MultiVersionRunner{..} =
   where
     delay = rpTransactionsPurgingDelay (mvcRuntimeParameters mvConfiguration) * 1_000_000
 
+-- |Start a baker thread associated with a 'MultiVersionRunner'.
+-- This will only succeed if the runner was initialised with baker credentials.
 startBaker :: MultiVersionRunner gsconf finconf -> IO ()
 startBaker MultiVersionRunner{mvBaker = Nothing, ..} =
     mvLog
@@ -491,26 +522,27 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
         if started
             then do
                 mvLog Runner LLInfo "Starting baker thread"
-                bakerLoop 0 `finally` mvLog Runner LLInfo "Exiting baker thread"
+                bakerLoop 0 0 `finally` mvLog Runner LLInfo "Exiting baker thread"
             else mvLog Runner LLInfo "Starting baker thread aborted: baker is already running"
     -- This synchronises on the baker MVar to ensure that a baker should definitely be
     -- running before startBaker returns.
     modifyMVarMasked_ bakerThread return
   where
-    bakerLoop :: Slot -> IO ()
-    bakerLoop slot = do
+    bakerLoop :: GenesisIndex -> Slot -> IO ()
+    bakerLoop lastGenIndex slot = do
         (genIndex, res) <-
             withWriteLockIO mvr $ do
                 EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
-                (vcIndex vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity slot)) mvr
+                let nextSlot = if vcIndex vc == lastGenIndex then slot else 0
+                (vcIndex vc,) <$> runMVR (liftSkovUpdate vc (tryBake bakerIdentity nextSlot)) mvr
         case res of
             BakeSuccess slot' block -> do
                 broadcastBlock mvCallbacks genIndex block
-                bakerLoop slot'
+                bakerLoop genIndex slot'
             BakeWaitUntil slot' ts -> do
                 now <- utcTimeToTimestamp <$> currentTime
                 when (now < ts) $ threadDelay $ fromIntegral (tsMillis (ts - now)) * 1_000
-                bakerLoop slot'
+                bakerLoop genIndex slot'
             BakeShutdown -> do
                 -- Note that on a successful protocol update this should not occur because a new
                 -- genesis should be started up when the old one is shut down within the same
@@ -531,9 +563,10 @@ stopBaker MultiVersionRunner{mvBaker = Nothing, ..} =
         LLError
         "Attempted to stop baker thread, but consensus was started without baker credentials."
 stopBaker MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
-    mask_ $ tryTakeMVar bakerThread >>= \case
-        Nothing -> mvLog Runner LLWarning "Attempted to stop baker thread, but it was not running."
-        Just thrd -> killThread thrd
+    mask_ $
+        tryTakeMVar bakerThread >>= \case
+            Nothing -> mvLog Runner LLWarning "Attempted to stop baker thread, but it was not running."
+            Just thrd -> killThread thrd
 
 shutdownMultiVersionRunner :: MultiVersionRunner gsconf finconf -> IO ()
 shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
@@ -661,7 +694,15 @@ sendCatchUpStatus genIndex = MVR $ \mvr@MultiVersionRunner{..} -> do
     case vvec Vec.! fromIntegral genIndex of
         EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv) -> do
             st <- readIORef (vcState vc)
-            cus <- runMVR (evalSkovT @_ @pv (getCatchUpStatus False) (mvrSkovHandlers vc mvr) (vcContext vc) st) mvr
+            cus <-
+                runMVR
+                    ( evalSkovT @_ @pv
+                        (getCatchUpStatus False)
+                        (mvrSkovHandlers vc mvr)
+                        (vcContext vc)
+                        st
+                    )
+                    mvr
             notifyCatchUpStatus mvCallbacks (vcIndex vc) $ runPut $ putVersionedCatchUpStatus cus
 
 -- |Perform an operation with the latest chain version, as long as
@@ -760,7 +801,10 @@ receiveCatchUpStatus gi catchUpBS CatchUpConfiguration{..} =
                         (mmsgs, res) <-
                             runMVR
                                 ( evalSkovT @_ @pv
-                                    (handleCatchUpStatus @pv @(VersionedSkovM gsconf finconf pv) catchUp catchUpMessageLimit)
+                                    ( handleCatchUpStatus @pv @(VersionedSkovM gsconf finconf pv)
+                                        catchUp
+                                        catchUpMessageLimit
+                                    )
                                     (mvrSkovHandlers vc mvr)
                                     (vcContext vc)
                                     st
@@ -825,3 +869,23 @@ receiveTransaction transactionBS = do
             case Vec.last vvec of
                 (EVersionedConfiguration vc) ->
                     liftSkovUpdate vc $ Skov.receiveTransaction transaction
+
+-- |Import a block file for out-of-band catch-up.
+importBlocks :: FilePath -> MVR gsconf finconf UpdateResult
+importBlocks importFile = do
+    vvec <- liftIO . readIORef =<< asks mvVersions
+    case Vec.last vvec of
+        EVersionedConfiguration vc -> do
+            -- Import starting from the genesis index of the latest consensus
+            res <- importBlocksV3 importFile (vcIndex vc) doImport
+            case res of
+                Left ImportSerializationFail -> return ResultSerializationFail
+                Left (ImportOtherError a) -> return a
+                Right _ -> return ResultSuccess
+  where
+    doImport (ImportBlock _ gi bs) = fixResult <$> receiveBlock gi bs
+    doImport (ImportFinalizationRecord _ gi bs) = fixResult <$> receiveFinalizationRecord gi bs
+    fixResult ResultSuccess = Right ()
+    fixResult ResultDuplicate = Right ()
+    fixResult ResultConsensusShutDown = Right ()
+    fixResult e = Left (ImportOtherError e)

@@ -287,12 +287,23 @@ fn send_msg_to_consensus(
     let raw_id = source_id.as_raw();
 
     let consensus_response = match message.variant {
-        Block => consensus.send_block(payload),
         Transaction => consensus.send_transaction(payload),
-        FinalizationMessage => consensus.send_finalization(payload),
-        FinalizationRecord => consensus.send_finalization_record(payload),
-        CatchUpStatus => {
-            consensus.receive_catch_up_status(payload, raw_id, node.config.catch_up_batch_limit)
+        _ => {
+            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            match message.variant {
+                Block => consensus.send_block(genesis_index, &payload[4..]),
+                FinalizationMessage => consensus.send_finalization(genesis_index, &payload[4..]),
+                FinalizationRecord => {
+                    consensus.send_finalization_record(genesis_index, &payload[4..])
+                }
+                CatchUpStatus => consensus.receive_catch_up_status(
+                    genesis_index,
+                    &payload[4..],
+                    raw_id,
+                    node.config.catch_up_batch_limit,
+                ),
+                Transaction => unreachable!(),
+            }
         }
     };
 

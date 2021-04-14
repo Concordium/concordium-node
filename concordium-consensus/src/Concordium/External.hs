@@ -6,7 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 module Concordium.External where
-
+{-
 import Foreign
 import Foreign.C
 
@@ -1165,3 +1165,4 @@ foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Wo
 foreign export ccall freeCStr :: CString -> IO ()
 
 foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
+-}

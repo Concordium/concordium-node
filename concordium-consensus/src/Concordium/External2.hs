@@ -158,15 +158,15 @@ callBroadcastCallback cbk mt gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
 -- The second argument indicates the message type.
 -- The third argument is a pointer to the data to broadcast.
 -- The fourth argument is the length of the data in bytes.
-type DirectMessageCallback = PeerID -> Int64 -> CString -> Int64 -> IO ()
+type DirectMessageCallback = PeerID -> Int64 -> Word32 -> CString -> Int64 -> IO ()
 
 -- |FFI wrapper for invoking a 'DirectMessageCallback' function.
 foreign import ccall "dynamic" invokeDirectMessageCallback :: FunPtr DirectMessageCallback -> DirectMessageCallback
 
 -- |Helper for invoking a 'DirectMessageCallback' function.
-callDirectMessageCallback :: FunPtr DirectMessageCallback -> PeerID -> MessageType -> BS.ByteString -> IO ()
-callDirectMessageCallback cbk peer mt bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
-    invokeDirectMessageCallback cbk peer mti cdata (fromIntegral clen)
+callDirectMessageCallback :: FunPtr DirectMessageCallback -> PeerID -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
+callDirectMessageCallback cbk peer mt genIndex bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
+    invokeDirectMessageCallback cbk peer mti genIndex cdata (fromIntegral clen)
   where
     mti = case mt of
         MessageBlock -> 0
@@ -194,15 +194,32 @@ callCatchUpStatusCallback cbk gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
 
 -- |Callback to signal that a new genesis block has occurred.
 -- The argument is the block hash as a 32-byte string.
-type RegenesisCallback = Ptr Word8 -> IO ()
+type RegenesisCallback = Ptr RegenesisArc -> Ptr Word8 -> IO ()
 
 -- |FFI wrapper for invoking a 'RegenesisCallback' function.
 foreign import ccall "dynamic" invokeRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisCallback
 
 -- |Helper for invoking a 'RegenesisCallback' function.
-callRegenesisCallback :: FunPtr RegenesisCallback -> BlockHash -> IO ()
-callRegenesisCallback cb (BlockHash (SHA256.Hash bh)) = FBS.withPtrReadOnly bh $ \ptr ->
-    invokeRegenesisCallback cb ptr
+callRegenesisCallback :: FunPtr RegenesisCallback -> RegenesisRef -> BlockHash -> IO ()
+callRegenesisCallback cb rgRef (BlockHash (SHA256.Hash bh)) = withForeignPtr rgRef $ \rg ->
+    FBS.withPtrReadOnly bh $ \ptr ->
+        invokeRegenesisCallback cb rg ptr
+
+-- |Abstract type representing the rust Arc object used for tracking genesis blocks.
+-- A pointer of this type is passed to consensus at start up and must be passed to each call of
+-- the regenesis callback.
+data RegenesisArc
+
+-- |A reference that must be passed when calling the regenesis callback.
+-- This is a 'ForeignPtr', so a finalizer that disposes of the pointer is attached.
+type RegenesisRef = ForeignPtr RegenesisArc
+
+-- |A function pointer used for freeing the regenesis reference.
+type RegenesisFree = FinalizerPtr RegenesisArc
+
+-- |Construct a 'RegenesisRef' from a finalizer and a raw pointer.
+makeRegenesisRef :: RegenesisFree -> Ptr RegenesisArc -> IO RegenesisRef
+makeRegenesisRef = newForeignPtr
 
 -- * Consensus operations
 
@@ -233,6 +250,7 @@ toStartResult =
                 GenesisBlockNotInDataBaseError -> 8
                 GenesisBlockIncorrect _ -> 9
                 DatabaseInvariantViolation _ -> 10
+                IncorrectDatabaseVersion _ -> 11
 
 -- |Catch exceptions which may occur at start up and return an appropriate exit code.
 handleStartExceptions :: LogMethod IO -> IO StartResult -> IO Int64
@@ -270,6 +288,10 @@ startConsensus ::
     FunPtr BroadcastCallback ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
+    -- |Regenesis object
+    Ptr RegenesisArc ->
+    -- |Finalizer for the regenesis object
+    RegenesisFree ->
     -- |Handler for notifying the node of new regenesis blocks
     FunPtr RegenesisCallback ->
     -- |Maximum log level (inclusive) (0 to disable logging).
@@ -298,6 +320,8 @@ startConsensus
     bidLenC
     bcbk
     cucbk
+    regenesisPtr
+    regenesisFree
     regenesisCB
     maxLogLevel
     lcbk
@@ -317,6 +341,16 @@ startConsensus
                             (bakerElectionKey bakerIdentity)
                             (bakerAggregationKey bakerIdentity)
                         )
+            regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr
+            -- Callbacks
+            let callbacks =
+                    Callbacks
+                        { broadcastBlock = callBroadcastCallback bcbk MessageBlock,
+                          broadcastFinalizationMessage = callBroadcastCallback bcbk MessageFinalization,
+                          broadcastFinalizationRecord = callBroadcastCallback bcbk MessageFinalizationRecord,
+                          notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
+                          notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
+                        }
             runner <-
                 if connStringLen /= 0
                     then do
@@ -359,15 +393,6 @@ startConsensus
                 Right bakerIdentity -> cont (bakerIdentity :: BakerIdentity)
         -- Log method
         logM = toLogMethod maxLogLevel lcbk
-        -- Callbacks
-        callbacks =
-            Callbacks
-                { broadcastBlock = callBroadcastCallback bcbk MessageBlock,
-                  broadcastFinalizationMessage = callBroadcastCallback bcbk MessageFinalization,
-                  broadcastFinalizationRecord = callBroadcastCallback bcbk MessageFinalizationRecord,
-                  notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
-                  notifyRegenesis = callRegenesisCallback regenesisCB
-                }
         -- Runtime parameters
         mvcRuntimeParameters =
             RuntimeParameters
@@ -396,6 +421,10 @@ startConsensusPassive ::
     Int64 ->
     -- |Handler for sending catch-up status to peers
     FunPtr CatchUpStatusCallback ->
+    -- |Regenesis object
+    Ptr RegenesisArc ->
+    -- |Finalizer for the regenesis object
+    RegenesisFree ->
     -- |Handler for notifying the node of new regenesis blocks
     FunPtr RegenesisCallback ->
     -- |Maximum log level (inclusive) (0 to disable logging).
@@ -421,6 +450,8 @@ startConsensusPassive
     gdataC
     gdataLenC
     cucbk
+    regenesisPtr
+    regenesisFree
     regenesisCB
     maxLogLevel
     lcbk
@@ -434,6 +465,16 @@ startConsensusPassive
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             let mvcStateConfig = DiskStateConfig appDataPath
             let mvcFinalizationConfig = NoFinalization
+            -- Callbacks
+            regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr
+            let callbacks =
+                    Callbacks
+                        { broadcastBlock = \_ _ -> return (),
+                        broadcastFinalizationMessage = \_ _ -> return (),
+                        broadcastFinalizationRecord = \_ _ -> return (),
+                        notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
+                        notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
+                        }
             runner <-
                 if connStringLen /= 0
                     then do
@@ -468,15 +509,6 @@ startConsensusPassive
                 Right genData -> cont genData
         -- Log method
         logM = toLogMethod maxLogLevel lcbk
-        -- Callbacks
-        callbacks =
-            Callbacks
-                { broadcastBlock = \_ _ -> return (),
-                  broadcastFinalizationMessage = \_ _ -> return (),
-                  broadcastFinalizationRecord = \_ _ -> return (),
-                  notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
-                  notifyRegenesis = callRegenesisCallback regenesisCB
-                }
         -- Runtime parameters
         mvcRuntimeParameters =
             RuntimeParameters
@@ -657,7 +689,7 @@ receiveCatchUpStatus cptr src genIndex cstr len limit cbk =
                 return ResultSuccess
             else do
                 bs <- BS.packCStringLen (cstr, fromIntegral len)
-                let catchUpCallback = callDirectMessageCallback cbk src
+                let catchUpCallback mt = callDirectMessageCallback cbk src mt genIndex
                 runMVR (MV.receiveCatchUpStatus genIndex bs CatchUpConfiguration{..}) mvr
 
 -- |Get a catch-up status message for requesting catch-up with peers.
@@ -678,6 +710,22 @@ getCatchUpStatus cptr genIndexPtr resPtr = do
     poke genIndexPtr genIndex
     poke resPtr =<< toCString resBS
     return (LBS.length resBS)
+
+-- |Import a file consisting of a set of blocks and finalization records for the purposes of
+-- out-of-band catch-up.
+importBlocks ::
+    -- |Consensus runner
+    StablePtr ConsensusRunner ->
+    -- |File path to import blocks from
+    CString ->
+    -- |Length of filename
+    Int64 ->
+    IO Int64
+importBlocks cptr fname fnameLen =
+    toReceiveResult <$> do
+        (ConsensusRunner mvr) <- deRefStablePtr cptr
+        theFile <- peekCStringLen (fname, fromIntegral fnameLen)
+        runMVR (MV.importBlocks theFile) mvr
 
 -- * Queries
 
@@ -1027,6 +1075,10 @@ foreign export ccall
         FunPtr BroadcastCallback ->
         -- |Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
+        -- |Regenesis object
+        Ptr RegenesisArc ->
+        -- |Finalizer for the regenesis object
+        RegenesisFree ->
         -- |Handler for notifying the node of new regenesis blocks
         FunPtr RegenesisCallback ->
         -- |Maximum log level (inclusive) (0 to disable logging).
@@ -1059,6 +1111,10 @@ foreign export ccall
         Int64 ->
         -- |Handler for sending catch-up status to peers
         FunPtr CatchUpStatusCallback ->
+        -- |Regenesis object
+        Ptr RegenesisArc ->
+        -- |Finalizer for the regenesis object
+        RegenesisFree ->
         -- |Handler for notifying the node of new regenesis blocks
         FunPtr RegenesisCallback ->
         -- |Maximum log level (inclusive) (0 to disable logging).
@@ -1134,4 +1190,4 @@ foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Wo
 -- maintenance
 foreign export ccall freeCStr :: CString -> IO ()
 
--- foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64
+foreign export ccall importBlocks :: StablePtr ConsensusRunner -> CString -> Int64 -> IO Int64

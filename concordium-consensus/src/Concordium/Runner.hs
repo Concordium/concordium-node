@@ -7,7 +7,7 @@
     TypeFamilies
 #-}
 module Concordium.Runner where
-
+{-
 import Control.Concurrent.Chan
 import Control.Concurrent.MVar
 import Control.Concurrent
@@ -501,3 +501,4 @@ syncPassiveImportBlocks syncRunner filepath =
     updateResultToImportingResult <$> readBlocksV2 h now logm External (\b -> importingResultToUpdateResult logm External =<< syncPassiveReceiveBlock syncRunner b)
   where
     logm = syncPLogMethod syncRunner
+-}

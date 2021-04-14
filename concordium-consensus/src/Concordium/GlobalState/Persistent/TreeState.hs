@@ -71,6 +71,7 @@ data InitException =
       ieIs :: !BlockHash
       }
   | DatabaseInvariantViolation !String
+  | IncorrectDatabaseVersion !String
   deriving(Show, Typeable)
 
 instance Exception InitException where
@@ -83,6 +84,7 @@ instance Exception InitException where
     "Incorrect genesis block. Genesis block in the database does not match the genesis data. Hash of the database genesis block is: " ++ show bh
   displayException (DatabaseInvariantViolation err) =
     "Database invariant violation: " ++ err
+  displayException (IncorrectDatabaseVersion err) = "Incorrect database version: " ++ err
 
 logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
 logExceptionAndThrowTS = logExceptionAndThrow TreeState
@@ -292,6 +294,9 @@ loadSkovPersistentData rp _treeStateDirectory _genesisData pbsc atiContext = do
   -- But this behaviour of LMDB is poorly documented, so we might experience issues.
   _db <- either (logExceptionAndThrowTS . DatabaseOpeningError) return =<<
           liftIO (try $ databaseHandlers _treeStateDirectory)
+
+  -- Check that the database version matches what we expect.
+  liftIO (checkDatabaseVersion _db) >>= mapM_ (logExceptionAndThrowTS . IncorrectDatabaseVersion)
 
   -- Get the genesis block and check that its data matches the supplied genesis data.
   genStoredBlock <- maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return =<<

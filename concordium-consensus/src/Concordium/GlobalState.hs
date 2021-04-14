@@ -376,7 +376,7 @@ instance GlobalStateConfig MemoryTreeMemoryBlockConfig where
     shutdownGlobalState _ _ _ _ _ = return ()
 
 -- |Configuration that uses the Haskell implementation of tree state and the
--- in-memory, Haskell implmentation of the block state.
+-- in-memory, Haskell implementation of the block state.
 instance GlobalStateConfig MemoryTreeDiskBlockConfig where
     type GSContext MemoryTreeDiskBlockConfig pv = PersistentBlockStateContext
     type GSLogContext MemoryTreeDiskBlockConfig pv = NoLogContext
