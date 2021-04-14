@@ -4,8 +4,6 @@ use failure::Fallible;
 use mio::{event::Event, net::TcpStream, Events, Token};
 
 use rand::seq::IteratorRandom;
-#[cfg(feature = "malicious_testing")]
-use rand::{seq::index::sample, Rng};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use semver::Version;
 
@@ -27,8 +25,6 @@ use crate::{
     read_or_die, write_or_die,
 };
 
-#[cfg(feature = "malicious_testing")]
-use std::cmp;
 use std::{
     io,
     net::{IpAddr, SocketAddr},
@@ -200,23 +196,6 @@ impl P2PNode {
         };
         let network_id = inner_pkt.network_id;
 
-        #[cfg(not(feature = "malicious_testing"))]
-        let copies = 1;
-        // TODO: Remove surrounding block expr once cargo fmt has been updated in
-        // pipeline.
-        #[cfg(feature = "malicious_testing")]
-        let copies = {
-            if let Some((btype, btgt, blvl)) = &self.config.breakage {
-                if btype == "spam" && (inner_pkt.message[0] == *btgt || *btgt == 99) {
-                    1 + *blvl
-                } else {
-                    1
-                }
-            } else {
-                1
-            }
-        };
-
         let message = netmsg!(NetworkPacket, inner_pkt);
         let mut serialized = Vec::with_capacity(256);
         only_fbs!({
@@ -227,18 +206,12 @@ impl P2PNode {
         if let Some(target_token) = target {
             // direct messages
             let filter = |conn: &Connection| conn.remote_peer.local_id == target_token;
-
-            for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter);
-            }
+            sent += self.send_over_all_connections(&serialized, &filter);
         } else {
             // broadcast messages
             let filter =
                 |conn: &Connection| is_valid_broadcast_target(conn, &peers_to_skip, network_id);
-
-            for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter);
-            }
+            sent += self.send_over_all_connections(&serialized, &filter);
         }
 
         Ok(sent)
@@ -620,21 +593,7 @@ fn send_message_over_network(
         PacketDestination::Broadcast(dont_relay_to)
     };
 
-    #[cfg(not(feature = "malicious_testing"))]
     let message = message.to_vec();
-    #[cfg(feature = "malicious_testing")]
-    let mut message = message.to_vec();
-
-    // TODO: Remove surrounding block expr once cargo fmt has been updated in
-    // pipeline.
-    #[cfg(feature = "malicious_testing")]
-    {
-        if let Some((btype, btgt, blvl)) = &node.config.breakage {
-            if btype == "fuzz" && (message[0] == *btgt || *btgt == 99) {
-                fuzz_packet(&mut message[1..], *blvl);
-            }
-        }
-    };
 
     // Create packet.
     let packet = NetworkPacket {
@@ -651,16 +610,5 @@ fn send_message_over_network(
     } else {
         error!("Couldn't send a packet");
         0
-    }
-}
-
-#[cfg(feature = "malicious_testing")]
-fn fuzz_packet(payload: &mut [u8], level: usize) {
-    let rng = &mut rand::thread_rng();
-
-    let level = cmp::min(payload.len(), level);
-
-    for i in sample(rng, payload.len(), level).into_iter() {
-        payload[i] = rng.gen();
     }
 }

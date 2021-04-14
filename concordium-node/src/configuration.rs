@@ -492,31 +492,6 @@ pub struct CliConfig {
         help = "Drop a message from being rebroadcasted by a certain probability"
     )]
     pub drop_rebroadcast_probability: Option<f64>,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "breakage-type",
-        help = "Break for test purposes; spam - send duplicate messages / fuzz - mangle messages \
-                [fuzz|spam]"
-    )]
-    pub breakage_type: Option<String>,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "breakage-target",
-        help = "Used together with breakage-type; 0/1/2/3/4/99 - blocks/txs/fin msgs/fin \
-                recs/catch-up msgs/everything [0|1|2|3|4|99]"
-    )]
-    pub breakage_target: Option<u8>,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "breakage-level",
-        help = "Used together with breakage-type; either the number of spammed duplicates or \
-                mangled bytes"
-    )]
-    pub breakage_level: Option<usize>,
-
     #[structopt(long = "transaction-outcome-logging", help = "Enable transaction outcome logging")]
     pub transaction_outcome_logging: bool,
     #[structopt(
@@ -574,21 +549,12 @@ pub struct BootstrapperConfig {
         default_value = "7200000"
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "partition-network-for-time",
-        help = "Partition the network for a set amount of time since startup (in ms)"
-    )]
-    pub partition_network_for_time: Option<usize>,
-
     #[structopt(
         long = "peer-list-size",
         help = "The number of random peers shared by a bootstrapper in a PeerList",
         default_value = "10"
     )]
     pub peer_list_size: usize,
-
     #[structopt(
         long = "regenesis-block-hashes-file",
         help = "Path to a file that contains a json array of regenesis hashes."
@@ -685,40 +651,10 @@ pub fn parse_config() -> Fallible<Config> {
         "Socket read size must be greater or equal to the write size"
     );
 
-    #[cfg(feature = "malicious_testing")]
-    ensure!(
-        conf.cli.breakage_type.is_some()
-            && conf.cli.breakage_target.is_some()
-            && conf.cli.breakage_level.is_some()
-            || conf.cli.breakage_type.is_none()
-                && conf.cli.breakage_target.is_none()
-                && conf.cli.breakage_level.is_none(),
-        "The 3 breakage options (breakage-type, breakage-target, breakage-level) must be enabled \
-         or disabled together"
-    );
-
     ensure!(
         conf.bootstrapper.wait_until_minimum_nodes as usize <= conf.bootstrapper.peer_list_size,
         "wait-until-minimum-nodes must be lower than or equal to peer-list-size"
     );
-
-    // TODO: Remove surrounding block expr once cargo fmt has been updated in
-    // pipeline.
-    #[cfg(feature = "malicious_testing")]
-    {
-        if let Some(ref breakage_type) = conf.cli.breakage_type {
-            ensure!(
-                ["spam", "fuzz"].contains(&breakage_type.as_str()),
-                "Unsupported breakage-type"
-            );
-            if let Some(breakage_target) = conf.cli.breakage_target {
-                ensure!(
-                    [0, 1, 2, 3, 4, 99].contains(&breakage_target),
-                    "Unsupported breakage-target"
-                );
-            }
-        }
-    }
 
     #[cfg(feature = "instrumentation")]
     {

@@ -99,23 +99,9 @@ impl Buckets {
         sender: RemotePeerId,
         number: usize,
         networks: &Networks,
-        partition: bool,
     ) -> Vec<RemotePeer> {
         let mut rng = rand::thread_rng();
-        if partition {
-            self.get_all_nodes(Some(sender), networks)
-                .into_iter()
-                .filter(|peer| {
-                    if sender.remote_peer_id % 2 == 0 {
-                        peer.local_id.remote_peer_id % 2 == 0
-                    } else {
-                        peer.local_id.remote_peer_id % 2 != 0
-                    }
-                })
-                .choose_multiple(&mut rng, number)
-        } else {
-            self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, number)
-        }
+        self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, number)
     }
 
     /// Removes the bucket nodes older than then specified amount of time.
