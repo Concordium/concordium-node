@@ -1,11 +1,10 @@
 //! Peer ban handling.
 
+use crate::{common::p2p_peer::RemotePeerId, connection::ConnChange, p2p::P2PNode, write_or_die};
 use byteorder::{ReadBytesExt, WriteBytesExt};
+use crypto_common::{Buffer, Deserial, Serial};
 use failure::{self, Fallible};
 use rkv::{StoreOptions, Value};
-
-use crate::{common::p2p_peer::RemotePeerId, connection::ConnChange, p2p::P2PNode};
-use crypto_common::{Buffer, Deserial, Serial};
 
 use std::net::{IpAddr, SocketAddr};
 
@@ -37,18 +36,6 @@ impl From<PersistedBanId> for BanId {
     }
 }
 
-impl BanId {
-    /// Attempt to convert to a persistent ban id, if possible.
-    /// Only Ip bans are currently persisted.
-    fn to_persistent(self) -> Option<PersistedBanId> {
-        match self {
-            BanId::Ip(ip) => Some(PersistedBanId::Ip(ip)),
-            BanId::NodeId(_) => None,
-            BanId::Socket(_) => None,
-        }
-    }
-}
-
 impl Serial for PersistedBanId {
     fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
         match self {
@@ -72,37 +59,48 @@ impl Deserial for PersistedBanId {
 }
 
 impl P2PNode {
-    /// Register the node's connection to be closed, and if the
-    /// ban is applicable to be persisted also register the peer as banned.
-    pub fn drop_and_maybe_ban_node(&self, peer: BanId) -> Fallible<bool> {
-        info!("Banning node {:?}", peer);
+    /// Register the node's connection to be closed.
+    pub fn drop_by_id(&self, id: RemotePeerId) -> bool {
+        let maybe_token = self.find_conn_token_by_id(id);
+        if let Some(token) = maybe_token {
+            self.register_conn_change(ConnChange::RemovalByToken(token));
+            true
+        } else {
+            false
+        }
+    }
 
-        // only write to the database if the ban is meant to be persisted.
-        // Check this first to avoid acquiring a lock if we don't need to.
-        if let Some(bid) = peer.to_persistent() {
-            if let Ok(ban_kvs_env) = self.kvs.read() {
-                let mut store_key = Vec::new();
-                bid.serial(&mut store_key);
-                let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
-                let mut writer = ban_kvs_env.write()?;
-                // TODO: insert ban expiry timestamp as the Value
-                ban_store.put(&mut writer, store_key, &Value::U64(0))?;
-                writer.commit()?;
-            } else {
-                bail!("Couldn't ban a peer: couldn't obtain a lock over the kvs");
-            }
-        } // do nothing for peers that cannot be persisted.
+    /// Register the node's connection to be closed and ban the IP.
+    pub fn drop_by_ip_and_ban(&self, ip_addr: IpAddr) -> Fallible<bool> {
+        info!("Banning IP {}", ip_addr);
 
-        match peer {
-            BanId::NodeId(id) => {
-                self.register_conn_change(ConnChange::RemovalByNodeId(id));
-                Ok(true)
-            }
-            BanId::Ip(addr) => {
-                self.register_conn_change(ConnChange::RemovalByIp(addr));
-                Ok(true)
-            }
-            BanId::Socket(_) => Ok(false),
+        let bid = PersistedBanId::Ip(ip_addr);
+        if let Ok(ban_kvs_env) = self.kvs.read() {
+            let mut store_key = Vec::new();
+            bid.serial(&mut store_key);
+            let ban_store = ban_kvs_env.open_single(BAN_STORE_NAME, StoreOptions::create())?;
+            let mut writer = ban_kvs_env.write()?;
+            // TODO: insert ban expiry timestamp as the Value
+            ban_store.put(&mut writer, store_key, &Value::U64(0))?;
+            writer.commit()?;
+        } else {
+            bail!("Couldn't ban a peer: couldn't obtain a lock over the kvs");
+        };
+
+        let tokens = self.find_conn_tokens_by_ip(ip_addr);
+        let res = !tokens.is_empty();
+        self.register_conn_change(ConnChange::RemoveAllByTokens(tokens));
+        Ok(res)
+    }
+
+    pub fn drop_addr(&self, addr: SocketAddr) -> bool {
+        write_or_die!(self.config.favorite_addresses).remove(&addr);
+        let maybe_token = self.find_conn_to(addr);
+        if let Some(token) = maybe_token {
+            self.register_conn_change(ConnChange::RemovalByToken(token));
+            true
+        } else {
+            false
         }
     }
 
