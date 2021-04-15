@@ -749,7 +749,7 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
         info!("Attempting to bootstrap");
 
         let bootstrap_nodes = utils::get_bootstrap_nodes(
-            node.config.bootstrap_server.as_ref().map(String::as_str),
+            node.config.bootstrap_server.as_deref(),
             &node.config.dns_resolvers,
             node.config.dnssec_disabled,
             &node.config.bootstrap_nodes,
