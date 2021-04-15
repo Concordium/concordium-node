@@ -13,6 +13,7 @@ use std::{
     convert::TryFrom,
     io::{Cursor, Write},
     net::{IpAddr, SocketAddr},
+    path::Path,
     str::{self, FromStr},
 };
 
@@ -93,7 +94,7 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_resolvers(resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
+pub fn get_resolvers(resolv_conf: &Path, resolvers: &[String]) -> Vec<String> {
     use std::io::{BufRead, BufReader};
     if !resolvers.is_empty() {
         resolvers.to_owned()
@@ -119,7 +120,7 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
                 })
                 .flatten()
                 .collect::<Vec<String>>(),
-            _ => panic!("Can't open {}", resolv_conf),
+            _ => panic!("Can't open {}", resolv_conf.to_string_lossy()),
         }
     }
 }
@@ -198,7 +199,7 @@ pub fn parse_host_port(
 }
 
 pub fn get_bootstrap_nodes(
-    bootstrap_server: &str,
+    bootstrap_server: Option<&str>,
     resolvers: &[String],
     dnssec_fail: bool,
     bootstrap_nodes: &[String],
@@ -215,7 +216,7 @@ pub fn get_bootstrap_nodes(
             .flatten()
             .collect::<Vec<_>>();
         Ok(bootstrap_nodes)
-    } else {
+    } else if let Some(bootstrap_server) = bootstrap_server {
         debug!("No bootstrap nodes given; attempting DNS");
         let resolver_addresses =
             resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
@@ -226,6 +227,8 @@ pub fn get_bootstrap_nodes(
             Ok(res) => read_peers_from_dns_entries(res, get_dns_public_key()),
             Err(_) => Err("Error looking up bootstrap nodes"),
         }
+    } else {
+        Err("No bootstrap nodes and no bootstrap server specified.")
     }
 }
 

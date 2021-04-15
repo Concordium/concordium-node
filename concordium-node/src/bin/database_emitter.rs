@@ -33,7 +33,6 @@ fn main() -> Fallible<()> {
 
     conf.connection.dnssec_disabled = true;
     conf.connection.no_bootstrap_dns = true;
-    conf.connection.bootstrap_server = "foo:8888".to_string();
     conf.connection.desired_nodes = conf.connection.connect_to.len() as u16;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
