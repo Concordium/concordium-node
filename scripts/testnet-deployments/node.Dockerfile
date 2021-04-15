@@ -1,6 +1,6 @@
-ARG universal_image
+ARG universal_image_name
 
-FROM $universal_image AS build
+FROM $universal_image_name AS build
 FROM ubuntu:20.04
 
 ARG build_type
