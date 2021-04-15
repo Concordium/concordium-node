@@ -94,7 +94,7 @@ impl P2PNode {
     }
 
     pub fn drop_addr(&self, addr: SocketAddr) -> bool {
-        write_or_die!(self.config.favorite_addresses).remove(&addr);
+        write_or_die!(self.config.given_addresses).remove(&addr);
         let maybe_token = self.find_conn_to(addr);
         if let Some(token) = maybe_token {
             self.register_conn_change(ConnChange::RemovalByToken(token));

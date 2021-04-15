@@ -133,7 +133,7 @@ impl P2p for RpcServerImpl {
         self.node.register_conn_change(ConnChange::NewConn {
             addr,
             peer_type: PeerType::Node,
-            favorite: true,
+            given: true,
         });
         Ok(Response::new(BoolResponse {
             value: true,
