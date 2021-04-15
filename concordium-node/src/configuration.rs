@@ -78,7 +78,7 @@ pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]
-/// Parameters related to the database emitter.
+// Parameters related to the database emitter.
 pub struct DatabaseEmitterConfig {
     #[structopt(long = "import-file", help = "File to import from")]
     pub import_file: String,
@@ -103,7 +103,7 @@ pub struct DatabaseEmitterConfig {
 
 #[cfg(feature = "instrumentation")]
 #[derive(StructOpt, Debug)]
-/// Parameters related to Prometheus.
+// Parameters related to Prometheus.
 pub struct PrometheusConfig {
     #[structopt(
         long = "prometheus-listen-addr",
@@ -150,7 +150,7 @@ pub struct PrometheusConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Parameters related to Baking (only used in cli).
+// Parameters related to Baking (only used in cli).
 pub struct BakerConfig {
     #[cfg(feature = "profiling")]
     #[structopt(
@@ -194,7 +194,7 @@ pub struct BakerConfig {
     #[structopt(
         long = "maximum-block-size",
         help = "Maximum block size in bytes",
-        default_value = "12582912"
+        default_value = "4194304"
     )]
     pub maximum_block_size: u32,
     #[structopt(
@@ -222,11 +222,6 @@ pub struct BakerConfig {
     )]
     pub transactions_purging_delay: u32,
     #[structopt(
-        long = "scheduler-outcome-logging",
-        help = "Enable outcome of finalized baked blocks from the scheduler"
-    )]
-    pub scheduler_outcome_logging: bool,
-    #[structopt(
         long = "import-blocks-from",
         help = "Path to a file exported by the database exporter"
     )]
@@ -242,7 +237,7 @@ pub struct BakerConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Parameters related to the RPC (only used in cli).
+// Parameters related to the RPC (only used in cli).
 pub struct RpcCliConfig {
     #[structopt(long = "no-rpc-server", help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
@@ -263,7 +258,7 @@ pub struct RpcCliConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Parameters related to connections.
+// Parameters related to connections.
 pub struct ConnectionConfig {
     #[structopt(
         long = "desired-nodes",
@@ -293,13 +288,14 @@ pub struct ConnectionConfig {
     #[structopt(
         long = "bootstrap-server",
         help = "DNS name to resolve bootstrap nodes from",
-        default_value = "bootstrap.p2p.concordium.com"
+        conflicts_with = "bootstrap-node"
     )]
-    pub bootstrap_server: String,
+    pub bootstrap_server: Option<String>,
     #[structopt(
         long = "connect-to",
         short = "c",
-        help = "Peer to connect to upon startup (host/ip:port)"
+        help = "Peer to connect to upon startup (host/ip:port)",
+        use_delimiter = true // allow a single argument with a comma separated list of values.
     )]
     pub connect_to: Vec<String>,
     #[structopt(
@@ -316,6 +312,7 @@ pub struct ConnectionConfig {
     #[structopt(long = "dns-resolver", help = "DNS resolver to use")]
     pub dns_resolver: Vec<String>,
     #[structopt(
+        name = "bootstrap-node",
         long = "bootstrap-node",
         help = "Bootstrap nodes to use upon startup host/ip:port (this disables DNS bootstrapping)"
     )]
@@ -325,7 +322,7 @@ pub struct ConnectionConfig {
         help = "Location of resolv.conf",
         default_value = "/etc/resolv.conf"
     )]
-    pub resolv_conf: String,
+    pub resolv_conf: PathBuf,
     #[structopt(
         long = "housekeeping-interval",
         help = "The connection housekeeping interval in seconds",
@@ -399,7 +396,7 @@ pub struct ConnectionConfig {
 }
 
 #[derive(StructOpt, Debug)]
-/// Parameters pertaining to basic setup.
+// Parameters pertaining to basic setup.
 pub struct CommonConfig {
     #[structopt(long = "external-port", help = "Own external port")]
     pub external_port: Option<u16>,
@@ -464,7 +461,7 @@ pub struct CommonConfig {
     pub bucket_cleanup_interval: u64,
 }
 
-/// Client's parameters.
+// Client's parameters.
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
     #[structopt(long = "no-network", help = "Disable network")]
@@ -532,9 +529,8 @@ pub struct CliConfig {
     pub transaction_outcome_logging_database_port: u16,
 }
 
-/// Parameters applicable to a bootstrapper.
 #[derive(StructOpt, Debug)]
-#[structopt(name = "BootstrapperNode")]
+// Parameters applicable to a bootstrapper.
 pub struct BootstrapperConfig {
     #[structopt(
         long = "max-nodes",
@@ -568,7 +564,8 @@ pub struct BootstrapperConfig {
     pub regenesis_block_hashes: Option<PathBuf>,
 }
 
-/// The main configuration object.
+// The main configuration object.
+#[structopt(about = "Concordium P2P node.")]
 #[derive(StructOpt, Debug)]
 pub struct Config {
     #[structopt(flatten)]
@@ -608,6 +605,7 @@ pub fn parse_config() -> Fallible<Config> {
     let conf = {
         let app = Config::clap()
             .setting(AppSettings::ArgRequiredElseHelp)
+            .setting(AppSettings::NextLineHelp)
             .global_setting(AppSettings::ColoredHelp);
         Config::from_clap(&app.get_matches())
     };
