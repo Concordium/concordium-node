@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 module GlobalStateTests.Updates where
 
@@ -109,7 +110,8 @@ createGS dbDir = do
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()
 destroyGS (Identity c, Identity s) =
-  shutdownGlobalState (Proxy :: Proxy (PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)))
+  shutdownGlobalState (protocolVersion @PV)
+                      (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig))
                       c
                       s
                       (NoLogContext, NoLogContext)

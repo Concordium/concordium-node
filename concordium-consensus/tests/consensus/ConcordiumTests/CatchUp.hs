@@ -93,7 +93,7 @@ runKonsensus steps g states es
 initialiseStatesDictator :: Int -> PropertyM IO States
 initialiseStatesDictator n = do
         let bakerAmt = 1000000
-            stakes = (2*bakerAmt) : take (n-1) (repeat bakerAmt)
+            stakes = (2*bakerAmt) : replicate (n-1) bakerAmt
             bis = makeBakersByStake stakes
             bakerAccounts = map (\(_, _, acc, _) -> acc) bis
             gen = GDP1 GDP1Initial {
@@ -129,18 +129,17 @@ simpleCatchUpCheck :: States -> Property
 simpleCatchUpCheck ss =
         conjoin [monadicIO $ catchUpCheck s1 s2 | s1 <- toList ss, s2 <- toList ss ]
 
-type TrivialHandlers = SkovHandlers DummyTimer (Config DummyTimer) LogIO
+type TrivialHandlers = SkovHandlers PV DummyTimer (Config DummyTimer) LogIO
 
 trivialHandlers :: TrivialHandlers
 trivialHandlers = SkovHandlers {..}
     where
         shBroadcastFinalizationMessage _ = error "Unimplemented"
-        shBroadcastFinalizationRecord _ = error "Unimplemented"
         shOnTimeout _ _ = error "Unimplemented"
         shCancelTimer _ = error "Unimplemented"
         shPendingLive = error "Unimplemented"
 
-trivialEvalSkovT :: (MonadIO m) => SkovT TrivialHandlers (Config DummyTimer) LogIO a -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
+trivialEvalSkovT :: (MonadIO m) => SkovT PV TrivialHandlers (Config DummyTimer) LogIO a -> SkovContext (Config DummyTimer) -> SkovState (Config DummyTimer) -> m a
 trivialEvalSkovT a ctx st = liftIO $ flip runLoggerT doLog $ evalSkovT a trivialHandlers ctx st
     where
         doLog src LLError msg = error $ show src ++ ": " ++ msg
@@ -155,6 +154,7 @@ catchUpCheck (_, _, _, c1, s1) (_, _, _, c2, s2) = do
             formatMsg (MessageFinalizationRecord, fr) = case runGet getExactVersionedFinalizationRecord fr of
                     Left e -> error e
                     Right fr' -> "Proof(" ++ show (finalizationIndex fr') ++ ", " ++ show (finalizationBlockPointer fr') ++ ")"
+            formatMsg _ = error "Expected block or finalization record"
         monitor $ counterexample $ "== REQUESTOR ==\n" ++ show (ssGSState s1) ++ "\n== RESPONDENT ==\n" ++ show (ssGSState s2) ++ "\n== REQUEST ==\n" ++ show request ++ "\n== RESPONSE ==\n" ++ show (fmap (_1 %~ fmap formatMsg) response) ++ "\n"
         cuwp <- case result of
             ResultSuccess -> return False

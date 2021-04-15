@@ -128,7 +128,7 @@ data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions {
     -- |The next available nonce at the last finalized block.
     -- 'anftMap' should only contain nonces that are at least 'anftNextNonce'.
     _anftNextNonce :: Nonce
-} deriving (Eq)
+} deriving (Eq, Show)
 makeLenses ''AccountNonFinalizedTransactions
 
 -- |Empty (no pending transactions) account non-finalized table starting at the
@@ -193,8 +193,8 @@ emptyTransactionTable = TransactionTable {
 emptyTransactionTableWithSequenceNumbers :: HM.HashMap AccountAddress Nonce -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
 emptyTransactionTableWithSequenceNumbers accs upds = TransactionTable {
         _ttHashMap = HM.empty,
-        _ttNonFinalizedTransactions = emptyANFTWithNonce <$> accs,
-        _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> upds
+        _ttNonFinalizedTransactions = emptyANFTWithNonce <$> HM.filter (/= minNonce) accs,
+        _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
     }
 
 -- * Pending transaction table

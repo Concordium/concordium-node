@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
@@ -107,7 +108,7 @@ createGS dbDir = do
   return (Identity x, Identity y)
 
 destroyGS :: (Identity PairedGSContext, Identity PairedGState) -> IO ()
-destroyGS (Identity c, Identity s) = shutdownGlobalState (Proxy :: Proxy (PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV))) c s (NoLogContext, NoLogContext)
+destroyGS (Identity c, Identity s) = shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy (PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig)) c s (NoLogContext, NoLogContext)
 
 ------------------------------------- Test -------------------------------------
 

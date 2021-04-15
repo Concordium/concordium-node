@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
@@ -70,7 +71,7 @@ createGlobalState dbDir = do
 
 destroyGlobalState :: (PBS.PersistentBlockStateContext, SkovPersistentData PV () (PBS.HashedPersistentBlockState PV)) -> IO ()
 destroyGlobalState (c, s) =
-  shutdownGlobalState (Proxy :: Proxy (DiskTreeDiskBlockConfig PV)) c s NoLogContext
+  shutdownGlobalState (protocolVersion @PV) (Proxy :: Proxy DiskTreeDiskBlockConfig) c s NoLogContext
 
 specifyWithGS :: String -> Test -> SpecWith (Arg Expectation)
 specifyWithGS s f =
