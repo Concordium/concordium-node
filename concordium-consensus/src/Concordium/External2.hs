@@ -576,7 +576,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 -- |    13 | ResultConsensusShutDown            | Consensus has been shut down and the message was ignored                               | No       |
 -- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
--- |    13 | ResultInvalidGenesisIndex          | The message is for an unknown genesis index                                            | No       |
+-- |    14 | ResultInvalidGenesisIndex          | The message is for an unknown genesis index                                            | No       |
 -- +-------+------------------------------------+----------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 

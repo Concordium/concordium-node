@@ -183,6 +183,7 @@ pub enum ConsensusFfiResponse {
     BlockTooEarly,
     MissingImportFile,
     ConsensusShutDown,
+    InvalidGenesisIndex,
 }
 
 impl ConsensusFfiResponse {
@@ -199,7 +200,7 @@ impl ConsensusFfiResponse {
         use ConsensusFfiResponse::*;
 
         match self {
-            PendingBlock | PendingFinalization => true,
+            PendingBlock | PendingFinalization | InvalidGenesisIndex => true,
             _ => false,
         }
     }
@@ -209,7 +210,7 @@ impl ConsensusFfiResponse {
 
         match self {
             BakerNotFound | DeserializationError | InvalidResult | Unverifiable | BlockTooEarly
-            | ConsensusShutDown => false,
+            | ConsensusShutDown | InvalidGenesisIndex => false,
             _ => true,
         }
     }
@@ -225,7 +226,8 @@ impl ConsensusFfiResponse {
             | Stale
             | IncorrectFinalizationSession
             | BlockTooEarly
-            | ConsensusShutDown => false,
+            | ConsensusShutDown
+            | InvalidGenesisIndex => false,
             _ => true,
         }
     }
@@ -254,6 +256,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             11 => Ok(BlockTooEarly),
             12 => Ok(MissingImportFile),
             13 => Ok(ConsensusShutDown),
+            14 => Ok(InvalidGenesisIndex),
             _ => Err(format_err!("Unsupported FFI return code ({})", value)),
         }
     }

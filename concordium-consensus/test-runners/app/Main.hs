@@ -1,259 +1,58 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
+-- |This module defines a test runner for consensus that spawns multiple baker instances and allows
+-- them to communicate. It produces a graph-viz formatted graph as output showing the blocks.
 module Main where
 
 import Control.Concurrent
 import Control.Exception
 import Control.Monad
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
+import Data.IORef
 import qualified Data.Map as Map
 import Data.Serialize
 import Data.Time.Clock.POSIX
 import Data.Word
 import System.Directory
+import System.FilePath
 import System.IO
 import System.Random
 
-import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Afgjort.Finalize (FinalizationInstance (..))
+import Concordium.Birk.Bake
+import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.DummyData (dummyAuthorizations)
+import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Finalization
-import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Parameters
+import Concordium.Kontrol (currentTimestamp)
+import Concordium.Logger
+import Concordium.MultiVersion
+import qualified Concordium.ProtocolUpdate.P1.Reboot as P1.Reboot
+import Concordium.Skov hiding (receiveTransaction)
+import Concordium.Startup
 import Concordium.TimerMonad
-import Concordium.Types.AnonymityRevokers
-import Concordium.Types.HashableTo
-import Concordium.Types.IdentityProviders
+import Concordium.Types
+import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
--- import Concordium.GlobalState.Paired
-import Concordium.Kontrol (currentTimestamp)
-
-import Concordium.Afgjort.Finalize (FinalizationInstance (..))
-import Concordium.Birk.Bake
-import Concordium.Getters
-import Concordium.Logger
-import Concordium.Runner
-import Concordium.Skov hiding (receiveTransaction)
-import Concordium.Types
-
---import Debug.Trace
-
-import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState.DummyData (dummyAuthorizations)
-import qualified Concordium.GlobalState.DummyData as Dummy
-import Concordium.MultiVersion
-import qualified Concordium.ProtocolUpdate.P1.Reboot as P1.Reboot
-import Concordium.Startup
-import qualified Concordium.Types.DummyData as Dummy
-import qualified Data.ByteString as BS
-import Data.IORef
-import System.FilePath
-
--- Protocol version
+-- |Protocol version
 type PV = 'P1
 
-{-
-nContracts :: Int
-nContracts = 2
-
-transactions :: StdGen -> [BlockItem]
-transactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
-    where
-        trs n (amnt:amnts) =
-          Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) n : trs (n+1) amnts
-        trs _ _ = error "Ran out of transaction data"
-
--- |Make a series of transactions that update the election difficulty.
--- The timeout and effective time are based on the supplied timestamp
--- (which is assumed to be the current time).
-difficultyUpdateTransactions :: Timestamp -> [BlockItem]
-difficultyUpdateTransactions (Timestamp ts) = [u 1 99000 60 120, u 2 10000 120 180, u 3 90000 120 200, u 4 10000 120 201, u 5 80000 120 202, u 6 27000 120 0]
-    where
-        u :: UpdateSequenceNumber -> Word32 -> TransactionTime -> TransactionTime -> BlockItem
-        u sn diff expire eff = addMetadata id 0 $ ChainUpdate $ makeUpdateInstruction
-                RawUpdateInstruction {
-                    ruiSeqNumber = sn,
-                    ruiEffectiveTime = if eff == 0 then 0 else fromIntegral (ts `div` 1000) + eff,
-                    ruiTimeout = fromIntegral (ts `div` 1000) + expire,
-                    ruiPayload = ElectionDifficultyUpdatePayload (makeElectionDifficulty diff)
-                }
-                (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
-
-sendTransactions :: Int -> Chan (InMessage a) -> [BlockItem] -> IO ()
-sendTransactions bakerId chan (t : ts) = do
-        writeChan chan (MsgTransactionReceived $ runPut (putVersionedBlockItemV0 t))
-        -- r <- randomRIO (5000, 15000)
-        threadDelay 20000
-        sendTransactions bakerId chan ts
-sendTransactions _ _ _ = return ()
-
-relay :: Chan (OutMessage src) -> SyncRunner ActiveConfig -> Chan (Either (BlockHash, BakedBlock, (Maybe BlockHeight, [Instance])) FinalizationRecord) -> [Chan (InMessage ())] -> IO ()
-relay inp sr monitor outps = loop `catch` (\(e :: SomeException) -> hPutStrLn stderr $ "// *** relay thread exited on exception: " ++ show e)
-    where
-        loop = do
-            msg <- readChan inp
-            now <- getTransactionTime
-            case msg of
-                MsgNewBlock blockBS -> do
-                    case runGet (getVersionedBlock (protocolVersion @PV) now) blockBS of
-                        Right !(block :: BakedBlock) -> do
-                            let bh = getHash block :: BlockHash
-                            bi <- runStateQuery sr (bInsts bh)
-                            writeChan monitor (Left (bh, block, bi))
-                        _ -> return ()
-                    forM_ outps $ \outp -> forkIO $ do
-                        --factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.05 :: Double
-                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
-                        threadDelay r
-                        --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgBlockReceived () blockBS)
-                MsgFinalization bs ->
-                    forM_ outps $ \outp -> forkIO $ do
-                        -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.05 :: Double
-                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
-                        threadDelay r
-                        --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgFinalizationReceived () bs)
-                MsgFinalizationRecord fr -> do
-                    case runGet get fr of
-                        Right !fr' -> writeChan monitor (Right fr')
-                        _ -> return ()
-                    forM_ outps $ \outp -> forkIO $ do
-                        -- factor <- (/2) . (+1) . sin . (*(pi/240)) . fromRational . toRational <$> getPOSIXTime
-                        let factor = 0.05 :: Double
-                        r <- truncate . (*factor) . fromInteger . (`div` 10) . (^(2::Int)) <$> randomRIO (0, 7800)
-                        threadDelay r
-                        --putStrLn $ "Delay: " ++ show r
-                        writeChan outp (MsgFinalizationRecordReceived () fr)
-                _ -> return ()
-            loop
-        bInsts :: BlockHash -> SkovT () ActiveConfig LogIO (Maybe BlockHeight, [Instance])
-        bInsts bh = do
-            bst <- resolveBlock bh
-            case bst of
-                Nothing -> return (Nothing, [])
-                Just bs -> fmap (Just (bpHeight bs), ) . getContractInstanceList =<< queryBlockState bs
-
-removeEach :: [a] -> [(a,[a])]
-removeEach = re []
-    where
-        re l (x:xs) = (x,l++xs) : re (x:l) xs
-        re _ [] = []
-
-{-
-gsToString :: BlockState -> String
-gsToString gs = (show (currentSeed (gs ^.  blockBirkParameters ^. birkSeedState))) ++
-                    "\n current: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkCurrentBakers)) ++
-                    "\n prev   : " ++ showBakers ( (gs ^. blockBirkParameters ^. birkPrevEpochBakers)) ++
-                    "\n lottery: " ++ showBakers ( (gs ^. blockBirkParameters ^. birkLotteryBakers))
-    where
-        ca n = ContractAddress (fromIntegral n) 0
-        keys = map (\n -> (n, instanceModel <$> getInstance (ca n) (gs ^. blockInstances))) $ enumFromTo 0 (nContracts-1)
-        showBakers bs = show [ _bakerStake binfo | (_, binfo) <- Map.toList (_bakerMap bs)]
--}
-
-dummyIdentityProviders :: IdentityProviders
-dummyIdentityProviders = emptyIdentityProviders
-
-dummyArs :: AnonymityRevokers
-dummyArs = emptyAnonymityRevokers
-
-type TreeConfig = DiskTreeDiskBlockConfig PV
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
-makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
-
--- type TreeConfig = MemoryTreeDiskBlockConfig PV
--- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rt _ blockStateFile genData = return $ MTDBConfig rt blockStateFile genData
-
---type TreeConfig = MemoryTreeMemoryBlockConfig PV
---makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
---makeGlobalStateConfig rt _ _ genData = return $ MTMBConfig rt genData
-
---uncomment if wanting paired config
--- type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
--- makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
--- makeGlobalStateConfig rp treeStateDir blockStateFile genData =
---    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
-
-type ActiveConfig = SkovConfig PV TreeConfig (BufferedFinalization ThreadTimer) LogUpdateHandler
-
-main :: IO ()
-main = do
-    let n = 5
-    now <- (\(Timestamp t) -> Timestamp $ ((t `div` 1000) + 1)*1000) <$> currentTimestamp -- return 1588916588000
-    let (gen, bis, _) = makeGenesisData now n 200
-                     defaultFinalizationParameters{
-                         finalizationCommitteeMaxSize = 3 * fromIntegral n + 1,
-                         finalizationSkipShrinkFactor = 0.8, finalizationSkipGrowFactor = 1.25,
-                         finalizationAllowZeroDelay = True
-                     }
-                     Dummy.dummyCryptographicParameters
-                     dummyIdentityProviders
-                     dummyArs
-                     [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
-                     (Energy maxBound)
-                     dummyAuthorizations
-                     (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (fromIntegral n) 300000000000)
-    trans <- transactions <$> newStdGen
-    createDirectoryIfMissing True "data"
-    chans <- mapM (\(bakerId, (bid, _)) -> do
-        logFile <- openFile ("consensus-" ++ show now ++ "-" ++ show bakerId ++ ".log") WriteMode
-
-        let logM src lvl msg = {- when (lvl == LLInfo) $ -} do
-                                    timestamp <- getCurrentTime
-                                    hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
-                                    hFlush logFile
-        --let dbConnString = "host=localhost port=5432 user=txlog dbname=baker_" <> BS8.pack (show (1 + bakerId)) <> " password=txlogpassword"
-        gsconfig <- makeGlobalStateConfig
-                        defaultRuntimeParameters
-                        ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
-                        ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
-                        gen --dbConnString
-        let
-            finconfig = BufferedFinalization (FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid))
-            hconfig = LogUpdateHandler
-            config = SkovConfig gsconfig finconfig hconfig
-        (cin, cout, sr) <- makeAsyncRunner logM bid config
-        _ <- forkIO $ sendTransactions bakerId cin trans
-        return (cin, cout, sr)) (zip [(0::Int) ..] bis)
-    monitorChan <- newChan
-    mapM_ (\((_,cout, sr), cs) -> forkIO $ relay cout sr monitorChan ((\(c, _, _) -> c) <$> cs)) (removeEach chans)
-    let loop =
-            readChan monitorChan >>= \case
-                Left (bh, block, gs') -> do
-                    let ts = blockTransactions block
-                    -- let stateStr = show gs'
-                    let finInfo = case bfBlockFinalizationData (bbFields block) of
-                            NoFinalizationData -> ""
-                            BlockFinalizationData fr -> "\\lfin.wits:" ++ show (finalizationProofParties $ finalizationProof fr)
-                    putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show (blockBaker block) ++ ": " ++ show (blockSlot block) ++ " [" ++ show (length ts) ++ "]" ++ finInfo ++ show (fst gs') ++ "\"];"
-                    putStrLn $ " n" ++ show bh ++ " -> n" ++ show (blockPointer block) ++ ";"
-                    case (blockFinalizationData block) of
-                        NoFinalizationData -> return ()
-                        BlockFinalizationData fr ->
-                            putStrLn $ " n" ++ show bh ++ " -> n" ++ show (finalizationBlockPointer fr) ++ " [style=dotted];"
-                    hFlush stdout
-                    loop
-                Right fr -> do
-                    putStrLn $ " n" ++ show (finalizationBlockPointer fr) ++ " [color=green];"
-                    loop
-    loop
--}
-
+-- |Number of bakers to create.
 numberOfBakers :: Num n => n
 numberOfBakers = 5
 
+-- |Finalization parameters to use for the test.
 myFinalizationParameters :: FinalizationParameters
 myFinalizationParameters =
     defaultFinalizationParameters
@@ -263,6 +62,8 @@ myFinalizationParameters =
           finalizationAllowZeroDelay = True
         }
 
+-- |A protocol update payload that will restart the chain (still at protocol version P1), but
+-- with an updated slot duration and election difficulty.
 updatePayload :: ProtocolUpdate
 updatePayload =
     ProtocolUpdate
@@ -280,6 +81,9 @@ updatePayload =
                     }
         }
 
+-- |Produces a list consisting of a single protocol update transaction.
+-- The transaction is scheduled for one minute after the suppied timestamp, and will
+-- time out 30 seconds prior to this.
 protocolUpdateTransactions :: Timestamp -> [BlockItem]
 protocolUpdateTransactions (Timestamp ts) = [ui]
   where
@@ -295,13 +99,21 @@ protocolUpdateTransactions (Timestamp ts) = [ui]
                         }
                     (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
 
+-- |Generates an infinite list of transfer transactions from a single account to itself.
 transferTransactions :: StdGen -> [BlockItem]
 transferTransactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
   where
     trs n (amnt : amnts) =
-        Dummy.makeTransferTransaction (Dummy.mateuszKP, Dummy.mateuszAccount) Dummy.mateuszAccount (fromIntegral amnt) n : trs (n + 1) amnts
+        Dummy.makeTransferTransaction
+            (Dummy.mateuszKP, Dummy.mateuszAccount)
+            Dummy.mateuszAccount
+            (fromIntegral amnt)
+            n :
+        trs (n + 1) amnts
     trs _ _ = error "Ran out of transaction data"
 
+-- |Notification of a block being baked, or a protocol update occurring, that should be rendered
+-- as part of the produced graph.
 data MonitorEvent
     = MEBlock GenesisIndex BS.ByteString
     | MERegenesis BlockHash
@@ -335,42 +147,154 @@ monitorLoop chan =
                     putStrLn $ " n" ++ show bh ++ " [label=\"" ++ show bh ++ "\",shape=rectangle,style=filled,color=blue];"
                     hFlush stdout
 
+-- |A random distribution
 type Distribution x = StdGen -> (x, StdGen)
 
+-- |Delay for a random time sampled from a distribution (in microseconds).
+randomDelay :: Distribution Int -> IO ()
+randomDelay distr = do
+    delay <- getStdRandom distr
+    threadDelay delay
+
+-- |Fork a thread to perform an action after a random delay.
 eventually :: Distribution Int -> IO a -> IO ()
 eventually distr act = void $
     forkIO $ do
-        delay <- getStdRandom distr
-        threadDelay delay
+        randomDelay distr
         void act
 
 -- | 'quadDelay f' is a distribution of up to roughly 'f' minutes (in microseconds).
 -- Smaller delays are more likely, because this is based on squaring a uniform distribution.
 quadDelay :: Double -> Distribution Int
 quadDelay factor g = (r, g')
-    where
-        (r0, g') = randomR (0, 7800) g
-        r = truncate $ factor * fromInteger (r0*r0 `div` 10)
+  where
+    (r0, g') = randomR (0, 7800) g
+    r = truncate $ factor * fromInteger (r0 * r0 `div` 10)
 
--- data Peers 
+-- |Identifier for a peer. Since all peers are bakers, we just use 'BakerId'.
+type PeerId = BakerId
 
+-- |Representation of a peer, including its 'MultiVersionRunner' and catch-up information.
+data Peer gsconfig finconfig = Peer
+    { -- |Runner for the peer.
+      peerMVR :: MultiVersionRunner gsconfig finconfig,
+      -- |List of peers that are pending catch-up.
+      peerCatchUp :: MVar [PeerId],
+      -- |'MVar' is written to signal that catch-up is required.
+      peerCatchUpSignal :: MVar (),
+      -- |The peer's 'PeerId'.
+      peerId :: PeerId
+    }
 
-callbacks :: IORef [MultiVersionRunner gsconfig finconfig] -> Chan MonitorEvent -> Callbacks
-callbacks mvrRef monitorChan = Callbacks{..}
+-- |Construct a peer from its 'PeerId' and 'MultiVersionRunner'. Does not start any threads.
+makePeer :: PeerId -> MultiVersionRunner gsconfig finconfig -> IO (Peer gsconfig finconfig)
+makePeer peerId peerMVR = do
+    peerCatchUp <- newMVar []
+    peerCatchUpSignal <- newEmptyMVar
+    return Peer{..}
+
+-- |For a given 'Peer', consider the 'PeerId' to be a pending peer.
+markPeerPending :: Peer g f -> PeerId -> IO ()
+markPeerPending Peer{..} newPending = unless (newPending == peerId) $ do
+    cul <- takeMVar peerCatchUp
+    if newPending `elem` cul
+        then putMVar peerCatchUp cul
+        else do
+            putMVar peerCatchUp (cul ++ [newPending])
+            void $ tryPutMVar peerCatchUpSignal ()
+
+-- |Interval (microseconds) at which to process the catch-up queue
+catchUpInterval :: Int
+catchUpInterval = 5_000_000
+
+-- |Start the catch-up thread for a peer.
+startCatchUpThread :: Peer g f -> Map.Map PeerId (Peer g f) -> IO ThreadId
+startCatchUpThread myPeer peers = forkIO $
+    forever $ do
+        threadDelay catchUpInterval
+        takeMVar (peerCatchUpSignal myPeer)
+        cu <- takeMVar (peerCatchUp myPeer)
+        case cu of
+            [] -> return ()
+            (nextPeer : rest) -> do
+                putMVar (peerCatchUp myPeer) rest
+                unless (null rest) $ void $ tryPutMVar (peerCatchUpSignal myPeer) ()
+                forM_ (Map.lookup nextPeer peers) $ \peer -> eventually (quadDelay 0.02) $ do
+                    (gi, curBS) <- runMVR getCatchUpRequest (peerMVR myPeer)
+                    randomDelay (quadDelay 0.02)
+                    peerReceive peer myPeer MessageCatchUpStatus gi (LBS.toStrict curBS)
+
+-- |Handle an incoming message at the given target from the given source.
+peerReceive :: Peer g f -> Peer g f -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
+peerReceive target src MessageBlock genIndex msg = do
+    mvLog (peerMVR target) External LLDebug $ "Received block from " ++ show (peerId src)
+    res <- runMVR (receiveBlock genIndex msg) (peerMVR target)
+    when (isPending res) $ markPeerPending target (peerId src)
+peerReceive target src MessageFinalizationRecord genIndex msg = do
+    mvLog (peerMVR target) External LLDebug $ "Received finalization record from " ++ show (peerId src)
+    res <- runMVR (receiveFinalizationRecord genIndex msg) (peerMVR target)
+    when (isPending res) $ markPeerPending target (peerId src)
+peerReceive target src MessageFinalization genIndex msg = do
+    mvLog (peerMVR target) External LLDebug $ "Received finalization message from " ++ show (peerId src)
+    -- Note: according to spec, we should potentially mark the peer as pending here.
+    void $ runMVR (receiveFinalizationMessage genIndex msg) (peerMVR target)
+peerReceive target src MessageCatchUpStatus genIndex msg = do
+    mvLog (peerMVR target) External LLDebug $ "Received catch-up status message from " ++ show (peerId src)
+    let catchUpCallback mt bs = do
+            randomDelay (quadDelay 0.01)
+            peerReceive src target mt genIndex bs
+        cuc = CatchUpConfiguration{catchUpMessageLimit = 5, ..}
+    res <- runMVR (receiveCatchUpStatus genIndex msg cuc) (peerMVR target)
+    when (isPending res || res == ResultContinueCatchUp) $ markPeerPending target (peerId src)
+
+-- |Check if an 'UpdateResult' indicates a pending status.
+isPending :: UpdateResult -> Bool
+isPending ResultPendingBlock = True
+isPending ResultPendingFinalization = True
+isPending ResultIncorrectFinalizationSession = True
+isPending _ = False
+
+-- |Send a given message to all peers.
+toAllPeers ::
+    PeerId ->
+    IORef (Map.Map PeerId (Peer gsconfig finconfig)) ->
+    MessageType ->
+    GenesisIndex ->
+    BS.ByteString ->
+    IO ()
+toAllPeers src peersRef mt genIndex msg = do
+    peers <- readIORef peersRef
+    forM_ (Map.lookup src peers) $ \myPeer -> do
+        mvLog (peerMVR myPeer) External LLDebug $ "Broadcasting message of type " ++ show mt
+        forM_ peers $ \peer ->
+            unless (peerId peer == src) $
+                eventually (quadDelay 0.05) $
+                    peerReceive peer myPeer mt genIndex msg
+
+-- |Instance of 'Callbacks' for a specific peer.
+callbacks ::
+    PeerId ->
+    IORef (Map.Map PeerId (Peer gsconfig finconfig)) ->
+    Chan MonitorEvent ->
+    Callbacks
+callbacks myPeerId peersRef monitorChan = Callbacks{..}
   where
     broadcastBlock gi bs = do
         writeChan monitorChan $ MEBlock gi bs
-        mvrs <- readIORef mvrRef
-        forM_ mvrs $ \mvr -> eventually (quadDelay 0.05) $ runMVR (receiveBlock gi bs) mvr
-    broadcastFinalizationMessage gi bs = do
-        mvrs <- readIORef mvrRef
-        forM_ mvrs $ \mvr -> eventually (quadDelay 0.05) $ runMVR (receiveFinalizationMessage gi bs) mvr
-    broadcastFinalizationRecord gi bs = do
-        mvrs <- readIORef mvrRef
-        forM_ mvrs $ \mvr -> eventually (quadDelay 0.05) $ runMVR (receiveFinalizationRecord gi bs) mvr
-    notifyCatchUpStatus _ _ = return ()
-    notifyRegenesis gbh = writeChan monitorChan $ MERegenesis gbh
+        toAllPeers myPeerId peersRef MessageBlock gi bs
+    broadcastFinalizationMessage gi bs =
+        toAllPeers myPeerId peersRef MessageFinalization gi bs
+    broadcastFinalizationRecord gi bs =
+        toAllPeers myPeerId peersRef MessageFinalizationRecord gi bs
+    notifyCatchUpStatus gi bs =
+        toAllPeers myPeerId peersRef MessageCatchUpStatus gi bs
+    notifyRegenesis gbh = do
+        writeChan monitorChan $ MERegenesis gbh
+        peers <- readIORef peersRef
+        forM_ (Map.lookup myPeerId peers) $ \myPeer ->
+            forM_ peers $ \peer -> markPeerPending myPeer (peerId peer)
 
+-- |Construct a 'MultiVersionConfiguration' to use for each baker node.
 config :: FilePath -> BakerIdentity -> MultiVersionConfiguration DiskTreeDiskBlockConfig (BufferedFinalization ThreadTimer)
 config dataPath bid = MultiVersionConfiguration{..}
   where
@@ -385,6 +309,7 @@ config dataPath bid = MultiVersionConfiguration{..}
             )
     mvcRuntimeParameters = defaultRuntimeParameters
 
+-- |Start a thread sending transactions to a particular node.
 startTransactionThread :: [BlockItem] -> MultiVersionRunner gsconfig finconfig -> IO ThreadId
 startTransactionThread trs0 mvr = forkIO $ transactionLoop trs0
   where
@@ -394,6 +319,7 @@ startTransactionThread trs0 mvr = forkIO $ transactionLoop trs0
         _ <- runMVR (receiveTransaction (runPut $ putVersionedBlockItemV0 tr)) mvr
         transactionLoop trs
 
+-- |Main runner that starts the bakers and monitors the results.
 main :: IO ()
 main = do
     -- Set genesis at the next whole second
@@ -411,24 +337,36 @@ main = do
                 (Energy maxBound)
                 dummyAuthorizations
                 (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
-    mvrRef <- newIORef []
+    BS.writeFile
+        ("data" </> ("genesis-" ++ show now) <.> "dat")
+        (runPut $ putVersionedGenesisData genesisData)
+    peersRef <- newIORef Map.empty
     monitorChan <- newChan
-    let cbks = callbacks mvrRef monitorChan
-    mvrs <- forM bakerIdentities $ \(bid, _) -> do
-        let s = show now ++ "-" ++ show (bakerId bid)
-            d = "data" </> ("db" ++ s)
-        createDirectoryIfMissing True d
-        let bconfig = config d bid
-        logFile <- openFile ("consensus-" ++ s ++ ".log") WriteMode
-        let blogger src lvl msg = {- when (lvl == LLInfo) $ -} do
-                timestamp <- getCurrentTime
-                hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
-                hFlush logFile
-        makeMultiVersionRunner bconfig cbks (Just bid) blogger (PVGenesisData genesisData)
-    writeIORef mvrRef mvrs
+    peers <-
+        Map.fromList
+            <$> forM
+                bakerIdentities
+                ( \(bid, _) -> do
+                    let s = show now ++ "-" ++ show (bakerId bid)
+                        d = "data" </> ("db" ++ s)
+                    createDirectoryIfMissing True d
+                    let bconfig = config d bid
+                    logFile <- openFile ("consensus-" ++ s ++ ".log") WriteMode
+                    let blogger src lvl msg = {- when (lvl == LLInfo) $ -} do
+                            timestamp <- getCurrentTime
+                            hPutStrLn logFile $ "[" ++ show timestamp ++ "] " ++ show lvl ++ " - " ++ show src ++ ": " ++ msg
+                            hFlush logFile
+                    let cbks = callbacks (bakerId bid) peersRef monitorChan
+                    mvr <- makeMultiVersionRunner bconfig cbks (Just bid) blogger (PVGenesisData genesisData)
+                    (bakerId bid,) <$> makePeer (bakerId bid) mvr
+                )
+
+    writeIORef peersRef peers
     -- Start the bakers
-    forM_ mvrs startBaker
+    forM_ peers $ \peer -> do
+        _ <- startCatchUpThread peer peers
+        startBaker (peerMVR peer)
     trTrans <- transferTransactions <$> newStdGen
     let transactions = protocolUpdateTransactions now ++ trTrans
-    forM_ mvrs $ startTransactionThread transactions
+    forM_ peers $ startTransactionThread transactions . peerMVR
     monitorLoop monitorChan

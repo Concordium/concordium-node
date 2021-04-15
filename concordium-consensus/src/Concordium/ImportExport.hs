@@ -334,7 +334,7 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
     onIOErr :: IOError -> ExceptT (ImportFailure a) m ()
     onIOErr = failWith . show
     importSections hdl = do
-        eof <- liftIO isEOF
+        eof <- liftIO $ hIsEOF hdl
         unless eof $ do
             sectionStart <- liftIO $ hTell hdl
             sectionBS <- getLengthByteString hdl

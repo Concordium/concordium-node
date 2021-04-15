@@ -20,6 +20,7 @@ import DatabaseExporter.CommandLineParser
 -- |Check an exported block file.
 checkDatabase :: FilePath -> IO ()
 checkDatabase filepath = do
+    logm External LLInfo $ "Checking database: " ++ filepath
     t <- getCurrentTime
     res <- runLoggerT (importBlocksV3 filepath 0 (handleImport t)) logm
     case res of
@@ -27,14 +28,18 @@ checkDatabase filepath = do
         Right _ -> putStrLn "Done."
   where
     logm _ lvl s = putStrLn $ show lvl ++ ": " ++ s
-    handleImport t (ImportBlock pv _ bs) = case promoteProtocolVersion pv of
+    handleImport t (ImportBlock pv gi bs) = case promoteProtocolVersion pv of
         SomeProtocolVersion spv -> case deserializeExactVersionedPendingBlock spv bs t of
             Left _ -> return $ Left ImportSerializationFail
-            _ -> return $ Right ()
-    handleImport _ (ImportFinalizationRecord _ _ bs) =
+            Right pb -> do
+                logEvent External LLInfo $ "GensisIndex: " ++ show gi ++ " block: " ++ show (pbHash pb) ++ " slot: " ++ show (blockSlot pb)
+                return $ Right ()
+    handleImport _ (ImportFinalizationRecord _ gi bs) =
         case runGet getExactVersionedFinalizationRecord bs of
             Left _ -> return $ Left ImportSerializationFail
-            _ -> return $ Right ()
+            Right fr -> do
+                logEvent External LLInfo $ "GensisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
+                return $ Right ()
 
 -- |Export a block database, or check and exported block file, depending on the command line.
 main :: IO ()

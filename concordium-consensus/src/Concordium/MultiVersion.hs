@@ -39,6 +39,7 @@ import Concordium.Birk.Bake
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.Finalization
+import Concordium.GlobalState.Paired
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.TreeState (TreeStateMonad)
 import Concordium.ImportExport
@@ -113,8 +114,10 @@ class
     where
     -- |Type of state configuration data.
     type StateConfig gsconf
+
     -- |Type of transaction logging data.
     type TXLogConfig gsconf
+
     -- |Create a global state configuration for a specific genesis.
     globalStateConfig ::
         IsProtocolVersion pv =>
@@ -124,6 +127,11 @@ class
         GenesisIndex ->
         GenesisData pv ->
         gsconf pv
+
+instance MultiVersionStateConfig MemoryTreeMemoryBlockConfig where
+    type StateConfig MemoryTreeMemoryBlockConfig = ()
+    type TXLogConfig MemoryTreeMemoryBlockConfig = ()
+    globalStateConfig _ _ rtp _ gd = MTMBConfig rtp gd
 
 instance MultiVersionStateConfig DiskTreeDiskBlockConfig where
     type StateConfig DiskTreeDiskBlockConfig = DiskStateConfig
@@ -149,6 +157,18 @@ instance MultiVersionStateConfig DiskTreeDiskBlockWithLogConfig where
               dtdbwlTxDBConnectionString = dbConnString
             }
         )
+
+instance
+    (MultiVersionStateConfig c1, MultiVersionStateConfig c2) =>
+    MultiVersionStateConfig (PairGSConfig c1 c2)
+    where
+    type StateConfig (PairGSConfig c1 c2) = (StateConfig c1, StateConfig c2)
+    type TXLogConfig (PairGSConfig c1 c2) = (TXLogConfig c1, TXLogConfig c2)
+    globalStateConfig (sc1, sc2) (txc1, txc2) rtp gi gd =
+        PairGSConfig
+            ( globalStateConfig sc1 txc1 rtp gi gd,
+              globalStateConfig sc2 txc2 rtp gi gd
+            )
 
 -- |Callback functions for communicating with the network layer.
 data Callbacks = Callbacks
@@ -491,19 +511,23 @@ makeMultiVersionRunner
 -- |Start a thread to periodically purge uncommitted transactions.
 -- This is only intended to be called once, during 'makeMultiVersionRunner'.
 -- Calling it a second time is expected to deadlock.
+--
+-- If the specified delay is less than or equal to zero, no purging thread
+-- will be started.
 startTransactionPurgingThread :: MultiVersionRunner gsconf finconf -> IO ()
 startTransactionPurgingThread mvr@MultiVersionRunner{..} =
-    putMVar mvTransactionPurgingThread <=< forkIO $
-        ( do
-            mvLog Runner LLInfo "Transaction purging thread started."
-            forever $ do
-                threadDelay delay
-                mvLog Runner LLTrace "Purging transactions."
-                withWriteLockIO mvr $ do
-                    EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
-                    runMVR (liftSkovUpdate vc purgeTransactions) mvr
-        )
-            `finally` mvLog Runner LLInfo "Transaction purging thread stopped."
+    when (delay > 0) $
+        putMVar mvTransactionPurgingThread <=< forkIO $
+            ( do
+                mvLog Runner LLInfo "Transaction purging thread started."
+                forever $ do
+                    threadDelay delay
+                    mvLog Runner LLTrace "Purging transactions."
+                    withWriteLockIO mvr $ do
+                        EVersionedConfiguration vc <- Vec.last <$> readIORef mvVersions
+                        runMVR (liftSkovUpdate vc purgeTransactions) mvr
+            )
+                `finally` mvLog Runner LLInfo "Transaction purging thread stopped."
   where
     delay = rpTransactionsPurgingDelay (mvcRuntimeParameters mvConfiguration) * 1_000_000
 
@@ -845,7 +869,7 @@ getCatchUpRequest = do
         (EVersionedConfiguration (vc :: VersionedConfiguration gsconf finconf pv)) -> do
             st <- liftIO $ readIORef $ vcState vc
             cus <- evalSkovT (getCatchUpStatus @pv True) (mvrSkovHandlers vc mvr) (vcContext vc) st
-            return (fromIntegral (Vec.length vvec), runPutLazy $ putVersionedCatchUpStatus cus)
+            return (vcIndex vc, runPutLazy $ putVersionedCatchUpStatus cus)
 
 -- |Deserialize and receive a transaction.  The transaction is passed to
 -- the current version of the chain.
