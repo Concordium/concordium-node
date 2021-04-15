@@ -264,11 +264,11 @@ fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> Fallible
 fn connect_to_config_nodes(node: &Arc<P2PNode>) -> Fallible<()> {
     // clone the addresses to release the lock before the relatively expensive
     // connect calls.
-    let conns = read_or_die!(node.config.favorite_addresses).clone();
+    let conns = read_or_die!(node.config.given_addresses).clone();
     // The use of collect means that entire computation will fail if any connections
     // fail. This is sensible behaviour for this function which is meant to be
     // used during startup, and the behaviour is that the node will fail to
-    // start unless all favorites can be connected to.
+    // start unless all the given peers can be connected to.
     conns.iter().map(|&addr| connect(node, PeerType::Node, addr, None, false)).collect()
 }
 

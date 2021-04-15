@@ -538,18 +538,18 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     }
 
     // if the number of peers exceeds the desired value, close a random selection of
-    // post-handshake non-favorite connections to lower it
+    // post-handshake non-given connections to lower it
     if peer_type == PeerType::Node {
         let max_allowed_nodes = node.config.max_allowed_nodes;
         let peer_count = node.get_peer_stats(Some(PeerType::Node)).len() as u16;
         if peer_count > max_allowed_nodes {
-            // drop connections to any non-favorite peers.
+            // drop connections to any non-given peers.
             let mut rng = rand::thread_rng();
             let to_drop = read_or_die!(node.connections())
                 .iter()
                 .filter_map(|(&token, conn)| {
-                    // only consider non-favorite connections for removal
-                    if node.is_favorite_connection(conn) {
+                    // only consider non-given connections for removal
+                    if node.is_given_connection(conn) {
                         None
                     } else {
                         Some(token)
@@ -570,10 +570,10 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
         }
     }
 
-    // Try to connect to any favorite peers we are not connected to.
-    for favorite in node.unconnected_favorites() {
-        if let Err(e) = connect(node, PeerType::Node, favorite, None, false) {
-            warn!("Cannot establish connection to a named peer {} due to {}", favorite, e)
+    // Try to connect to any given addresses we are not connected to.
+    for given in node.unconnected_given_addresses() {
+        if let Err(e) = connect(node, PeerType::Node, given, None, false) {
+            warn!("Cannot establish connection to a named peer {} due to {}", given, e)
         }
     }
 

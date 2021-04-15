@@ -301,9 +301,8 @@ pub enum ConnChange {
         addr: SocketAddr,
         /// what kind of a peer to expect on the address
         peer_type: PeerType,
-        /// whether the connection should be marked as a favorite connection or
-        /// not.
-        favorite: bool,
+        /// whether the connection was given or discovered
+        given: bool,
     },
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
