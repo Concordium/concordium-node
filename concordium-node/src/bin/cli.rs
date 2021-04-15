@@ -254,22 +254,27 @@ fn instantiate_node(
 
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> Fallible<()> {
     info!("Starting the P2P layer");
-    connect_to_config_nodes(node)?;
+    connect_to_config_nodes(node);
     if !conf.connection.no_bootstrap_dns {
         attempt_bootstrap(node);
     }
     Ok(())
 }
 
-fn connect_to_config_nodes(node: &Arc<P2PNode>) -> Fallible<()> {
+fn connect_to_config_nodes(node: &Arc<P2PNode>) {
     // clone the addresses to release the lock before the relatively expensive
     // connect calls.
     let conns = read_or_die!(node.config.given_addresses).clone();
-    // The use of collect means that entire computation will fail if any connections
-    // fail. This is sensible behaviour for this function which is meant to be
-    // used during startup, and the behaviour is that the node will fail to
-    // start unless all the given peers can be connected to.
-    conns.iter().map(|&addr| connect(node, PeerType::Node, addr, None, false)).collect()
+    // We try to connect to all the given addresses, only warning if we fail.
+    // This logic is consistent with subsequent retries in connection
+    // housekeeping and means that it is a bit easier to set up a fully
+    // connected network of given addresses. Warnings should suffice to detect
+    // configuration mistakes.
+    for &given_addr in conns.iter() {
+        if let Err(e) = connect(node, PeerType::Node, given_addr, None, false) {
+            warn!("Could not connect to a given address {}: {}", given_addr, e);
+        }
+    }
 }
 
 fn start_consensus_message_threads(
