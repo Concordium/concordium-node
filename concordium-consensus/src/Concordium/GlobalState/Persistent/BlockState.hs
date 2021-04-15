@@ -41,6 +41,7 @@ import Concordium.Types.Execution ( TransactionSummary )
 import qualified Concordium.Wasm as Wasm
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.ID.Parameters as ID
+import Concordium.Crypto.EncryptedTransfers (isZeroEncryptedAmount)
 import Concordium.Types.Updates
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Persistent.BlobStore
@@ -442,20 +443,20 @@ initialPersistentState :: (IsProtocolVersion pv, MonadBlobStore m)
              -> [TransientAccount.Account pv]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> Authorizations
+             -> UpdateKeysCollection
              -> ChainParameters
              -> m (HashedPersistentBlockState pv)
-initialPersistentState ss cps accts ips ars auths chainParams = makePersistent $ Basic.initialState ss cps accts ips ars auths chainParams
+initialPersistentState ss cps accts ips ars keysCollection chainParams = makePersistent $ Basic.initialState ss cps accts ips ars keysCollection chainParams
 
 -- |A mostly empty block state, but with the given birk parameters, 
 -- cryptographic parameters, update authorizations and chain parameters.
-emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> m (PersistentBlockState pv)
-emptyBlockState bspBirkParameters cryptParams auths chainParams = do
+emptyBlockState :: (MonadBlobStore m) => PersistentBirkParameters -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> m (PersistentBlockState pv)
+emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
   modules <- refMake Modules.emptyModules
   identityProviders <- refMake IPS.emptyIdentityProviders
   anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
   cryptographicParameters <- refMake cryptParams
-  bspUpdates <- refMake =<< initialUpdates auths chainParams
+  bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
   bspReleaseSchedule <- refMake Map.empty
   bsp <- makeBufferedRef $ BlockStatePointers
           { bspAccounts = Accounts.emptyAccounts,
@@ -871,6 +872,12 @@ doGetAccount pbs addr = do
         bsp <- loadPBS pbs
         Accounts.getAccount addr (bspAccounts bsp)
 
+doGetAccountByCredId :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe (PersistentAccount pv))
+doGetAccountByCredId pbs cid = do
+        bsp <- loadPBS pbs
+        Accounts.getAccountByCredId cid (bspAccounts bsp)
+
+
 doGetAccountIndex :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> m (Maybe AccountIndex)
 doGetAccountIndex pbs addr = do
         bsp <- loadPBS pbs
@@ -881,7 +888,7 @@ doAccountList pbs = do
         bsp <- loadPBS pbs
         Accounts.accountAddresses (bspAccounts bsp)
 
-doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
+doRegIdExists :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
 doRegIdExists pbs regid = do
         bsp <- loadPBS pbs
         fst <$> Accounts.regIdExists regid (bspAccounts bsp)
@@ -892,11 +899,12 @@ doCreateAccount pbs cryptoParams acctAddr credential = do
         bsp <- loadPBS pbs
         -- Add the account
         (res, accts1) <- Accounts.putNewAccount acct (bspAccounts bsp)
-        if res then do
-            -- Record the RegId
-            accts2 <- Accounts.recordRegId (ID.credId credential) accts1
+        case res of
+          Just idx -> do
+            -- Record the RegId since we created a new account.
+            accts2 <- Accounts.recordRegId (ID.credId credential) idx accts1
             (Just acct,) <$> storePBS pbs (bsp {bspAccounts = accts2})
-        else
+          Nothing -> -- the account was not created
             return (Nothing, pbs)
 
 doModifyAccount :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountUpdate -> m (PersistentBlockState pv)
@@ -916,13 +924,22 @@ doSetAccountCredentialKeys pbs accAddress credIx credKeys = do
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentialKeys credIx credKeys) oldAccount
 
-doUpdateAccountCredentials :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> AccountAddress -> [ID.CredentialIndex] -> Map.Map ID.CredentialIndex ID.AccountCredential -> ID.AccountThreshold -> m (PersistentBlockState pv)
+doUpdateAccountCredentials :: (IsProtocolVersion pv, MonadBlobStore m) =>
+    PersistentBlockState pv
+    -> AccountAddress -- ^ Address of the account to update.
+    -> [ID.CredentialIndex] -- ^ List of credential indices to remove.
+    -> Map.Map ID.CredentialIndex ID.AccountCredential -- ^ New credentials to add.
+    -> ID.AccountThreshold -- ^ New account threshold
+    -> m (PersistentBlockState pv)
 doUpdateAccountCredentials pbs accAddress remove add thrsh = do
         bsp <- loadPBS pbs
-        (_, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
-        -- If we deploy a credential, record it
-        accts2 <- Accounts.recordRegIds (Map.elems $ ID.credId <$> add) accts1
-        storePBS pbs (bsp {bspAccounts = accts2})
+        (res, accts1) <- Accounts.updateAccounts upd accAddress (bspAccounts bsp)
+        case res of
+          Just (idx, ()) -> do
+            -- If we deploy a credential, record it
+            accts2 <- Accounts.recordRegIds ((, idx) <$> Map.elems (ID.credId <$> add)) accts1
+            storePBS pbs (bsp {bspAccounts = accts2})
+          Nothing -> return pbs -- this should not happen, the precondition of this method is that the account exists. But doing nothing is safe.
     where
         upd oldAccount = ((), ) <$> setPAD (updateCredentials remove add thrsh) oldAccount
 
@@ -1091,18 +1108,18 @@ doProcessReleaseSchedule pbs ts = do
                       acc' <- rehashAccount $ acc & accountReleaseSchedule .~ rDataRef
                       return (nextTs, acc')
                 (toRead, ba') <- Accounts.updateAccounts upd addr ba
-                return (ba', case join toRead of
+                return (ba', case snd =<< toRead of
                                Just t -> (addr, t) : readded
                                Nothing -> readded)
           (bspAccounts', accsToReadd) <- foldlM f (bspAccounts bsp, []) (Map.keys accountsToRemove)
           bspReleaseSchedule' <- makeBufferedRef $ foldl' (\b (a, t) -> Map.insert a t b) blockReleaseSchedule' accsToReadd
           storePBS pbs (bsp {bspAccounts = bspAccounts', bspReleaseSchedule = bspReleaseSchedule'})
 
-doGetCurrentAuthorizations :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m Authorizations
-doGetCurrentAuthorizations pbs = do
+doGetUpdateKeyCollection :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> m UpdateKeysCollection
+doGetUpdateKeyCollection pbs = do
         bsp <- loadPBS pbs
         u <- refLoad (bspUpdates bsp)
-        unStoreSerialized <$> refLoad (currentAuthorizations u)
+        unStoreSerialized <$> refLoad (currentKeyCollection u)
 
 doEnqueueUpdate :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> TransactionTime -> UpdateValue -> m (PersistentBlockState pv)
 doEnqueueUpdate pbs effectiveTime payload = do
@@ -1201,6 +1218,7 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 instance (IsProtocolVersion pv, PersistentState r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getAccount = doGetAccount . hpbsPointers
+    getAccountByCredId = doGetAccountByCredId . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
@@ -1232,9 +1250,16 @@ instance (PersistentState r m, IsProtocolVersion pv) => AccountOperations (Persi
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
-  getAccountCredentials acc = acc ^^. accountCredentials
+  checkAccountIsAllowed acc AllowedEncryptedTransfers = do
+    creds <- getAccountCredentials acc
+    return (Map.size creds == 1)
+  checkAccountIsAllowed acc AllowedMultipleCredentials = do
+    PersistentAccountEncryptedAmount{..} <- loadBufferedRef (acc ^. accountEncryptedAmount)
+    if null _incomingEncryptedAmounts && isNothing _aggregatedAmount then do
+      isZeroEncryptedAmount <$> loadBufferedRef _selfAmount
+    else return False
 
-  getAccountMaxCredentialValidTo acc = acc ^^. accountMaxCredentialValidTo
+  getAccountCredentials acc = acc ^^. accountCredentials
 
   getAccountVerificationKeys acc = acc ^^. accountVerificationKeys
 
@@ -1284,7 +1309,7 @@ instance (IsProtocolVersion pv, PersistentState r m) => BlockStateOperations (Pe
     bsoAddSpecialTransactionOutcome = doAddSpecialTransactionOutcome
     bsoProcessUpdateQueues = doProcessUpdateQueues
     bsoProcessReleaseSchedule = doProcessReleaseSchedule
-    bsoGetCurrentAuthorizations = doGetCurrentAuthorizations
+    bsoGetUpdateKeyCollection = doGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
     bsoOverwriteElectionDifficulty = doOverwriteElectionDifficulty

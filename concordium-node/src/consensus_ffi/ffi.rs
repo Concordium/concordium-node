@@ -1,4 +1,5 @@
 use crate::{
+    common::p2p_peer::RemotePeerId,
     consensus_ffi::{
         blockchain_types::BlockHash,
         catch_up::*,
@@ -23,6 +24,10 @@ use std::{
         Arc, Once,
     },
 };
+
+/// A type used in this module to document that a given value is intended
+/// to be used as a peer id.
+type PeerIdFFI = u64;
 
 extern "C" {
     pub fn hs_init(argc: *mut c_int, argv: *mut *mut *mut c_char);
@@ -241,7 +246,7 @@ type LogCallback = extern "C" fn(c_char, c_char, *const u8);
 type BroadcastCallback = extern "C" fn(i64, u32, *const u8, i64);
 type CatchUpStatusCallback = extern "C" fn(u32, *const u8, i64);
 type DirectMessageCallback = extern "C" fn(
-    peer_id: PeerId,
+    peer_id: PeerIdFFI,
     message_type: i64,
     genesis_index: u32,
     msg: *const c_char,
@@ -367,7 +372,7 @@ extern "C" {
     ) -> i64;
     pub fn receiveCatchUpStatus(
         consensus: *mut consensus_runner,
-        peer_id: PeerId,
+        peer_id: PeerIdFFI,
         genesis_index: u32,
         msg: *const u8,
         msg_len: i64,
@@ -667,12 +672,12 @@ impl ConsensusContainer {
         &self,
         genesis_index: u32,
         request: &[u8],
-        peer_id: PeerId,
+        peer_id: RemotePeerId,
         object_limit: i64,
     ) -> ConsensusFfiResponse {
         wrap_c_call!(self, |consensus| receiveCatchUpStatus(
             consensus,
-            peer_id,
+            peer_id.into(),
             genesis_index,
             request.as_ptr(),
             request.len() as i64,
@@ -793,7 +798,11 @@ impl TryFrom<u8> for CallbackType {
     }
 }
 
-pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *const u8, len: i64) {
+pub extern "C" fn on_finalization_message_catchup_out(
+    peer_id: PeerIdFFI,
+    data: *const u8,
+    len: i64,
+) {
     unsafe {
         let msg_variant = PacketType::FinalizationMessage;
         let payload = slice::from_raw_parts(data as *const u8, len as usize);
@@ -804,7 +813,7 @@ pub extern "C" fn on_finalization_message_catchup_out(peer_id: PeerId, data: *co
         let full_payload = Arc::from(full_payload);
 
         let msg = ConsensusMessage::new(
-            MessageType::Outbound(Some(peer_id)),
+            MessageType::Outbound(Some((peer_id as usize).into())),
             PacketType::FinalizationMessage,
             full_payload,
             vec![],
@@ -877,14 +886,21 @@ pub extern "C" fn broadcast_callback(
 }
 
 pub extern "C" fn direct_callback(
-    peer_id: PeerId,
+    peer_id: u64,
     msg_type: i64,
     genesis_index: u32,
     msg: *const c_char,
     msg_length: i64,
 ) {
     trace!("Direct callback hit - queueing message");
-    sending_callback!(Some(peer_id), msg_type, genesis_index, msg, msg_length, None);
+    sending_callback!(
+        Some((peer_id as usize).into()),
+        msg_type,
+        genesis_index,
+        msg,
+        msg_length,
+        None
+    );
 }
 
 pub extern "C" fn catchup_status_callback(genesis_index: u32, msg: *const u8, msg_length: i64) {
@@ -950,12 +966,13 @@ pub extern "C" fn on_log_emited(identifier: c_char, log_level: c_char, log_messa
             4 => "Kontrol",
             5 => "Skov",
             6 => "Baker",
+            7 => "External",
             8 => "GlobalState",
             9 => "BlockState",
             10 => "TreeState",
             11 => "LMDB",
             12 => "Scheduler",
-            _ => "External",
+            _ => "Unknown",
         }
     }
 

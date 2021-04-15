@@ -189,6 +189,17 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockStateQu
             return Nothing
           (Nothing, _) -> error $ "Cannot get account with address " ++ show addr ++ " in left implementation"
           (_, Nothing) -> error $ "Cannot get account with address " ++ show addr ++ " in right implementation"
+    getAccountByCredId (ls, rs) cid = do
+        a1 <- coerceBSML (getAccountByCredId ls cid)
+        a2 <- coerceBSMR (getAccountByCredId rs cid)
+        case (a1, a2) of
+          (Just a1', Just a2') ->
+            assert ((getHash a1' :: H.Hash) == getHash a2') $
+              return $ Just (a1', a2')
+          (Nothing, Nothing) ->
+            return Nothing
+          (Nothing, _) -> error $ "Cannot get account with credid " ++ show cid ++ " in left implementation"
+          (_, Nothing) -> error $ "Cannot get account with credid " ++ show cid ++ " in right implementation"
     getBakerAccount (ls, rs) bid = do
         a1 <- coerceBSML (getBakerAccount ls bid)
         a2 <- coerceBSMR (getBakerAccount rs bid)
@@ -305,15 +316,15 @@ instance (Monad m, C.HasGlobalStateContext (PairGSContext lc rc) r, AccountOpera
         n2 <- coerceBSMR (getAccountNonce acc2)
         assert (n1 == n2) $ return n1
 
+    checkAccountIsAllowed (acc1, acc2) a = do
+        b1 <- coerceBSML (checkAccountIsAllowed acc1 a)
+        b2 <- coerceBSMR (checkAccountIsAllowed acc2 a)
+        assert (b1 == b2) $ return b1
+
     getAccountCredentials (acc1, acc2) = do
         cs1 <- coerceBSML (getAccountCredentials acc1)
         cs2 <- coerceBSMR (getAccountCredentials acc2)
         assert (cs1 == cs2) $ return cs1
-
-    getAccountMaxCredentialValidTo (acc1, acc2) = do
-        m1 <- coerceBSML (getAccountMaxCredentialValidTo acc1)
-        m2 <- coerceBSMR (getAccountMaxCredentialValidTo acc2)
-        assert (m1 == m2) $ return m1
 
     getAccountVerificationKeys (acc1, acc2) = do
         ks1 <- coerceBSML (getAccountVerificationKeys acc1)
@@ -486,9 +497,9 @@ instance (MonadLogger m, C.HasGlobalStateContext (PairGSContext lc rc) r, BlockS
         bs1' <- coerceBSML $ bsoProcessReleaseSchedule bs1 ts
         bs2' <- coerceBSMR $ bsoProcessReleaseSchedule bs2 ts
         return (bs1', bs2')
-    bsoGetCurrentAuthorizations (bs1, bs2) = do
-        a1 <- coerceBSML $ bsoGetCurrentAuthorizations bs1
-        a2 <- coerceBSMR $ bsoGetCurrentAuthorizations bs2
+    bsoGetUpdateKeyCollection (bs1, bs2) = do
+        a1 <- coerceBSML $ bsoGetUpdateKeyCollection bs1
+        a2 <- coerceBSMR $ bsoGetUpdateKeyCollection bs2
         assert (a1 == a2) $ return a1
     bsoGetNextUpdateSequenceNumber (bs1, bs2) uty = do
         a1 <- coerceBSML $ bsoGetNextUpdateSequenceNumber bs1 uty

@@ -6,6 +6,7 @@
 module Concordium.External where
 
 import Control.Exception
+import Control.Monad
 import qualified Data.Aeson as AE
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy as LBS
@@ -15,18 +16,20 @@ import qualified Data.Serialize as S
 import Data.Word
 import Foreign
 import Foreign.C
+import Text.Read (readMaybe)
 
 import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
 import qualified Data.FixedByteString as FBS
 
 import Concordium.Afgjort.Finalize.Types (FinalizationInstance (FinalizationInstance))
 import Concordium.Birk.Bake
-import Concordium.Constants (defaultEarlyBlockThreshold, defaultMaxBakingDelay)
+import Concordium.Constants.Time (defaultEarlyBlockThreshold, defaultMaxBakingDelay)
+import Concordium.Crypto.ByteStringHelpers
 import Concordium.GlobalState
 import Concordium.GlobalState.Persistent.TreeState (InitException (..))
-import Concordium.ID.Types
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
@@ -48,8 +51,6 @@ import Concordium.Skov (
     UpdateResult (..),
  )
 import Concordium.TimerMonad (ThreadTimer)
-import Control.Monad
-import Text.Read (readMaybe)
 
 -- |A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -470,10 +471,10 @@ startConsensusPassive
             let callbacks =
                     Callbacks
                         { broadcastBlock = \_ _ -> return (),
-                        broadcastFinalizationMessage = \_ _ -> return (),
-                        broadcastFinalizationRecord = \_ _ -> return (),
-                        notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
-                        notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
+                          broadcastFinalizationMessage = \_ _ -> return (),
+                          broadcastFinalizationRecord = \_ _ -> return (),
+                          notifyCatchUpStatus = callCatchUpStatusCallback cucbk,
+                          notifyRegenesis = callRegenesisCallback regenesisCB regenesisRef
                         }
             runner <-
                 if connStringLen /= 0
@@ -779,6 +780,15 @@ decodeBlockHash blockcstr = readMaybe <$> peekCString blockcstr
 decodeAccountAddress :: CString -> IO (Either String AccountAddress)
 decodeAccountAddress acctstr = addressFromBytes <$> BS.packCString acctstr
 
+-- |Decode a null-terminated string as either an account address (base-58) or a
+-- credential registration ID (base-16).
+decodeAccountAddressOrCredId :: CString -> IO (Maybe (Either CredentialRegistrationID AccountAddress))
+decodeAccountAddressOrCredId str = do
+    bs <- BS.packCString str
+    return $ case addressFromBytes bs of
+        Left _ -> Left <$> bsDeserializeBase16 bs
+        Right acc -> Just $ Right acc
+
 -- |Decode an instance address from a null-terminated JSON-encoded string.
 decodeInstanceAddress :: CString -> IO (Maybe ContractAddress)
 decodeInstanceAddress inststr = AE.decodeStrict <$> BS.packCString inststr
@@ -929,18 +939,19 @@ getModuleList cptr blockcstr = do
         Nothing -> jsonCString AE.Null
         Just bh -> jsonQuery cptr (Q.getModuleList bh)
 
--- |Get account information for the given block and instance. The block must be
+-- |Get account information for the given block and identifier. The block must be
 -- given as a null-terminated base16 encoding of the block hash and the account
--- address (second CString) must be given as a null-terminated string in Base58
--- encoding (same format as returned by 'getAccountList'). The return value is a
--- null-terminated, json encoded information.
--- The returned string should be freed by calling 'freeCStr'.
+-- identifier (second CString) must be given as a null-terminated string in
+-- either base-58 encoding (same format as returned by 'getAccountList') if it is
+-- an account address, or base-16 encoding if it is the credential registration
+-- ID. The return value is a null-terminated, json encoded information. The
+-- returned string should be freed by calling 'freeCStr'.
 getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
 getAccountInfo cptr blockcstr acctcstr = do
     mblock <- decodeBlockHash blockcstr
-    maccount <- decodeAccountAddress acctcstr
+    maccount <- decodeAccountAddressOrCredId acctcstr
     case (mblock, maccount) of
-        (Just bh, Right acct) -> jsonQuery cptr (Q.getAccountInfo bh acct)
+        (Just bh, Just acct) -> jsonQuery cptr (Q.getAccountInfo bh acct)
         _ -> jsonCString AE.Null
 
 -- |Get instance information the given block and instance. The block must be

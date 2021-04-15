@@ -7,7 +7,6 @@ use crate::consensus_ffi::{
 use failure::Fallible;
 use parking_lot::Condvar;
 use std::{
-    collections::HashMap,
     convert::TryFrom,
     path::PathBuf,
     sync::{
@@ -15,9 +14,6 @@ use std::{
         Arc, Mutex, RwLock,
     },
 };
-
-pub type PeerId = u64;
-pub type PrivateData = HashMap<i64, Vec<u8>>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ConsensusLogLevel {

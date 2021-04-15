@@ -125,10 +125,8 @@ instance FromJSON RuntimeParameters where
 -- specifically in that for the foundation account we store
 -- the account index rather than the account address.
 data UpdateValue
-    -- |Updates to authorized update keys.
-    = UVAuthorization !Authorizations
-    -- |Protocol updates.
-    | UVProtocol !ProtocolUpdate
+    = -- |Protocol updates.
+      UVProtocol !ProtocolUpdate
     -- |Updates to the election difficulty parameter.
     | UVElectionDifficulty !ElectionDifficulty
     -- |Updates to the euro:energy exchange rate.
@@ -145,4 +143,10 @@ data UpdateValue
     | UVGASRewards !GASRewards
     -- |Updates to the baker minimum threshold
     | UVBakerStakeThreshold !Amount
+    -- |Updates to root keys.
+    | UVRootKeys !(HigherLevelKeys RootKeysKind)
+    -- |Updates to level 1 keys.
+    | UVLevel1Keys !(HigherLevelKeys Level1KeysKind)
+    -- |Updates to level 2 keys.
+    | UVLevel2Keys !Authorizations
     deriving (Eq, Show)

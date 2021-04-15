@@ -29,7 +29,6 @@ import Concordium.Birk.Bake
 import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.DummyData (dummyAuthorizations)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -335,7 +334,7 @@ main = do
                 Dummy.dummyArs
                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                 (Energy maxBound)
-                dummyAuthorizations
+                Dummy.dummyKeyCollection
                 (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters numberOfBakers 300000000000)
     BS.writeFile
         ("data" </> ("genesis-" ++ show now) <.> "dat")

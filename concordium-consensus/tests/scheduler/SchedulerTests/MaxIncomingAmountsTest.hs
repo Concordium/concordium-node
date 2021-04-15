@@ -32,6 +32,7 @@ import Concordium.Types.DummyData
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Types
+import Concordium.Constants
 import Concordium.Crypto.FFIDataTypes (ElgamalSecretKey)
 import Concordium.ID.DummyData (dummyEncryptionSecretKey)
 import Concordium.ID.Types (AccountEncryptionKey(..))

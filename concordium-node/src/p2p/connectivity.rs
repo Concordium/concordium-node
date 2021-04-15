@@ -4,13 +4,11 @@ use failure::Fallible;
 use mio::{event::Event, net::TcpStream, Events, Token};
 
 use rand::seq::IteratorRandom;
-#[cfg(feature = "malicious_testing")]
-use rand::{seq::index::sample, Rng};
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use semver::Version;
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, PeerType, RemotePeer},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, PeerType, RemotePeer},
     configuration as config,
     connection::{ConnChange, Connection, MessageSendingPriority},
     lock_or_die, netmsg,
@@ -19,12 +17,14 @@ use crate::{
         WIRE_PROTOCOL_VERSION,
     },
     only_fbs,
-    p2p::{bans::BanId, maintenance::attempt_bootstrap, P2PNode},
+    p2p::{
+        bans::{BanId, PersistedBanId},
+        maintenance::attempt_bootstrap,
+        P2PNode,
+    },
     read_or_die, write_or_die,
 };
 
-#[cfg(feature = "malicious_testing")]
-use std::cmp;
 use std::{
     io,
     net::{IpAddr, SocketAddr},
@@ -101,10 +101,10 @@ impl P2PNode {
     /// Find a connection token of the connection to the given peer, if such a
     /// connection exists.
     /// NB: This acquires and releases a read lock on the node's connections.
-    pub fn find_conn_token_by_id(&self, id: P2PNodeId) -> Option<Token> {
+    pub fn find_conn_token_by_id(&self, id: RemotePeerId) -> Option<Token> {
         read_or_die!(self.connections()).values().find_map(|conn| {
-            if conn.remote_id() == Some(id) {
-                Some(conn.token)
+            if conn.remote_peer.local_id == id {
+                Some(conn.token())
             } else {
                 None
             }
@@ -120,7 +120,7 @@ impl P2PNode {
             .chain(read_or_die!(self.connections()).values())
             .filter_map(|conn| {
                 if conn.remote_peer.addr.ip() == ip_addr {
-                    Some(conn.token)
+                    Some(conn.token())
                 } else {
                     None
                 }
@@ -174,14 +174,14 @@ impl P2PNode {
                 if self.config.relay_broadcast_percentage < 1.0 {
                     use rand::seq::SliceRandom;
                     let mut rng = rand::thread_rng();
-                    let mut peers = self.get_node_peer_ids();
-                    peers.retain(|id| !dont_relay_to.contains(&P2PNodeId(*id)));
+                    let mut peers = self.get_node_peer_tokens();
+                    peers.retain(|token| !dont_relay_to.contains(&token));
                     let peers_to_take = f64::floor(
                         f64::from(peers.len() as u32) * self.config.relay_broadcast_percentage,
                     );
                     peers
                         .choose_multiple(&mut rng, peers_to_take as usize)
-                        .map(|id| P2PNodeId(*id))
+                        .copied()
                         .collect::<Vec<_>>()
                 } else {
                     dont_relay_to.to_owned()
@@ -196,23 +196,6 @@ impl P2PNode {
         };
         let network_id = inner_pkt.network_id;
 
-        #[cfg(not(feature = "malicious_testing"))]
-        let copies = 1;
-        // TODO: Remove surrounding block expr once cargo fmt has been updated in
-        // pipeline.
-        #[cfg(feature = "malicious_testing")]
-        let copies = {
-            if let Some((btype, btgt, blvl)) = &self.config.breakage {
-                if btype == "spam" && (inner_pkt.message[0] == *btgt || *btgt == 99) {
-                    1 + *blvl
-                } else {
-                    1
-                }
-            } else {
-                1
-            }
-        };
-
         let message = netmsg!(NetworkPacket, inner_pkt);
         let mut serialized = Vec::with_capacity(256);
         only_fbs!({
@@ -220,22 +203,15 @@ impl P2PNode {
         });
 
         let mut sent = 0;
-        if let Some(target_id) = target {
+        if let Some(target_token) = target {
             // direct messages
-            let filter =
-                |conn: &Connection| conn.remote_peer.peer().map(|p| p.id) == Some(target_id);
-
-            for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter);
-            }
+            let filter = |conn: &Connection| conn.remote_peer.local_id == target_token;
+            sent += self.send_over_all_connections(&serialized, &filter);
         } else {
             // broadcast messages
             let filter =
                 |conn: &Connection| is_valid_broadcast_target(conn, &peers_to_skip, network_id);
-
-            for _ in 0..copies {
-                sent += self.send_over_all_connections(&serialized, &filter);
-            }
+            sent += self.send_over_all_connections(&serialized, &filter);
         }
 
         Ok(sent)
@@ -252,7 +228,7 @@ impl P2PNode {
             .map(|(_, conn)| conn)
             .chain(write_or_die!(self.connections()).par_iter_mut().map(|(_, conn)| conn))
             .for_each(|conn| {
-                if events.iter().any(|event| event.token() == conn.token && event.is_writable()) {
+                if events.iter().any(|event| event.token() == conn.token() && event.is_writable()) {
                     conn.low_level.notify_writable();
                 }
 
@@ -261,28 +237,30 @@ impl P2PNode {
                 {
                     error!("[sending to {}] {}", conn, e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
-                        self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                        self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                     } else {
-                        self.register_conn_change(ConnChange::ExpulsionByToken(conn.token));
+                        self.register_conn_change(ConnChange::ExpulsionByToken(conn.token()));
                     }
                     return;
                 }
 
-                if events.iter().any(|event| event.token() == conn.token && event.is_readable()) {
+                if events.iter().any(|event| event.token() == conn.token() && event.is_readable()) {
                     match conn.read_stream(&conn_stats) {
                         Err(e) => {
                             error!("[receiving from {}] {}", conn, e);
                             if let Ok(_io_err) = e.downcast::<io::Error>() {
-                                self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                                self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                             } else {
-                                self.register_conn_change(ConnChange::ExpulsionByToken(conn.token));
+                                self.register_conn_change(ConnChange::ExpulsionByToken(
+                                    conn.token(),
+                                ));
                             }
                             return;
                         }
                         Ok(false) => {
                             // The connection was closed by the peer.
                             debug!("Connection to {} closed by peer", conn);
-                            self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                            self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                             return;
                         }
                         Ok(true) => {}
@@ -290,7 +268,7 @@ impl P2PNode {
                 }
 
                 let closed_or_error = |event: &Event| {
-                    event.token() == conn.token
+                    event.token() == conn.token()
                         && (event.is_read_closed() || event.is_write_closed() || event.is_error())
                 };
 
@@ -300,7 +278,7 @@ impl P2PNode {
                     // and might catch a failure sooner in the case where we do not currently have
                     // anything to write.
                     debug!("Closing connection to {}", conn);
-                    self.register_conn_change(ConnChange::RemovalByToken(conn.token));
+                    self.register_conn_change(ConnChange::RemovalByToken(conn.token()));
                 }
             })
     }
@@ -328,10 +306,22 @@ impl P2PNode {
     }
 }
 
-/// Accept an incoming network connection.
-pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
+/// Attempt to accept an incoming network connection.
+/// - If the connection is from a banned peer return Ok(None).
+/// - If an error occurs, e.g., fail to accept the socket connection, or fail to
+///   register with the poll registry return Err
+/// - Else return the new connection token that can be used to poll for incoming
+///   data.
+pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
     let (socket, addr) = node.connection_handler.socket_server.accept()?;
     node.stats.conn_received_inc();
+
+    // if we fail to read the database we allow the connection.
+    // This is fine as long as we assume that nobody can corrupt our ban database.
+    if node.is_banned(PersistedBanId::Ip(addr.ip())).unwrap_or(false) {
+        warn!("Connection attempt from a banned IP {}.", addr.ip());
+        return Ok(None);
+    }
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());
@@ -346,17 +336,21 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
             bail!("Too many connections, rejecting attempt from {}", addr);
         }
 
-        if candidates_lock.values().any(|conn| conn.remote_addr() == addr)
-            || conn_read_lock.values().any(|conn| conn.remote_addr() == addr)
-        {
-            bail!("Duplicate connection attempt from {}; rejecting", addr);
+        for conn in candidates_lock.values().chain(conn_read_lock.values()) {
+            if conn.remote_addr().ip() == addr.ip() {
+                if node.config.disallow_multiple_peers_on_ip {
+                    bail!("Already connected to IP {}", addr.ip());
+                } else if conn.remote_addr().port() == addr.port()
+                    || conn.remote_peer.external_port == addr.port()
+                {
+                    bail!("Duplicate connection attempt from {}; rejecting", addr);
+                }
+            }
         }
 
-        if read_or_die!(node.connection_handler.soft_bans)
-            .keys()
-            .any(|ip| *ip == BanId::Ip(addr.ip()))
-        {
-            bail!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
+        if node.connection_handler.is_soft_banned(addr) {
+            warn!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
+            return Ok(None);
         }
     }
 
@@ -365,16 +359,17 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Token> {
     let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
     let remote_peer = RemotePeer {
-        id: Default::default(),
+        self_id: Default::default(),
         addr,
+        local_id: token.into(),
         external_port: addr.port(),
         peer_type: PeerType::Node,
     };
 
     let conn = Connection::new(node, socket, token, remote_peer, false)?;
-    candidates_lock.insert(conn.token, conn);
+    candidates_lock.insert(conn.token(), conn);
 
-    Ok(token)
+    Ok(Some(token))
 }
 
 /// Connect to another node with the specified address and optionally peer id,
@@ -407,35 +402,31 @@ pub fn connect(
     }
 
     // Don't connect to ourselves
-    if node.self_peer.addr == peer_addr || peer_id == Some(node.id()) {
+    if node.self_peer.addr == peer_addr {
         bail!("Attempted to connect to myself");
     }
 
-    if read_or_die!(node.connection_handler.soft_bans)
-        .iter()
-        .any(|(ip, _)| *ip == BanId::Ip(peer_addr.ip()) || *ip == BanId::Socket(peer_addr))
-    {
-        bail!("Refusing to connect to a soft-banned IP ({:?})", peer_addr.ip());
+    // Don't connect to banned IPs.
+    if node.is_banned(PersistedBanId::Ip(peer_addr.ip())).unwrap_or(false) {
+        bail!("Refusing to connect to a banned IP ({})", peer_addr.ip());
+    }
+
+    // Or to soft-banned nodes.
+    if node.connection_handler.is_soft_banned(peer_addr) {
+        bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
     }
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());
 
-    if candidates_lock.values().any(|cc| cc.remote_addr() == peer_addr) {
-        bail!("Already connected to {}", peer_addr.to_string());
-    }
-
-    // Don't connect to established peers with a known P2PNodeId or IP+port
-    for conn in read_or_die!(node.connections()).values() {
-        if conn.remote_addr() == peer_addr || (peer_id.is_some() && conn.remote_id() == peer_id) {
-            bail!(
-                "Already connected to {}",
-                if let Some(id) = peer_id {
-                    id.to_string()
-                } else {
-                    peer_addr.to_string()
-                }
-            );
+    // Don't connect to established connections on a given IP + port
+    for conn in read_or_die!(node.connections()).values().chain(candidates_lock.values()) {
+        if node.config.disallow_multiple_peers_on_ip {
+            if conn.remote_addr().ip() == peer_addr.ip() {
+                bail!("Already connected to IP {}", peer_addr.ip());
+            }
+        } else if conn.remote_addr() == peer_addr || conn.remote_peer.external_addr() == peer_addr {
+            bail!("Already connected to {}", peer_addr);
         }
     }
 
@@ -447,14 +438,15 @@ pub fn connect(
             let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
 
             let remote_peer = RemotePeer {
-                id: Default::default(),
+                self_id: None,
                 addr: peer_addr,
+                local_id: token.into(),
                 external_port: peer_addr.port(),
                 peer_type,
             };
 
             let conn = Connection::new(node, socket, token, remote_peer, true)?;
-            candidates_lock.insert(conn.token, conn);
+            candidates_lock.insert(conn.token(), conn);
 
             if let Some(ref mut conn) = candidates_lock.get_mut(&token) {
                 conn.low_level.send_handshake_message_a()?;
@@ -553,17 +545,15 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) {
     }
 }
 
-/// A connetion is applicable for a broadcast if it is not in the exclusion
+/// A connection is applicable for a broadcast if it is not in the exclusion
 /// list, belongs to the same network, and doesn't belong to a bootstrapper.
 fn is_valid_broadcast_target(
     conn: &Connection,
-    peers_to_skip: &[P2PNodeId],
+    peers_to_skip: &[RemotePeerId],
     network_id: NetworkId,
 ) -> bool {
-    let peer_id = conn.remote_peer.id.unwrap(); // safe, post-handshake
-
     conn.remote_peer.peer_type != PeerType::Bootstrapper
-        && !peers_to_skip.contains(&peer_id)
+        && !peers_to_skip.contains(&conn.remote_peer.local_id)
         && conn.remote_end_networks.contains(&network_id)
 }
 
@@ -571,7 +561,7 @@ fn is_valid_broadcast_target(
 #[inline]
 pub fn send_direct_message(
     node: &P2PNode,
-    target_id: P2PNodeId,
+    target_id: RemotePeerId,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> usize {
@@ -582,7 +572,7 @@ pub fn send_direct_message(
 #[inline]
 pub fn send_broadcast_message(
     node: &P2PNode,
-    dont_relay_to: Vec<P2PNodeId>,
+    dont_relay_to: Vec<RemotePeerId>,
     network_id: NetworkId,
     msg: Arc<[u8]>,
 ) -> usize {
@@ -592,8 +582,8 @@ pub fn send_broadcast_message(
 #[inline]
 fn send_message_over_network(
     node: &P2PNode,
-    target_id: Option<P2PNodeId>,
-    dont_relay_to: Vec<P2PNodeId>,
+    target_id: Option<RemotePeerId>,
+    dont_relay_to: Vec<RemotePeerId>,
     network_id: NetworkId,
     message: Arc<[u8]>,
 ) -> usize {
@@ -603,21 +593,7 @@ fn send_message_over_network(
         PacketDestination::Broadcast(dont_relay_to)
     };
 
-    #[cfg(not(feature = "malicious_testing"))]
     let message = message.to_vec();
-    #[cfg(feature = "malicious_testing")]
-    let mut message = message.to_vec();
-
-    // TODO: Remove surrounding block expr once cargo fmt has been updated in
-    // pipeline.
-    #[cfg(feature = "malicious_testing")]
-    {
-        if let Some((btype, btgt, blvl)) = &node.config.breakage {
-            if btype == "fuzz" && (message[0] == *btgt || *btgt == 99) {
-                fuzz_packet(&mut message[1..], *blvl);
-            }
-        }
-    };
 
     // Create packet.
     let packet = NetworkPacket {
@@ -634,16 +610,5 @@ fn send_message_over_network(
     } else {
         error!("Couldn't send a packet");
         0
-    }
-}
-
-#[cfg(feature = "malicious_testing")]
-fn fuzz_packet(payload: &mut [u8], level: usize) {
-    let rng = &mut rand::thread_rng();
-
-    let level = cmp::min(payload.len(), level);
-
-    for i in sample(rng, payload.len(), level).into_iter() {
-        payload[i] = rng.gen();
     }
 }

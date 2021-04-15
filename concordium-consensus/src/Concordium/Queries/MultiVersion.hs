@@ -41,6 +41,7 @@ import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Types
+import Concordium.ID.Types
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
@@ -344,13 +345,19 @@ getModuleList :: BlockHash -> MVR gsconf finconf (Maybe [ModuleRef])
 getModuleList = liftSkovQueryBlock $ BS.getModuleList <=< blockState
 
 -- |Get the details of an account in the block state.
-getAccountInfo :: BlockHash -> AccountAddress -> MVR gsconf finconf (Maybe AccountInfo)
+-- The account can be given either via an address, or via a credential registration id.
+-- In the latter case we lookup the account the credential is associated with, even if it was
+-- removed from the account.
+getAccountInfo ::
+    BlockHash ->
+    Either CredentialRegistrationID AccountAddress ->
+    MVR gsconf finconf (Maybe AccountInfo)
 getAccountInfo blockHash acct =
     join
         <$> liftSkovQueryBlock
             ( \bp -> do
                 bs <- blockState bp
-                macc <- BS.getAccount bs acct
+                macc <- either (BS.getAccountByCredId bs) (BS.getAccount bs) acct
                 forM macc $ \acc -> do
                     aiAccountNonce <- BS.getAccountNonce acc
                     aiAccountAmount <- BS.getAccountAmount acc

@@ -14,17 +14,18 @@ ARGS=""
 # Set overrides for configuration and data store paths
 if [ -n "$CONFIG_DIR" ];
 then
-    ARGS="$ARGS --override-config-dir $CONFIG_DIR"
+    ARGS="$ARGS --config-dir $CONFIG_DIR"
     mkdir -p $CONFIG_DIR
 fi
 
 if [ -n "$DATA_DIR" ];
 then
-    ARGS="$ARGS --override-data-dir $DATA_DIR"
+    ARGS="$ARGS --data-dir $DATA_DIR"
     mkdir -p $DATA_DIR
     cd $DATA_DIR
 fi
 
+# FIXME: This is obsolete. We do not build these testing genesis setups at the moment.
 # Unwrap proper genesis bundle, and swap to one of the benchmarks if set
 if [ -n "$NUM_BAKERS" ];
 then
@@ -55,11 +56,7 @@ then
             cd $DATA_DIR
             cp "genesis-catchup-${CATCHUP_NUM}.dat" genesis.dat
         else
-            cd /genesis-data
-            tar -xvf $NUM_BAKERS-bakers.tar.gz
-            cd genesis_data/
-            cp * $DATA_DIR/
-            cd $DATA_DIR
+            cp /genesis-data/genesis-$NUM_BAKERS-bakers/{genesis.dat,genesis_hash} $DATA_DIR
         fi
     fi
 fi
@@ -473,13 +470,13 @@ elif [ "$MODE" == "local_basic" ]; then
             sleep $DB_SLEEP
         fi
     fi
-    /concordium-node --baker-credentials-file "${DATA_DIR}/baker-${BAKER_ID}-credentials.json" --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
+    /concordium-node --baker-credentials-file "/genesis-data/genesis-${NUM_BAKERS}-bakers/bakers/baker-${BAKER_ID}-credentials.json" --no-dnssec $ARGS --id $(printf "%016d\n" $BAKER_ID)
 elif [ "$MODE" == "local_bootstrapper" ]; then
     export NODE_ID="0000000001000000"
     /p2p_bootstrapper-cli \
         --id $NODE_ID \
         --listen-port 8888 \
-        --regenesis-block-hashes-file $DATA_DIR/genesis_hash $EXTRA_ARGS
+        --regenesis-block-hashes-file $DATA_DIR/genesis_hash $ARGS $EXTRA_ARGS
 elif [ "$MODE" == "local_wallet_proxy" ]; then
     if [ -n "$WALLET_PROXY_GRPC_IP" ];
     then

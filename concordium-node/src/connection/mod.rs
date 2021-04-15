@@ -17,7 +17,7 @@ use crate::dumper::DumpItem;
 use crate::{
     common::{
         get_current_stamp,
-        p2p_peer::{P2PPeer, PeerStats},
+        p2p_peer::{P2PPeer, PeerStats, RemotePeerId},
         P2PNodeId, PeerType, RemotePeer,
     },
     configuration::MAX_PEER_NETWORKS,
@@ -295,8 +295,6 @@ impl ConnectionStats {
 pub enum ConnChange {
     /// To be soft-banned by ip and removed from the list of connections.
     ExpulsionByToken(Token),
-    /// To be soft-banned by node id and removed from the list of connections.
-    ExpulsionById(P2PNodeId),
     /// Prospect node address to attempt to connect to.
     NewConn(SocketAddr, PeerType),
     /// Prospect peers to possibly connect to.
@@ -306,7 +304,7 @@ pub enum ConnChange {
     /// To be removed from the list of connections.
     RemovalByToken(Token),
     /// Remove any connection to a peer with the given node id.
-    RemovalByNodeId(P2PNodeId),
+    RemovalByNodeId(RemotePeerId),
     /// Remove any connection to a peer with the given IP address.
     RemovalByIp(IpAddr),
 }
@@ -364,8 +362,6 @@ impl MessageQueues {
 pub struct Connection {
     /// A reference to the parent node.
     handler: Arc<P2PNode>,
-    /// The poll token of the connection's socket.
-    pub token: Token,
     /// The connection's representation as a peer object.
     pub remote_peer: RemotePeer,
     /// Low-level connection objects.
@@ -378,7 +374,7 @@ pub struct Connection {
 }
 
 impl PartialEq for Connection {
-    fn eq(&self, other: &Self) -> bool { self.token == other.token }
+    fn eq(&self, other: &Self) -> bool { self.token() == other.token() }
 }
 
 impl Eq for Connection {}
@@ -425,7 +421,6 @@ impl Connection {
 
         Ok(Self {
             handler: Arc::clone(handler),
-            token,
             remote_peer,
             low_level,
             remote_end_networks: Default::default(),
@@ -434,11 +429,15 @@ impl Connection {
         })
     }
 
+    #[inline]
+    /// The poll token of the connection's socket.
+    pub fn token(&self) -> Token { self.remote_peer.local_id.to_token() }
+
     /// Obtain the connection's latency.
     pub fn get_latency(&self) -> u64 { self.stats.get_latency() }
 
     /// Obtain the node id related to the connection, if available.
-    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.id }
+    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.self_id }
 
     /// Obtain the type of the peer associated with the connection.
     pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
@@ -535,20 +534,15 @@ impl Connection {
 
     /// Concludes the connection's handshake process.
     pub fn promote_to_post_handshake(&mut self, id: P2PNodeId, peer_port: u16, nets: &Networks) {
-        self.remote_peer.id = Some(id);
+        self.remote_peer.self_id = Some(id);
         self.remote_peer.external_port = peer_port;
         self.handler.stats.peers_inc();
         if self.remote_peer.peer_type == PeerType::Bootstrapper {
             self.handler.update_last_bootstrap();
         }
-        let remote_peer = P2PPeer::from((
-            self.remote_peer.peer_type,
-            id,
-            SocketAddr::new(self.remote_peer.addr.ip(), peer_port),
-        ));
-        self.populate_remote_end_networks(remote_peer, nets);
-        self.handler.register_conn_change(ConnChange::Promotion(self.token));
-        debug!("Concluded handshake with peer {}", id);
+        self.populate_remote_end_networks(self.remote_peer, nets);
+        self.handler.register_conn_change(ConnChange::Promotion(self.token()));
+        debug!("Concluded handshake with peer {}(their id {})", self.remote_peer.local_id, id);
     }
 
     /// Queues a message to be sent to the connection.
@@ -566,7 +560,7 @@ impl Connection {
     }
 
     /// Register connection's remote end networks.
-    pub fn populate_remote_end_networks(&mut self, peer: P2PPeer, networks: &Networks) {
+    pub fn populate_remote_end_networks(&mut self, peer: RemotePeer, networks: &Networks) {
         self.remote_end_networks.extend(networks.iter());
 
         if self.remote_peer.peer_type != PeerType::Bootstrapper {
@@ -582,9 +576,9 @@ impl Connection {
         );
 
         self.remote_end_networks.insert(network);
-        let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
+        ensure!(self.is_post_handshake(), "missing handshake");
         write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, self.remote_end_networks.to_owned());
+            .update_network_ids(self.remote_peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
@@ -592,9 +586,9 @@ impl Connection {
     pub fn remove_remote_end_network(&mut self, network: NetworkId) -> Fallible<()> {
         self.remote_end_networks.remove(&network);
 
-        let peer = self.remote_peer.peer().ok_or_else(|| format_err!("missing handshake"))?;
+        ensure!(self.is_post_handshake(), "missing handshake");
         write_or_die!(self.handler.buckets())
-            .update_network_ids(peer, self.remote_end_networks.to_owned());
+            .update_network_ids(self.remote_peer, self.remote_end_networks.to_owned());
         Ok(())
     }
 
@@ -640,29 +634,20 @@ impl Connection {
         nets: Networks,
         conn_stats: &[PeerStats],
     ) -> Fallible<()> {
-        let requestor =
-            self.remote_peer.peer().ok_or_else(|| format_err!("handshake not concluded yet"))?;
+        let requestor = self.remote_peer.local_id;
 
         let peer_list_resp = match self.handler.peer_type() {
             PeerType::Bootstrapper => {
-                let get_random_nodes = |partition: bool| -> Fallible<Vec<P2PPeer>> {
-                    Ok(read_or_die!(self.handler.buckets()).get_random_nodes(
-                        &requestor,
+                // select random nodes that are post-handshake
+                let random_nodes = read_or_die!(self.handler.buckets())
+                    .get_random_nodes(
+                        requestor,
                         self.handler.config.bootstrapper_peer_list_size,
                         &nets,
-                        partition,
-                    ))
-                };
-
-                #[cfg(not(feature = "malicious_testing"))]
-                let random_nodes = get_random_nodes(false)?;
-                #[cfg(feature = "malicious_testing")]
-                let random_nodes = match self.handler.config.partition_network_for_time {
-                    Some(time) if (self.handler.get_uptime() as usize) < time => {
-                        get_random_nodes(true)?
-                    }
-                    _ => get_random_nodes(false)?,
-                };
+                    )
+                    .iter()
+                    .filter_map(RemotePeer::peer)
+                    .collect::<Vec<_>>();
 
                 if !random_nodes.is_empty()
                     && random_nodes.len()
@@ -676,9 +661,11 @@ impl Connection {
             PeerType::Node => {
                 let nodes = conn_stats
                     .iter()
-                    .filter(|stat| P2PNodeId(stat.id) != requestor.id)
-                    .map(|stat| {
-                        P2PPeer::from((stat.peer_type, P2PNodeId(stat.id), stat.external_address()))
+                    .filter(|stat| stat.local_id != requestor)
+                    .map(|stat| P2PPeer {
+                        id:        stat.self_id,
+                        addr:      stat.external_address(),
+                        peer_type: stat.peer_type,
                     })
                     .collect::<Vec<_>>();
 
@@ -691,7 +678,7 @@ impl Connection {
         };
 
         if let Some(resp) = peer_list_resp {
-            debug!("Sending a PeerList to peer {}", requestor.id);
+            debug!("Sending a PeerList to peer {}", requestor);
 
             let mut serialized = Vec::with_capacity(256);
             only_fbs!(resp.serialize(&mut serialized)?);
@@ -699,7 +686,7 @@ impl Connection {
 
             Ok(())
         } else {
-            debug!("I don't have any peers to share with peer {}", requestor.id);
+            debug!("I don't have any peers to share with peer {}", requestor);
             Ok(())
         }
     }

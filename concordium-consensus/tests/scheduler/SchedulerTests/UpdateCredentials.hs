@@ -82,7 +82,7 @@ testCases =
     , tcTransactions = [
         -- correctly update a keypair
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 1,
-                          metadata = makeDummyHeader cdi8address 1 50000,
+                          metadata = makeDummyHeader cdi8address 1 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
                         }
         , (SuccessE [CredentialsUpdated cdi8address [cdi9ID] [] 1]
@@ -91,7 +91,7 @@ testCases =
         )
         , -- Correctly update threshold
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [] 2,
-                          metadata = makeDummyHeader cdi8address 2 50000,
+                          metadata = makeDummyHeader cdi8address 2 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
                         }
         , (SuccessE [CredentialsUpdated cdi8address [] [] 2]
@@ -100,7 +100,7 @@ testCases =
         )
       , -- Now, using the only one set of keys should fail, since threshold were updated
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 2 cdi10) [] 2,
-                          metadata = makeDummyHeader cdi8address 3 50000,
+                          metadata = makeDummyHeader cdi8address 3 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])] -- not enough credential holders signing since threshold is now 2
                         }
         , ( Fail IncorrectSignature
@@ -109,7 +109,7 @@ testCases =
         )
       , -- Should reject since we try to add cdi10 at index 1
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
-                          metadata = makeDummyHeader cdi8address 3 50000,
+                          metadata = makeDummyHeader cdi8address 3 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
                         }
         , ( Reject KeyIndexAlreadyInUse
@@ -118,7 +118,7 @@ testCases =
         )
       , -- Now, using the new keys should work
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 2 cdi10) [] 2,
-                          metadata = makeDummyHeader cdi8address 4 50000,
+                          metadata = makeDummyHeader cdi8address 4 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
                         }
         , ( SuccessE [CredentialsUpdated cdi8address [cdi10ID] [] 2]
@@ -127,7 +127,7 @@ testCases =
         )
       , -- Updating threshold to 3
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [] 3,
-                          metadata = makeDummyHeader cdi8address 5 50000,
+                          metadata = makeDummyHeader cdi8address 5 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])]
                         }
         , ( SuccessE [CredentialsUpdated cdi8address [] [] 3]
@@ -136,7 +136,7 @@ testCases =
         )
       , -- Trying to remove cdi9 -  should reject since threshold is 3
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 3,
-                          metadata = makeDummyHeader cdi8address 6 50000,
+                          metadata = makeDummyHeader cdi8address 6 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject InvalidAccountThreshold
@@ -145,7 +145,7 @@ testCases =
         )
       , -- Trying to remove cdi9 -  should succeed since threshold is changed to 2
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
-                          metadata = makeDummyHeader cdi8address 7 50000,
+                          metadata = makeDummyHeader cdi8address 7 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( SuccessE [CredentialsUpdated cdi8address [] [cdi9ID] 2]
@@ -154,7 +154,7 @@ testCases =
         )
       , -- Trying to sign with cdi9's keys -  should fail since cdi9 was removed
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [] 2,
-                          metadata = makeDummyHeader cdi8address 8 50000,
+                          metadata = makeDummyHeader cdi8address 8 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Fail IncorrectSignature
@@ -163,7 +163,7 @@ testCases =
         )
       , -- Trying to remove cdi8 -  should reject since it is the first credential
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi8ID] 1, -- notice that we also change the threshold to 1, otherwise it would fail even if cdi8 could be removed.
-                          metadata = makeDummyHeader cdi8address 8 50000,
+                          metadata = makeDummyHeader cdi8address 8 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject RemoveFirstCredential
@@ -172,7 +172,7 @@ testCases =
         )
       , -- Trying to remove cdi9 that is already removed -  should reject
         ( Runner.TJSON  { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
-                          metadata = makeDummyHeader cdi8address 9 50000,
+                          metadata = makeDummyHeader cdi8address 9 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject $ NonExistentCredIDs [cdi9ID]
@@ -181,7 +181,7 @@ testCases =
         )
       , -- Trying to add cdi10 whos credID is already in use - should reject
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
-                          metadata = makeDummyHeader cdi8address 10 50000,
+                          metadata = makeDummyHeader cdi8address 10 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject $ DuplicateCredIDs [cdi10ID]
@@ -190,7 +190,7 @@ testCases =
         )
       , -- Trying to add cdi9 whos credID has been used earlier - should reject
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 2,
-                          metadata = makeDummyHeader cdi8address 11 50000,
+                          metadata = makeDummyHeader cdi8address 11 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( Reject $ DuplicateCredIDs [cdi9ID]
@@ -199,7 +199,7 @@ testCases =
         )
       , -- Adding cdi11 at index 2 should succeed since we are deleting cdi10
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 2 cdi11) [cdi10ID] 2,
-                          metadata = makeDummyHeader cdi8address 12 50000,
+                          metadata = makeDummyHeader cdi8address 12 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
                         }
         , ( SuccessE [CredentialsUpdated cdi8address [cdi11ID] [cdi10ID] 2]
@@ -208,7 +208,7 @@ testCases =
         )
       , -- Trying to add cdi7 which is not a cdi for deploying to cdi8 - should reject since for this purpose, cdi7 is invalid
         ( Runner.TJSON  { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7'') [] 2,
-                          metadata = makeDummyHeader cdi8address 13 50000,
+                          metadata = makeDummyHeader cdi8address 13 100000,
                           keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])]
                         }
         , ( Reject InvalidCredentials

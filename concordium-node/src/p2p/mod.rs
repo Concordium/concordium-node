@@ -1,10 +1,10 @@
 //! Central node object handling.
 
 pub mod bans;
-#[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
+#[cfg_attr(feature = "s11n_serde", allow(unreachable_code, unused))]
 pub mod connectivity;
 pub mod maintenance;
-#[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
+#[cfg_attr(feature = "s11n_serde", allow(unreachable_code, unused))]
 pub mod peers;
 
 pub use self::maintenance::{Connections, P2PNode};
@@ -12,62 +12,49 @@ pub use self::maintenance::{Connections, P2PNode};
 #[cfg(test)]
 mod tests {
     use crate::{
-        common::{P2PNodeId, PeerType},
-        p2p::bans::BanId,
+        common::{p2p_peer::RemotePeerId, PeerType},
+        p2p::bans::{BanId, PersistedBanId},
         test_utils::*,
     };
     use failure::Fallible;
-    use std::{str::FromStr, thread, time::Duration};
 
     #[test]
     fn test_ban_functionalities() -> Fallible<()> {
-        // either that or Node::new should have a bool for the creation of the banlist
-        thread::sleep(Duration::from_secs(5));
-
         let port = next_available_port();
-        let node = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
+        let (node, dp) = make_node_and_sync(port, vec![100], PeerType::Node, vec![])?;
 
         // Empty on init
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
 
-        let to_ban1 = BanId::NodeId(P2PNodeId::from_str("0000000000000022")?);
+        let to_ban1 = BanId::NodeId(RemotePeerId::from(22usize));
 
         // Insertion by id
-        node.ban_node(to_ban1)?;
+        node.drop_and_maybe_ban_node(to_ban1)?;
         let reply = node.get_banlist()?;
-        assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban1);
+        // bans by id are not persisted.
+        assert_eq!(reply.len(), 0);
 
-        // Duplicates check
-        node.ban_node(to_ban1)?;
-        let reply = node.get_banlist()?;
-        assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban1);
-
-        // Deletion by id
-        node.unban_node(to_ban1)?;
-        let reply = node.get_banlist()?;
-        assert!(reply.is_empty());
-
-        let to_ban2 = BanId::Ip("127.0.0.1".parse()?);
+        let to_ban2 = PersistedBanId::Ip("127.0.0.1".parse()?);
 
         // Insertion by ip
-        node.ban_node(to_ban2)?;
+        node.drop_and_maybe_ban_node(to_ban2.into())?;
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban2);
+        assert_eq!(reply[0], to_ban2.into());
 
         // Duplicates check
-        node.ban_node(to_ban2)?;
+        node.drop_and_maybe_ban_node(to_ban2.into())?;
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
-        assert_eq!(reply[0], to_ban2);
+        assert_eq!(reply[0], to_ban2.into());
 
         // Deletion by ip
         node.unban_node(to_ban2)?;
         let reply = node.get_banlist()?;
         assert!(reply.is_empty());
+
+        stop_node_delete_dirs(dp, node);
 
         Ok(())
     }

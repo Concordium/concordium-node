@@ -3,8 +3,6 @@
 cfg_if! {
     if #[cfg(feature = "network_dump")] {
         use crate::common::P2PNodeId;
-        use crate::configuration::APP_INFO;
-        use app_dirs2::{get_app_root, AppDataType};
         use crossbeam_channel::{self, Receiver};
         use failure::Fallible;
         use std::io::Write;
@@ -62,15 +60,8 @@ pub fn create_dump_thread(
     id: P2PNodeId,
     rx: Receiver<DumpItem>,
     act_rx: Receiver<(std::path::PathBuf, bool)>,
-    base_dir: &Option<String>,
+    base_dir: std::path::PathBuf,
 ) {
-    let base_dir = if let Some(dir) = base_dir {
-        std::path::PathBuf::from(dir)
-    } else {
-        get_app_root(AppDataType::UserData, &APP_INFO)
-            .map_err(|e| panic!("Filesystem error encountered when creating app_root: {}", e))
-            .unwrap()
-    };
     spawn_or_die!("network dump", move || -> Fallible<()> {
         let mut dir: Option<std::path::PathBuf> = None;
         let mut pretty_dump: Option<std::fs::File> = None;

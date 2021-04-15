@@ -2,12 +2,15 @@
 //! calls.
 
 use crate::{
-    common::{grpc_api::*, P2PNodeId, PeerType},
+    common::{grpc_api::*, p2p_peer::RemotePeerId, PeerType},
     configuration,
     connection::ConnChange,
     failure::Fallible,
     network::NetworkId,
-    p2p::{bans::BanId, P2PNode},
+    p2p::{
+        bans::{BanId, PersistedBanId},
+        P2PNode,
+    },
     read_or_die,
 };
 
@@ -299,7 +302,7 @@ impl P2p for RpcServerImpl {
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
             .map(|peer| peer_stats_response::PeerStats {
-                node_id:          format!("{:0>16x}", peer.id),
+                node_id:          format!("{}", peer.self_id),
                 packets_sent:     peer.msgs_sent,
                 packets_received: peer.msgs_received,
                 latency:          peer.latency,
@@ -328,11 +331,11 @@ impl P2p for RpcServerImpl {
                 PeerType::Bootstrapper => req.get_ref().include_bootstrappers,
             })
             .map(|peer| PeerElement {
-                node_id: Some(format!("{:0>16x}", peer.id)),
+                node_id: Some(format!("{}", peer.self_id)),
                 ip:      Some(peer.addr.ip().to_string()),
                 port:    Some(peer.addr.port() as u32),
                 // We map the state, and if there's no state dwe default to pending
-                catchup_status: match peer_catchup_stats.get(&peer.id) {
+                catchup_status: match peer_catchup_stats.get(&peer.local_id) {
                     Some(&status) => status as i32,
                     _ => peer_element::CatchupStatus::Pending as i32,
                 },
@@ -417,16 +420,16 @@ impl P2p for RpcServerImpl {
         let req = req.get_ref();
         let banned_node = match (&req.node_id, &req.ip) {
             (Some(node_id), None) => {
-                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
+                RemotePeerId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
             }
             (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
             _ => None,
         };
 
         if let Some(to_ban) = banned_node {
-            match self.node.ban_node(to_ban) {
-                Ok(_) => Ok(Response::new(BoolResponse {
-                    value: true,
+            match self.node.drop_and_maybe_ban_node(to_ban) {
+                Ok(value) => Ok(Response::new(BoolResponse {
+                    value,
                 })),
                 Err(e) => {
                     warn!("couldn't fulfill a BanNode request: {}", e);
@@ -447,11 +450,8 @@ impl P2p for RpcServerImpl {
     ) -> Result<Response<BoolResponse>, Status> {
         authenticate!(req, self.access_token);
         let req = req.get_ref();
-        let banned_node = match (&req.node_id, &req.ip) {
-            (Some(node_id), None) => {
-                P2PNodeId::from_str(&node_id.to_string()).ok().map(BanId::NodeId)
-            }
-            (None, Some(ip)) => IpAddr::from_str(&ip.to_string()).ok().map(BanId::Ip),
+        let banned_node = match req.ip {
+            Some(ref ip) => IpAddr::from_str(&ip.to_string()).ok().map(PersistedBanId::Ip),
             _ => None,
         };
 
@@ -721,18 +721,13 @@ impl P2p for RpcServerImpl {
             banlist
                 .into_iter()
                 .map(|banned_node| {
-                    let node_id = Some(match banned_node {
-                        BanId::NodeId(id) => id.to_string(),
-                        _ => "*".to_owned(),
-                    });
-                    let ip = Some(match banned_node {
-                        BanId::Ip(addr) => addr.to_string(),
-                        _ => "*".to_owned(),
-                    });
+                    let ip = match banned_node {
+                        PersistedBanId::Ip(addr) => addr.to_string(),
+                    };
 
                     PeerElement {
-                        node_id,
-                        ip,
+                        node_id: Some("*".to_owned()), // we do not record the id of banned peers.
+                        ip: Some(ip),
                         port: None,
                         /// a banned peer is always in state pending for
                         /// catch-up
@@ -813,7 +808,7 @@ mod tests {
         rpc::RpcServerImpl,
         test_utils::{
             await_handshakes, connect, dummy_regenesis_blocks, get_test_config, make_node_and_sync,
-            next_available_port,
+            next_available_port, stop_node_delete_dirs, wait_node_delete_dirs, DeletePermission,
         },
     };
     use chrono::prelude::Utc;
@@ -827,8 +822,10 @@ mod tests {
     const TOKEN: &str = "rpcadmin";
 
     // The intended use is for spawning nodes for testing gRPC api.
-    async fn create_test_rpc_node(nt: PeerType) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>)> {
-        let node =
+    async fn create_test_rpc_node(
+        nt: PeerType,
+    ) -> Fallible<(P2pClient<Channel>, Arc<P2PNode>, DeletePermission)> {
+        let (node, dp) =
             make_node_and_sync(next_available_port(), vec![100], nt, dummy_regenesis_blocks())
                 .unwrap();
 
@@ -846,24 +843,24 @@ mod tests {
         let channel = Channel::from_static(addr).connect().await?;
         let client = grpc_api::p2p_client::P2pClient::new(channel);
 
-        Ok((client, node))
+        Ok((client, node, dp))
     }
 
     #[tokio::test]
     async fn test_grpc_noauth() -> Fallible<()> {
-        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         match client.peer_version(req_with_auth!(grpc_api::Empty {}, "derp")).await {
             Err(status) => assert_eq!(status.code(), Code::Unauthenticated),
             _ => panic!("Wrong rejection"),
         };
-
+        stop_node_delete_dirs(dp, node);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_version() -> Fallible<()> {
-        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert_eq!(
             client
                 .peer_version(req_with_auth!(grpc_api::Empty {}, TOKEN))
@@ -873,13 +870,14 @@ mod tests {
                 .value,
             crate::VERSION.to_owned()
         );
+        stop_node_delete_dirs(dp, node);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_uptime() -> Fallible<()> {
         let t0 = Utc::now().timestamp_millis() as u64;
-        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
 
         let req = || req_with_auth!(grpc_api::Empty {}, TOKEN);
 
@@ -891,14 +889,16 @@ mod tests {
         assert!(nt1 <= (t2 - t0));
         assert!((nt2 - nt1) <= (t3 - t1));
         assert!(nt2 <= (t3 - t0));
+        stop_node_delete_dirs(dp, node);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_total_received() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -908,14 +908,17 @@ mod tests {
             .unwrap()
             .get_ref()
             .value;
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_total_sent() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -925,14 +928,17 @@ mod tests {
             .unwrap()
             .get_ref()
             .value;
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_connect() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         let _sent = client
             .peer_connect(req_with_auth!(
                 grpc_api::PeerConnectRequest {
@@ -945,6 +951,8 @@ mod tests {
             .unwrap();
         await_handshakes(&node);
         await_handshakes(&node2);
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
@@ -954,9 +962,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_join_network() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -967,14 +976,17 @@ mod tests {
             TOKEN
         );
         assert!(client.join_network(ncr).await.unwrap().get_ref().value);
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_leave_network() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -985,14 +997,17 @@ mod tests {
             TOKEN
         );
         assert!(client.leave_network(ncr).await.unwrap().get_ref().value);
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_stats() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -1006,14 +1021,17 @@ mod tests {
         assert_eq!(node2.get_peer_stats(None).len(), 1);
         assert_eq!(rcv.len(), 1);
         assert_eq!(rcv[0].node_id, node2.id().to_string());
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
     #[tokio::test]
     async fn test_peer_list() -> Fallible<()> {
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let port = next_available_port();
-        let node2 = make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
+        let (node2, dp2) =
+            make_node_and_sync(port, vec![100], PeerType::Node, dummy_regenesis_blocks())?;
         connect(&node2, &node);
         await_handshakes(&node);
         await_handshakes(&node2);
@@ -1032,13 +1050,15 @@ mod tests {
             node2.id().to_string()
         );
         assert_eq!(elem.ip.unwrap(), node2.internal_addr().ip().to_string());
+        stop_node_delete_dirs(dp, node);
+        stop_node_delete_dirs(dp2, node2);
         Ok(())
     }
 
     #[cfg(flag = "bootstrapper")]
     #[tokio::test]
     async fn test_grpc_peer_list_bootstrapper() -> Fallible<()> {
-        let (mut client, _) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
+        let (mut client, _, dp) = create_test_rpc_node(PeerType::Bootstrapper).await.unwrap();
         let req = req_with_auth!(
             grpc_api::PeersRequest {
                 include_bootstrappers: true,
@@ -1047,19 +1067,20 @@ mod tests {
         );
         let reply = client.peer_list(req).await.unwrap();
         assert_eq!(reply.get_ref().peer_type, PeerType::Bootstrapper.to_string());
-        Ok(())
+        stop_node_delete_dirs(dp, node);
     }
 
     #[tokio::test]
     async fn test_node_info() -> Fallible<()> {
         let instant1 = (Utc::now().timestamp_millis() as u64) / 1000;
-        let (mut client, node) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         let reply = client.node_info(req_with_auth!(grpc_api::Empty {}, TOKEN)).await.unwrap();
         let reply = reply.get_ref();
         let instant2 = (Utc::now().timestamp_millis() as u64) / 1000;
         assert!((reply.current_localtime >= instant1) && (reply.current_localtime <= instant2));
         assert_eq!(reply.peer_type, "Node");
         assert_eq!(reply.node_id.as_ref().unwrap(), &node.id().to_string());
+        stop_node_delete_dirs(dp, node);
         Ok(())
     }
 
@@ -1081,7 +1102,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_shutdown() -> Fallible<()> {
-        let (mut client, _) = create_test_rpc_node(PeerType::Node).await.unwrap();
+        let (mut client, node, dp) = create_test_rpc_node(PeerType::Node).await.unwrap();
         assert!(
             client
                 .shutdown(req_with_auth!(grpc_api::Empty {}, TOKEN))
@@ -1090,6 +1111,7 @@ mod tests {
                 .get_ref()
                 .value
         );
+        wait_node_delete_dirs(dp, node);
         Ok(())
     }
 }

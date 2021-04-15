@@ -52,7 +52,7 @@ genesis nBakers =
     dummyArs
     []
     1234
-    Dummy.dummyAuthorizations
+    Dummy.dummyKeyCollection
     Dummy.dummyChainParameters
 
 makeFinalizationInstance :: BakerIdentity -> FinalizationInstance

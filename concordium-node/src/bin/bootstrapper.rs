@@ -6,13 +6,13 @@ use std::{alloc::System, sync::Arc};
 static A: System = System;
 
 use concordium_node::{
-    common::{P2PNodeId, PeerType},
+    common::PeerType,
     consensus_ffi::{blockchain_types::BlockHash, consensus::Regenesis},
     p2p::{maintenance::spawn, *},
     stats_export_service::instantiate_stats_export_engine,
     utils::get_config_and_logging_setup,
 };
-use failure::{ensure, Error};
+use failure::{ensure, Error, ResultExt};
 
 #[cfg(feature = "instrumentation")]
 use concordium_node::stats_export_service::start_push_gateway;
@@ -29,7 +29,10 @@ fn main() -> Result<(), Error> {
         .regenesis_block_hashes
         .clone()
         .unwrap_or_else(|| data_dir_path.join(std::path::Path::new("genesis_hash")));
-    let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&std::fs::read(fname)?)?;
+    let regenesis_hashes_bytes = std::fs::read(&fname)
+        .context(format!("Could not open file {} with genesis hashes.", fname.to_string_lossy()))?;
+    let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&regenesis_hashes_bytes)
+        .context("Could not parse genesis hashes.")?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     ensure!(
@@ -37,19 +40,14 @@ fn main() -> Result<(), Error> {
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
-    let id = match conf.common.id {
-        Some(ref x) => x.to_owned(),
-        _ => P2PNodeId::default().to_string(),
-    };
-
     let (node, poll) = P2PNode::new(
-        Some(id),
+        conf.common.id,
         &conf,
         PeerType::Bootstrapper,
         stats_export_service,
-        Some(data_dir_path),
         regenesis_arc,
-    );
+    )
+    .context("Failed to create the network node.")?;
 
     #[cfg(feature = "instrumentation")]
     start_push_gateway(&conf.prometheus, &node.stats, node.id());

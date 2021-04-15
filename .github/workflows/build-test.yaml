@@ -1,0 +1,175 @@
+# Workflow triggered by pushes to the master branch and PRs targeting it
+# (as long as the commits contain code changes).
+#
+# Jobs:
+# - build-test: Build and test both the Haskell and Rust sources.
+#               The job is skipped if the workflow was triggered by a PR
+#               marked as a draft.
+#
+# The steps in 'build-test' are ordered to fail as fast as possible
+# and restore caches as late as possible.
+# The dependencies between the steps are described in inline comments below
+# along with a few suggestions for improving parallelization.
+
+name: Build and test
+
+on:
+  push:
+    branches: main
+    paths:
+    - '.github/workflows/build-test.yaml'
+    - '**/Cargo.toml'
+    - '**.rs'
+    - '**.yaml'
+    - '**.hs'
+    - 'concordium-base'
+    - 'concordium-consensus/smart-contracts'
+    - 'concordium-consensus/haskell-lmdb'
+
+  pull_request:
+    branches: main
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+    - '.github/workflows/build-test.yaml'
+    - '**/Cargo.toml'
+    - '**.rs'
+    - '**.yaml'
+    - '**.hs'
+    - 'concordium-base'
+    - 'concordium-consensus/smart-contracts'
+    - 'concordium-consensus/haskell-lmdb'
+  workflow_dispatch: # allow manual trigger
+
+env:
+  dummy: 0                 # change to force cache invalidation
+  CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
+  TEST_LEVEL: 1            # for stack tests
+
+jobs:
+  build:
+    # Use fixed OS version because we install packages on the system.
+    runs-on: ubuntu-20.04
+    if: ${{ !github.event.pull_request.draft }}
+
+    strategy:
+      matrix:
+        plan:
+        - rust: 1.45.2
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+      with:
+        #token: ${{ secrets.CONCORDIUM_CI }}
+        submodules: recursive
+    - name: Install system packages
+      run: sudo apt-get -y install liblmdb-dev flatbuffers-compiler libunbound-dev
+
+    # Set up Rust and restore dependencies and targets from cache.
+    # This must be done before checking the Rust sources (obviously)
+    # but also before building the Haskell sources because the Haskell
+    # build kicks of a Rust build.
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: ${{ matrix.plan.rust }}
+        override: true
+        components: clippy
+    - name: Cache cargo dependencies and targets
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          concordium-base/rust-src/target
+          concordium-base/lib
+          concordium-consensus/smart-contracts/wasm-chain-integration/target
+          concordium-consensus/smart-contracts/lib
+          concordium-node/target
+        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}
+
+    # HASKELL #
+
+    # Set up Haskell by caching '~/.stack', '.stack-work', and '~/.local/bin' separately.
+    # This must be done before compiling the Haskell sources
+    # (which in turns compiles certain Rust sources).
+    # The cache entry keys depend on the GHC version and contents of 'package.yaml' and 'stack.yaml'
+    # but will fall back to cache entries from different versions if no match is found.
+
+    - name: Cache stack global package DB
+      id: stack-global
+      uses: actions/cache@v2
+      with:
+        path: ~/.stack
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}
+    - name: Cache stack-installed programs in '~/.local/bin'
+      id: stack-programs
+      uses: actions/cache@v2
+      with:
+        path: ~/.local/bin
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}
+    - name: Cache '.stack-work'
+      uses: actions/cache@v2
+      with:
+        path: |
+          .stack-work
+          concordium-base/.stack-work
+          concordium-consensus/.stack-work
+          concordium-consensus/haskell-lmdb/.stack-work
+
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
+
+    - name: Install GHC (unless it was cached)
+      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
+      run: |
+        stack setup --install-ghc
+    - name: Build haskell dependencies (unless they were cached)
+      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
+      run: |
+        stack build --test --bench --only-dependencies --stack-yaml concordium-consensus/stack.yaml
+
+    # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
+    - name: Build consensus
+      run: |
+        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks
+
+    # Test Haskell sources. Could be run in parallel with the steps below.
+    - name: Test consensus
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+    - name: Test globalstate
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+
+    # RUST #
+
+    # Check, compile, and test Rust sources. All the steps below could be run in parallel in separate jobs.
+    - name: Check that Rust target compiles
+      run: |
+        cargo check --manifest-path concordium-node/Cargo.toml --workspace
+    - name: Run clippy (without extra features)
+      run: |
+        cargo clippy --manifest-path concordium-node/Cargo.toml --all -- -Dclippy::all
+    - name: Run clippy (with features 'instrumentation', 'collector', 'network_dump', 'staging_net', 'database_emitter')
+      run: |
+        cargo clippy --manifest-path concordium-node/Cargo.toml --features=instrumentation,collector,network_dump,staging_net,database_emitter --all -- -Dclippy::all
+    - name: Run clippy (with features 's11n_*')
+      run: |
+        cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_cbor --all -- -Dclippy::all
+        cargo clippy --manifest-path concordium-node/Cargo.toml --features=s11n_serde_msgpack --all -- -Dclippy::all
+
+    - name: Test Rust crates (without extra features)
+      run: |
+        cargo test --manifest-path concordium-node/Cargo.toml --all
+    - name: Test Rust crates (with features 'instrumentation', 'collector', 'network_dump')
+      run: |
+        cargo test --manifest-path concordium-node/Cargo.toml --all --features=instrumentation,collector,network_dump

@@ -192,8 +192,8 @@ instance HashableTo StateHash (HashedBlockState pv) where
 
 -- |Construct a block state that is empty, except for the supplied 'BirkParameters',
 -- 'CryptographicParameters', 'Authorizations' and 'ChainParameters'.
-emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> Authorizations -> ChainParameters -> BlockState pv
-emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams = BlockState
+emptyBlockState :: BasicBirkParameters -> CryptographicParameters -> UpdateKeysCollection -> ChainParameters -> BlockState pv
+emptyBlockState _blockBirkParameters cryptographicParameters keysCollection chainParams = BlockState
           { _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes,
             ..
           }
@@ -205,7 +205,7 @@ emptyBlockState _blockBirkParameters cryptographicParameters auths chainParams =
       _blockBank = makeHashed Rewards.emptyBankStatus
       _blockIdentityProviders = makeHashed IPS.emptyIdentityProviders
       _blockAnonymityRevokers = makeHashed ARS.emptyAnonymityRevokers
-      _blockUpdates = initialUpdates auths chainParams
+      _blockUpdates = initialUpdates keysCollection chainParams
       _blockReleaseSchedule = Map.empty
       _blockEpochBlocksBaked = emptyHashedEpochBlocks
 
@@ -347,6 +347,13 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateQuery (PureBlockStateMo
     getAccount bs aaddr =
       return $ bs ^? blockAccounts . ix aaddr
 
+    {-# INLINE getAccountByCredId #-}
+    getAccountByCredId bs cid =
+      let mai = bs ^? blockAccounts . to Accounts.accountRegIds . ix cid
+      in case mai of
+           Nothing -> return Nothing
+           Just ai -> return $ bs ^? blockAccounts . Accounts.indexedAccount ai
+
     {-# INLINE getBakerAccount #-}
     getBakerAccount bs (BakerId ai) =
       return $ bs ^? blockAccounts . Accounts.indexedAccount ai
@@ -448,9 +455,10 @@ instance (Monad m, IsProtocolVersion pv) => BS.AccountOperations (PureBlockState
 
   getAccountNonce acc = return $ acc ^. accountNonce
 
-  getAccountCredentials acc = return $ acc ^. accountCredentials
+  checkAccountIsAllowed acc BS.AllowedEncryptedTransfers = return (Map.size (acc ^. accountCredentials) == 1)
+  checkAccountIsAllowed acc BS.AllowedMultipleCredentials = return . isZeroAccountEncryptedAmount $ acc ^. accountEncryptedAmount
 
-  getAccountMaxCredentialValidTo acc = return $ acc ^. accountMaxCredentialValidTo
+  getAccountCredentials acc = return $ acc ^. accountCredentials
 
   getAccountVerificationKeys acc = return $ acc ^. accountVerificationKeys
 
@@ -488,9 +496,7 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
         where
             acct = newAccount gc addr cred
             accounts = bs ^. blockAccounts
-            newAccounts = Accounts.putAccount acct $
-                          Accounts.recordRegId (credId cred)
-                          accounts
+            newAccounts = Accounts.putAccountWithRegIds acct accounts
 
     bsoPutNewInstance bs mkInstance = return (instanceAddress, bs')
         where
@@ -521,9 +527,11 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
             updatedAccount = updateCredentialKeys credIx newKeys account
 
     bsoUpdateAccountCredentials bs accountAddr remove add thrsh = return $! bs
-            & blockAccounts %~ Accounts.putAccount updatedAccount
-                              . Accounts.recordRegIds (Map.elems $ credId <$> add)
+            & blockAccounts %~ recordAllRegIds . updateAcct
         where
+            updateAcct accts = Accounts.putAccountWithIndex updatedAccount accts
+            recordAllRegIds (newIndex, newAccts) = Accounts.recordRegIds ((, newIndex) <$> credIdsToRecord) newAccts
+            credIdsToRecord = Map.elems $ credId <$> add
             account = bs ^. blockAccounts . singular (ix accountAddr)
             updatedAccount = updateCredentials remove add thrsh account
 
@@ -748,8 +756,8 @@ instance (IsProtocolVersion pv, Monad m) => BS.BlockStateOperations (PureBlockSt
                        & blockReleaseSchedule .~ blockReleaseSchedule''
 
 
-    {-# INLINE bsoGetCurrentAuthorizations #-}
-    bsoGetCurrentAuthorizations bs = return $! bs ^. blockUpdates . currentAuthorizations . unhashed
+    {-# INLINE bsoGetUpdateKeyCollection #-}
+    bsoGetUpdateKeyCollection bs = return $! bs ^. blockUpdates . currentKeyCollection . unhashed
 
     {-# INLINE bsoGetNextUpdateSequenceNumber #-}
     bsoGetNextUpdateSequenceNumber bs uty = return $! lookupNextUpdateSequenceNumber (bs ^. blockUpdates) uty
@@ -829,10 +837,10 @@ initialState :: (IsProtocolVersion pv)
              -> [Account pv]
              -> IPS.IdentityProviders
              -> ARS.AnonymityRevokers
-             -> Authorizations
+             -> UpdateKeysCollection
              -> ChainParameters
              -> BlockState pv
-initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths chainParams = BlockState {..}
+initialState seedState cryptoParams genesisAccounts ips anonymityRevokers keysCollection chainParams = BlockState {..}
   where
     _blockBirkParameters = initialBirkParameters genesisAccounts seedState
     _blockCryptographicParameters = makeHashed cryptoParams
@@ -845,7 +853,7 @@ initialState seedState cryptoParams genesisAccounts ips anonymityRevokers auths 
     _blockIdentityProviders = makeHashed ips
     _blockAnonymityRevokers = makeHashed anonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-    _blockUpdates = initialUpdates auths chainParams
+    _blockUpdates = initialUpdates keysCollection chainParams
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
     _blockStateHash = BS.makeBlockStateHash BS.BlockStateHashInputs {
@@ -902,7 +910,7 @@ genesisStateP1 (GDP1 P1.GDP1Initial{
     _blockIdentityProviders = makeHashed genesisIdentityProviders
     _blockAnonymityRevokers = makeHashed genesisAnonymityRevokers
     _blockTransactionOutcomes = Transactions.emptyTransactionOutcomes
-    _blockUpdates = initialUpdates genesisAuthorizations genesisChainParameters
+    _blockUpdates = initialUpdates genesisUpdateKeys genesisChainParameters
     _blockReleaseSchedule = Map.empty
     _blockEpochBlocksBaked = emptyHashedEpochBlocks
 genesisStateP1 (GDP1 P1.GDP1Regenesis{..}) = case runGetLazy getBlockState genesisNewState of

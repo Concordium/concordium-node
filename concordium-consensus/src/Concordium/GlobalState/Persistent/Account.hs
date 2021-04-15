@@ -23,6 +23,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.Types.HashableTo
 import Concordium.Types hiding (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
+import Concordium.Constants
 import qualified Concordium.Types as TY (_incomingEncryptedAmounts, _startIndex, _selfAmount, _aggregatedAmount)
 import Concordium.ID.Types
 import Concordium.ID.Parameters
@@ -76,7 +77,7 @@ initialPersistentAccountEncryptedAmount = do
 putAccountEncryptedAmountV0 :: (MonadBlobStore m) => PersistentAccountEncryptedAmount -> m (Maybe Put)
 putAccountEncryptedAmountV0 PersistentAccountEncryptedAmount{..} = do
     sAmt <- refLoad _selfAmount
-    if sAmt == mempty && _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount then
+    if isZeroEncryptedAmount sAmt && _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount then
       return Nothing
     else do
       ieas <- mapM refLoad _incomingEncryptedAmounts
@@ -226,7 +227,6 @@ data PersistentAccount (pv :: ProtocolVersion) = PersistentAccount {
   -- |Current public account balance.
   ,_accountAmount :: !Amount
   -- |List of encrypted amounts on the account.
-  -- TODO (MRA) create bufferedref list
   ,_accountEncryptedAmount :: !(BufferedRef PersistentAccountEncryptedAmount)
   -- |Schedule of releases on the account.
   ,_accountReleaseSchedule :: !(BufferedRef AccountReleaseSchedule)
@@ -307,7 +307,6 @@ newAccount cryptoParams _accountAddress credential = do
   let newPData = PersistingAccountData {
         _accountEncryptionKey = makeEncryptionKey cryptoParams (credId credential),
         _accountCredentials = creds,
-        _accountMaxCredentialValidTo = validTo credential,
         _accountVerificationKeys = getAccountInformation 1 creds,
         _accountRemovedCredentials = emptyHashedRemovedCredentials,
         ..

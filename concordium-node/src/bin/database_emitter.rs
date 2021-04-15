@@ -19,7 +19,7 @@ use concordium_node::{
     utils,
 };
 use crypto_common::serialize::Serial;
-use failure::{bail, Error};
+use failure::{bail, Fallible, ResultExt};
 use std::{
     fs::File,
     io::prelude::*,
@@ -28,9 +28,8 @@ use std::{
     time::Duration,
 };
 
-fn main() -> Result<(), Error> {
-    let (mut conf, app_prefs) = utils::get_config_and_logging_setup()?;
-    let data_dir_path = app_prefs.get_user_app_dir();
+fn main() -> Fallible<()> {
+    let (mut conf, _app_prefs) = utils::get_config_and_logging_setup()?;
 
     conf.connection.dnssec_disabled = true;
     conf.connection.no_bootstrap_dns = true;
@@ -40,13 +39,13 @@ fn main() -> Result<(), Error> {
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
 
     let (node, poll) = P2PNode::new(
-        conf.common.id.clone(),
+        conf.common.id,
         &conf,
         PeerType::Node,
         stats_export_service,
-        Some(data_dir_path),
         Arc::new(RwLock::new(vec![])),
-    );
+    )
+    .context("Failed to create the node")?;
 
     spawn(&node, poll, None);
 
