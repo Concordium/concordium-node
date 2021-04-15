@@ -715,7 +715,9 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 }
 
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
-                if connect(node, PeerType::Node, peer.addr, Some(peer.id), true).is_ok() {
+                if let Err(e) = connect(node, PeerType::Node, peer.addr, Some(peer.id), true) {
+                    debug!("Could not connect to discovered peer {}", e);
+                } else {
                     new_peers += 1;
                 }
             }
@@ -735,7 +737,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             node.remove_connection(token);
         }
         ConnChange::RemoveAllByTokens(tokens) => {
-            trace!("Removing all connection tokens {:?}", tokens);
+            trace!("Removing connections with tokens {:?}", tokens);
             node.remove_connections(&tokens);
         }
     }

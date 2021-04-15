@@ -351,6 +351,13 @@ pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
     {
         let conn_read_lock = read_or_die!(node.connections());
 
+        // A reasonable argument might be made to try and accept connections
+        // from given addresses even if we have reached the maximum limit.
+        // However the remote address will almost certainly not be what we have recorded
+        // among the given addresses since it will have some OS generated
+        // outgoing socket. We could check that it is coming from a given IP,
+        // but at the moment that is not how we identify trusted addresses, so
+        // it would violate the general rule and complicate local testing.
         if node.self_peer.peer_type == PeerType::Node
             && candidates_lock.len() + conn_read_lock.len()
                 >= node.config.hard_connection_limit as usize
