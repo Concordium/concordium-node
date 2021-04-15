@@ -10,7 +10,8 @@ ARG consensus_profiling=false
 ENV CONSENSUS_PROFILING=$consensus_profiling
 RUN ./scripts/build-binaries.sh "instrumentation,collector" "release" && \
     ./scripts/build-binaries.sh "instrumentation,collector" && \
-    mkdir -p /out/{release,debug} && \
+    mkdir -p /out/release && \
+    mkdir -p /out/debug && \
     cp concordium-node/target/release/concordium-node \
        concordium-node/target/release/p2p_bootstrapper-cli \
        concordium-node/target/release/node-collector \
