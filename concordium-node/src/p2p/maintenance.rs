@@ -66,10 +66,12 @@ pub struct NodeConfig {
     pub dnssec_disabled: bool,
     pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
-    /// Nodes to try and keep the connections to.
-    /// The IP addresses are resolved on startup and during execution we
-    /// only keep them instead of the domain name.
-    pub favorite_addresses: RwLock<HashSet<SocketAddr>>,
+    /// Nodes to try and keep the connections to. A node will maintain two
+    /// classes of connections, one which is explicitly given, and one which is
+    /// discovered by bootstrapping or through other peers. The IP addresses
+    /// are resolved on startup or when they are added and during execution
+    /// we only keep them instead of the domain name.
+    pub given_addresses: RwLock<HashSet<SocketAddr>>,
     pub max_allowed_nodes: u16,
     pub relay_broadcast_percentage: f64,
     pub poll_interval: u64,
@@ -277,7 +279,7 @@ impl P2PNode {
 
         let dns_resolvers =
             utils::get_resolvers(&conf.connection.resolv_conf, &conf.connection.dns_resolver);
-        let favorite_addresses = RwLock::new(parse_config_nodes(&conf.connection, &dns_resolvers)?);
+        let given_addresses = RwLock::new(parse_config_nodes(&conf.connection, &dns_resolvers)?);
 
         let config = NodeConfig {
             no_net: conf.cli.no_network,
@@ -289,7 +291,7 @@ impl P2PNode {
             dnssec_disabled: conf.connection.dnssec_disabled,
             disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
-            favorite_addresses,
+            given_addresses,
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 max
             } else {
@@ -392,22 +394,22 @@ impl P2PNode {
     }
 
     /// Check whether the given connection is one of the connections to the
-    /// favorite nodes.
-    /// Favorite nodes are identified by the pair of IP and port.
-    pub fn is_favorite_connection(&self, conn: &Connection) -> bool {
+    /// given nodes.
+    /// Given nodes are identified by the pair of IP and port.
+    pub fn is_given_connection(&self, conn: &Connection) -> bool {
         // Because it can be that either we are connected to them, or they are connected
         // to us, we check both the address we are connected to them, as well as
         // the external port the peer advertises. This latter is not great if it
         // is possible that a malicious node is on the same IP as one of the
-        // favorite ones but in the absence of a global identifier there's
+        // given ones but in the absence of a global identifier there's
         // little else we can do.
-        let addrs = read_or_die!(self.config.favorite_addresses);
+        let addrs = read_or_die!(self.config.given_addresses);
         addrs.contains(&conn.remote_addr()) || addrs.contains(&conn.remote_peer.external_addr())
     }
 
-    /// Get the list of unconnected favorite peers.
-    pub fn unconnected_favorites(&self) -> HashSet<SocketAddr> {
-        let mut ret = read_or_die!(self.config.favorite_addresses).clone();
+    /// Get the list of unconnected given peers.
+    pub fn unconnected_given_addresses(&self) -> HashSet<SocketAddr> {
+        let mut ret = read_or_die!(self.config.given_addresses).clone();
         for conn in read_or_die!(self.connections()).values() {
             ret.remove(&conn.remote_addr());
             ret.remove(&conn.remote_peer.external_addr());
@@ -677,14 +679,14 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::NewConn {
             addr,
             peer_type,
-            favorite,
+            given,
         } => {
-            // for favorites we do not respect the max peer bound, for normal peers
-            // that are automatically discovered we do
-            if let Err(e) = connect(node, peer_type, addr, None, !favorite) {
+            // for given addresses we do not respect the max peer bound, for discovered
+            // peers that are automatically discovered we do
+            if let Err(e) = connect(node, peer_type, addr, None, !given) {
                 error!("Can't connect to the desired address: {}", e);
-            } else if favorite && !write_or_die!(node.config.favorite_addresses).insert(addr) {
-                info!("New favorite address recorded {}", favorite);
+            } else if given && !write_or_die!(node.config.given_addresses).insert(addr) {
+                info!("New given address recorded {}", given);
             }
         }
         ConnChange::Promotion(token) => {
@@ -758,7 +760,7 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
                     node.register_conn_change(ConnChange::NewConn {
                         addr,
                         peer_type: PeerType::Bootstrapper,
-                        favorite: false,
+                        given: false,
                     });
                 }
             }
