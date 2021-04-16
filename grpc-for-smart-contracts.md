@@ -41,7 +41,96 @@ message GetAddressInfoRequest {
   - Example:
 
     ```json
-    {"accountAmount":"10000000000000","accountNonce":1,"accountEncryptedAmount":{"incomingAmounts":[],"selfAmount":"c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","startIndex":0},"accountEncryptionKey":"993fdc40bb8af4cb75caf8a53928d247be6285784b29578a06df312c28854c1bfac2fd0183967338b578772398d4120193c96e1a644ecb148615ec0940cdf30e2f373cc470f393231a4be681b8cbb27edf0b67fda7290a3545d62dc8038d1fa7","accountReleaseSchedule":{"schedule":[],"total":"0"},"accountCredentials":{"0":{"value":{"contents":{"ipIdentity":0,"regId":"93c96e1a644ecb148615ec0940cdf30e2f373cc470f393231a4be681b8cbb27edf0b67fda7290a3545d62dc8038d1fa7","policy":{"revealedAttributes":{},"createdAt":"202103","validTo":"202203"},"credentialPublicKeys":{"keys":{"0":{"verifyKey":"6bb6fb860514c7a1002fc9c3f3a9f7a7a518d54d0437b7dd7e9ba29c65263cd8","schemeId":"Ed25519"},"1":{"verifyKey":"80db411ba83f282ebe7ab3c037e481c72c460de1de87bc57a0b85a7dd347bd76","schemeId":"Ed25519"},"2":{"verifyKey":"c14a3e621d7ff5f1302a0b5c9371fbe8429e8db33b1ff33b962e468a901c159a","schemeId":"Ed25519"}},"threshold":2}},"type":"initial"},"v":0}}}
+    {
+        // Public account balance in microGTU.
+        "accountAmount":"10000000000000",
+
+        // Account nonce. Incremented by one with every transaction.
+        "accountNonce":1,
+
+        // Encrypted amounts.
+        // For technical reasons the encrypted balance of an account consists of two parts,
+        // the "selfAmount" and the "incomingAmounts".
+        "accountEncryptedAmount":{
+            "incomingAmounts":[
+
+            ],
+            "selfAmount":"c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "startIndex":0
+        },
+
+        // The encryption key others can use to send to this account.
+        "accountEncryptionKey":"993fdc40bb8af4cb75caf8a53928d247be6285784b29578a06df312c28854c1bfac2fd0183967338b578772398d4120193c96e1a644ecb148615ec0940cdf30e2f373cc470f393231a4be681b8cbb27edf0b67fda7290a3545d62dc8038d1fa7",
+
+        // Schedule for incoming transfers with schedule.
+        "accountReleaseSchedule":{
+
+            // The actual schedule.
+            "schedule":[
+
+            ],
+
+            // Total unreleased amount in microGTU.
+            "total":"0"
+        },
+
+        // Account credentials is a map from `CredentialIndex` to `AccountCredential`.
+        "accountCredentials":{
+            "0":{
+                "value":{
+                    "contents":{
+                        // Identity Provider id.
+                        "ipIdentity":0,
+
+                        // Registration id for credential.
+                        "regId":"93c96e1a644ecb148615ec0940cdf30e2f373cc470f393231a4be681b8cbb27edf0b67fda7290a3545d62dc8038d1fa7",
+
+                        "policy":{
+
+                            // Revealed attributes for credential as a map. Keys could for example be "firstname" or "nationality".
+                            "revealedAttributes":{
+
+                            },
+
+                            // Creation date for credential. Year + Month.
+                            "createdAt":"202103",
+
+                            // Expiry date for credential. Year + Month.
+                            "validTo":"202203"
+                        },
+
+                        // Public keys for credential.
+                        "credentialPublicKeys":{
+                            "keys":{
+                                "0":{
+                                    "verifyKey":"6bb6fb860514c7a1002fc9c3f3a9f7a7a518d54d0437b7dd7e9ba29c65263cd8",
+                                    "schemeId":"Ed25519"
+                                },
+                                "1":{
+                                    "verifyKey":"80db411ba83f282ebe7ab3c037e481c72c460de1de87bc57a0b85a7dd347bd76",
+                                    "schemeId":"Ed25519"
+                                },
+                                "2":{
+                                    "verifyKey":"c14a3e621d7ff5f1302a0b5c9371fbe8429e8db33b1ff33b962e468a901c159a",
+                                    "schemeId":"Ed25519"
+                                }
+                            },
+
+                            // The number of keys needed for signing.
+                            "threshold":2
+                        }
+                    },
+
+                    // Type of account credential. Can be "normal" or "initial". 
+                    // The account created when getting an identity has type "initial".
+                    "type":"initial"
+                },
+
+                // Version of `AccountCredential`.
+                "v":0
+            }
+        }
+    }
     ```
 
 - Returns `null` if the address could not be found.
@@ -90,9 +179,30 @@ message GetAddressInfoRequest {
 - A JSON object with information about the contract instance.
   - Example: 
 
-  ```json
-  {"amount":"0","sourceModule":"609af98562314a5461990080df5514703bfb9f98d2c5b4535cf4b11f766cac29","owner":"4NyqjcJwKAckGE3gMGDJeqcyLZQxtfnDFTdvg74xYUU8myQTrB","methods":["counter.receive","counter.receive_optimized"],"name":"init_counter","model":"0000000000"}
-  ```
+    ```json
+    {
+        // Balance of contract instance in microGTU.
+        "amount":"0",
+
+        // Reference to the source module.
+        "sourceModule":"609af98562314a5461990080df5514703bfb9f98d2c5b4535cf4b11f766cac29",
+
+        // Address of owner account.
+        "owner":"4NyqjcJwKAckGE3gMGDJeqcyLZQxtfnDFTdvg74xYUU8myQTrB",
+
+        // Available receive methods.
+        "methods":[
+            "counter.receive",
+            "counter.receive_optimized"
+        ],
+
+        // Name of contract.
+        "name":"init_counter",
+
+        // The state of the instance in binary.
+        "model":"0000000000"
+    }
+    ```
 
 
 ## `SendTransaction`
@@ -129,7 +239,7 @@ For interacting with smart contracts, the relevant variant is `AccountTransactio
     
 #### Serialization
 
-- Version (uint32, big-endian)
+- Version (variable length, big-endian base 128 encoding)
   - Only supported version is `0`.
 - Tag (uint8)
   - Relevant tag values:
@@ -144,7 +254,7 @@ An `AccountTransaction` is a transaction that originates from a specific account
 It is a struct with the following fields:
 
 `TransactionSignature`: Signatures for the transaction. The message to sign is
-the SHA256 of the `Payload`.
+the SHA256 of the `TransactionHeader` + `Payload`.
 
 `TransactionHeader`: A header with common data needed for all types of
 transactions.
@@ -181,8 +291,8 @@ A transaction header is a struct which consists of the following fields:
 
 `AccountAddress`: The sender account.
 
-`Nonce`: Account nonce. Is incremented by 1 with every transaction originating
-from an account.
+`Nonce`: Account nonce. Initial nonce is `1`. Is incremented by 1 with every transaction originating
+from an account. Find the current nonce with `GetAccountInfo`.
 
 `Energy`: The amount of energy allocated for the execution of this transaction.
 
@@ -239,8 +349,10 @@ The three relevant variants for smart contracts are `DeployModule`,
 - `ModuleRef` (byte array of fixed size 32)
 - `InitName`
   - Length of name in bytes (uint16, big-endian)
-  - Name as a byte array
-- `Parameter` (depends on the contract)
+  - Name as a byte array in UTF-8 encoding
+- `Parameter`
+  - Length of parameter in bytes (uint16, big-endian)
+  - The bytes
 
 ### Update (Contract)
 `Amount`: Amount in microGTU (10^-6 GTU).
@@ -258,6 +370,8 @@ The three relevant variants for smart contracts are `DeployModule`,
   - Index (uint64, big-endian)
   - Subindex (uint64, big-endian)
 - `ReceiveName`
-  - Length of name in bytes (uint64, big-endian)
-  - Name as byte array
-- `Parameter` (depends on the contract)
+  - Length of name in bytes (uint16, big-endian)
+  - Name as a byte array in UTF-8 encoding
+- `Parameter`
+  - Length of parameter in bytes (uint16, big-endian)
+  - The bytes
