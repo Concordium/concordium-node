@@ -515,6 +515,8 @@ constructBlock :: forall m pv.
 constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =
   let cm = ChainMetadata{..}
   in do
+    -- when we start constructing the block
+    startTime <- currentTime
     bshandle0 <- thawBlockState =<< blockState blockParent
     chainParams <- bsoGetChainParameters bshandle0
     -- process the update queues
@@ -554,11 +556,10 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
           [] -> groups
     transactionGroups <- MinPQ.elems <$> foldM groupUpdates grouped1 (Map.toList (pt ^. pttUpdates))
 
-    -- lookup the maximum block size as mandated by the tree state
+    -- lookup the maximum block size as mandated by the runtime parameters
     maxSize <- rpBlockSize <$> getRuntimeParameters
     timeoutDuration <- rpBlockTimeout <$> getRuntimeParameters
-    now <- currentTime
-    let timeout = addUTCTime (durationToNominalDiffTime timeoutDuration) now
+    let timeout = addUTCTime (durationToNominalDiffTime timeoutDuration) startTime
     genData <- getGenesisData
     let maxBlockEnergy = gdMaxBlockEnergy genData
     let context = ContextState{
@@ -580,6 +581,8 @@ constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState 
     bshandle4 <- mintAndReward bshandle3 blockParent slotNumber blockBaker isNewEpoch mfinInfo (finState ^. schedulerExecutionCosts) counts updates'
 
     bshandleFinal <- freezeBlockState bshandle4
+    endTime <- currentTime
+    logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
     return (ft, ExecutionResult{_energyUsed = usedEnergy,
                                 _finalState = bshandleFinal,
                                 _transactionLog = finState ^. schedulerTransactionLog})
