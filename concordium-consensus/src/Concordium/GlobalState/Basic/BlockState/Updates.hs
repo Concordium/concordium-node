@@ -14,7 +14,9 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
+import qualified Concordium.Types.AnonymityRevokers as ARS
 import Concordium.Types.HashableTo
+import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Updates
 import Concordium.Utils.Serialization
 
@@ -118,7 +120,11 @@ data PendingUpdates = PendingUpdates {
     -- |Updates to the GAS rewards.
     _pGASRewardsQueue :: !(UpdateQueue GASRewards),
     -- |Updates to the baker minimum threshold.
-    _pBakerStakeThresholdQueue :: !(UpdateQueue Amount)
+    _pBakerStakeThresholdQueue :: !(UpdateQueue Amount),
+    -- |Adds a new anonymity revoker.
+    _pAddAnonymityRevokerQueue :: !(UpdateQueue ARS.ArInfo),
+    -- |Adds a new identity provider.
+    _pAddIdentityProviderQueue :: !(UpdateQueue IPS.IpInfo)
 } deriving (Show, Eq)
 makeLenses ''PendingUpdates
 
@@ -136,6 +142,8 @@ instance HashableTo H.Hash PendingUpdates where
             <> hsh _pTransactionFeeDistributionQueue
             <> hsh _pGASRewardsQueue
             <> hsh _pBakerStakeThresholdQueue
+            <> hsh _pAddAnonymityRevokerQueue
+            <> hsh _pAddIdentityProviderQueue
         where
             hsh :: HashableTo H.Hash a => a -> BS.ByteString
             hsh = H.hashToByteString . getHash
@@ -155,6 +163,8 @@ putPendingUpdatesV0 PendingUpdates{..} = do
         putUpdateQueueV0 _pTransactionFeeDistributionQueue
         putUpdateQueueV0 _pGASRewardsQueue
         putUpdateQueueV0 _pBakerStakeThresholdQueue
+        putUpdateQueueV0 _pAddAnonymityRevokerQueue
+        putUpdateQueueV0 _pAddIdentityProviderQueue
 
 -- |Deserialize pending updates.
 getPendingUpdatesV0 :: Get PendingUpdates
@@ -171,6 +181,9 @@ getPendingUpdatesV0 = do
         _pTransactionFeeDistributionQueue <- getUpdateQueueV0
         _pGASRewardsQueue <- getUpdateQueueV0
         _pBakerStakeThresholdQueue <- getUpdateQueueV0
+        _pAddAnonymityRevokerQueue <- getUpdateQueueV0
+        _pAddIdentityProviderQueue <- getUpdateQueueV0
+
         return PendingUpdates{..}
 
 instance ToJSON PendingUpdates where
@@ -186,7 +199,9 @@ instance ToJSON PendingUpdates where
             "mintDistribution" AE..= _pMintDistributionQueue,
             "transactionFeeDistribution" AE..= _pTransactionFeeDistributionQueue,
             "gasRewards" AE..= _pGASRewardsQueue,
-            "bakerStakeThreshold" AE..= _pBakerStakeThresholdQueue
+            "bakerStakeThreshold" AE..= _pBakerStakeThresholdQueue,
+            "addAnonymityRevoker" AE..= _pAddAnonymityRevokerQueue,
+            "addIdentityProvider" AE..= _pAddIdentityProviderQueue
         ]
 
 instance FromJSON PendingUpdates where
@@ -203,6 +218,8 @@ instance FromJSON PendingUpdates where
         _pTransactionFeeDistributionQueue <- o AE..: "transactionFeeDistribution"
         _pGASRewardsQueue <- o AE..: "gasRewards"
         _pBakerStakeThresholdQueue <- o AE..: "bakerStakeThreshold"
+        _pAddAnonymityRevokerQueue <- o AE..: "addAnonymityRevoker"
+        _pAddIdentityProviderQueue <- o AE..: "addIdentityProvider"
         return PendingUpdates{..}
 
 -- |Initial pending updates with empty queues.
@@ -212,6 +229,8 @@ emptyPendingUpdates = PendingUpdates
         emptyUpdateQueue
         emptyUpdateQueue 
         emptyUpdateQueue 
+        emptyUpdateQueue
+        emptyUpdateQueue
         emptyUpdateQueue
         emptyUpdateQueue
         emptyUpdateQueue
@@ -324,14 +343,40 @@ processProtocolUpdates t pu0 uq = (pu', uq {_uqQueue = qr}, Map.fromAscList ql)
         pu' = getFirst <$> mconcat ((First <$> pu0) : (Just . First . snd <$> ql))
 
 
+-- |Process AR and IP update queues.
+-- Ensuring that new IPs/ARs have unique ids is difficult when enqueueing.
+-- Instead, it is handled here by ignoring updates with duplicate IPs/ARs.
+processARsAndIPsUpdates :: Ord k
+                        => Map.Map k v -- ^ The existing IPs / ARs.
+                        -> (v -> k) -- ^ Getter for the key field.
+                        -> Timestamp
+                        -> UpdateQueue v
+                        -> (Map.Map k v, UpdateQueue v, Map.Map TransactionTime v)
+processARsAndIPsUpdates oldValMap getKey t uq = (updatedValMap, uq {_uqQueue = qr}, changes)
+  where (ql, qr) = span ((<= t) . transactionTimeToTimestamp . fst) (uq ^. uqQueue)
+        (changes, updatedValMap) = foldr go (Map.empty, oldValMap) ql
+
+        -- Adds non-duplicate updates to the map with IPs/ARs and accumulates the actual changes that occured.
+        go (tt, v) (changesMap, valMap) =
+          if Map.member k valMap
+            then (changesMap, valMap) -- Ignore invalid update
+            else (changesMap', valMap')
+          where k = getKey v
+                changesMap' = Map.insert tt v changesMap
+                valMap' = Map.insert k v valMap
+
+type UpdatesWithARsAndIPs = (Updates, ARS.AnonymityRevokers, IPS.IdentityProviders)
+
 -- |Process the update queues to determine the current state of
 -- updates.
 processUpdateQueues
     :: Timestamp
     -- ^Current timestamp
-    -> Updates
-    -> (Map.Map TransactionTime UpdateValue, Updates)
-processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters=RewardParameters{..}, ..}, ..} = (res, Updates {
+    -> UpdatesWithARsAndIPs
+    -> (Map.Map TransactionTime UpdateValue, UpdatesWithARsAndIPs)
+processUpdateQueues t (theUpdates, ars, ips) =
+  (res
+  , ( Updates {
             _currentKeyCollection = makeHashed $ UpdateKeysCollection newRootKeys newLevel1Keys newLevel2Keys,
             _currentProtocolUpdate = newProtocolUpdate,
             _currentParameters = makeChainParameters
@@ -359,10 +404,16 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
                     _pMintDistributionQueue = newMintDistributionQueue,
                     _pTransactionFeeDistributionQueue = newTransactionFeeDistributionQueue,
                     _pGASRewardsQueue = newGASRewardsQueue,
-                    _pBakerStakeThresholdQueue = newBakerStakeThresholdQueue
+                    _pBakerStakeThresholdQueue = newBakerStakeThresholdQueue,
+                    _pAddAnonymityRevokerQueue = newAddAnonymityRevokerQueue,
+                    _pAddIdentityProviderQueue = newAddIdentityProviderQueue
                 }
-        })
+        }
+    , ARS.AnonymityRevokers updatedARs
+    , IPS.IdentityProviders updatedIPs))
     where
+        Updates{_pendingUpdates = PendingUpdates{..}, _currentParameters = ChainParameters{_cpRewardParameters=RewardParameters{..}, ..}, ..} = theUpdates
+
         (newRootKeys, newRootKeysQueue, resRootKeys) = processValueUpdates t (rootKeys $ _unhashed _currentKeyCollection) _pRootKeysUpdateQueue
         (newLevel1Keys, newLevel1KeysQueue, resLevel1Keys) = processValueUpdates t (level1Keys $ _unhashed _currentKeyCollection) _pLevel1KeysUpdateQueue
         (newLevel2Keys, newLevel2KeysQueue, resLevel2Keys) = processValueUpdates t (level2Keys $ _unhashed _currentKeyCollection) _pLevel2KeysUpdateQueue
@@ -375,6 +426,8 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
         (newTransactionFeeDistribution, newTransactionFeeDistributionQueue, resTransactionFeeDistribution) = processValueUpdates t _rpTransactionFeeDistribution _pTransactionFeeDistributionQueue
         (newGASRewards, newGASRewardsQueue, resGASRewards) = processValueUpdates t _rpGASRewards _pGASRewardsQueue
         (newBakerStakeThreshold, newBakerStakeThresholdQueue, resBakerStakeThreshold) = processValueUpdates t _cpBakerStakeThreshold _pBakerStakeThresholdQueue
+        (updatedARs, newAddAnonymityRevokerQueue, resAddAnonymityRevoker) = processARsAndIPsUpdates (ARS.arRevokers ars) ARS.arIdentity t _pAddAnonymityRevokerQueue
+        (updatedIPs, newAddIdentityProviderQueue, resAddIdentityProvider) = processARsAndIPsUpdates (IPS.idProviders ips) IPS.ipIdentity t _pAddIdentityProviderQueue
         res =
             (UVRootKeys <$> resRootKeys) <>
             (UVLevel1Keys <$> resLevel1Keys) <>
@@ -387,7 +440,9 @@ processUpdateQueues t Updates{_pendingUpdates = PendingUpdates{..}, _currentPara
             (UVMintDistribution <$> resMintDistribution) <>
             (UVTransactionFeeDistribution <$> resTransactionFeeDistribution) <>
             (UVGASRewards <$> resGASRewards) <>
-            (UVBakerStakeThreshold <$> resBakerStakeThreshold)
+            (UVBakerStakeThreshold <$> resBakerStakeThreshold) <>
+            (UVAddAnonymityRevoker <$> resAddAnonymityRevoker) <>
+            (UVAddIdentityProvider <$> resAddIdentityProvider)
 
 -- |Determine the future election difficulty (at a given time) based
 -- on a current 'Updates'.
@@ -414,6 +469,8 @@ lookupNextUpdateSequenceNumber u UpdateMintDistribution = u ^. pendingUpdates . 
 lookupNextUpdateSequenceNumber u UpdateTransactionFeeDistribution = u ^. pendingUpdates . pTransactionFeeDistributionQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateGASRewards = u ^. pendingUpdates . pGASRewardsQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateBakerStakeThreshold = u ^. pendingUpdates . pBakerStakeThresholdQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateAddAnonymityRevoker = u ^. pendingUpdates . pAddAnonymityRevokerQueue . uqNextSequenceNumber
+lookupNextUpdateSequenceNumber u UpdateAddIdentityProvider = u ^. pendingUpdates . pAddIdentityProviderQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateRootKeysWithRootKeys = u ^. pendingUpdates . pRootKeysUpdateQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateLevel1KeysWithRootKeys = u ^. pendingUpdates . pLevel1KeysUpdateQueue . uqNextSequenceNumber
 lookupNextUpdateSequenceNumber u UpdateLevel2KeysWithRootKeys = u ^. pendingUpdates . pLevel2KeysUpdateQueue . uqNextSequenceNumber
@@ -434,3 +491,5 @@ enqueueUpdate effectiveTime (UVMintDistribution upd) = pendingUpdates . pMintDis
 enqueueUpdate effectiveTime (UVTransactionFeeDistribution upd) = pendingUpdates . pTransactionFeeDistributionQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVGASRewards upd) = pendingUpdates . pGASRewardsQueue %~ enqueue effectiveTime upd
 enqueueUpdate effectiveTime (UVBakerStakeThreshold upd) = pendingUpdates . pBakerStakeThresholdQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVAddAnonymityRevoker upd) = pendingUpdates . pAddAnonymityRevokerQueue %~ enqueue effectiveTime upd
+enqueueUpdate effectiveTime (UVAddIdentityProvider upd) = pendingUpdates . pAddIdentityProviderQueue %~ enqueue effectiveTime upd
