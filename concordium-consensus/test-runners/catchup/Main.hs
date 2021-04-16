@@ -29,7 +29,6 @@ import Concordium.Birk.Bake
 import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.GlobalState
 import Concordium.GlobalState.Block
-import Concordium.GlobalState.DummyData (dummyAuthorizations)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
