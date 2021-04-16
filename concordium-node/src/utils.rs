@@ -4,7 +4,7 @@ use crate::{concordium_dns::dns, configuration as config};
 use byteorder::{NetworkEndian, ReadBytesExt, WriteBytesExt};
 use ed25519_dalek::{Keypair, PublicKey, SecretKey, Signature, Signer, Verifier};
 use env_logger::{Builder, Env};
-use failure::Fallible;
+use failure::{Fallible, ResultExt};
 use log::LevelFilter;
 use rand::rngs::OsRng;
 #[cfg(not(target_os = "windows"))]
@@ -13,6 +13,7 @@ use std::{
     convert::TryFrom,
     io::{Cursor, Write},
     net::{IpAddr, SocketAddr},
+    path::Path,
     str::{self, FromStr},
 };
 
@@ -93,7 +94,7 @@ pub fn setup_logger_env(env: Env, no_log_timestamp: bool) {
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn get_resolvers(resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
+pub fn get_resolvers(resolv_conf: &Path, resolvers: &[String]) -> Vec<String> {
     use std::io::{BufRead, BufReader};
     if !resolvers.is_empty() {
         resolvers.to_owned()
@@ -119,7 +120,7 @@ pub fn get_resolvers(resolv_conf: &str, resolvers: &[String]) -> Vec<String> {
                 })
                 .flatten()
                 .collect::<Vec<String>>(),
-            _ => panic!("Can't open {}", resolv_conf),
+            _ => panic!("Can't open {}", resolv_conf.to_string_lossy()),
         }
     }
 }
@@ -152,61 +153,53 @@ pub fn parse_host_port(
 ) -> Fallible<Vec<SocketAddr>> {
     if let Some(n) = input.rfind(':') {
         let (ip, port) = input.split_at(n);
-        let port = &port[1..];
+        let port = port[1..].parse::<u16>().context(format!(
+            "Cannot parse <{}> as the host port. The value should be a 16-bit unsigned integer in \
+             base 10.",
+            port
+        ))?;
 
         if let Ok(ip) = IpAddr::from_str(&ip) {
-            if let Ok(port) = port.parse::<u16>() {
-                Ok(vec![SocketAddr::new(ip, port)])
-            } else {
-                bail!("Can't parse <{}> as the host port", input.to_owned());
-            }
+            Ok(vec![SocketAddr::new(ip, port)])
         } else {
-            match port.parse::<u16>() {
-                Err(_) => bail!("Can't parse <{}> as the host port", input.to_owned()),
-                Ok(port) => {
-                    let resolver_addresses =
-                        resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
-                    if !resolver_addresses.is_empty() {
-                        let a_record_resolver = if let Ok(res) =
-                            dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail)
-                        {
-                            res.into_iter()
-                                .filter_map(|element| match IpAddr::from_str(&element) {
-                                    Ok(ip) => Some(SocketAddr::new(ip, port).to_owned()),
-                                    _ => None,
-                                })
-                                .collect::<Vec<_>>()
-                        } else {
-                            vec![]
-                        };
-                        let aaaa_record_resolver = if let Ok(res) =
-                            dns::resolve_dns_aaaa_record(&ip, &resolver_addresses, dnssec_fail)
-                        {
-                            res.into_iter()
-                                .filter_map(|element| IpAddr::from_str(&element).ok())
-                                .map(|ip| SocketAddr::new(ip, port).to_owned())
-                                .collect::<Vec<_>>()
-                        } else {
-                            vec![]
-                        };
-                        Ok(a_record_resolver
-                            .iter()
-                            .chain(aaaa_record_resolver.iter())
-                            .map(ToOwned::to_owned)
-                            .collect::<Vec<_>>())
-                    } else {
-                        bail!("No DNS resolvers available");
-                    }
-                }
-            }
+            let resolver_addresses =
+                resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
+            ensure!(!resolver_addresses.is_empty(), "No DNS resolvers available");
+
+            let a_record_resolver =
+                if let Ok(res) = dns::resolve_dns_a_record(&ip, &resolver_addresses, dnssec_fail) {
+                    res.into_iter()
+                        .filter_map(|element| match IpAddr::from_str(&element) {
+                            Ok(ip) => Some(SocketAddr::new(ip, port).to_owned()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                } else {
+                    vec![]
+                };
+            let aaaa_record_resolver = if let Ok(res) =
+                dns::resolve_dns_aaaa_record(&ip, &resolver_addresses, dnssec_fail)
+            {
+                res.into_iter()
+                    .filter_map(|element| IpAddr::from_str(&element).ok())
+                    .map(|ip| SocketAddr::new(ip, port).to_owned())
+                    .collect::<Vec<_>>()
+            } else {
+                vec![]
+            };
+            Ok(a_record_resolver
+                .iter()
+                .chain(aaaa_record_resolver.iter())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>())
         }
     } else {
-        bail!("Can't parse <{}> as the host port", input.to_owned());
+        bail!("Can't parse port from <{}>. The accepted format is address:port.", input.to_owned());
     }
 }
 
 pub fn get_bootstrap_nodes(
-    bootstrap_server: &str,
+    bootstrap_server: Option<&str>,
     resolvers: &[String],
     dnssec_fail: bool,
     bootstrap_nodes: &[String],
@@ -223,7 +216,7 @@ pub fn get_bootstrap_nodes(
             .flatten()
             .collect::<Vec<_>>();
         Ok(bootstrap_nodes)
-    } else {
+    } else if let Some(bootstrap_server) = bootstrap_server {
         debug!("No bootstrap nodes given; attempting DNS");
         let resolver_addresses =
             resolvers.iter().map(|x| IpAddr::from_str(x)).flatten().collect::<Vec<_>>();
@@ -234,6 +227,8 @@ pub fn get_bootstrap_nodes(
             Ok(res) => read_peers_from_dns_entries(res, get_dns_public_key()),
             Err(_) => Err("Error looking up bootstrap nodes"),
         }
+    } else {
+        Err("No bootstrap nodes and no bootstrap server specified.")
     }
 }
 

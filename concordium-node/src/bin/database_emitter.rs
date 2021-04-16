@@ -27,7 +27,6 @@ fn main() -> Fallible<()> {
 
     conf.connection.dnssec_disabled = true;
     conf.connection.no_bootstrap_dns = true;
-    conf.connection.bootstrap_server = "foo:8888".to_string();
     conf.connection.desired_nodes = conf.connection.connect_to.len() as u16;
 
     let stats_export_service = instantiate_stats_export_engine(&conf)?;
@@ -51,7 +50,8 @@ fn main() -> Fallible<()> {
         ) {
             Ok(addrs) => {
                 for addr in addrs {
-                    let _ = connect(&node, PeerType::Node, addr, None).map_err(|e| error!("{}", e));
+                    let _ = connect(&node, PeerType::Node, addr, None, false)
+                        .map_err(|e| error!("{}", e));
                 }
             }
             Err(err) => error!("Can't parse configured addresses to connect to: {}", err),

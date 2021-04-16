@@ -17,7 +17,7 @@ use crate::dumper::DumpItem;
 use crate::{
     common::{
         get_current_stamp,
-        p2p_peer::{P2PPeer, PeerStats, RemotePeerId},
+        p2p_peer::{P2PPeer, PeerStats},
         P2PNodeId, PeerType, RemotePeer,
     },
     configuration::MAX_PEER_NETWORKS,
@@ -38,7 +38,7 @@ use std::{
     collections::VecDeque,
     convert::TryFrom,
     fmt,
-    net::{IpAddr, SocketAddr},
+    net::SocketAddr,
     ops::{Index, IndexMut},
     str::FromStr,
     sync::{
@@ -296,17 +296,21 @@ pub enum ConnChange {
     /// To be soft-banned by ip and removed from the list of connections.
     ExpulsionByToken(Token),
     /// Prospect node address to attempt to connect to.
-    NewConn(SocketAddr, PeerType),
+    NewConn {
+        /// address to connect to
+        addr: SocketAddr,
+        /// what kind of a peer to expect on the address
+        peer_type: PeerType,
+        /// whether the connection was given or discovered
+        given: bool,
+    },
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
     /// Promotion to post-handshake.
     Promotion(Token),
     /// To be removed from the list of connections.
     RemovalByToken(Token),
-    /// Remove any connection to a peer with the given node id.
-    RemovalByNodeId(RemotePeerId),
-    /// Remove any connection to a peer with the given IP address.
-    RemovalByIp(IpAddr),
+    RemoveAllByTokens(Vec<Token>),
 }
 
 /// Message queues, indexed by priority.

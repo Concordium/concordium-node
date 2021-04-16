@@ -11,6 +11,7 @@ import Concordium.Common.Version
 import Concordium.Types
 import Concordium.Scheduler.Types
 import Concordium.ID.Types
+import Data.Time
 
 import qualified Concordium.Scheduler.Runner as Runner
 
@@ -131,6 +132,10 @@ icdi4 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata
 {-# WARNING dummyBlockSize "Do not use in production." #-}
 dummyBlockSize :: Integer
 dummyBlockSize = 10000000000
+
+{-# WARNING dummyBlockTimeout "Do not use in production." #-}
+dummyBlockTimeout :: UTCTime
+dummyBlockTimeout = read "2100-09-23 13:27:13.257285424 UTC"
 
 dummyChainMeta :: ChainMetadata
 dummyChainMeta = ChainMetadata { slotTime = 0 }

@@ -273,6 +273,8 @@ handleStartExceptions logM c =
 startConsensus ::
     -- |Maximum block size.
     Word64 ->
+    -- |Block construction timeout in milliseconds
+    Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
     -- |Time in seconds during which a transaction can't be purged
@@ -312,6 +314,7 @@ startConsensus ::
     IO Int64
 startConsensus
     maxBlock
+    blockConstructionTimeout
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -398,6 +401,7 @@ startConsensus
         mvcRuntimeParameters =
             RuntimeParameters
                 { rpBlockSize = fromIntegral maxBlock,
+                  rpBlockTimeout = fromIntegral blockConstructionTimeout,
                   rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
@@ -410,6 +414,8 @@ startConsensus
 -- a null pointer will be returned.
 startConsensusPassive ::
     -- |Maximum block size.
+    Word64 ->
+    -- |Block construction timeout in milliseconds
     Word64 ->
     -- |Insertions before purging of transactions
     Word64 ->
@@ -445,6 +451,7 @@ startConsensusPassive ::
     IO Int64
 startConsensusPassive
     maxBlock
+    blockConstructionTimeout
     insertionsBeforePurge
     transactionsKeepAlive
     transactionsPurgingDelay
@@ -514,6 +521,7 @@ startConsensusPassive
         mvcRuntimeParameters =
             RuntimeParameters
                 { rpBlockSize = fromIntegral maxBlock,
+                  rpBlockTimeout = fromIntegral blockConstructionTimeout,
                   rpEarlyBlockThreshold = defaultEarlyBlockThreshold,
                   rpMaxBakingDelay = defaultMaxBakingDelay,
                   rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
@@ -1070,6 +1078,8 @@ foreign export ccall
     startConsensus ::
         -- |Maximum block size.
         Word64 ->
+        -- |Block construction timeout in milliseconds
+        Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->
         -- |Time in seconds during which a transaction can't be purged
@@ -1110,6 +1120,8 @@ foreign export ccall
 foreign export ccall
     startConsensusPassive ::
         -- |Maximum block size.
+        Word64 ->
+        -- |Block construction timeout in milliseconds
         Word64 ->
         -- |Insertions before purging of transactions
         Word64 ->

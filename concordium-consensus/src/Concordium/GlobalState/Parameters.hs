@@ -77,6 +77,11 @@ data RuntimeParameters = RuntimeParameters {
   -- applies to the blocks produced by this baker, we will still accept blocks
   -- of arbitrary size from other bakers.
   rpBlockSize :: !Int,
+  -- |Timeout of block construction, i.e. the maximum time (in milliseconds) it
+  -- may take to construct a block. After this amount of time, we will stop
+  -- processing transaction groups in `filterTransactions` in Scheduler.hs
+  -- and mark the rest as unprocessed. 
+  rpBlockTimeout :: !Duration,
   -- |Threshold for how far into the future we accept blocks. Blocks with a slot
   -- time that exceeds our current time + this threshold are rejected and the p2p
   -- is told to not relay these blocks.
@@ -99,6 +104,7 @@ data RuntimeParameters = RuntimeParameters {
 defaultRuntimeParameters :: RuntimeParameters
 defaultRuntimeParameters = RuntimeParameters {
   rpBlockSize = 10 * 10^(6 :: Int), -- 10MB
+  rpBlockTimeout = 3000, -- 3 seconds
   rpEarlyBlockThreshold = 30000, -- 30 seconds
   rpMaxBakingDelay = 10000, -- 10 seconds
   rpInsertionsBeforeTransactionPurge = 1000,
@@ -109,6 +115,7 @@ defaultRuntimeParameters = RuntimeParameters {
 instance FromJSON RuntimeParameters where
   parseJSON = withObject "RuntimeParameters" $ \v -> do
     rpBlockSize <- v .: "blockSize"
+    rpBlockTimeout <- v .: "blockTimeout"
     rpEarlyBlockThreshold <- v .: "earlyBlockThreshold"
     rpMaxBakingDelay <- v .: "maxBakingDelay"
     rpInsertionsBeforeTransactionPurge <- v .: "insertionsBeforeTransactionPurge"

@@ -61,7 +61,7 @@ testAccountCreation ::
 testAccountCreation = do
     let transactions = Types.TGCredentialDeployment <$> transactionsInput
     let (Sch.FilteredTransactions{..}, finState) =
-          Types.runSI (Sch.filterTransactions dummyBlockSize transactions)
+          Types.runSI (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
             dummyChainMeta { slotTime = 250 } -- we set slot time to non-zero so that the deployment of the last credential fails due to message expiry
             maxBound
             maxBound

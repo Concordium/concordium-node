@@ -234,7 +234,7 @@ testTransactions = forAll makeTransactions (ioProperty . tt)
             transactions <- processUngroupedTransactions tl
             let (Sch.FilteredTransactions{..}, finState) =
                   EI.runSI
-                    (Sch.filterTransactions dummyBlockSize transactions)
+                    (Sch.filterTransactions dummyBlockSize dummyBlockTimeout transactions)
                     dummyChainMeta
                     maxBound
                     maxBound
