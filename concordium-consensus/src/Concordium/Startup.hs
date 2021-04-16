@@ -118,7 +118,7 @@ makeGenesisData :: forall pv.
     -> AnonymityRevokers -- ^Initial anonymity revokers.
     -> [GenesisAccount] -- ^Additional accounts.
     -> Energy -- ^Maximum energy allowed to be consumed by the transactions in a block
-    -> Authorizations -- ^Authorizations for chain updates
+    -> UpdateKeysCollection -- ^Authorized keys for chain updates
     -> ChainParameters -- ^Initial chain parameters
     -> (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisData
@@ -131,7 +131,7 @@ makeGenesisData
         genesisAnonymityRevokers
         additionalAccounts
         genesisMaxBlockEnergy
-        genesisAuthorizations
+        genesisUpdateKeys
         genesisChainParameters
     = (gd, bakers, genesisTotalAmount)
     where

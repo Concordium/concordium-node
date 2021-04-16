@@ -1,16 +1,18 @@
 //! The client's parameters and constants used by other modules.
 
 use crate::{
+    common::P2PNodeId,
     connection::DeduplicationHashAlgorithm,
     network::{WireProtocolVersion, WIRE_PROTOCOL_VERSION},
 };
 use app_dirs2::*;
-use failure::Fallible;
+use failure::{Fallible, ResultExt};
 use preferences::{Preferences, PreferencesMap};
 use std::{
     fs::{File, OpenOptions},
     io::{BufReader, BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    str::FromStr,
 };
 use structopt::{clap::AppSettings, StructOpt};
 
@@ -58,7 +60,7 @@ pub const DUMP_QUEUE_DEPTH: usize = 100;
 pub const DUMP_SWITCH_QUEUE_DEPTH: usize = 0;
 
 // connection-related consts
-/// Maximum time (in ms) a node's connection can remain unreachable.
+/// Maximum time (in s) a node's connection can remain unreachable.
 pub const UNREACHABLE_EXPIRATION_SECS: u64 = 86_400;
 /// Maximum time (in ms) a bootstrapper can hold a connection to a node.
 pub const MAX_BOOTSTRAPPER_KEEP_ALIVE: u64 = 20_000;
@@ -72,7 +74,7 @@ pub const SOFT_BAN_DURATION_SECS: u64 = 300;
 /// Maximum number of networks a peer can share
 pub const MAX_PEER_NETWORKS: usize = 20;
 /// Database subdirectory name
-pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v3";
+pub const DATABASE_SUB_DIRECTORY_NAME: &str = "database-v4";
 
 #[cfg(feature = "database_emitter")]
 #[derive(StructOpt, Debug)]
@@ -224,11 +226,17 @@ pub struct BakerConfig {
     )]
     pub import_path: Option<String>,
     #[structopt(long = "baker-credentials-file", help = "Path to the baker credentials file")]
-    pub baker_credentials_file: Option<String>,
+    pub baker_credentials_file: Option<PathBuf>,
+    #[structopt(
+        long = "decrypt-baker-credentials",
+        help = "Indicate that the baker credentials are provided encrypted and thus need to be \
+                decrypted."
+    )]
+    pub decrypt_baker_credentials: bool,
 }
 
 #[derive(StructOpt, Debug)]
-/// Parameters related to the RPC (onl`y used in cli).
+/// Parameters related to the RPC (only used in cli).
 pub struct RpcCliConfig {
     #[structopt(long = "no-rpc-server", help = "Disable the built-in RPC server")]
     pub no_rpc_server: bool,
@@ -268,6 +276,8 @@ pub struct ConnectionConfig {
     pub max_allowed_nodes_percentage: u16,
     #[structopt(long = "no-bootstrap", help = "Do not bootstrap via DNS")]
     pub no_bootstrap_dns: bool,
+    #[structopt(long = "no-clear-bans", help = "Do not clear the ban database on start.")]
+    pub no_clear_bans: bool,
     #[structopt(
         long = "relay-broadcast-percentage",
         help = "The percentage of peers to relay broadcasted messages to",
@@ -292,6 +302,11 @@ pub struct ConnectionConfig {
                 validation will be performed"
     )]
     pub dnssec_disabled: bool,
+    #[structopt(
+        long = "disallow-multiple-peers-on-ip",
+        help = "Disallow multiple peers on the same IP address."
+    )]
+    pub disallow_multiple_peers_on_ip: bool,
     #[structopt(long = "dns-resolver", help = "DNS resolver to use")]
     pub dns_resolver: Vec<String>,
     #[structopt(
@@ -388,7 +403,7 @@ pub struct CommonConfig {
         help = "Set forced node id (64 bit unsigned integer in zero padded HEX. Must be 16 \
                 characters long)"
     )]
-    pub id: Option<String>,
+    pub id: Option<P2PNodeId>,
     #[structopt(
         long = "listen-port",
         short = "p",
@@ -413,10 +428,18 @@ pub struct CommonConfig {
         default_value = "1000"
     )]
     pub network_ids: Vec<u16>,
-    #[structopt(long = "override-config-dir", help = "Override location of configuration files")]
-    pub config_dir: Option<String>,
-    #[structopt(long = "override-data-dir", help = "Override location of data files")]
-    pub data_dir: Option<String>,
+    #[structopt(
+        long = "config-dir",
+        help = "Location of configuration files.",
+        env = "CONCORDIUM_NODE_CONFIG_DIR"
+    )]
+    pub(crate) config_dir: PathBuf,
+    #[structopt(
+        long = "data-dir",
+        help = "Location of data files.",
+        env = "CONCORDIUM_NODE_DATA_DIR"
+    )]
+    pub(crate) data_dir: PathBuf,
     #[structopt(long = "no-log-timestamp", help = "Do not output timestamp in log output")]
     pub no_log_timestamp: bool,
     #[structopt(
@@ -469,31 +492,6 @@ pub struct CliConfig {
         help = "Drop a message from being rebroadcasted by a certain probability"
     )]
     pub drop_rebroadcast_probability: Option<f64>,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "breakage-type",
-        help = "Break for test purposes; spam - send duplicate messages / fuzz - mangle messages \
-                [fuzz|spam]"
-    )]
-    pub breakage_type: Option<String>,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "breakage-target",
-        help = "Used together with breakage-type; 0/1/2/3/4/99 - blocks/txs/fin msgs/fin \
-                recs/catch-up msgs/everything [0|1|2|3|4|99]"
-    )]
-    pub breakage_target: Option<u8>,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "breakage-level",
-        help = "Used together with breakage-type; either the number of spammed duplicates or \
-                mangled bytes"
-    )]
-    pub breakage_level: Option<usize>,
-
     #[structopt(long = "transaction-outcome-logging", help = "Enable transaction outcome logging")]
     pub transaction_outcome_logging: bool,
     #[structopt(
@@ -551,21 +549,12 @@ pub struct BootstrapperConfig {
         default_value = "7200000"
     )]
     pub bootstrapper_timeout_bucket_entry_period: u64,
-
-    #[cfg(feature = "malicious_testing")]
-    #[structopt(
-        long = "partition-network-for-time",
-        help = "Partition the network for a set amount of time since startup (in ms)"
-    )]
-    pub partition_network_for_time: Option<usize>,
-
     #[structopt(
         long = "peer-list-size",
         help = "The number of random peers shared by a bootstrapper in a PeerList",
         default_value = "10"
     )]
     pub peer_list_size: usize,
-
     #[structopt(
         long = "regenesis-block-hashes-file",
         help = "Path to a file that contains a json array of regenesis hashes."
@@ -662,40 +651,10 @@ pub fn parse_config() -> Fallible<Config> {
         "Socket read size must be greater or equal to the write size"
     );
 
-    #[cfg(feature = "malicious_testing")]
-    ensure!(
-        conf.cli.breakage_type.is_some()
-            && conf.cli.breakage_target.is_some()
-            && conf.cli.breakage_level.is_some()
-            || conf.cli.breakage_type.is_none()
-                && conf.cli.breakage_target.is_none()
-                && conf.cli.breakage_level.is_none(),
-        "The 3 breakage options (breakage-type, breakage-target, breakage-level) must be enabled \
-         or disabled together"
-    );
-
     ensure!(
         conf.bootstrapper.wait_until_minimum_nodes as usize <= conf.bootstrapper.peer_list_size,
         "wait-until-minimum-nodes must be lower than or equal to peer-list-size"
     );
-
-    // TODO: Remove surrounding block expr once cargo fmt has been updated in
-    // pipeline.
-    #[cfg(feature = "malicious_testing")]
-    {
-        if let Some(ref breakage_type) = conf.cli.breakage_type {
-            ensure!(
-                ["spam", "fuzz"].contains(&breakage_type.as_str()),
-                "Unsupported breakage-type"
-            );
-            if let Some(breakage_target) = conf.cli.breakage_target {
-                ensure!(
-                    [0, 1, 2, 3, 4, 99].contains(&breakage_target),
-                    "Unsupported breakage-target"
-                );
-            }
-        }
-    }
 
     #[cfg(feature = "instrumentation")]
     {
@@ -713,13 +672,13 @@ pub fn parse_config() -> Fallible<Config> {
 #[derive(Debug)]
 pub struct AppPreferences {
     preferences_map:     PreferencesMap<String>,
-    override_data_dir:   Option<String>,
-    override_config_dir: Option<String>,
+    override_data_dir:   PathBuf,
+    override_config_dir: PathBuf,
 }
 
 impl AppPreferences {
     /// Creates an `AppPreferences` object.
-    pub fn new(override_conf: Option<String>, override_data: Option<String>) -> Self {
+    pub fn new(override_conf: PathBuf, override_data: PathBuf) -> Self {
         let file_path = Self::calculate_config_file_path(&override_conf, APP_PREFERENCES_MAIN);
         let mut new_prefs = match OpenOptions::new().read(true).write(true).open(&file_path) {
             Ok(file) => {
@@ -745,45 +704,20 @@ impl AppPreferences {
                 _ => panic!("Can't write to config file!"),
             },
         };
-        new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION.to_string()));
+        new_prefs.set_config(APP_PREFERENCES_KEY_VERSION, Some(super::VERSION));
         new_prefs
     }
 
-    fn calculate_config_path(override_path: &Option<String>) -> PathBuf {
-        match override_path {
-            Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserConfig, &APP_INFO)
-                .expect("Filesystem error encountered when creating app_root"),
-        }
-    }
-
-    fn calculate_data_path(override_path: &Option<String>) -> PathBuf {
-        match override_path {
-            Some(ref path) => PathBuf::from(path),
-            None => app_root(AppDataType::UserData, &APP_INFO)
-                .expect("Filesystem error encountered when creating app_root"),
-        }
-    }
-
-    fn calculate_config_file_path(override_config_path: &Option<String>, key: &str) -> PathBuf {
-        match override_config_path {
-            Some(ref path) => {
-                let mut new_path = PathBuf::from(path);
-                new_path.push(&format!("{}.json", key));
-                new_path
-            }
-            None => {
-                let mut path = Self::calculate_config_path(&None);
-                path.push(&format!("{}.json", key));
-                path
-            }
-        }
+    fn calculate_config_file_path(config_path: &PathBuf, key: &str) -> PathBuf {
+        let mut new_path = config_path.clone();
+        new_path.push(&format!("{}.json", key));
+        new_path
     }
 
     /// Add a piece of config to the config map.
-    pub fn set_config(&mut self, key: &str, value: Option<String>) -> bool {
+    pub fn set_config<X: ToString>(&mut self, key: &str, value: Option<X>) -> bool {
         match value {
-            Some(val) => self.preferences_map.insert(key.to_string(), val),
+            Some(val) => self.preferences_map.insert(key.to_string(), val.to_string()),
             _ => self.preferences_map.remove(&key.to_string()),
         };
         let file_path =
@@ -806,13 +740,23 @@ impl AppPreferences {
     }
 
     /// Get a piece of config from the config map.
-    pub fn get_config(&self, key: &str) -> Option<String> { self.preferences_map.get(key).cloned() }
+    /// If the value is not present return Ok(None), if it is present, but
+    /// cannot be parsed as the requested type return an error.
+    pub fn get_config<X: FromStr<Err = failure::Error>>(&self, key: &str) -> Fallible<Option<X>> {
+        match self.preferences_map.get(key) {
+            Some(x_str) => {
+                let x = X::from_str(x_str).context(
+                    "Cannot parse value from the persistent configuration as the requried type.",
+                )?;
+                Ok(Some(x))
+            }
+            None => Ok(None),
+        }
+    }
 
     /// Returns the path to the application directory.
-    pub fn get_user_app_dir(&self) -> PathBuf { Self::calculate_data_path(&self.override_data_dir) }
+    pub fn get_user_app_dir(&self) -> &Path { &self.override_data_dir }
 
     /// Returns the path to the config directory.
-    pub fn get_user_config_dir(&self) -> PathBuf {
-        Self::calculate_config_path(&self.override_config_dir)
-    }
+    pub fn get_user_config_dir(&self) -> &Path { &self.override_config_dir }
 }

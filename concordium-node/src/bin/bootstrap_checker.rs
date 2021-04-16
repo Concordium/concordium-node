@@ -1,6 +1,7 @@
 #![recursion_limit = "1024"]
 
 // Force the system allocator on every platform
+use failure::ResultExt;
 use std::{alloc::System, sync::Arc};
 #[global_allocator]
 static A: System = System;
@@ -41,14 +42,9 @@ fn main() -> Result<(), Error> {
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
-    let (node, poll) = P2PNode::new(
-        conf.common.id.clone(),
-        &conf,
-        PeerType::Node,
-        stats_export_service,
-        Some(data_dir_path),
-        regenesis_arc,
-    );
+    let (node, poll) =
+        P2PNode::new(conf.common.id, &conf, PeerType::Node, stats_export_service, regenesis_arc)
+            .context("Failed to create the node.")?;
 
     spawn(&node, poll, None);
 

@@ -24,7 +24,7 @@ extern crate cfg_if;
 #[macro_use]
 extern crate failure;
 
-#[cfg(all(test, not(feature = "s11n_capnp")))]
+#[cfg(test)]
 #[macro_use]
 extern crate quickcheck;
 
@@ -39,7 +39,7 @@ pub const APPNAME: &str = env!("CARGO_PKG_NAME");
 
 pub mod common;
 pub mod configuration;
-#[cfg_attr(any(feature = "s11n_serde", feature = "s11n_capnp"), allow(unreachable_code, unused))]
+#[cfg_attr(feature = "s11n_serde", allow(unreachable_code, unused))]
 pub mod connection;
 
 pub mod network;
@@ -55,9 +55,7 @@ pub mod utils;
 pub mod concordium_dns;
 pub mod consensus_ffi;
 
+#[cfg(any(test, bench, feature = "test_utils"))]
 pub mod test_utils;
-
-#[cfg(feature = "s11n_capnp")]
-pub mod p2p_capnp;
 
 pub mod flatbuffers_shim;

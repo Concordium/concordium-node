@@ -48,11 +48,11 @@ import qualified Data.ByteString as BS
 import qualified Concordium.ID.Account as AH
 import qualified Concordium.ID.Types as ID
 
-import Concordium.GlobalState.BlockState (AccountOperations(..))
+import Concordium.GlobalState.BlockState (AccountOperations(..), AccountAllowance (..))
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.Instance as Ins
 import Concordium.GlobalState.Types
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 
 import Control.Applicative
@@ -70,16 +70,6 @@ import qualified Concordium.Crypto.BlsSignature as Bls
 import Lens.Micro.Platform
 
 import Prelude hiding (exp, mod)
-
--- |Check that there exists a valid credential in the context of the given chain
--- metadata.
-existsValidCredential :: AccountOperations m => ChainMetadata -> Account m -> m Bool
-existsValidCredential cm acc = do
-  -- check that the sender has at least one still valid credential.
-  expiry <- getAccountMaxCredentialValidTo acc
-  -- If the credential is still valid at the beginning of this slot then
-  -- we consider it valid. Otherwise we fail the transaction.
-  return $ isTimestampBefore (slotTime cm) expiry
 
 -- |Check that
 --  * the transaction has a valid sender,
@@ -101,7 +91,7 @@ checkHeader :: (TransactionData msg, SchedulerMonad pv m) => msg -> ExceptT (May
 checkHeader meta = do
   -- Before even checking the header we calculate the cost that will be charged for this
   -- and check that at least that much energy is deposited and remaining from the maximum block energy.
-  let cost = Cost.checkHeader (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
+  let cost = Cost.baseCost (getTransactionHeaderPayloadSize $ transactionHeader meta) (getTransactionNumSigs (transactionSignature meta))
   unless (transactionGasAmount meta >= cost) $ throwError (Just DepositInsufficient)
   remainingBlockEnergy <- lift getRemainingEnergy
   unless (remainingBlockEnergy >= cost) $ throwError Nothing
@@ -118,8 +108,6 @@ checkHeader meta = do
 
       cm <- lift getChainMetadata
       when (transactionExpired expiry $ slotTime cm) $ throwError . Just $ ExpiredTransaction
-      validCredExists <- existsValidCredential cm acc
-      unless validCredExists $ throwError . Just $ NoValidCredential
 
       -- After the successful credential check we check that the sender account
       -- has enough GTU to cover the deposited energy.
@@ -134,24 +122,6 @@ checkHeader meta = do
       unless sigCheck (throwError . Just $ IncorrectSignature)
 
       return (acc, cost)
-
--- TODO: When we have policies checking one sensible approach to rewarding
--- identity providers would be as follows.
---
--- - Each time we need to check a policy on an account all the identity
--- providers that have valid credentials deployed on that account are counted.
--- This means that if the same account is involved multiple times inside one
--- transaction then the identity providers on that account would be rewarded
--- multiple times.
---
--- An alternative design is that each identity provider involved in one
--- transaction is rewarded only once. To allow for this we will need to keep
--- track of the identity providers inside the transaction monad.
---
--- Another important point to resolve is how identity providers should be
--- rewarded in case of a rejected transaction. Should they be, or should they
--- not be. In particular when a transaction is rejected based on transaction
--- logic that is unrelated to identities.
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
@@ -219,18 +189,15 @@ dispatch msg = do
           -- processing; see `withDeposit`.
           res <- case payload of
                    DeployModule mod ->
-                     handleDeployModule (mkWTC TTDeployModule) psize mod
+                     handleDeployModule (mkWTC TTDeployModule) mod
 
                    InitContract{..} ->
                      handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
-                   -- FIXME: This is only temporary for now.
-                   -- Later on accounts will have policies, and also will be able to execute non-trivial code themselves.
+
                    Transfer toaddr amount ->
                      handleSimpleTransfer (mkWTC TTTransfer) toaddr amount
 
                    Update{..} ->
-                     -- the payload size includes amount + address + message, but since the first two fields are
-                     -- fixed size this is OK.
                      handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
 
                    AddBaker{..} ->
@@ -266,6 +233,9 @@ dispatch msg = do
                    UpdateCredentials{..} ->
                      handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
 
+                   RegisterData {..} ->
+                     handleRegisterData (mkWTC TTRegisterData) rdData
+
           case res of
             -- The remaining block energy is not sufficient for the handler to execute the transaction.
             Nothing -> return Nothing
@@ -287,7 +257,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
           -- the expensive operations start now, so we charge.
 
           -- After we've checked all of that, we charge.
-          tickEnergy (Cost.transferWithSchedule $ length twsSchedule)
+          tickEnergy (Cost.scheduledTransferCost $ length twsSchedule)
 
           -- we do not allow for self scheduled transfers
           when (twsTo == senderAddress) $ rejectTransaction (ScheduledSelfTransfer twsTo)
@@ -321,8 +291,6 @@ handleTransferWithSchedule wtc twsTo twsSchedule = withDeposit wtc c k
               targetAccount <- getStateAccount twsTo `rejectingWith` InvalidAccountReference twsTo
               -- Check that the account has a valid credential and reject the transaction if not
               -- (it is not allowed to send to accounts without valid credential).
-              validCredExists <- existsValidCredential cm targetAccount
-              unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential twsTo)
 
               withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return senderAddress
 
@@ -352,9 +320,10 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
         c cryptoParams = do
           senderAddress <- getAccountAddress senderAccount
           -- the expensive operations start now, so we charge.
+          tickEnergy Cost.transferToPublicCost
 
-          -- After we've checked all of that, we charge.
-          tickEnergy Cost.secToPubTransfer
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount stpatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
@@ -407,7 +376,10 @@ handleTransferToEncrypted wtc toEncrypted = do
         c cryptoParams = do
           senderAddress <- getAccountAddress senderAccount
 
-          tickEnergy Cost.pubToSecTransfer
+          tickEnergy Cost.transferToEncryptedCost
+
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
 
           -- check that the sender actually owns the amount it claims to be transferred
           senderamount <- getCurrentAccountAvailableAmount senderAccount
@@ -449,23 +421,27 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
         meta = wtc ^. wtcTransactionHeader
 
         c cryptoParams = do
+
           senderAddress <- getAccountAddress senderAccount
+
+          -- We charge as soon as we can even if we could in principle do some
+          -- checks that are cheaper.
+          tickEnergy Cost.encryptedTransferCost
+
           -- We do not allow sending encrypted transfers from an account to itself.
           -- There is no reason to do so in the current setup, and it causes some technical
           -- complications.
           when (toAddress == senderAddress) $ rejectTransaction (EncryptedAmountSelfTransfer toAddress)
 
+          senderAllowed <- checkAccountIsAllowed senderAccount AllowedEncryptedTransfers
+          unless senderAllowed $ rejectTransaction NotAllowedToHandleEncrypted
+
           -- Look up the receiver account first, and don't charge if it does not exist
           -- and does not have a valid credential.
           targetAccount <- getStateAccount toAddress `rejectingWith` InvalidAccountReference toAddress
-          cm <- getChainMetadata
-          validCredExists <- existsValidCredential cm targetAccount
-          unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential toAddress)
 
-          -- the expensive operations start now, so we charge.
-
-          -- After we've checked all of that, we charge.
-          tickEnergy Cost.encryptedAmountTransfer
+          receiverAllowed <- checkAccountIsAllowed targetAccount AllowedEncryptedTransfers
+          unless receiverAllowed $ rejectTransaction NotAllowedToReceiveEncrypted
 
           -- Get the encrypted amount at the index that the transfer claims to be using.
           senderAmount <- getAccountEncryptedAmountAtIndex senderAccount eatdIndex `rejectingWith` InvalidIndexOnEncryptedTransfer
@@ -514,18 +490,20 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
 handleDeployModule ::
   SchedulerMonad pv m
   => WithDepositContext m
-  -> PayloadSize -- ^Serialized size of the module. Used for charging execution cost.
   -> Wasm.WasmModule -- ^The module to deploy.
   -> m (Maybe TransactionSummary)
-handleDeployModule wtc psize mod =
+handleDeployModule wtc mod =
   withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
 
+    -- Size of the module source
+    psize = Wasm.moduleSourceLength . Wasm.wasmSource $ mod
+
     c = do
-      tickEnergy (Cost.deployModule (fromIntegral psize))
+      tickEnergy (Cost.deployModuleCost psize)
       case Wasm.processModule mod of
         Nothing -> rejectTransaction ModuleNotWF
         Just iface -> do
@@ -542,31 +520,28 @@ handleDeployModule wtc psize mod =
       _ <- commitModule iface
       return (TxSuccess [ModuleDeployed mhash], energyCost, usedEnergy)
 
--- | Tick energy for storing the given 'Value'.
--- Calculates the size of the value and rejects with 'OutOfEnergy' when reaching a size
--- that cannot be paid for.
-tickEnergyValueStorage ::
+-- | Tick energy for storing the given contract state.
+tickEnergyStoreState ::
   TransactionMonad pv m
   => Wasm.ContractState
   -> m ()
-tickEnergyValueStorage cs =
+tickEnergyStoreState cs =
   -- Compute the size of the value and charge for storing based on this size.
   -- This uses the 'ResourceMeasure' instance for 'ByteSize' to determine the cost for storage.
-  withExternalPure_ $ (Wasm.contractStateSize @ Wasm.ByteSize) cs
+  tickEnergy (Cost.toEnergy (Wasm.contractStateSize cs))
 
--- | Tick energy for looking up a contract instance, then do the lookup.
--- FIXME: Currently we do not know the size of the instance before looking it up.
--- Therefore we charge a "pre-lookup cost" before the lookup and the actual cost after.
+-- | Get the current contract state and charge for its lookup.
+-- NB: In principle we should look up the state size, then charge, and only then lookup the full state
+-- But since state size is limited to be small it is acceptable to look it up and then charge for it.
 getCurrentContractInstanceTicking ::
   TransactionMonad pv m
   => ContractAddress
   -> m Instance
 getCurrentContractInstanceTicking cref = do
-  tickEnergy Cost.lookupBytesPre
   inst <- getCurrentContractInstance cref `rejectingWith` (InvalidContractAddress cref)
   -- Compute the size of the contract state value and charge for the lookup based on this size.
   -- This uses the 'ResourceMeasure' instance for 'Cost.LookupByteSize' to determine the cost for lookup.
-  withExternalPure_ $ Wasm.contractStateSize @ Cost.LookupByteSize (Ins.instanceModel inst)
+  tickEnergy (Cost.lookupContractState $ Wasm.contractStateSize (Ins.instanceModel inst))
   return inst
 
 -- | Handle the initialization of a contract instance.
@@ -584,6 +559,9 @@ handleInitContract wtc initAmount modref initName param =
           txHash = wtc ^. wtcTransactionHash
           meta = wtc ^. wtcTransactionHeader
           c = do
+            -- charge for base administrative cost
+            tickEnergy Cost.initializeContractInstanceBaseCost
+
             -- Check whether the sender account's amount can cover the amount to initialize the contract
             -- with. Note that the deposit is already deducted at this point.
             senderAmount <- getCurrentAccountAvailableAmount senderAccount
@@ -591,11 +569,8 @@ handleInitContract wtc initAmount modref initName param =
             unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
 
             -- First try to get the module interface of the parent module of the contract.
-            -- TODO We currently first charge the full amount after the lookup, as we do not have the
-            -- size available before.
-            tickEnergy Cost.lookupBytesPre
             iface <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
-            let iSize = Wasm.miModuleSize $ iface
+            let iSize = Wasm.miModuleSize iface
             tickEnergy $ Cost.lookupModule iSize
 
             -- Then get the particular contract interface (in particular the type of the init method).
@@ -617,7 +592,9 @@ handleInitContract wtc initAmount modref initName param =
                        `rejectingWith'` wasmRejectToRejectReasonInit
 
             -- Charge for storing the contract state.
-            tickEnergyValueStorage (Wasm.newState result)
+            tickEnergyStoreState (Wasm.newState result)
+            -- And for storing the instance.
+            tickEnergy Cost.initializeContractInstanceCreateCost
 
             return (iface, result)
 
@@ -697,11 +674,12 @@ handleMessage :: forall pv m.
   -> Wasm.Parameter -- ^Message to invoke the receive method with.
   -> m [Event] -- ^The events resulting from processing the message and all recursively processed messages.
 handleMessage origin istance sender transferAmount receiveName parameter = do
+  -- Cover administrative costs.
+  tickEnergy Cost.updateContractInstanceBaseCost
+
   let model = instanceModel istance
   -- Check whether the sender of the message has enough on its account/instance for the transfer.
   -- If the amount is not sufficient, the top-level transaction is rejected.
-  -- TODO: For now there is no exception handling in smart contracts and contracts cannot check
-  -- amounts on other instances or accounts. Possibly this will need to be changed.
   (senderAddr, senderCredentials) <- mkSenderAddrCredentials sender
   senderamount <- getCurrentAvailableAmount sender
   unless (senderamount >= transferAmount) $ rejectTransaction (AmountTooLarge senderAddr transferAmount)
@@ -716,11 +694,9 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- and reject the transaction if not.
   let ownerAccountAddress = instanceOwner iParams
   -- The invariants maintained by global state should ensure that an owner account always exists.
-  -- However we are defensive here and reject the transaction, acting as if there is no credential.
-  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` ReceiverContractNoCredential cref
+  -- However we are defensive here and reject the transaction instead of panicking in case it does not.
+  ownerAccount <- getStateAccount ownerAccountAddress `rejectingWith` InvalidAccountReference ownerAccountAddress
   cm <- getChainMetadata
-  validCredExists <- existsValidCredential cm ownerAccount
-  unless validCredExists $ rejectTransaction (ReceiverContractNoCredential cref)
 
   -- We have established that the owner account of the receiver instance has at least one valid credential.
   let receiveCtx = Wasm.ReceiveContext {
@@ -734,15 +710,23 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
   -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
   -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
   let iface = instanceModuleInterface iParams
+  -- charge for looking up the module
+  tickEnergy $ Cost.lookupModule (Wasm.miModuleSize iface)
+
   result <- runInterpreter (return . Wasm.applyReceiveFun iface cm receiveCtx receiveName parameter transferAmount model)
              `rejectingWith'` wasmRejectToRejectReasonReceive cref receiveName parameter
+
   -- If we reach here the contract accepted the message and returned a new state as well as outgoing messages.
   let newModel = Wasm.newState result
       txOut = Wasm.messages result
-      -- Charge for eventually storing the new contract state (even if it might not be stored
-      -- in the end because the transaction fails).
-      -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
-  tickEnergyValueStorage newModel
+  -- If we reached here we will charge for attempting to store this state. If
+  -- this message is part of a larger `and` composition then it is possible that
+  -- the contract will not actually be stored. We are not doing that because it
+  -- increases complexity and makes tracking of energy even less local than it
+  -- is now.
+  -- TODO We might want to change this behaviour to prevent charging for storage that is not done.
+  tickEnergyStoreState newModel
+
   -- Process the generated messages in the new context (transferred amount, updated state) in
   -- sequence from left to right, depth first.
   withToContractAmount sender istance transferAmount $
@@ -755,6 +739,17 @@ handleMessage origin istance sender transferAmount receiveName parameter = do
                               euEvents = Wasm.logs result
                                }
       foldEvents origin (ownerAccount, istance) initEvent txOut
+
+-- Cost of a step in the traversal of the actions tree. We need to charge for
+-- this separately to prevent problems with exponentially sized trees
+-- (exponential in the size of their representation). Based on benchmarks we can
+-- handle the worst case, which is a tree consisting solely of Accept and And
+-- nodes, of 300000 accepts well in about half the time we have for making a
+-- block. Thus we set the cost to 10 so that it both prevents abuse, but also
+-- so that it is cheap enough not be negligible compared to transfer costs
+-- for trees that have genuine utility.
+traversalStepCost :: Energy
+traversalStepCost = 10
 
 foldEvents :: (TransactionMonad pv m, AccountOperations m)
            =>  Account m -- ^Account that originated the top-level transaction
@@ -774,13 +769,16 @@ foldEvents origin istance initEvent = fmap (initEvent:) . go
         go Wasm.TSimpleTransfer{..} = do
           handleTransferAccount origin erTo (Left istance) erAmount
         go (Wasm.And l r) = do
+          tickEnergy traversalStepCost
           resL <- go l
           resR <- go r
           return (resL ++ resR)
         -- FIXME: This will not retain logs from the left run if it fails.
         -- We might want to include the information on why the right-side
         -- was run in the output event list.
-        go (Wasm.Or l r) = go l `orElse` go r
+        go (Wasm.Or l r) = do
+          tickEnergy traversalStepCost
+          go l `orElse` go r
         go Wasm.Accept = return []
 
 mkSenderAddrCredentials :: AccountOperations m => Either (Account m, Instance) (Account m) -> m (Address, [ID.AccountCredential])
@@ -806,7 +804,8 @@ handleTransferAccount ::
   -> Amount -- The amount to transfer.
   -> m [Event] -- The events resulting from the transfer.
 handleTransferAccount _origin accAddr sender transferamount = do
-  tickEnergy Cost.transferAccount
+  -- charge at the beginning, successful and failed transfers will have the same cost.
+  tickEnergy Cost.simpleTransferCost
   -- Check whether the sender has the amount to be transferred and reject the transaction if not.
   senderamount <- getCurrentAvailableAmount sender
   (addr, _) <- mkSenderAddrCredentials sender
@@ -814,11 +813,6 @@ handleTransferAccount _origin accAddr sender transferamount = do
 
   -- Check whether target account exists and get it.
   targetAccount <- getStateAccount accAddr `rejectingWith` InvalidAccountReference accAddr
-  -- Check that the account has a valid credential and reject the transaction if not
-  -- (it is not allowed to send to accounts without valid credential).
-  cm <- getChainMetadata
-  validCredExists <- existsValidCredential cm targetAccount
-  unless validCredExists $ rejectTransaction (ReceiverAccountNoCredential accAddr)
 
   -- Add the transfer to the current changeset and return the corresponding event.
   withToAccountAmount sender targetAccount transferamount $
@@ -854,7 +848,7 @@ checkSignatureVerifyKeyProof :: BS.ByteString -> BakerSignVerifyKey -> Proofs.Dl
 checkSignatureVerifyKeyProof = Proofs.checkDlog25519ProofBlock
 
 -- |Add a baker for the sender account. The logic is as follows:
--- 
+--
 --  * The transaction fails ('InsufficientBalanceForBakerStake') if the balance on the account
 --    (less the energy deposit) is below the amount to stake.
 --  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
@@ -889,7 +883,7 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
         c = do
-          tickEnergy Cost.addBaker
+          tickEnergy Cost.addBakerCost
           -- Get the total amount on the account, including locked amounts,
           -- less the deposit.
           getCurrentAccountTotalAmount senderAccount
@@ -951,7 +945,7 @@ handleRemoveBaker wtc =
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
-        c = tickEnergy Cost.removeBaker
+        c = tickEnergy Cost.removeBakerCost
         k ls _ = do
           senderAddress <- getAccountAddress senderAccount
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -981,7 +975,7 @@ handleUpdateBakerStake wtc newStake =
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
     c = do
-      tickEnergy Cost.updateBakerStake
+      tickEnergy Cost.updateBakerStakeCost
       -- Get the total amount on the account, including locked amounts,
       -- less the deposit.
       getCurrentAccountTotalAmount senderAccount
@@ -1018,7 +1012,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
-    c = tickEnergy Cost.updateBakerRestakeEarnings
+    c = tickEnergy Cost.updateBakerRestakeCost
     k ls _ = do
       senderAddress <- getAccountAddress senderAccount
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -1032,7 +1026,7 @@ handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
           return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
 
 -- |Update a baker's keys. The logic is as follows:
--- 
+--
 --  * The transaction fails ('InvalidProof') if any of the key ownership proofs is invalid.
 --  * The transaction fails ('DuplicateAggregationKey') if the aggregation key is used by another baker.
 --  * The transaction succeeds ('BASuccess') if it passes all the above checks; the baker is
@@ -1059,7 +1053,7 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
   where senderAccount = wtc ^. wtcSenderAccount
         txHash = wtc ^. wtcTransactionHash
         meta = wtc ^. wtcTransactionHeader
-        c = tickEnergy Cost.updateBakerKeys
+        c = tickEnergy Cost.updateBakerKeysCost
         k ls _ = do
           senderAddress <- getAccountAddress senderAccount
           (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
@@ -1102,7 +1096,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
     when (transactionExpired messageExpiry $ slotTime cm) $ throwError (Just ExpiredTransaction)
 
     remainingEnergy <- lift getRemainingEnergy
-    let cost = Cost.deployCredential (ID.credentialType cdi)
+    let cost = Cost.deployCredential (ID.credentialType cdi) (ID.credNumKeys . ID.credPubKeys $ cdi)
     when (remainingEnergy < cost) $ throwError Nothing
     let mkSummary tsResult = do
           tsIndex <- lift bumpTransactionIndex
@@ -1170,7 +1164,7 @@ handleDeployCredential AccountCreation{messageExpiry=messageExpiry, credential=c
     Right ts -> return (Just ts)
 
 
--- |Updates the credential keys in the credential with the given Credential ID. 
+-- |Updates the credential keys in the credential with the given Credential ID.
 -- It rejects if there is no credential with the given Credential ID.
 handleUpdateCredentialKeys ::
   SchedulerMonad pv m
@@ -1183,30 +1177,34 @@ handleUpdateCredentialKeys ::
     -- ^Signatures on the transaction. This is needed to check that a specific credential signed.
     -> m (Maybe TransactionSummary)
 handleUpdateCredentialKeys wtc cid keys sigs =
-  withDeposit wtc cost k
+  withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
-    cost = tickEnergy $ Cost.updateCredentialKeys $ length $ ID.credKeys keys
-    k ls _ = do
-      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
-      chargeExecutionCost txHash senderAccount energyCost
+    c = do
       existingCredentials <- getAccountCredentials senderAccount
+      tickEnergy $ Cost.updateCredentialKeysCost (OrdMap.size existingCredentials) $ length $ ID.credKeys keys
+
       let credIndex = fst <$> find (\(_, v) -> ID.credId v == cid) (OrdMap.toList existingCredentials)
       -- check that the new threshold is no more than the number of credentials
       let thresholdCheck = toInteger (OrdMap.size (ID.credKeys keys)) >= toInteger (ID.credThreshold keys)
-      case credIndex of 
-        Nothing -> return (TxReject NonExistentCredentialID, energyCost, usedEnergy)
-        Just index -> if not thresholdCheck then return (TxReject InvalidCredentialKeySignThreshold, energyCost, usedEnergy) else do
+
+      unless thresholdCheck $ rejectTransaction InvalidCredentialKeySignThreshold
+
+      case credIndex of
+        Nothing -> rejectTransaction NonExistentCredentialID
+        Just index -> do
           -- We check that the credential whose keys we are updating has indeed signed this transaction.
-          let check = OrdMap.member index $ tsSignatures sigs
-          if check then do
-            senderAddr <- getAccountAddress senderAccount
-            updateCredentialKeys senderAddr index keys
-            return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
-          else
-            return (TxReject CredentialHolderDidNotSign, energyCost, usedEnergy)
+          let ownerCheck = OrdMap.member index $ tsSignatures sigs
+          unless ownerCheck $ rejectTransaction CredentialHolderDidNotSign
+          return index
+    k ls index = do
+      (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+      chargeExecutionCost txHash senderAccount energyCost
+      senderAddr <- getAccountAddress senderAccount
+      updateCredentialKeys senderAddr index keys
+      return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
 
 -- * Chain updates
@@ -1234,7 +1232,6 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
       else do
         -- Convert the payload to an update
         case uiPayload of
-          AuthorizationUpdatePayload u -> checkSigAndUpdate $ UVAuthorization u
           ProtocolUpdatePayload u -> checkSigAndUpdate $ UVProtocol u
           ElectionDifficultyUpdatePayload u -> checkSigAndUpdate $ UVElectionDifficulty u
           EuroPerEnergyUpdatePayload u -> checkSigAndUpdate $ UVEuroPerEnergy u
@@ -1246,11 +1243,17 @@ handleChainUpdate WithMetadata{wmdData = ui@UpdateInstruction{..}, ..} = do
           TransactionFeeDistributionUpdatePayload u -> checkSigAndUpdate $ UVTransactionFeeDistribution u
           GASRewardsUpdatePayload u -> checkSigAndUpdate $ UVGASRewards u
           BakerStakeThresholdUpdatePayload u -> checkSigAndUpdate $ UVBakerStakeThreshold u
+          RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndUpdate $ UVRootKeys u
+          RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel1Keys u
+          RootUpdatePayload (Level2KeysRootUpdate u) -> checkSigAndUpdate $ UVLevel2Keys u
+          Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel1Keys u
+          Level1UpdatePayload (Level2KeysLevel1Update u) -> checkSigAndUpdate $ UVLevel2Keys u
+
   where
     checkSigAndUpdate change = do
       -- Check that the signatures use the appropriate keys and are valid.
-      auths <- getUpdateAuthorizations
-      if checkAuthorizedUpdate auths ui then do
+      keyCollection <- getUpdateKeyCollection
+      if checkAuthorizedUpdate keyCollection ui then do
         enqueueUpdate (updateEffectiveTime uiHeader) change
         tsIndex <- bumpTransactionIndex
         return $ TxValid TransactionSummary {
@@ -1275,17 +1278,29 @@ handleUpdateCredentials ::
 handleUpdateCredentials wtc cdis removeRegIds threshold =
   withDeposit wtc c k
   where
-    credentialcost = toInteger (length cdis) * toInteger (Cost.deployCredential ID.Normal)
-    c = tickEnergy $ Energy $ fromInteger credentialcost
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
     meta = wtc ^. wtcTransactionHeader
-    k ls _ = do
+    c = do
+      tickEnergy Cost.updateCredentialsBaseCost
+      creds <- getAccountCredentials senderAccount
+      tickEnergy $ Cost.updateCredentialsVariableCost (OrdMap.size creds) (map (ID.credNumKeys . ID.credPubKeys) . OrdMap.elems $ cdis)
+      cm <- lift getChainMetadata
+      -- ensure none of the credentials have expired yet
+      forM_ cdis $ \cdi -> do
+        let expiry = ID.validTo cdi
+        unless (isTimestampBefore (slotTime cm) expiry) $ rejectTransaction InvalidCredentials
+      -- and ensure that this account is allowed to have multiple credentials
+      allowed <- checkAccountIsAllowed senderAccount AllowedMultipleCredentials
+      unless allowed $ rejectTransaction NotAllowedMultipleCredentials
+      return creds
+
+    k ls existingCredentials = do
       (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
       chargeExecutionCost txHash senderAccount energyCost
       cryptoParams <- getCryptoParams
-      existingCredentials <- getAccountCredentials senderAccount
       senderAddress <- getAccountAddress senderAccount
+
       -- check that all credentials that are to be removed actually exist.
       -- This produces:
       --  * a list of credential regIds that were supposed to be removed, but don't exist on the account,
@@ -1312,7 +1327,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                          in Set.intersection existingIndices newIndices `Set.isSubsetOf` indicesToRemove
 
       -- check that the new threshold is no more than the number of credentials
-      -- 
+      --
       let thresholdCheck = toInteger (OrdMap.size existingCredentials) + toInteger (OrdMap.size cdis) >= toInteger (Set.size indicesToRemove) + toInteger threshold
 
       let firstCredNotRemoved = 0 `notElem` indicesToRemove
@@ -1370,6 +1385,19 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         else if not (null existingCredIds) then
           return (TxReject (DuplicateCredIDs existingCredIds), energyCost, usedEnergy)
         else return (TxReject InvalidCredentials, energyCost, usedEnergy)
+
+-- |Charges energy based on payload size and emits a 'DataRegistered' event.
+handleRegisterData ::
+  SchedulerMonad pv m
+  => WithDepositContext m
+  -> RegisteredData -- ^The data to register.
+  -> m (Maybe TransactionSummary)
+handleRegisterData wtc regData =
+  withDeposit wtc c (defaultSuccess wtc)
+  where
+    c = do
+      tickEnergy Cost.registerDataCost
+      return [DataRegistered regData]
 
 
 -- * Exposed methods.
@@ -1512,9 +1540,10 @@ filterTransactions maxSize groups0 = do
             runCredential c@WithMetadata{..} = do
               totalEnergyUsed <- getUsedEnergy
               let csize = size + fromIntegral wmdSize
-                  energyCost = Cost.deployCredential (ID.credentialType . credential $ wmdData)
+                  energyCost = Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c)
                   cenergy = totalEnergyUsed + fromIntegral energyCost
-              if 0 <= credLimit && csize <= maxSize && cenergy <= maxEnergy then
+              -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
+              if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy then
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
                       let newFts = fts { ftFailedCredentials = (c, reason) : ftFailedCredentials fts}
@@ -1525,7 +1554,7 @@ filterTransactions maxSize groups0 = do
                       let newFts = fts { ftAdded = (credentialDeployment c, summary) : ftAdded fts}
                       runNext maxEnergy csize (credLimit - 1) newFts groups
                     (Nothing, _) -> error "Unreachable due to cenergy <= maxEnergy check."
-              else if Cost.deployCredential (ID.credentialType . credential $ wmdData) > maxEnergy then
+              else if Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c) > maxEnergy then
                 -- this case should not happen (it would mean we set the parameters of the chain wrong),
                 -- but we keep it just in case.
                  let newFts = fts { ftFailedCredentials = (c, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}

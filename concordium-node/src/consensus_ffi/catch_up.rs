@@ -1,4 +1,4 @@
-use crate::common::p2p_node_id::PeerId;
+use crate::common::{p2p_node_id::PeerId, p2p_peer::RemotePeerId};
 use nohash_hasher::BuildNoHashHasher;
 use std::{
     cmp::Ordering,
@@ -47,13 +47,13 @@ pub enum PeerStatus {
 #[derive(Default)]
 pub struct PeerList {
     /// The state of each peer.
-    pub peer_states: HashMap<PeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
+    pub peer_states: HashMap<RemotePeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
     /// The timestamp at which we last tried to catch up with a peer.
     pub catch_up_stamp: u64,
     /// The peer that we are currently catching up with (if any).
-    pub catch_up_peer: Option<PeerId>,
+    pub catch_up_peer: Option<RemotePeerId>,
     /// Queue of pending peers.
-    pub pending_queue: VecDeque<PeerId>,
+    pub pending_queue: VecDeque<RemotePeerId>,
 }
 
 impl PeerList {
@@ -63,7 +63,7 @@ impl PeerList {
     /// (according to peer_states) but this is checked when they are dequeued
     /// and if a non-pending peer is encountered it is simply removed from
     /// the queue.
-    pub fn next_pending(&mut self) -> Option<PeerId> {
+    pub fn next_pending(&mut self) -> Option<RemotePeerId> {
         let mut next = self.pending_queue.pop_front();
         while let Some(peer) = next {
             if let Some(state) = self.peer_states.get_mut(&peer) {

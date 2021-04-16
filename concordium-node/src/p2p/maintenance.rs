@@ -2,9 +2,10 @@
 
 use chrono::prelude::*;
 use crossbeam_channel::{self, Receiver, Sender};
-use failure::Fallible;
+use failure::{Fallible, ResultExt};
 use mio::{net::TcpListener, Events, Interest, Poll, Registry, Token};
 use nohash_hasher::BuildNoHashHasher;
+use rand::{prelude::SliceRandom, thread_rng, Rng};
 use rkv::{
     backend::{Lmdb, LmdbEnvironment},
     Manager, Rkv,
@@ -57,9 +58,12 @@ pub struct NodeConfig {
     pub no_net: bool,
     pub desired_nodes_count: u16,
     pub no_bootstrap_dns: bool,
+    /// Do not persistent bans on startup.
+    pub no_clear_bans: bool,
     pub bootstrap_server: String,
     pub dns_resolvers: Vec<String>,
     pub dnssec_disabled: bool,
+    pub disallow_multiple_peers_on_ip: bool,
     pub bootstrap_nodes: Vec<String>,
     pub max_allowed_nodes: u16,
     pub relay_broadcast_percentage: f64,
@@ -83,10 +87,6 @@ pub struct NodeConfig {
     pub socket_write_size: usize,
     pub no_rebroadcast_consensus_validation: bool,
     pub drop_rebroadcast_probability: Option<f64>,
-    #[cfg(feature = "malicious_testing")]
-    pub partition_network_for_time: Option<usize>,
-    #[cfg(feature = "malicious_testing")]
-    pub breakage: Option<(String, u8, usize)>,
     pub bootstrapper_peer_list_size: usize,
     pub default_network: NetworkId,
     pub socket_so_linger: Option<u16>,
@@ -156,6 +156,14 @@ impl ConnectionHandler {
             total_sent: Default::default(),
         }
     }
+
+    /// Check whether the given address is soft-banned.
+    /// NB: This acquires and releases a read lock to the `soft_bans` structure.
+    pub(crate) fn is_soft_banned(&self, addr: SocketAddr) -> bool {
+        let soft_bans = read_or_die!(self.soft_bans);
+        soft_bans.get(&BanId::Ip(addr.ip())).is_some()
+            || soft_bans.get(&BanId::Socket(addr)).is_some()
+    }
 }
 
 /// Facilitates the `network_dump` feature.
@@ -170,7 +178,7 @@ impl NetworkDumper {
     fn new(ip: IpAddr, id: P2PNodeId, config: &Config) -> Self {
         let (dump_tx, dump_rx) = crossbeam_channel::bounded(config::DUMP_QUEUE_DEPTH);
         let (act_tx, act_rx) = crossbeam_channel::bounded(config::DUMP_SWITCH_QUEUE_DEPTH);
-        create_dump_thread(ip, id, dump_rx, act_rx, &config.common.data_dir);
+        create_dump_thread(ip, id, dump_rx, act_rx, config.common.data_dir.clone());
 
         Self {
             switch: act_tx,
@@ -203,59 +211,52 @@ pub struct P2PNode {
 }
 
 impl P2PNode {
-    /// Creates a new node and its Poll.
+    /// Creates a new node and its Poll. If the node id is provided the node
+    /// will be started with that Peer ID. If it is not a fresh one will be
+    /// generated.
     pub fn new(
-        supplied_id: Option<String>,
+        supplied_id: Option<P2PNodeId>,
         conf: &Config,
         peer_type: PeerType,
         stats: Arc<StatsExportService>,
-        data_dir_path: Option<PathBuf>,
         regenesis_arc: Arc<Regenesis>,
-    ) -> (Arc<Self>, Poll) {
+    ) -> Fallible<(Arc<Self>, Poll)> {
         let addr = if let Some(ref addy) = conf.common.listen_address {
-            format!("{}:{}", addy, conf.common.listen_port).parse().unwrap_or_else(|_| {
-                warn!("Supplied listen address coulnd't be parsed");
-                format!("0.0.0.0:{}", conf.common.listen_port)
-                    .parse()
-                    .expect("Port not properly formatted. Crashing.")
-            })
+            let ip_addr = addy.parse::<IpAddr>().context(
+                "Supplied listen address could not be parsed. The address must be a valid IP \
+                 address.",
+            )?;
+            SocketAddr::new(ip_addr, conf.common.listen_port)
         } else {
-            format!("0.0.0.0:{}", conf.common.listen_port)
-                .parse()
-                .expect("Port not properly formatted. Crashing.")
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), conf.common.listen_port)
         };
 
         trace!("Creating a new P2PNode");
 
         let ip = if let Some(ref addy) = conf.common.listen_address {
-            IpAddr::from_str(addy)
-                .unwrap_or_else(|_| P2PNode::get_ip().expect("Couldn't retrieve my own ip"))
+            IpAddr::from_str(addy).context("Could not parse the provided listen address.")?
         } else {
-            P2PNode::get_ip().expect("Couldn't retrieve my own ip")
+            P2PNode::get_ip().ok_or_else(|| {
+                format_err!("Could not compute my own ip. Use `--listen-address` to specify it.")
+            })?
         };
 
-        let id = if let Some(s) = supplied_id {
-            if s.chars().count() != 16 {
-                panic!(
-                    "Incorrect ID specified; expected a zero-padded, hex-encoded u64 that's 16 \
-                     characters long."
-                );
-            } else {
-                P2PNodeId::from_str(&s).unwrap_or_else(|e| panic!("invalid ID provided: {}", e))
-            }
-        } else {
-            P2PNodeId::default()
-        };
+        let id = supplied_id.unwrap_or_else(|| rand::thread_rng().gen::<P2PNodeId>());
 
         info!("My Node ID is {}", id);
-        debug!("Listening on {}:{}", ip, conf.common.listen_port);
+        info!("Listening on {}:{}", ip, conf.common.listen_port);
 
-        let poll = Poll::new().expect("Couldn't create poll");
-        let mut server = TcpListener::bind(addr).expect("Couldn't listen on port");
-        let poll_registry = poll.registry().try_clone().expect("Can't clone the poll registry");
+        let poll =
+            Poll::new().context("Could not create the poll to listen for incoming connections.")?;
+        let mut server = TcpListener::bind(addr).context(format!(
+            "Could not listen on the given listen-port ({}).",
+            conf.common.listen_port
+        ))?;
+        let poll_registry =
+            poll.registry().try_clone().context("Could not clone the poll registry.")?;
         poll_registry
             .register(&mut server, SELF_TOKEN, Interest::READABLE)
-            .expect("Couldn't register server with poll!");
+            .context("Could not register server with poll!")?;
 
         let own_peer_port = if let Some(own_port) = conf.common.external_port {
             own_port
@@ -263,31 +264,24 @@ impl P2PNode {
             conf.common.listen_port
         };
 
-        let self_peer = P2PPeer::from((peer_type, id, SocketAddr::new(ip, own_peer_port)));
-
-        // TODO: Remove surrounding block expr once cargo fmt has been updated in
-        // pipeline.
-        #[cfg(feature = "malicious_testing")]
-        let breakage = {
-            if let (Some(ty), Some(tgt), Some(lvl)) =
-                (&conf.cli.breakage_type, conf.cli.breakage_target, conf.cli.breakage_level)
-            {
-                Some((ty.to_owned(), tgt, lvl))
-            } else {
-                None
-            }
+        let self_peer = P2PPeer {
+            id,
+            peer_type,
+            addr: SocketAddr::new(ip, own_peer_port),
         };
 
         let config = NodeConfig {
             no_net: conf.cli.no_network,
             desired_nodes_count: conf.connection.desired_nodes,
             no_bootstrap_dns: conf.connection.no_bootstrap_dns,
+            no_clear_bans: conf.connection.no_clear_bans,
             bootstrap_server: conf.connection.bootstrap_server.clone(),
             dns_resolvers: utils::get_resolvers(
                 &conf.connection.resolv_conf,
                 &conf.connection.dns_resolver,
             ),
             dnssec_disabled: conf.connection.dnssec_disabled,
+            disallow_multiple_peers_on_ip: conf.connection.disallow_multiple_peers_on_ip,
             bootstrap_nodes: conf.connection.bootstrap_nodes.clone(),
             max_allowed_nodes: if let Some(max) = conf.connection.max_allowed_nodes {
                 max
@@ -306,7 +300,7 @@ impl P2PNode {
                 PeerType::Bootstrapper => conf.bootstrapper.wait_until_minimum_nodes,
                 PeerType::Node => 0,
             },
-            data_dir_path: data_dir_path.unwrap_or_else(|| ".".into()),
+            data_dir_path: conf.common.data_dir.clone(),
             max_latency: conf.connection.max_latency,
             hard_connection_limit: conf.connection.hard_connection_limit,
             catch_up_batch_limit: conf.connection.catch_up_batch_limit,
@@ -328,13 +322,6 @@ impl P2PNode {
                 PeerType::Node => conf.cli.drop_rebroadcast_probability,
                 _ => None,
             },
-            #[cfg(feature = "malicious_testing")]
-            partition_network_for_time: match peer_type {
-                PeerType::Bootstrapper => conf.bootstrapper.partition_network_for_time,
-                _ => None,
-            },
-            #[cfg(feature = "malicious_testing")]
-            breakage,
             bootstrapper_peer_list_size: conf.bootstrapper.peer_list_size,
             default_network: NetworkId::from(conf.common.network_ids[0]), // always present
             socket_so_linger: conf.connection.socket_so_linger,
@@ -350,7 +337,7 @@ impl P2PNode {
             .write()
             .unwrap()
             .get_or_create(config.data_dir_path.as_path(), Rkv::new::<Lmdb>)
-            .unwrap();
+            .context("Could not create or obtain the ban database.")?;
 
         let node = Arc::new(P2PNode {
             poll_registry,
@@ -367,9 +354,11 @@ impl P2PNode {
             peers: Default::default(),
         });
 
-        node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        if !node.config.no_clear_bans {
+            node.clear_bans().unwrap_or_else(|e| error!("Couldn't reset the ban list: {}", e));
+        }
 
-        (node, poll)
+        Ok((node, poll))
     }
 
     /// Get the timestamp of the node's last bootstrap attempt.
@@ -516,9 +505,22 @@ impl P2PNode {
         queues_stopped
     }
 
-    /// Joins the threads spawned by the node.
+    /// Waits for all the spawned threads to terminate.
+    /// This may panic or deadlock (depending on platform) if used from two
+    /// different node threads.
     pub fn join(&self) -> Fallible<()> {
-        for handle in mem::take(&mut *write_or_die!(self.threads)) {
+        // try to acquire the thread handles.
+        let handles = {
+            match self.threads.write() {
+                Ok(mut wlock) => mem::replace::<Vec<_>>(&mut wlock, Vec::new()),
+                // if unsuccessful then most likely some other thread acquired the threads lock and
+                // panicked. There is not much we can easily do, so we just do nothing and
+                // terminate.
+                Err(_) => Vec::new(),
+            }
+            // write lock released
+        };
+        for handle in handles {
             if let Err(e) = handle.join() {
                 error!("Can't join a node thread: {:?}", e);
             }
@@ -527,6 +529,9 @@ impl P2PNode {
     }
 
     /// Shut the node down gracefully and terminate its threads.
+    /// This method should only be called once by the thread that created the
+    /// node. It may panic or deadlock (depending on platform) if used from
+    /// two different node threads.
     pub fn close_and_join(&self) -> Fallible<()> {
         self.close();
         self.join()
@@ -565,10 +570,11 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 continue;
             }
 
-            // perform socket reads and writes in parallel across connections
             // check for new connections
             for i in 0..events.iter().filter(|event| event.token() == SELF_TOKEN).count() {
-                accept(&node).map_err(|e| error!("{}", e)).ok();
+                if let Err(e) = accept(&node) {
+                    error!("{}", e)
+                }
                 if i == 9 {
                     warn!("too many connection attempts received at once; dropping the rest");
                     break;
@@ -588,6 +594,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                 check_peer_states(&node, consensus);
             }
 
+            // perform socket reads and writes in parallel across connections
             pool.install(|| node.process_network_events(&events));
 
             // Run periodic tasks
@@ -595,10 +602,6 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             if now.duration_since(log_time)
                 >= Duration::from_secs(node.config.housekeeping_interval)
             {
-                if cfg!(test) && read_or_die!(node.connections()).is_empty() {
-                    panic!("the test timed out: no valid connections available");
-                }
-
                 connection_housekeeping(&node);
                 if node.peer_type() != PeerType::Bootstrapper {
                     node.measure_connection_latencies();
@@ -638,26 +641,24 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
                 let mut conns = write_or_die!(node.connections());
-                // Remove previous connection from same `PeerId`, as this is then to be seen
-                // as a reconnect.
-                conns.retain(|_, c| c.remote_id() != conn.remote_id());
-                conns.insert(conn.token, conn);
+                conns.insert(conn.token(), conn);
                 node.bump_last_peer_update();
             }
         }
-        ConnChange::NewPeers(peers) => {
+        ConnChange::NewPeers(mut peers) => {
             let mut new_peers = 0;
             let current_peers = node.get_peer_stats(Some(PeerType::Node));
 
             let curr_peer_count = current_peers.len();
 
-            let applicable_candidates = peers.iter().filter(|candidate| {
-                !current_peers
-                    .iter()
-                    .any(|peer| peer.id == candidate.id.as_raw() || peer.addr == candidate.addr)
-            });
+            // Shuffle the peers we received try to discover more useful peers over time
+            // and not get stuck continuously connecting to useless ones, and then dropping
+            // connections.
+            peers.shuffle(&mut thread_rng());
 
-            for peer in applicable_candidates {
+            // Try to connect to each peer in turn.
+            // If we are already connected to a peer, this will fail.
+            for peer in peers {
                 trace!("Got info for peer {} ({})", peer.id, peer.addr);
                 if connect(node, PeerType::Node, peer.addr, Some(peer.id)).is_ok() {
                     new_peers += 1;
@@ -677,14 +678,6 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                     Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
                 );
             }
-        }
-        ConnChange::ExpulsionById(remote_id) => {
-            warn!("Soft-banning remote id {} due to a breach of protocol", remote_id);
-            node.find_conn_token_by_id(remote_id).and_then(|token| node.remove_connection(token));
-            write_or_die!(node.connection_handler.soft_bans).insert(
-                BanId::NodeId(remote_id),
-                Instant::now() + Duration::from_secs(config::SOFT_BAN_DURATION_SECS),
-            );
         }
         ConnChange::RemovalByToken(token) => {
             trace!("Removing connection with token {:?}", token);
@@ -723,10 +716,6 @@ pub fn attempt_bootstrap(node: &Arc<P2PNode>) {
             Err(e) => error!("Can't bootstrap: {:?}", e),
         }
     }
-}
-
-impl Drop for P2PNode {
-    fn drop(&mut self) { let _ = self.close_and_join(); }
 }
 
 fn get_ip_if_suitable(addr: &IpAddr) -> Option<IpAddr> {

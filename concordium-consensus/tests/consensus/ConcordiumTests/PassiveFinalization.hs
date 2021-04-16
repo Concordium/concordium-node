@@ -32,7 +32,7 @@ import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.DummyData (dummyAuthorizations, dummyChainParameters)
+import Concordium.GlobalState.DummyData (dummyKeyCollection, dummyChainParameters)
 import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
@@ -296,7 +296,7 @@ createInitStates additionalFinMembers = do
                     genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
                     genesisIdentityProviders = emptyIdentityProviders,
                     genesisAnonymityRevokers = Dummy.dummyArs,
-                    genesisAuthorizations = dummyAuthorizations,
+                    genesisUpdateKeys = dummyKeyCollection,
                     genesisChainParameters = cps,
                     genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
                     genesisAccounts = Vec.fromList bakerAccounts

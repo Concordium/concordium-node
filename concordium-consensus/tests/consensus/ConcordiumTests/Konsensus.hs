@@ -68,7 +68,7 @@ import Concordium.Startup
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
+import Concordium.GlobalState.DummyData (dummyChainParameters, dummyKeyCollection)
 
 import Test.QuickCheck
 import Test.QuickCheck.Monadic
@@ -547,7 +547,7 @@ createInitStates bis extraAccounts maxFinComSize = Vec.fromList <$> liftIO (mapM
                     genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
                     genesisIdentityProviders = emptyIdentityProviders,
                     genesisAnonymityRevokers = Dummy.dummyArs,
-                    genesisAuthorizations = dummyAuthorizations,
+                    genesisUpdateKeys = dummyKeyCollection,
                     genesisChainParameters = dummyChainParameters,
                     genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
                     genesisAccounts = Vec.fromList (bakerAccounts ++ extraAccounts)

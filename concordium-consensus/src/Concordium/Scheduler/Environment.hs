@@ -15,8 +15,10 @@ import qualified Data.HashSet as HSet
 import qualified Data.Map as Map
 import Data.Foldable
 
-import Control.Monad.RWS.Strict
 import Control.Monad.Cont hiding (cont)
+import Control.Monad.RWS.Strict
+import Control.Monad.Trans.Reader (ReaderT(..), runReaderT)
+import Control.Monad.Trans.State.Strict (StateT(..), runStateT)
 
 import Lens.Micro.Platform
 
@@ -25,7 +27,7 @@ import Concordium.Crypto.EncryptedTransfers
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 import Concordium.Scheduler.Types
-import qualified Concordium.Scheduler.Cost as Cost
+import qualified Concordium.Cost as Cost
 import Concordium.GlobalState.Types
 import Concordium.GlobalState.Classes (MGSTrans(..))
 import Concordium.GlobalState.Account (EncryptedAmountUpdate(..), AccountUpdate(..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate, stakedAmount)
@@ -41,41 +43,6 @@ import qualified Concordium.ID.Types as ID
 -- |Whether the current energy limit is block energy or current transaction energy.
 data EnergyLimitReason = BlockEnergy | TransactionEnergy
     deriving(Eq, Show)
-
--- |A class to convert to and from 'Energy' used by the scheduler.
--- The function should satisfy
---
---   * @toEnergy (fromEnergy x) <= x@
-class ResourceMeasure a where
-  toEnergy :: a -> Energy
-  fromEnergy :: Energy -> a
-
-instance ResourceMeasure Energy where
-  {-# INLINE toEnergy #-}
-  toEnergy = id
-  {-# INLINE fromEnergy #-}
-  fromEnergy = id
-
--- |Measures the cost of running the interpreter.
-instance ResourceMeasure Wasm.InterpreterEnergy where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.fromInterpreterEnergy
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.toInterpreterEnergy
-
--- |Measures the cost of __storing__ the given amount of bytes.
-instance ResourceMeasure Wasm.ByteSize where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.storeBytes
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.maxStorage
-
--- |Measures the cost of __looking up__ the given amount of bytes.
-instance ResourceMeasure Cost.LookupByteSize where
-  {-# INLINE toEnergy #-}
-  toEnergy = Cost.lookupBytes
-  {-# INLINE fromEnergy #-}
-  fromEnergy = Cost.maxLookup
 
 -- * Scheduler monad
 
@@ -292,8 +259,8 @@ class (Monad m, StaticInformation m, CanRecordFootprint (Footprint (ATIStorage m
 
   -- * Chain updates
 
-  -- |Get the current 'Authorizations'.
-  getUpdateAuthorizations :: m Authorizations
+  -- |Get the current authorized keys for updates.
+  getUpdateKeyCollection :: m UpdateKeysCollection
 
   -- |Get the next sequence number of updates of a given type.
   getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
@@ -548,12 +515,20 @@ data TransactionContext = TransactionContext{
 
 makeLenses ''TransactionContext
 
+-- |A monad transformer adding reading an environment of type @r@
+-- and updating a state of type @s@ to an inner monad @m@.
+type RST r s m = ReaderT r (StateT s m)
+
+-- |Unwrap a RST computation as a function.
+runRST :: RST r s m a -> r -> s -> m (a, s)
+runRST rst r s = flip runStateT s . flip runReaderT r $ rst
+
 -- |A concrete implementation of TransactionMonad based on SchedulerMonad. We
 -- use the continuation monad transformer instead of the ExceptT transformer in
 -- order to avoid expensive bind operation of the latter. The bind operation is
 -- expensive because it needs to check at each step whether the result is @Left@
 -- or @Right@.
-newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RWST TransactionContext () LocalState m) a }
+newtype LocalT r m a = LocalT { _runLocalT :: ContT (Either (Maybe RejectReason) r) (RST TransactionContext LocalState m) a }
   deriving(Functor, Applicative, Monad, MonadState LocalState, MonadReader TransactionContext)
 
 runLocalT :: SchedulerMonad pv m
@@ -566,7 +541,7 @@ runLocalT :: SchedulerMonad pv m
           -> m (Either (Maybe RejectReason) a, LocalState)
 runLocalT (LocalT st) txHash _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
   let s = LocalState{_changeSet = emptyCS txHash,..}
-  (a, s', ()) <- runRWST (runContT st (return . Right)) ctx s
+  (a, s') <- runRST (runContT st (return . Right)) ctx s
   return (a, s')
 
   where !ctx = TransactionContext{..}
@@ -717,7 +692,7 @@ defaultSuccess wtc = \ls events -> do
 
 {-# INLINE liftLocal #-}
 liftLocal :: Monad m => m a -> LocalT r m a
-liftLocal m = LocalT (ContT (\k -> RWST (\r s -> m >>= \f -> runRWST (k f) r s)))
+liftLocal m = LocalT (ContT (\k -> ReaderT (\r -> StateT (\s -> m >>= \f -> runRST (k f) r s))))
 
 
 instance MonadTrans (LocalT r) where
@@ -868,8 +843,8 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
 
   {-# INLINE getEnergy #-}
   getEnergy = do
-    beLeft <- use blockEnergyLeft
-    txLeft <- use energyLeft
+    beLeft <- use' blockEnergyLeft
+    txLeft <- use' energyLeft
     if beLeft < txLeft
     then return (beLeft, BlockEnergy)
     else return (txLeft, TransactionEnergy)
@@ -881,9 +856,8 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
       case reason of
         BlockEnergy -> outOfBlockEnergy
         TransactionEnergy -> rejectTransaction OutOfEnergy  -- NB: sets the remaining energy to 0
-    else do
-      energyLeft -= tick
-      blockEnergyLeft -= tick
+    -- The lazy 'modify' reduces memory consumption significantly in this case.
+    else modify ((energyLeft -~ tick) . (blockEnergyLeft -~ tick))
 
   {-# INLINE rejectTransaction #-}
   rejectTransaction OutOfEnergy = energyLeft .= 0 >> LocalT (ContT (\_ -> return (Left (Just OutOfEnergy))))
@@ -916,21 +890,21 @@ instance SchedulerMonad pv m => TransactionMonad pv (LocalT r m) where
 --   this is not necessary for the correctness of this function. In the case
 --   where the returned energy exceeds remaining energy this function will
 --   return either with 'OutOfEnergy' or 'outOfBlockEnergy'.
-withExternal :: (ResourceMeasure r, TransactionMonad pv m) => (r ->  m (Maybe (a, r))) -> m a
+withExternal :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r ->  m (Maybe (a, r))) -> m a
 withExternal f = do
   (availableEnergy, reason) <- getEnergy
-  f (fromEnergy availableEnergy) >>= \case
+  f (Cost.fromEnergy availableEnergy) >>= \case
     Nothing | BlockEnergy <- reason -> outOfBlockEnergy
     Nothing | TransactionEnergy <- reason -> rejectTransaction OutOfEnergy -- this sets remaining to 0
     Just (result, usedEnergy) -> do
       -- tickEnergy is safe even if usedEnergy > available energy, even though this case
       -- should not happen for well-behaved actions.
-      tickEnergy (toEnergy usedEnergy)
+      tickEnergy (Cost.toEnergy usedEnergy)
       return result
 
 -- |Like 'withExternal' but takes a pure action that only transforms energy and does
 -- not return a value. This is a convenience wrapper only.
-withExternalPure_ :: (ResourceMeasure r, TransactionMonad pv m) => (r -> Maybe r) -> m ()
+withExternalPure_ :: (Cost.ResourceMeasure r, TransactionMonad pv m) => (r -> Maybe r) -> m ()
 withExternalPure_ f = withExternal (return . fmap ((),) . f)
 
 

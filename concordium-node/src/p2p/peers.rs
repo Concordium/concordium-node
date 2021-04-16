@@ -1,7 +1,7 @@
 //! Peer handling.
 
 use crate::{
-    common::{get_current_stamp, P2PNodeId, PeerStats, PeerType},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, PeerStats, PeerType},
     connection::Connection,
     netmsg,
     network::NetworkRequest,
@@ -21,7 +21,8 @@ impl P2PNode {
             .filter(|conn| peer_type.is_none() || peer_type == Some(conn.remote_peer_type()))
             .map(|conn| {
                 PeerStats::new(
-                    conn.remote_id().unwrap().as_raw(), // safe - always available post-handshake
+                    conn.remote_peer.local_id,
+                    conn.remote_peer.self_id.unwrap(), // safe - always available post-handshake
                     conn.remote_addr(),
                     conn.remote_peer_external_port(),
                     conn.remote_peer_type(),
@@ -34,13 +35,20 @@ impl P2PNode {
     /// Prints information about all the peers.
     pub fn print_stats(&self, peer_stat_list: &[PeerStats]) {
         for (i, peer) in peer_stat_list.iter().enumerate() {
-            trace!("Peer {}: {}/{}/{}", i, P2PNodeId(peer.id), peer.addr, peer.peer_type);
+            trace!(
+                "Peer {}({}): {}/{}/{}",
+                i,
+                peer.self_id,
+                peer.local_id,
+                peer.addr,
+                peer.peer_type
+            );
         }
     }
 
     /// Obtain the node ids of all the node peers.
-    pub fn get_node_peer_ids(&self) -> Vec<u64> {
-        self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.id).collect()
+    pub fn get_node_peer_tokens(&self) -> Vec<RemotePeerId> {
+        self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.local_id).collect()
     }
 
     /// Measures the node's average byte throughput.

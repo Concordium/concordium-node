@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    common::{get_current_stamp, P2PPeer, PeerType},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, PeerType, RemotePeer},
     network::Networks,
 };
 
@@ -16,7 +16,7 @@ const BUCKET_COUNT: usize = 1;
 /// A representation of a node in a bucket.
 #[derive(Eq, Clone)]
 pub struct Node {
-    pub peer: P2PPeer,
+    pub peer: RemotePeer,
     pub networks: Networks,
     /// The timestamp pointing to when the node was seen last.
     pub last_seen: u64,
@@ -48,7 +48,7 @@ impl Default for Buckets {
 
 impl Buckets {
     /// Adds a peer to a bucket.
-    pub fn insert_into_bucket(&mut self, peer: P2PPeer, networks: Networks) {
+    pub fn insert_into_bucket(&mut self, peer: RemotePeer, networks: Networks) {
         let bucket = &mut self.buckets[0];
 
         bucket.insert(Node {
@@ -59,9 +59,8 @@ impl Buckets {
     }
 
     /// Update the networks of a node in the bucket.
-    pub fn update_network_ids(&mut self, peer: P2PPeer, networks: Networks) {
+    pub fn update_network_ids(&mut self, peer: RemotePeer, networks: Networks) {
         let bucket = &mut self.buckets[0];
-
         bucket.replace(Node {
             peer,
             networks,
@@ -69,16 +68,13 @@ impl Buckets {
         });
     }
 
-    /// Returns all the nodes in buckets.
-    fn get_all_nodes(&self, sender: Option<&P2PPeer>, networks: &Networks) -> Vec<P2PPeer> {
+    /// Returns all the nodes in buckets with the possible exception of the
+    /// sender, if it is supplied.
+    fn get_all_nodes(&self, sender: Option<RemotePeerId>, networks: &Networks) -> Vec<RemotePeer> {
         let mut nodes = Vec::new();
         let filter_criteria = |node: &&Node| {
             node.peer.peer_type == PeerType::Node
-                && if let Some(sender) = sender {
-                    node.peer != *sender
-                } else {
-                    true
-                }
+                && Some(node.peer.local_id) != sender
                 && (networks.is_empty() || !node.networks.is_disjoint(networks))
         };
 
@@ -100,26 +96,12 @@ impl Buckets {
     /// Returns the desired number of nodes from the buckets.
     pub fn get_random_nodes(
         &self,
-        sender: &P2PPeer,
+        sender: RemotePeerId,
         number: usize,
         networks: &Networks,
-        partition: bool,
-    ) -> Vec<P2PPeer> {
+    ) -> Vec<RemotePeer> {
         let mut rng = rand::thread_rng();
-        if partition {
-            self.get_all_nodes(Some(sender), networks)
-                .into_iter()
-                .filter(|peer| {
-                    if sender.id.0 % 2 == 0 {
-                        peer.id.0 % 2 == 0
-                    } else {
-                        peer.id.0 % 2 != 0
-                    }
-                })
-                .choose_multiple(&mut rng, number)
-        } else {
-            self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, number)
-        }
+        self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, number)
     }
 
     /// Removes the bucket nodes older than then specified amount of time.
@@ -133,24 +115,33 @@ impl Buckets {
 mod tests {
     use super::*;
     use crate::common::P2PNodeId;
+    use rand::Rng;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     #[test]
     pub fn test_buckets_insert_duplicate_peer_id() {
         let mut buckets = Buckets::default();
 
-        let p2p_node_id = P2PNodeId::default();
+        let local_id: RemotePeerId = rand::thread_rng().gen();
 
-        let p2p_peer = P2PPeer::from((
-            PeerType::Node,
-            p2p_node_id,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8888),
-        ));
-        let p2p_duplicate_peer = P2PPeer::from((
-            PeerType::Node,
-            p2p_node_id,
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
-        ));
+        // Create two peers with the same local id but different everything else.
+        let p2p_peer = RemotePeer {
+            self_id: Some(rand::thread_rng().gen::<P2PNodeId>()),
+            addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8888),
+            local_id,
+            external_port: 8888,
+            peer_type: PeerType::Node,
+        };
+
+        let p2p_duplicate_peer = RemotePeer {
+            self_id: Some(rand::thread_rng().gen::<P2PNodeId>()),
+            addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8889),
+            local_id,
+            external_port: 8889,
+            peer_type: PeerType::Node,
+        };
+
+        // and check that only one is inserted
         buckets.insert_into_bucket(p2p_peer, Default::default());
         buckets.insert_into_bucket(p2p_duplicate_peer, Default::default());
         assert_eq!(buckets.buckets.len(), 1);

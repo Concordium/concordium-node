@@ -1,4 +1,7 @@
-use crate::consensus_ffi::{catch_up::PeerStatus, consensus::PeerId, helpers::PacketType};
+use crate::{
+    common::p2p_peer::RemotePeerId,
+    consensus_ffi::{catch_up::PeerStatus, helpers::PacketType},
+};
 use std::{fmt, sync::Arc};
 
 /// The type of messages passed between GlobalState and the consensus layer.
@@ -9,7 +12,7 @@ pub struct ConsensusMessage {
     pub direction:     MessageType,
     pub variant:       PacketType,
     pub payload:       Arc<[u8]>,
-    pub dont_relay_to: Vec<PeerId>,
+    pub dont_relay_to: Vec<RemotePeerId>,
     pub omit_status:   Option<PeerStatus>,
 }
 
@@ -18,7 +21,7 @@ impl ConsensusMessage {
         direction: MessageType,
         variant: PacketType,
         payload: Arc<[u8]>,
-        dont_relay_to: Vec<PeerId>,
+        dont_relay_to: Vec<RemotePeerId>,
         omit_status: Option<PeerStatus>,
     ) -> Self {
         Self {
@@ -38,7 +41,7 @@ impl ConsensusMessage {
         }
     }
 
-    pub fn target_peer(&self) -> Option<PeerId> {
+    pub fn target_peer(&self) -> Option<RemotePeerId> {
         if let MessageType::Outbound(target) = self.direction {
             target
         } else {
@@ -46,7 +49,7 @@ impl ConsensusMessage {
         }
     }
 
-    pub fn source_peer(&self) -> PeerId {
+    pub fn source_peer(&self) -> RemotePeerId {
         if let MessageType::Inbound(source, _) = self.direction {
             source
         } else {
@@ -54,14 +57,14 @@ impl ConsensusMessage {
         }
     }
 
-    pub fn dont_relay_to(&self) -> Vec<PeerId> { self.dont_relay_to.clone() }
+    pub fn dont_relay_to(&self) -> Vec<RemotePeerId> { self.dont_relay_to.clone() }
 }
 
 impl fmt::Display for ConsensusMessage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let party_name = match self.direction {
-            MessageType::Inbound(peer_id, _) => format!("from peer {:016x}", peer_id),
-            MessageType::Outbound(Some(peer_id)) => format!("to peer {:016x}", peer_id),
+            MessageType::Inbound(peer_id, _) => format!("from peer {}", peer_id),
+            MessageType::Outbound(Some(peer_id)) => format!("to peer {}", peer_id),
             _ => "from our consensus layer".to_owned(),
         };
 
@@ -74,10 +77,10 @@ impl fmt::Display for ConsensusMessage {
 pub enum MessageType {
     /// Inbound messages come from other peers; they contain their PeerId and
     /// indicate whether is was a direct message or a broadcast.
-    Inbound(PeerId, DistributionMode),
+    Inbound(RemotePeerId, DistributionMode),
     /// Outbound messages are produced by the consensus layer and either
     /// directed at a specific PeerId or None in case of broadcasts.
-    Outbound(Option<PeerId>),
+    Outbound(Option<RemotePeerId>),
 }
 
 #[derive(PartialEq, Clone, Copy)]

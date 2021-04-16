@@ -9,7 +9,10 @@ services:
     - RUST_BACKTRACE=1
     - RUST_LOG=info
     - MODE=local_bootstrapper
+    - NUM_BAKERS=${NUM_BAKERS}
     - EXTRA_ARGS=${EXTRA_ARGS}
+    - DATA_DIR=/var/lib/concordium/data
+    - CONFIG_DIR=/var/lib/concordium/config
     entrypoint:
     - /start.sh
   collector_backend:
@@ -45,6 +48,7 @@ services:
     - NUM_BAKERS=${NUM_BAKERS}
     - MODE=local_basic
     - DATA_DIR=/var/lib/concordium/data
+    - CONFIG_DIR=/var/lib/concordium/config
     - RPC_SERVER_ADDR=0.0.0.0
     - EXTRA_ARGS=${EXTRA_ARGS}
     - TRANSACTION_OUTCOME_LOGGING=1

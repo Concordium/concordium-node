@@ -54,22 +54,22 @@ import Concordium.Startup
 import qualified Concordium.Types.DummyData as Dummy
 import qualified Concordium.GlobalState.DummyData as Dummy
 import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState.DummyData (dummyAuthorizations)
+import Concordium.GlobalState.DummyData (dummyKeyCollection)
 
 import System.Directory
 
 -- |Protocol version
 type PV = 'P1
 
-type TreeConfig = DiskTreeDiskBlockConfig PV
+type TreeConfig = DiskTreeDiskBlockConfig
 
 -- |Construct the global state configuration.
 -- Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO TreeConfig
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> GenesisData PV -> IO (TreeConfig PV)
 makeGlobalStateConfig rt treeStateDir blockStateFile genData = return $ DTDBConfig rt treeStateDir blockStateFile genData
 
 {-
-type TreeConfig = PairGSConfig (MemoryTreeMemoryBlockConfig PV) (DiskTreeDiskBlockConfig PV)
+type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
 makeGlobalStateConfig rp treeStateDir blockStateFile genData =
    return $ PairGSConfig (MTMBConfig rp genData, DTDBConfig rp treeStateDir blockStateFile genData)
 -}
@@ -107,10 +107,10 @@ runDeterministic (DeterministicTime a) t = runReaderT a t
 type LogBase = LoggerT (DeterministicTime IO)
 
 -- |How 'SkovHandlers' should be instantiated for our setting.
-type MyHandlers = SkovHandlers DummyTimer BakerConfig (StateT SimState LogBase)
+type MyHandlers = SkovHandlers PV DummyTimer BakerConfig (StateT SimState LogBase)
 
 -- |The monad for bakers to run in.
-type BakerM = SkovT MyHandlers BakerConfig (StateT SimState LogBase)
+type BakerM = SkovT PV MyHandlers BakerConfig (StateT SimState LogBase)
 
 -- |Events that trigger actions by bakers.
 data Event
@@ -258,7 +258,7 @@ initialState = do
                                 dummyArs
                                 [Dummy.createCustomAccount 1000000000000 Dummy.mateuszKP Dummy.mateuszAccount]
                                 (Energy maxBound)
-                                dummyAuthorizations
+                                dummyKeyCollection
                                 (makeChainParameters (makeElectionDifficulty 20000) 1 1 4 10 Dummy.dummyRewardParameters (maxBakerId + 1) 300000000000)
         mkBakerState :: Timestamp -> (BakerId, (BakerIdentity, FullBakerInfo)) -> IO BakerState
         mkBakerState now (bakerId, (_bsIdentity, _bsInfo)) = do
@@ -301,7 +301,6 @@ runBaker curTime bid a = do
         curTimeUTC = posixSecondsToUTCTime (fromIntegral curTime)
         handlers = SkovHandlers {..}
         shBroadcastFinalizationMessage = broadcastEvent curTime . EFinalization
-        shBroadcastFinalizationRecord = broadcastEvent curTime . EFinalizationRecord
         shOnTimeout timeout action = do
             tmr <- ssNextTimer <<%= (1+)
             let t = case timeout of

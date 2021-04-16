@@ -114,7 +114,7 @@ fn deserialize_packet(root: &network::NetworkMessage) -> Fallible<NetworkPayload
     let destination = if let Some(destination) = packet.destination() {
         match destination.variant() {
             network::Direction::Direct => {
-                PacketDestination::Direct(P2PNodeId(destination.target()))
+                PacketDestination::Direct((destination.target() as usize).into())
             }
             network::Direction::Broadcast => PacketDestination::Broadcast(Vec::new()),
         }
@@ -304,7 +304,7 @@ fn serialize_packet(
         PacketDestination::Direct(target_id) => {
             network::Destination::create(builder, &network::DestinationArgs {
                 variant: network::Direction::Direct,
-                target:  target_id.as_raw(),
+                target:  target_id.remote_peer_id as u64,
             })
         }
         PacketDestination::Broadcast(..) => {

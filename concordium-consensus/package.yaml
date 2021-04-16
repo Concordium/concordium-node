@@ -1,10 +1,11 @@
 name:                concordium-consensus
 version:             0.1.0.0
-github:              "githubuser/Concordium"
-license:             BSD3
-author:              "Concordium AG"
-maintainer:          "contact@concordium.com"
-copyright:           "Concordium AG"
+github:              "Concordium/concordium-node"
+license:             AGPL-3.0
+license-file:        "../LICENSE"
+author:              "Concordium"
+maintainer:          "developers@concordium.com"
+copyright:           "Concordium"
 
 extra-source-files:
 - README.md
@@ -72,7 +73,7 @@ default-extensions:
 
 flags:
   dynamic:
-    manual: False
+    manual: True
     default: True
 
 library:

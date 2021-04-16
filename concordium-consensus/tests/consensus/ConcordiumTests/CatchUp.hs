@@ -30,7 +30,7 @@ import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState
 import Concordium.GlobalState.Finalization
 import Concordium.Types.HashableTo
-import Concordium.GlobalState.DummyData (dummyChainParameters, dummyAuthorizations)
+import Concordium.GlobalState.DummyData (dummyChainParameters, dummyKeyCollection)
 import Concordium.Genesis.Data.P1
 
 import Concordium.Logger
@@ -108,7 +108,7 @@ initialiseStatesDictator n = do
                         genesisCryptographicParameters = Dummy.dummyCryptographicParameters,
                         genesisIdentityProviders = emptyIdentityProviders,
                         genesisAnonymityRevokers = Dummy.dummyArs,
-                        genesisAuthorizations = dummyAuthorizations,
+                        genesisUpdateKeys = dummyKeyCollection,
                         genesisChainParameters = dummyChainParameters,
                         genesisLeadershipElectionNonce = hash "LeadershipElectionNonce",
                         genesisAccounts = Vec.fromList bakerAccounts

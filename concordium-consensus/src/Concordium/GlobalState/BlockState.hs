@@ -70,7 +70,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem(..))
 
 import qualified Concordium.ID.Types as ID
 import Concordium.ID.Parameters(GlobalContext)
-import Concordium.ID.Types (AccountCredential, CredentialValidTo)
+import Concordium.ID.Types (AccountCredential, CredentialRegistrationID)
 import Concordium.Crypto.EncryptedTransfers
 
 -- |The hashes of the block state components, which are combined
@@ -106,6 +106,11 @@ makeBlockStateHash BlockStateHashInputs{..} = StateHashV0 $
       bshUpdates
       (ebHash bshEpochBlocks))
 
+-- |An auxiliary data type to express restrictions on an account.
+-- Currently an account that has more than one credential is not allowed to handle encrypted transfers,
+-- and an account that has a non-zero encrypted balance cannot add new credentials.
+data AccountAllowance = AllowedEncryptedTransfers | AllowedMultipleCredentials
+
 class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the address of the account
@@ -113,6 +118,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 
   -- | Get the current public account balance
   getAccountAmount :: Account m -> m Amount
+
+  -- |Check whether an account is allowed to perform the given action.
+  checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
   -- | Get the current public account available balance.
   -- This accounts for lock-up and staked amounts.
@@ -132,9 +140,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
   -- |Get the list of credentials deployed on the account, ordered from most
   -- recently deployed.  The list should be non-empty.
   getAccountCredentials :: Account m -> m (Map.Map ID.CredentialIndex AccountCredential)
-
-  -- |Get the last expiry time of a credential on the account.
-  getAccountMaxCredentialValidTo :: Account m -> m CredentialValidTo
 
   -- -- |Get the key used to verify transaction signatures, it records the signature scheme used as well
   getAccountVerificationKeys :: Account m -> m ID.AccountInformation
@@ -185,6 +190,10 @@ class AccountOperations m => BlockStateQuery m where
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
     -- |Get the account state from the account table of the state instance.
     getAccount :: BlockState m -> AccountAddress -> m (Maybe (Account m))
+
+    -- |Query an account by the id of the credential that belonged to it.
+    getAccountByCredId :: BlockState m -> CredentialRegistrationID -> m (Maybe (Account m))
+
     -- |Get the contract state from the contract table of the state instance.
     getContractInstance :: BlockState m -> ContractAddress -> m (Maybe Instance)
 
@@ -288,9 +297,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- |Get the contract state from the contract table of the state instance.
   bsoGetInstance :: UpdatableBlockState m -> ContractAddress -> m (Maybe Instance)
 
-  -- |Check whether an the given credential registration ID exists.
-  -- Return @True@ iff so.
-  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m Bool
+  -- |Check whether an the given credential registration ID exists, and return
+  -- the account index of the account it is or was associated with.
+  bsoRegIdExists :: UpdatableBlockState m -> ID.CredentialRegistrationID -> m (Maybe AccountIndex)
 
   -- |Create and add an empty account with the given public key, address and credential.
   -- If an account with the given address already exists, @Nothing@ is returned.
@@ -470,8 +479,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
   -- If the baker id refers to an account, the reward is paid to the account, and the
   -- address of the account is returned.  If the id does not refer to an account
   -- then no change is made and @Nothing@ is returned.
-  --
-  -- TODO: Change the interface to support new tokenomics.
   bsoRewardBaker :: UpdatableBlockState m -> BakerId -> Amount -> m (Maybe AccountAddress, UpdatableBlockState m)
 
   -- |Add an amount to the foundation account.
@@ -520,7 +527,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
   bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
 
   -- |Get the current 'Authorizations' for validating updates.
-  bsoGetCurrentAuthorizations :: UpdatableBlockState m -> m Authorizations
+  bsoGetUpdateKeyCollection :: UpdatableBlockState m -> m UpdateKeysCollection
 
   -- |Get the next 'UpdateSequenceNumber' for a given update type.
   bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
@@ -617,6 +624,7 @@ class (BlockStateOperations m, Serialize (BlockStateRef m)) => BlockStateStorage
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
   getModule s = lift . getModule s
   getAccount s = lift . getAccount s
+  getAccountByCredId s = lift . getAccountByCredId s
   getBakerAccount s = lift . getBakerAccount s
   getContractInstance s = lift . getContractInstance s
   getModuleList = lift . getModuleList
@@ -641,6 +649,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
   getCryptographicParameters = lift . getCryptographicParameters
   {-# INLINE getModule #-}
   {-# INLINE getAccount #-}
+  {-# INLINE getAccountByCredId #-}
   {-# INLINE getBakerAccount #-}
   {-# INLINE getContractInstance #-}
   {-# INLINE getModuleList #-}
@@ -666,10 +675,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
   getAccountAddress = lift . getAccountAddress
   getAccountAmount = lift. getAccountAmount
+  checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
   getAccountAvailableAmount = lift . getAccountAvailableAmount
   getAccountNonce = lift . getAccountNonce
   getAccountCredentials = lift . getAccountCredentials
-  getAccountMaxCredentialValidTo = lift . getAccountMaxCredentialValidTo
   getAccountVerificationKeys = lift . getAccountVerificationKeys
   getAccountEncryptedAmount = lift . getAccountEncryptedAmount
   getAccountEncryptionKey = lift . getAccountEncryptionKey
@@ -678,8 +687,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
   {-# INLINE getAccountAddress #-}
   {-# INLINE getAccountAmount #-}
   {-# INLINE getAccountAvailableAmount #-}
+  {-# INLINE checkAccountIsAllowed #-}
   {-# INLINE getAccountCredentials #-}
-  {-# INLINE getAccountMaxCredentialValidTo #-}
   {-# INLINE getAccountNonce #-}
   {-# INLINE getAccountVerificationKeys #-}
   {-# INLINE getAccountEncryptedAmount #-}
@@ -719,7 +728,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   bsoAddSpecialTransactionOutcome s = lift . bsoAddSpecialTransactionOutcome s
   bsoProcessUpdateQueues s = lift . bsoProcessUpdateQueues s
   bsoProcessReleaseSchedule s = lift . bsoProcessReleaseSchedule s
-  bsoGetCurrentAuthorizations = lift . bsoGetCurrentAuthorizations
+  bsoGetUpdateKeyCollection = lift . bsoGetUpdateKeyCollection
   bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
   bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
   bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
@@ -764,7 +773,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
   {-# INLINE bsoAddSpecialTransactionOutcome #-}
   {-# INLINE bsoProcessUpdateQueues #-}
   {-# INLINE bsoProcessReleaseSchedule #-}
-  {-# INLINE bsoGetCurrentAuthorizations #-}
+  {-# INLINE bsoGetUpdateKeyCollection #-}
   {-# INLINE bsoGetNextUpdateSequenceNumber #-}
   {-# INLINE bsoEnqueueUpdate #-}
   {-# INLINE bsoOverwriteElectionDifficulty #-}
