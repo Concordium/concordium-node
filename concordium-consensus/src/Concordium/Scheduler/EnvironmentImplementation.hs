@@ -16,7 +16,6 @@ import qualified Data.Map.Strict as OrdMap
 import Data.HashSet as Set
 import Data.Functor.Identity
 
-import Data.Time
 import Concordium.TimeMonad
 import Lens.Micro.Platform
 

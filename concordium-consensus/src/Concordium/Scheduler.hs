@@ -58,6 +58,7 @@ import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
 
 import Control.Applicative
+import Concordium.Logger
 import Control.Monad.Except
 import Data.Function (on)
 import Data.List (find, foldl')
@@ -1472,7 +1473,8 @@ handleRegisterData wtc regData =
 -- and `ftUnprocessedCredentials`.
 filterTransactions :: forall m pv. (SchedulerMonad pv m, TimeMonad m)
                    => Integer -- ^Maximum block size in bytes.
-                   -> UTCTime -- ^Timeout for block construction. 
+                   -> UTCTime -- ^Timeout for block construction.
+                             -- This is the absolute time after which we should stop trying to add new transctions to the block.
                    -> [TransactionGroup] -- ^Transactions to make a block out of.
                    -> m FilteredTransactions
 filterTransactions maxSize timeout groups0 = do
@@ -1495,14 +1497,14 @@ filterTransactions maxSize timeout groups0 = do
         -- All block items are processed. We accumulate the added items
         -- in reverse order, so reverse the list before returning.
         runNext _ _ _ _ fts []= return fts{ftAdded = reverse (ftAdded fts)}
-        runNext maxEnergy size credLimit True fts (g : groups) = case g of -- Time is up. Mark subsequent groups as unprocessed. 
+        runNext maxEnergy size credLimit True fts (g : groups) = case g of -- Time is up. Mark subsequent groups as unprocessed.
           TGAccountTransactions group -> let newFts = fts { ftUnprocessed = group ++ ftUnprocessed fts }
                                          in runNext maxEnergy size credLimit True newFts groups
           TGCredentialDeployment c -> let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts }
                                       in runNext maxEnergy size credLimit True newFts groups
           TGUpdateInstructions group -> let newFts = fts { ftUnprocessedUpdates = group ++ ftUnprocessedUpdates fts }
                                         in runNext maxEnergy size credLimit True newFts groups
-        runNext maxEnergy size credLimit False fts (g : groups) = case g of -- Time isn't up yet. Process groups until time is up. 
+        runNext maxEnergy size credLimit False fts (g : groups) = case g of -- Time isn't up yet. Process groups until time is up.
           TGAccountTransactions group -> runTransactionGroup size fts group
           TGCredentialDeployment c -> runCredential c
           TGUpdateInstructions group -> runUpdateInstructions size fts group
@@ -1513,9 +1515,10 @@ filterTransactions maxSize timeout groups0 = do
               -- Update instructions use no energy, so we only consider size
               let csize = currentSize + fromIntegral (wmdSize ui)
               now <- currentTime
-              if now >= timeout then -- Time is up. Mark this and all subsequent groups as unprocessed. 
+              if now >= timeout then do -- Time is up. Mark this and all subsequent groups as unprocessed.
+                logEvent Scheduler LLWarning "Timeout reached for block construction."
                 let newFts = currentFts{ftUnprocessedUpdates = ui : uis ++ ftUnprocessedUpdates currentFts}
-                in runNext maxEnergy currentSize credLimit True newFts groups
+                runNext maxEnergy currentSize credLimit True newFts groups
               else if csize <= maxSize then
                 -- Chain updates have no account footprint
                 handleChainUpdate ui >>= \case
@@ -1555,11 +1558,12 @@ filterTransactions maxSize timeout groups0 = do
               let csize = size + fromIntegral wmdSize
                   energyCost = Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c)
                   cenergy = totalEnergyUsed + fromIntegral energyCost
-              -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
               now <- currentTime
-              if now >= timeout then -- Time is up. Mark this and all subsequent groups as unprocessed. 
+              if now >= timeout then do -- Time is up. Mark this and all subsequent groups as unprocessed.
+                logEvent Scheduler LLWarning "Timeout reached for block construction."
                 let newFts = fts { ftUnprocessedCredentials = c : ftUnprocessedCredentials fts}
-                in runNext maxEnergy size credLimit True newFts groups
+                runNext maxEnergy size credLimit True newFts groups
+              -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
               else if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy then
                 observeTransactionFootprint (handleDeployCredential wmdData wmdHash) >>= \case
                     (Just (TxInvalid reason), _) -> do
@@ -1591,9 +1595,10 @@ filterTransactions maxSize timeout groups0 = do
                   tenergy = transactionGasAmount t
                   cenergy = totalEnergyUsed + tenergy
               now <- currentTime
-              if now >= timeout then -- Time is up. Mark this and all subsequent groups as unprocessed. 
+              if now >= timeout then do -- Time is up. Mark this and all subsequent groups as unprocessed.
+                logEvent Scheduler LLWarning "Timeout reached for block construction."
                 let newFts = currentFts { ftUnprocessed = t : ts ++ ftUnprocessed currentFts }
-                in runNext maxEnergy currentSize credLimit True newFts groups
+                runNext maxEnergy currentSize credLimit True newFts groups
               else if csize <= maxSize && cenergy <= maxEnergy then
                 -- The transaction fits regarding both block energy limit and max transaction size.
                 -- Thus try to add the transaction by executing it.
