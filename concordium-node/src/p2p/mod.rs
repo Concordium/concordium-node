@@ -44,7 +44,7 @@ mod tests {
         // Insertion by ip
         assert!(
             !node.drop_by_ip_and_ban(to_ban2)?,
-            "Should have returned falsae since the peer does not exist."
+            "Should have returned false since the peer does not exist."
         );
         let reply = node.get_banlist()?;
         assert_eq!(reply.len(), 1);
