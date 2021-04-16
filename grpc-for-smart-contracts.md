@@ -40,7 +40,7 @@ message GetAddressInfoRequest {
 - A JSON object containing information about the given address at the given block.
   - Example:
 
-    ```json
+    ```javascript
     {
         // Public account balance in microGTU.
         "accountAmount":"10000000000000",
@@ -179,7 +179,7 @@ message GetAddressInfoRequest {
 - A JSON object with information about the contract instance.
   - Example: 
 
-    ```json
+    ```javascript
     {
         // Balance of contract instance in microGTU.
         "amount":"0",
