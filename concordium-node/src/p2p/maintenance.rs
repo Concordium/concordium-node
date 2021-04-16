@@ -691,9 +691,22 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
         }
         ConnChange::Promotion(token) => {
             if let Some(conn) = lock_or_die!(node.conn_candidates()).remove(&token) {
+                // check if we are connected to the peer already on the port they advertise.
+                // This is only needed for incoming connections since they typically come from
+                // unrecognizable ports.
+                // NB: We do not use node.is_connected here since that acquires a read lock on
+                // the same connections object.
                 let mut conns = write_or_die!(node.connections());
-                conns.insert(conn.token(), conn);
-                node.bump_last_peer_update();
+                let addr = conn.remote_peer.external_addr();
+                let is_connected = conns.values().any(|existing| {
+                    existing.remote_addr() == addr || existing.remote_peer.external_addr() == addr
+                });
+                if !is_connected {
+                    conns.insert(conn.token(), conn);
+                    node.bump_last_peer_update();
+                } else {
+                    warn!("Already connected to a peer on the given address.")
+                }
             }
         }
         ConnChange::NewPeers(mut peers) => {
