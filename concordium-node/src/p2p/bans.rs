@@ -86,6 +86,13 @@ impl P2PNode {
             bail!("Couldn't ban a peer: couldn't obtain a lock over the kvs");
         };
 
+        // Remove all given addresses to that IP address.
+        // This implies that after unbanning we will need to issue `ConnectTo` calls to
+        // re-establish them. Removing all the given addresses is the most
+        // consistent behaviour. It means that we won't repeately
+        // try to reconnect to them and then failing because they are banned.
+        write_or_die!(self.config.given_addresses).retain(|addr| addr.ip() != ip_addr);
+
         let tokens = self.find_conn_tokens_by_ip(ip_addr);
         let res = !tokens.is_empty();
         self.register_conn_change(ConnChange::RemoveAllByTokens(tokens));
