@@ -11,11 +11,10 @@ use std::net::{IpAddr, SocketAddr};
 const BAN_STORE_NAME: &str = "bans";
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
-/// A node can be banned either by its id node or by its address - IP or
+/// A node can be banned either by its IP or
 /// IP+port. This is used for soft bans only, i.e., bans with limited expiry
 /// that are not persisted to an external database.
 pub enum BanId {
-    NodeId(RemotePeerId),
     Ip(IpAddr),
     Socket(SocketAddr),
 }
