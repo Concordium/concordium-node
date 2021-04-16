@@ -1089,8 +1089,9 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doProcessUpdateQueues :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (Map.Map TransactionTime UpdateValue, PersistentBlockState pv)
 doProcessUpdateQueues pbs ts = do
         bsp <- loadPBS pbs
-        (changes, u') <- processUpdateQueues ts (bspUpdates bsp)
-        (changes,) <$> storePBS pbs bsp{bspUpdates = u'}
+        let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
+        (changes, (u', ars', ips')) <- processUpdateQueues ts (u, ars, ips)
+        (changes,) <$> storePBS pbs bsp{bspUpdates = u', bspAnonymityRevokers = ars', bspIdentityProviders = ips'}
 
 doProcessReleaseSchedule :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentBlockState pv -> Timestamp -> m (PersistentBlockState pv)
 doProcessReleaseSchedule pbs ts = do
