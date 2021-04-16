@@ -136,7 +136,7 @@ toLogMethod maxLogLevel logCallbackPtr = le
 -- The second argument is the genesis index.
 -- The third argument is a pointer to the data to broadcast.
 -- The fourth argument is the length of the data in bytes.
-type BroadcastCallback = Int64 -> Word32 -> CString -> Int64 -> IO ()
+type BroadcastCallback = Int64 -> GenesisIndex -> CString -> Int64 -> IO ()
 
 -- |FFI wrapper for invoking a 'BroadcastCallback' function.
 foreign import ccall "dynamic" invokeBroadcastCallback :: FunPtr BroadcastCallback -> BroadcastCallback
@@ -159,7 +159,7 @@ callBroadcastCallback cbk mt gi bs = BS.useAsCStringLen bs $ \(cdata, clen) ->
 -- The second argument indicates the message type.
 -- The third argument is a pointer to the data to broadcast.
 -- The fourth argument is the length of the data in bytes.
-type DirectMessageCallback = PeerID -> Int64 -> Word32 -> CString -> Int64 -> IO ()
+type DirectMessageCallback = PeerID -> Int64 -> GenesisIndex -> CString -> Int64 -> IO ()
 
 -- |FFI wrapper for invoking a 'DirectMessageCallback' function.
 foreign import ccall "dynamic" invokeDirectMessageCallback :: FunPtr DirectMessageCallback -> DirectMessageCallback
@@ -181,7 +181,7 @@ callDirectMessageCallback cbk peer mt genIndex bs = BS.useAsCStringLen bs $ \(cd
 -- The first argument is the genesis index.
 -- The first argument is a pointer to the data, which must be a catch-up
 -- status message. The second argument is the length of the data in bytes.
-type CatchUpStatusCallback = Word32 -> CString -> Int64 -> IO ()
+type CatchUpStatusCallback = GenesisIndex -> CString -> Int64 -> IO ()
 
 -- |FFI wrapper for invoking a 'CatchUpStatusCallback' function.
 foreign import ccall "dynamic" invokeCatchUpStatusCallback :: FunPtr CatchUpStatusCallback -> CatchUpStatusCallback

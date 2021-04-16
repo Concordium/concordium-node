@@ -516,6 +516,8 @@ doTerminateSkov = isShutDown >>= \case
     False -> return []
     True -> do
         lfb <- lastFinalizedBlock
+        -- Archive the state
+        archiveBlockState =<< blockState lfb
         -- Make the last finalized block the focus block
         -- and empty the pending transaction table.
         putFocusBlock lfb

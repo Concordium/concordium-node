@@ -644,7 +644,7 @@ instance (MonadLogger (PersistentTreeStateMonad pv ati bs m),
                 else return TS.ObsoleteNonce
               CredentialDeployment{} -> do
                 -- because we do not have nonce tracking for these transactions we need to check that
-                -- this transction does not already exist in the on-disk storage.
+                -- this transaction does not already exist in the on-disk storage.
                 finalizedP <- memberTransactionTable trHash
                 if finalizedP then
                   return TS.ObsoleteNonce

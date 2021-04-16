@@ -419,6 +419,10 @@ getTransactionStatus trHash =
                         return $ Just $ Finalized tsBlockHash outcome
 
 -- |Get the status of a transaction within a particular block.
+--
+-- Note that, since this does not acquire the write lock, it is possible that
+-- 'queryTransactionStatus' reports that the transaction is finalized even if it does not occur in
+-- any block currently visible in the state.
 getTransactionStatusInBlock :: TransactionHash -> BlockHash -> MVR gsconf finconf (Maybe BlockTransactionStatus)
 getTransactionStatusInBlock trHash blockHash =
     liftSkovQueryLatestResult $
@@ -438,7 +442,7 @@ getTransactionStatusInBlock trHash blockHash =
                 if tsBlockHash == blockHash
                     then
                         resolveBlock blockHash >>= \case
-                            Nothing -> return $ Just BTSNotInBlock -- should not happen
+                            Nothing -> return $ Just BTSNotInBlock -- unlikely but possible
                             Just bp -> do
                                 bs <- blockState bp
                                 outcome <- BS.getTransactionOutcome bs tsFinResult
