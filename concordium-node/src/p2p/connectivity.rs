@@ -580,7 +580,7 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     // Try to connect to any given addresses we are not connected to.
     for given in node.unconnected_given_addresses() {
         if let Err(e) = connect(node, PeerType::Node, given, None, false) {
-            warn!("Cannot establish connection to a named peer {} due to {}", given, e)
+            warn!("Cannot establish connection to a given address {}: {}", given, e)
         }
     }
 
