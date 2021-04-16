@@ -20,13 +20,7 @@ use concordium_node::{
 };
 use crypto_common::serialize::Serial;
 use failure::{bail, Error};
-use std::{
-    fs::File,
-    io::prelude::*,
-    sync::{Arc, RwLock},
-    thread,
-    time::Duration,
-};
+use std::{fs::File, io::prelude::*, sync::Arc, thread, time::Duration};
 
 fn main() -> Result<(), Error> {
     let (mut conf, app_prefs) = utils::get_config_and_logging_setup()?;
@@ -45,7 +39,7 @@ fn main() -> Result<(), Error> {
         PeerType::Node,
         stats_export_service,
         Some(data_dir_path),
-        Arc::new(RwLock::new(vec![])),
+        Arc::new(Default::default()),
     );
 
     spawn(&node, poll, None);
