@@ -6,6 +6,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 import qualified Data.Serialize as S
 import Control.Monad
@@ -193,7 +194,7 @@ emptyTransactionTable = TransactionTable {
 -- @highNonce@ should always be at least @nextNonce@ (otherwise, what transaction is pending?).
 -- If an account has no pending transactions, then it should not be in the map.
 data PendingTransactionTable = PTT {
-  _pttWithSender :: !(HM.HashMap AccountAddress (Nonce, Nonce)),
+  _pttWithSender :: !(HM.HashMap AccountAddress (Nonce, Seq.Seq Nonce)),
   -- |Pending credentials. We only store the hash because updating the
   -- pending table would otherwise be more costly with the current setup.
   _pttDeployCredential :: !(HS.HashSet TransactionHash),
@@ -206,15 +207,59 @@ makeLenses ''PendingTransactionTable
 emptyPendingTransactionTable :: PendingTransactionTable
 emptyPendingTransactionTable = PTT HM.empty HS.empty Map.empty
 
+numPendingCredentials :: PendingTransactionTable -> Int
+numPendingCredentials = HS.size . _pttDeployCredential
+
+-- |Find the next free nonce in the sequence of nonces starting at the given nonce.
+-- Concretely, @nextFreeNonce 1 [3,4,5] == 1@, @nextFreeNonce 1 [1, 3, 5] == 2@
+--
+-- The complexity of this function is log^2 in the length of the list (the
+-- additional log comes from the fact that indexing in the Seq is log(n)).
+nextFreeNonce ::
+  Nonce -- ^The starting nonce.
+  -> Seq.Seq Nonce -- ^ The sequence of used nonces.
+  -> Nonce
+nextFreeNonce def nnces = go def 0 (Seq.length nnces)
+    where go ret start end
+              | start >= end = ret
+              | otherwise =
+                let midPoint = start + (end - start) `div` 2
+                    midElement = nnces `Seq.index` fromIntegral midPoint
+                in if midElement > def + fromIntegral midPoint then go ret start midPoint
+                   else go (midElement + 1) (midPoint + 1) end
+
+-- |Insert the given nonce in the sequence, respecting the order.
+-- If the nonce already exists in the sequence do nothing and return 'Nothing'.
+--
+-- The complexity of this function is log in the length of the sequence
+insertInOrder :: Nonce -> Seq.Seq Nonce -> Maybe (Seq.Seq Nonce)
+insertInOrder new oldSeq = do
+  nexIdx <- go 0 (Seq.length oldSeq)
+  return $! Seq.insertAt nexIdx new oldSeq
+    where go start end -- return the index where the new element should be inserted
+              | start >= end = Just start
+              | otherwise =
+                let midPoint = start + (end - start) `div` 2
+                    midElement = oldSeq `Seq.index` midPoint
+                in if midElement == new then
+                     Nothing -- the element already exists
+                   else if midElement > new then go start midPoint
+                   else go (midPoint + 1) end
+
 -- |Insert an additional element in the pending transaction table.
 -- If the account does not yet exist create it.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
 -- PRECONDITION: the next nonce should be less than or equal to the transaction nonce.
-addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
-addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v = HM.alter f sender _pttWithSender in PTT{_pttWithSender = v, ..}
+addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> (PendingTransactionTable, Bool)
+addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let (nextInLine, v) = HM.alterF f sender _pttWithSender in (PTT{_pttWithSender = v, ..}, nextInLine)
   where
-        f Nothing = Just (nextNonce, nonce)
-        f (Just (l, u)) = Just (l, max u nonce)
+        f :: Maybe (Nonce, Seq.Seq Nonce) -> (Bool, Maybe (Nonce, Seq.Seq Nonce))
+        f Nothing = (True, Just (nextNonce, Seq.singleton nonce))
+        f (Just (l, known)) =
+          let x = nextFreeNonce l known
+          in case insertInOrder nonce known of
+               Nothing -> (False, Just (l, known))
+               Just newKnown -> (x == nonce, Just (l, newKnown))
         nonce = transactionNonce tx
         sender = transactionSender tx
 
@@ -225,8 +270,7 @@ addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let v
 checkedAddPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> PendingTransactionTable
 checkedAddPendingTransaction nextNonce tx pt =
   if nextNonce > nonce then pt else
-    pt & pttWithSender . at' (transactionSender tx) %~ \case Nothing -> Just (nextNonce, nonce)
-                                                             Just (l, u) -> Just (l, max u nonce)
+    fst (addPendingTransaction nextNonce tx pt)
   where nonce = transactionNonce tx
 
 -- |Extend the pending transaction table with a credential hash.
@@ -268,9 +312,12 @@ forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
         forward1 ptt WithMetadata{wmdData=NormalTransaction tr} = ptt & pttWithSender . at' (transactionSender tr) %~ upd
             where
                 upd Nothing = error "forwardPTT : forwarding transaction that is not pending"
-                upd (Just (low, high)) =
-                    assert (low == transactionNonce tr) $ assert (low <= high) $
-                        if low == high then Nothing else Just (low+1,high)
+                upd (Just (low, known)) =
+                    assert (low == transactionNonce tr) $
+                      case known of
+                        Seq.Empty -> Nothing
+                        (next Seq.:<| Seq.Empty) -> if low == next then Nothing else Just (low+1, known)
+                        (next Seq.:<| rest) -> if low == next then Just (low+1, rest) else Just (low+1, known)
         forward1 ptt WithMetadata{wmdData=CredentialDeployment{},..} = ptt & pttDeployCredential %~ upd
             where
               upd ps
@@ -292,10 +339,15 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         reverse1 :: BlockItem -> PendingTransactionTable -> PendingTransactionTable
         reverse1 WithMetadata{wmdData=NormalTransaction tr} = pttWithSender . at' (transactionSender tr) %~ upd
             where
-                upd Nothing = Just (transactionNonce tr, transactionNonce tr)
-                upd (Just (low, high)) =
+                upd Nothing = Just (transactionNonce tr, Seq.singleton (transactionNonce tr))
+                upd (Just (low, known)) =
                         assert (low == transactionNonce tr + 1) $
-                        Just (low-1,high)
+                        let newKnown =
+                              case known of
+                                Seq.Empty -> Seq.singleton (transactionNonce tr)
+                                (h Seq.:<| _) | h > transactionNonce tr -> transactionNonce tr Seq.<| known
+                                              | otherwise -> known
+                        in Just (low-1, newKnown)
         reverse1 WithMetadata{wmdData=CredentialDeployment{},..} = pttDeployCredential %~ upd
             where
               upd ps = assert (not (HS.member wmdHash ps)) $ HS.insert wmdHash ps

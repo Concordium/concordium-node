@@ -13,6 +13,7 @@ import qualified GlobalStateTests.Accounts(tests)
 import qualified GlobalStateTests.BlockHash(tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest(tests)
 import qualified GlobalStateTests.Updates(tests)
+import qualified GlobalStateTests.PendingTransactionTable(tests)
 
 atLevel :: (Word -> IO ()) -> IO ()
 atLevel a = do
@@ -35,3 +36,4 @@ main = atLevel $ \lvl -> hspec $ do
   GlobalStateTests.Instances.tests lvl
   GlobalStateTests.AccountReleaseScheduleTest.tests
   GlobalStateTests.Updates.tests
+  GlobalStateTests.PendingTransactionTable.tests

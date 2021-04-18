@@ -8,6 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.HashSet as HS
 import Data.Semigroup
+import qualified Data.Sequence as Seq
 import Control.Monad.Trans.State.Strict
 import Lens.Micro.Platform
 
@@ -79,7 +80,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         -- transactions and the transaction hash table, from which transactions
         -- are purged.  The return value is the updated set of transactions, or
         -- @Nothing@ if all transactions at this nonce have been purged.
-        purgeTxs :: Nonce -> Set.Set Transaction -> State (Maybe (Max Nonce), TransactionHashTable) (Maybe (Set.Set Transaction))
+        purgeTxs :: Nonce -> Set.Set Transaction -> State (Seq.Seq Nonce, TransactionHashTable) (Maybe (Set.Set Transaction))
         purgeTxs n ts = do
             (mmnonce, tht) <- get
             let
@@ -99,19 +100,20 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                     -- No transactions left, so remove the set and the max nonce doesn't change
                     | null tsl' = (mmnonce, Nothing)
                     -- Some transactions left, so keep the updated set and update the max nonce.
-                    | otherwise = (mmnonce <> Just (Max n), Just ts')
-            put (mmnonce', tht')
+                    | otherwise = (mmnonce Seq.|> n, Just ts')
+            put $!! (mmnonce', tht')
             return mres
         -- Purge the non-finalized transactions for a specific account.
         purgeAccount :: AccountAddress -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable) AccountNonFinalizedTransactions
         purgeAccount addr AccountNonFinalizedTransactions{..} = do
             (ptt0, trs0) <- get
             -- Purge the transactions from the transaction table.
-            let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Nothing, trs0)
+            let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Seq.empty, trs0)
             -- Update the pending transaction table.
-            let updptt (Just (Max newHigh)) (Just (low, _))
-                    | newHigh < low = Nothing
-                    | otherwise = Just (low, newHigh)
+            let updptt remainingNonces (Just (low, _)) =
+                  case Seq.dropWhileL (< low) remainingNonces of
+                    Seq.Empty -> Nothing
+                    known -> Just (low, known)
                 updptt _ _ = Nothing
                 !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
             put (ptt1, trs1)

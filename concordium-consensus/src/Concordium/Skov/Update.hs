@@ -36,7 +36,6 @@ import Concordium.Afgjort.Finalize.Types
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Skov.Statistics
-import Data.Maybe (fromMaybe)
 
 
 -- |Determine if one block is an ancestor of another.
@@ -471,7 +470,9 @@ doReceiveTransaction tr slot = unlessShutDown $ do
 -- The difference from the above function is that this function returns an already existing
 -- transaction in case of a duplicate, ensuring more sharing of transaction data.
 doReceiveTransactionInternal :: (TreeStateMonad pv m) => BlockItem -> Slot -> m (Maybe BlockItem, UpdateResult)
-doReceiveTransactionInternal tr slot =
+doReceiveTransactionInternal tr slot = do
+        -- let maxPendingTransactionsPerAccount = 100
+        -- let maxPendingCredentials = 100
         addCommitTransaction tr slot >>= \case
           Added bi@WithMetadata{..} -> do
               ptrs <- getPendingTransactions
@@ -480,20 +481,36 @@ doReceiveTransactionInternal tr slot =
                   focus <- getFocusBlock
                   st <- blockState focus
                   macct <- getAccount st $! transactionSender tx
-                  nextNonce <- fromMaybe minNonce <$> mapM getAccountNonce macct
+                  (exists, nextNonce) <- case macct of
+                    Nothing -> return (False, minNonce)
+                    Just acc -> do
+                      nn <- getAccountNonce acc
+                      -- keys <- getAccountVerificationKeys acc
+                      -- if verifyTransaction keys tx then return (ResultSuccess, nn)
+                      return (True, nn)
                   -- If a transaction with this nonce has already been run by
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.
-                  when (nextNonce <= transactionNonce tx) $
-                      putPendingTransactions $! addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
-                CredentialDeployment _ ->
-                  putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
+                  if nextNonce <= transactionNonce tx then do
+                    let (newPendingTable, nextInLine) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                    putPendingTransactions $! newPendingTable
+                    -- if this transaction was next in line then we retransmit it
+                    -- otherwise we only store it but do not transmit it to peers.
+                    return (Just bi, if exists && nextInLine then ResultSuccess else ResultUnverifiable)
+                  -- if a transaction with this nonce was already in the focus block
+                  -- then we do not retransmit it to peers. This indicates some kind of an issue and incorrect usage.
+                  else return (Just bi, ResultUnverifiable)
+                CredentialDeployment _ -> do
+                  let newTable = addPendingDeployCredential wmdHash ptrs
+                      -- newSize = numPendingCredentials newTable
+                  putPendingTransactions $! newTable
+                  return (Just bi, ResultSuccess)
                 ChainUpdate cu -> do
                     focus <- getFocusBlock
                     st <- blockState focus
                     nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
                         putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-              return (Just bi, ResultSuccess)
+                    return (Just bi, ResultSuccess)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)
