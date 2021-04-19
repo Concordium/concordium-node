@@ -115,9 +115,9 @@ impl P2PNode {
     /// exists.
     /// NB: This acquires and releases a read lock on the node's connections.
     pub fn find_conn_to(&self, addr: SocketAddr) -> Option<Token> {
-        read_or_die!(self.connections())
+        lock_or_die!(self.conn_candidates())
             .values()
-            .chain(lock_or_die!(self.conn_candidates()).values())
+            .chain(read_or_die!(self.connections()).values())
             .find_map(|conn| {
                 if conn.remote_addr() == addr {
                     Some(conn.token())
