@@ -330,7 +330,9 @@ impl P2PNode {
 
 #[derive(Debug)]
 pub enum AcceptFailureReason {
-    TooManyConnections,
+    TooManyConnections {
+        addr: SocketAddr,
+    },
     AlreadyConnectedToIP {
         ip: IpAddr,
     },
@@ -347,9 +349,13 @@ pub enum AcceptFailureReason {
 impl std::fmt::Display for AcceptFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AcceptFailureReason::TooManyConnections => {
-                f.write_str("Too many existing connections. Not accepting an additional one.")
-            }
+            AcceptFailureReason::TooManyConnections {
+                addr,
+            } => write!(
+                f,
+                "Too many existing connections. Not accepting an additional one from {}.",
+                addr
+            ),
             AcceptFailureReason::AlreadyConnectedToIP {
                 ip,
             } => write!(f, "Already connected to IP {}.", ip),
@@ -411,7 +417,9 @@ pub fn accept(
             && candidates_lock.len() + conn_read_lock.len()
                 >= node.config.hard_connection_limit as usize
         {
-            return Err(AcceptFailureReason::TooManyConnections);
+            return Err(AcceptFailureReason::TooManyConnections {
+                addr,
+            });
         }
 
         for conn in candidates_lock.values().chain(conn_read_lock.values()) {

@@ -55,10 +55,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Maximum number of incoming connections to attempt to accept per iteration
-/// of the main connection maintenance loop.
-pub const MAX_NUM_ACCEPT_ATTEMPTS: u32 = 9;
-
 /// Configuration bits applicable to a node.
 pub struct NodeConfig {
     pub no_net: bool,
@@ -87,6 +83,7 @@ pub struct NodeConfig {
     pub data_dir_path: PathBuf,
     pub max_latency: Option<u64>,
     pub hard_connection_limit: u16,
+    pub conn_requests_batch_limit: u16,
     pub catch_up_batch_limit: i64,
     pub timeout_bucket_entry_period: u64,
     pub bucket_cleanup_interval: u64,
@@ -317,6 +314,7 @@ impl P2PNode {
             },
             data_dir_path: conf.common.data_dir.clone(),
             max_latency: conf.connection.max_latency,
+            conn_requests_batch_limit: conf.connection.conn_requests_batch_limit,
             hard_connection_limit: conf.connection.hard_connection_limit,
             catch_up_batch_limit: conf.connection.catch_up_batch_limit,
             timeout_bucket_entry_period: if peer_type == PeerType::Bootstrapper {
@@ -609,6 +607,9 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         // processed all existing ones.
         let mut unprocessed_attempts = false;
 
+        // Maximum number of connection requests to process per iteration.
+        let max_num_requests = node.config.conn_requests_batch_limit;
+
         // Process network events until signalled to terminate.
         // For each loop iteration do the following in sequence
         // - check whether ther are any incoming connection requests
@@ -629,12 +630,15 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             if unprocessed_attempts || events.iter().any(|event| event.token() == SELF_TOKEN) {
                 let mut attempt_number = 0;
                 unprocessed_attempts = true;
-                while attempt_number < MAX_NUM_ACCEPT_ATTEMPTS {
+                while attempt_number < max_num_requests {
                     match node.connection_handler.socket_server.accept() {
                         Ok((socket, addr)) => {
                             if let Err(e) = accept(&node, socket, addr) {
                                 error!("{}", e);
-                                if let AcceptFailureReason::TooManyConnections = e {
+                                if let AcceptFailureReason::TooManyConnections {
+                                    addr: _,
+                                } = e
+                                {
                                     break;
                                 }
                             }
@@ -649,10 +653,10 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
                     }
                     attempt_number += 1;
                 }
-                if attempt_number >= MAX_NUM_ACCEPT_ATTEMPTS {
+                if attempt_number >= max_num_requests {
                     warn!(
-                        "Received 9 or more connections at once. Delaying accepting the remaining \
-                         ones."
+                        "Received too many connection requests at once. Delaying accepting the \
+                         remaining ones."
                     );
                 }
             }
