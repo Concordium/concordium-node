@@ -16,7 +16,7 @@ use crate::dumper::{create_dump_thread, DumpItem};
 #[cfg(feature = "staging_net")]
 use crate::plugins::staging_net::get_username_from_jwt;
 use crate::{
-    common::{get_current_stamp, P2PNodeId, P2PPeer, PeerType},
+    common::{get_current_stamp, p2p_peer::RemotePeerId, P2PNodeId, P2PPeer, PeerType},
     configuration::{self as config, Config},
     connection::{ConnChange, Connection, DeduplicationHashAlgorithm, DeduplicationQueues},
     consensus_ffi::{
@@ -197,6 +197,21 @@ impl NetworkDumper {
     }
 }
 
+/// A count of bad events indexed by peer. We use this to not spam warnings
+/// constantly and instead only emit warnings on each iteration of connection
+/// housekeeping.
+#[derive(Debug, Default)]
+pub struct BadEvents {
+    /// Number of high priority messages that were dropped because they could
+    /// not be enqueued.
+    pub dropped_high_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    /// Number of low priority messages that were dropped because they could not
+    /// be enqueued.
+    pub dropped_low_queue: Mutex<HashMap<RemotePeerId, u64>>,
+    /// Number of invalid messages received from the given peer.
+    pub invalid_messages: Mutex<HashMap<RemotePeerId, u64>>,
+}
+
 /// The central object belonging to a node in the network; it handles
 /// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
@@ -218,6 +233,9 @@ pub struct P2PNode {
     pub kvs: Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
     pub peers: RwLock<PeerList>,
+    /// Cache of bad events that we report on each connection housekeeping
+    /// interval to avoid spamming the logs in case of failure.
+    pub bad_events: BadEvents,
 }
 
 impl P2PNode {
@@ -365,6 +383,7 @@ impl P2PNode {
             is_terminated: Default::default(),
             kvs,
             peers: Default::default(),
+            bad_events: BadEvents::default(),
         });
 
         if !node.config.no_clear_bans {

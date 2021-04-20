@@ -18,6 +18,7 @@ use crate::{
         },
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
+    lock_or_die,
     p2p::{
         connectivity::{send_broadcast_message, send_direct_message},
         P2PNode,
@@ -134,7 +135,7 @@ pub fn get_baker_data(
 pub fn handle_pkt_out(
     node: &P2PNode,
     dont_relay_to: Vec<RemotePeerId>,
-    peer_id: RemotePeerId,
+    peer_id: RemotePeerId, // id of the peer that sent the message.
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> Fallible<()> {
@@ -156,32 +157,41 @@ pub fn handle_pkt_out(
         None,
     );
 
-    match if packet_type == PacketType::Transaction {
-        CALLBACK_QUEUE.send_in_low_priority_message(request)
-    } else {
-        CALLBACK_QUEUE.send_in_high_priority_message(request)
-    } {
-        Ok(_) => {
-            if packet_type == PacketType::Transaction {
-                node.stats.inbound_low_priority_consensus_inc();
-            } else {
-                node.stats.inbound_high_priority_consensus_inc();
-            }
-        }
-        Err(e) => match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
-            TrySendError::Full(_) => {
-                if packet_type == PacketType::Transaction {
+    if packet_type == PacketType::Transaction {
+        if let Err(e) = CALLBACK_QUEUE.send_in_low_priority_message(request) {
+            match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                TrySendError::Full(_) => {
                     node.stats.inbound_low_priority_consensus_drops_inc();
-                    warn!("The low priority inbound consensus queue is full!")
-                } else {
-                    node.stats.inbound_high_priority_consensus_drops_inc();
-                    warn!("The high priority inbound consensus queue is full!")
+                    lock_or_die!(node.bad_events.dropped_low_queue)
+                        .entry(peer_id)
+                        .and_modify(|x| *x += 1)
+                        .or_insert(1);
+                }
+                TrySendError::Disconnected(_) => {
+                    panic!("Low priority consensus queue has been shutdown!")
                 }
             }
-            TrySendError::Disconnected(_) => {
-                panic!("One of the inbound consensus queues has been shutdown!")
+        } else {
+            node.stats.inbound_low_priority_consensus_inc();
+        }
+    } else {
+        // high priority message
+        if let Err(e) = CALLBACK_QUEUE.send_in_high_priority_message(request) {
+            match e.downcast::<TrySendError<QueueMsg<ConsensusMessage>>>()? {
+                TrySendError::Full(_) => {
+                    node.stats.inbound_high_priority_consensus_drops_inc();
+                    lock_or_die!(node.bad_events.dropped_high_queue)
+                        .entry(peer_id)
+                        .and_modify(|x| *x += 1)
+                        .or_insert(1);
+                }
+                TrySendError::Disconnected(_) => {
+                    panic!("High priority consensus queue has been shutdown!")
+                }
             }
-        },
+        } else {
+            node.stats.inbound_high_priority_consensus_inc();
+        }
     }
 
     Ok(())
@@ -303,7 +313,10 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         debug!("Processed a {} from {}", message.variant, source_id);
     } else {
-        warn!("Couldn't process a {} due to error code {:?}", message, consensus_response,);
+        lock_or_die!(node.bad_events.invalid_messages)
+            .entry(source_id)
+            .and_modify(|x| *x += 1)
+            .or_insert(1);
     }
 
     Ok(consensus_response)
