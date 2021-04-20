@@ -334,8 +334,7 @@ impl P2PNode {
 ///   register with the poll registry return Err
 /// - Else return the new connection token that can be used to poll for incoming
 ///   data.
-pub fn accept(node: &Arc<P2PNode>) -> Fallible<Option<Token>> {
-    let (socket, addr) = node.connection_handler.socket_server.accept()?;
+pub fn accept(node: &Arc<P2PNode>, socket: TcpStream, addr: SocketAddr) -> Fallible<Option<Token>> {
     node.stats.conn_received_inc();
 
     // if we fail to read the database we allow the connection.

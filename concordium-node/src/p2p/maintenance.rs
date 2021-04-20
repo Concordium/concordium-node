@@ -38,6 +38,7 @@ use crate::{
 
 use std::{
     collections::{HashMap, HashSet},
+    io::ErrorKind,
     mem,
     net::{
         IpAddr::{self, V4, V6},
@@ -588,6 +589,7 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         let mut log_time = Instant::now();
         let mut last_buckets_cleaned = Instant::now();
         let mut last_peer_list_update = 0;
+        let mut pending_connections = false;
 
         let num_socket_threads = match node.self_peer.peer_type {
             PeerType::Bootstrapper => 1,
@@ -598,12 +600,12 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
 
         // Process network events until signalled to terminate.
         // For each loop iteration do the following in sequence
-        // - check whether ther are any incoming connection requests
+        // - check whether there are any incoming connection requests
         // - then process any connection changes, e.g., drop connections, promote to
         //   initial connections to peers, ...
         // - then read from all existing connections in parallel, using the above
         //   allocated thread pool
-        // - occassionally (dictated by the housekeeping_interval) do connection
+        // - occasionally (dictated by the housekeeping_interval) do connection
         //   housekeeping, checking whether peers and connections are active.
         while !node.is_terminated.load(Ordering::Relaxed) {
             // check for new events or wait
@@ -613,14 +615,25 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             }
 
             // check for new connections
-            for i in 0..events.iter().filter(|event| event.token() == SELF_TOKEN).count() {
-                if let Err(e) = accept(&node) {
-                    error!("{}", e)
+            if pending_connections || events.iter().any(|event| event.token() == SELF_TOKEN) {
+                pending_connections = true;
+                let mut new_connections = 0;
+                while new_connections < 9 {
+                    match node.connection_handler.socket_server.accept() {
+                        Ok((socket, addr)) => {
+                            if let Err(e) = accept(&node, socket, addr) {
+                                error!("{}", e);
+                            }
+                            new_connections += 1;
+                        }
+                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                            pending_connections = false;
+                            break;
+                        }
+                        Err(e) => error!("{}", e),
+                    }
                 }
-                if i == 9 {
-                    warn!("too many connection attempts received at once; dropping the rest");
-                    break;
-                }
+                warn!("too many connection attempts received at once");
             }
 
             for conn_change in node.connection_handler.conn_changes.changes.try_iter() {
