@@ -10,5 +10,13 @@ fi
 
 VERSION="$1"
 CONSENSUS_PROFILING="$2"
+GHC_VERSION=8.10.4
 
-DOCKER_BUILDKIT=1 docker build -f docker-compose/Dockerfile --build-arg "consensus_profiling=$CONSENSUS_PROFILING" -t "concordium/dev-node:$VERSION" --ssh default .
+docker build \
+	-f docker-compose/Dockerfile \
+	--build-arg ghc_version="${GHC_VERSION}" \
+	--build-arg "consensus_profiling=$CONSENSUS_PROFILING" \
+	--label ghc_version="${GHC_VERSION}" \
+	--label "consensus_profiling=$CONSENSUS_PROFILING" \
+	-t "concordium/dev-node:$VERSION" \
+	.

@@ -28,7 +28,7 @@ pub const APP_INFO: AppInfo = AppInfo {
 /// When we reach version 1 we should stick to major versions being for breaking
 /// changes.
 pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
-    other.major == 0 && other.minor == 5
+    other.major == 0 && other.minor == 6
 }
 
 /// Check that the other wire version is compatible with ours. See
@@ -343,6 +343,13 @@ pub struct ConnectionConfig {
         default_value = "50"
     )]
     pub hard_connection_limit: u16,
+    #[structopt(
+        long = "connection-requests-batch-limit",
+        help = "Maximum number of incoming connection requests to attempt to process per \
+                iteration.",
+        default_value = "9"
+    )]
+    pub conn_requests_batch_limit: u16,
     #[structopt(
         long = "catch-up-batch-limit",
         help = "The maximum batch size for a catch-up round.",

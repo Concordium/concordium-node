@@ -328,20 +328,76 @@ impl P2PNode {
     }
 }
 
+#[derive(Debug)]
+pub enum AcceptFailureReason {
+    TooManyConnections {
+        addr: SocketAddr,
+    },
+    AlreadyConnectedToIP {
+        ip: IpAddr,
+    },
+    DuplicateConnection {
+        addr: SocketAddr,
+    },
+    Banned,
+    SoftBanned,
+    Other {
+        err: failure::Error,
+    },
+}
+
+impl std::fmt::Display for AcceptFailureReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AcceptFailureReason::TooManyConnections {
+                addr,
+            } => write!(
+                f,
+                "Too many existing connections. Not accepting an additional one from {}.",
+                addr
+            ),
+            AcceptFailureReason::AlreadyConnectedToIP {
+                ip,
+            } => write!(f, "Already connected to IP {}.", ip),
+            AcceptFailureReason::DuplicateConnection {
+                addr,
+            } => write!(f, "Duplicate connection attempt from {}", addr),
+            AcceptFailureReason::Banned => f.write_str("Connection attempt from a banned address."),
+            AcceptFailureReason::SoftBanned => {
+                f.write_str("Connection attempt from a soft-banned address.")
+            }
+            AcceptFailureReason::Other {
+                err,
+            } => err.fmt(f),
+        }
+    }
+}
+
+impl From<failure::Error> for AcceptFailureReason {
+    fn from(err: failure::Error) -> Self {
+        Self::Other {
+            err,
+        }
+    }
+}
+
 /// Attempt to accept an incoming network connection.
-/// - If the connection is from a banned peer return Ok(None).
 /// - If an error occurs, e.g., fail to accept the socket connection, or fail to
 ///   register with the poll registry return Err
 /// - Else return the new connection token that can be used to poll for incoming
 ///   data.
-pub fn accept(node: &Arc<P2PNode>, socket: TcpStream, addr: SocketAddr) -> Fallible<Option<Token>> {
+pub fn accept(
+    node: &Arc<P2PNode>,
+    socket: TcpStream,
+    addr: SocketAddr,
+) -> Result<Token, AcceptFailureReason> {
     node.stats.conn_received_inc();
 
     // if we fail to read the database we allow the connection.
     // This is fine as long as we assume that nobody can corrupt our ban database.
     if node.is_banned(PersistedBanId::Ip(addr.ip())).unwrap_or(false) {
         warn!("Connection attempt from a banned IP {}.", addr.ip());
-        return Ok(None);
+        return Err(AcceptFailureReason::Banned);
     }
 
     // Lock the candidate list for added safety against duplicate connections
@@ -361,24 +417,30 @@ pub fn accept(node: &Arc<P2PNode>, socket: TcpStream, addr: SocketAddr) -> Falli
             && candidates_lock.len() + conn_read_lock.len()
                 >= node.config.hard_connection_limit as usize
         {
-            bail!("Too many connections, rejecting attempt from {}", addr);
+            return Err(AcceptFailureReason::TooManyConnections {
+                addr,
+            });
         }
 
         for conn in candidates_lock.values().chain(conn_read_lock.values()) {
             if conn.remote_addr().ip() == addr.ip() {
                 if node.config.disallow_multiple_peers_on_ip {
-                    bail!("Already connected to IP {}", addr.ip());
+                    return Err(AcceptFailureReason::AlreadyConnectedToIP {
+                        ip: addr.ip(),
+                    });
                 } else if conn.remote_addr().port() == addr.port()
                     || conn.remote_peer.external_port == addr.port()
                 {
-                    bail!("Duplicate connection attempt from {}; rejecting", addr);
+                    return Err(AcceptFailureReason::DuplicateConnection {
+                        addr,
+                    });
                 }
             }
         }
 
         if node.connection_handler.is_soft_banned(addr) {
             warn!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
-            return Ok(None);
+            return Err(AcceptFailureReason::SoftBanned);
         }
     }
 
@@ -397,7 +459,7 @@ pub fn accept(node: &Arc<P2PNode>, socket: TcpStream, addr: SocketAddr) -> Falli
     let conn = Connection::new(node, socket, token, remote_peer, false)?;
     candidates_lock.insert(conn.token(), conn);
 
-    Ok(Some(token))
+    Ok(token)
 }
 
 /// Connect to another node with the specified address and optionally peer id,
