@@ -492,12 +492,11 @@ doReceiveTransactionInternal tr slot = do
                   -- the focus block, then we do not need to add it to the
                   -- pending transactions.  Otherwise, we do.
                   if nextNonce <= transactionNonce tx then do
-                    let (newPendingTable, NonceInfo{..}) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
+                    let (newPendingTable, nextInLine) = addPendingTransaction nextNonce WithMetadata{wmdData=tx,..} ptrs
                     putPendingTransactions $! newPendingTable
                     -- if this transaction was next in line then we retransmit it
                     -- otherwise we only store it but do not transmit it to peers.
-                    let success = exists && nextInLine && not isDuplicate
-                    return (Just bi, if success then ResultSuccess else ResultUnverifiable)
+                    return (Just bi, if exists && nextInLine then ResultSuccess else ResultUnverifiable)
                   -- if a transaction with this nonce was already in the focus block
                   -- then we do not retransmit it to peers. This indicates some kind of an issue and incorrect usage.
                   else return (Just bi, ResultUnverifiable)
@@ -510,8 +509,10 @@ doReceiveTransactionInternal tr slot = do
                     focus <- getFocusBlock
                     st <- blockState focus
                     nextSN <- getNextUpdateSequenceNumber st (updateType (uiPayload cu))
-                    when (nextSN <= updateSeqNumber (uiHeader cu)) $
-                        putPendingTransactions $! addPendingUpdate nextSN cu ptrs
-                    return (Just bi, ResultSuccess)
+                    if (nextSN <= updateSeqNumber (uiHeader cu)) then do
+                        let (newPending, nextInLine) = addPendingUpdate nextSN cu ptrs
+                        putPendingTransactions $! newPending
+                        return (Just bi, if nextInLine then ResultSuccess else ResultUnverifiable)
+                    else return (Just bi, ResultUnverifiable)
           Duplicate tx -> return (Just tx, ResultDuplicate)
           ObsoleteNonce -> return (Nothing, ResultStale)

@@ -7,7 +7,6 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.HashSet as HS
-import Data.Semigroup
 import qualified Data.Sequence as Seq
 import Control.Monad.Trans.State.Strict
 import Lens.Micro.Platform
@@ -142,7 +141,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 (dc1, trs1) = HS.foldl' purgeDC (dc0, trs0) dc0
             _1 . pttDeployCredential .= dc1
             _2 .= trs1
-        purgeUpds :: UpdateSequenceNumber -> Set.Set (WithMetadata UpdateInstruction) -> State (Maybe (Max UpdateSequenceNumber), TransactionHashTable) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
+        purgeUpds :: UpdateSequenceNumber -> Set.Set (WithMetadata UpdateInstruction) -> State (Seq.Seq UpdateSequenceNumber, TransactionHashTable) (Maybe (Set.Set (WithMetadata UpdateInstruction)))
         purgeUpds sn uis = state $ \(mmsn, tht) ->
             let
                 purgeUpd (uisacc, thtacc) ui
@@ -154,14 +153,15 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
                 (uisl', tht') = foldl' purgeUpd ([], tht) (Set.toDescList uis)
                 (!mmsn', !mres)
                     | null uisl' = (mmsn, Nothing)
-                    | otherwise = (mmsn <> Just (Max sn), Just (Set.fromDistinctAscList uisl'))
+                    | otherwise = (mmsn Seq.|> sn, Just (Set.fromDistinctAscList uisl'))
             in (mres, (mmsn', tht'))
         purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable) NonFinalizedChainUpdates
         purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0) ->
-            let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Nothing, trs0)
-                updptt (Just (Max newHigh)) (Just (low, _))
-                    | newHigh < low = Nothing
-                    | otherwise = Just (low, newHigh)
+            let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Seq.empty, trs0)
+                updptt remainingSns (Just (low, _)) =
+                  case Seq.dropWhileL (< low) remainingSns of
+                    Seq.Empty -> Nothing
+                    known -> Just (low, known)
                 updptt _ _ = Nothing
                 !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
             in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1))

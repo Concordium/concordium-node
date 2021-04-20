@@ -199,7 +199,7 @@ data PendingTransactionTable = PTT {
   -- pending table would otherwise be more costly with the current setup.
   _pttDeployCredential :: !(HS.HashSet TransactionHash),
   -- |Pending update instructions. We record the next and high sequence numbers.
-  _pttUpdates :: !(Map.Map UpdateType (UpdateSequenceNumber, UpdateSequenceNumber))
+  _pttUpdates :: !(Map.Map UpdateType (UpdateSequenceNumber, Seq.Seq UpdateSequenceNumber))
   } deriving(Eq, Show)
 
 makeLenses ''PendingTransactionTable
@@ -252,23 +252,24 @@ data NonceInfo = NonceInfo { nextInLine :: Bool, isDuplicate :: Bool }
 -- If the account does not yet exist create it.
 -- Returns
 --   - the resulting pending transaction table,
---   - whether the transaction nonce is the next in line for the table,
---   - whether the table already contains an transaction that has the input transaction's nonce.
+--   - a boolean indicating whether
+--     * the transaction nonce is the next in line for the table, and
+--     * the table does not already contain a transaction that has the input transaction's nonce.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
 -- PRECONDITION: the next nonce should be less than or equal to the transaction nonce.
-addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> (PendingTransactionTable, NonceInfo)
-addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) (PTT{_pttWithSender = v, ..}, nonceInfo)
+addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> (PendingTransactionTable, Bool)
+addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) (PTT{_pttWithSender = v, ..}, nextInLine)
   where
-        f :: Maybe (Nonce, Seq.Seq Nonce) -> (NonceInfo, Maybe (Nonce, Seq.Seq Nonce))
-        f Nothing = (NonceInfo { nextInLine = True, isDuplicate = False }, Just (nextNonce, Seq.singleton nonce))
+        f :: Maybe (Nonce, Seq.Seq Nonce) -> (Bool, Maybe (Nonce, Seq.Seq Nonce))
+        f Nothing = (True, Just (nextNonce, Seq.singleton nonce))
         f (Just (l, known)) =
-          let x = nextFreeNonce l known
+          let nextFree = nextFreeNonce l known
           in case insertInOrder nonce known of
-               Nothing -> (NonceInfo { nextInLine = False, isDuplicate = True }, Just (l, known))
-               Just newKnown -> (NonceInfo { nextInLine = x == nonce, isDuplicate = False }, Just (l, newKnown))
+               Nothing -> (False, Just (l, known))
+               Just newKnown -> (nextFree == nonce, Just (l, newKnown))
         nonce = transactionNonce tx
         sender = transactionSender tx
-        (nonceInfo, v) = HM.alterF f sender _pttWithSender
+        (nextInLine, v) = HM.alterF f sender _pttWithSender
 
 -- |Insert an additional element in the pending transaction table.
 -- Does nothing if the next nonce is greater than the transaction nonce.
@@ -293,13 +294,19 @@ addPendingUpdate ::
   -- ^Next sequence number at the last finalized block
   -> UpdateInstruction
   -> PendingTransactionTable
-  -> PendingTransactionTable
-addPendingUpdate nextSN ui ptt = assert (nextSN <= sn) $ ptt & pttUpdates . at' ut %~ f
+  -> (PendingTransactionTable, Bool)
+addPendingUpdate nextSN ui PTT{..} = assert (nextSN <= sn) (PTT{_pttUpdates = v, ..}, nextInLine)
   where
-    f Nothing = Just (nextSN, sn)
-    f (Just (l, u)) = Just (l, max u sn)
+    f :: Maybe (UpdateSequenceNumber, Seq.Seq UpdateSequenceNumber) -> (Bool, Maybe (UpdateSequenceNumber, Seq.Seq UpdateSequenceNumber))
+    f Nothing = (True, Just (nextSN, Seq.singleton sn))
+    f (Just (l, known)) =
+      let nextFree = nextFreeNonce l known
+      in case insertInOrder sn known of
+        Nothing -> (False, Just (l, known))
+        Just newKnown -> (nextFree == sn, Just (l, newKnown))
     sn = updateSeqNumber (uiHeader ui)
     ut = updateType (uiPayload ui)
+    (nextInLine, v) = Map.alterF f ut _pttUpdates
 
 -- |Add an update instruction to the pending transaction table, checking
 -- that its sequence number is high enough.  (Does nothing if it is not.)
@@ -307,7 +314,7 @@ addPendingUpdate nextSN ui ptt = assert (nextSN <= sn) $ ptt & pttUpdates . at' 
 checkedAddPendingUpdate :: UpdateSequenceNumber -> UpdateInstruction -> PendingTransactionTable -> PendingTransactionTable
 checkedAddPendingUpdate nextSN ui ptt
     | nextSN > updateSeqNumber (uiHeader ui) = ptt
-    | otherwise = addPendingUpdate nextSN ui ptt
+    | otherwise = fst $ addPendingUpdate nextSN ui ptt
 
 -- |Update the pending transaction table by considering the supplied 'BlockItem's
 -- as no longer pending. The 'BlockItem's must be ordered correctly with respect
@@ -333,9 +340,12 @@ forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
         forward1 ptt WithMetadata{wmdData=ChainUpdate{..}} = ptt & pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd
             where
                 upd Nothing = error "forwardPTT : forwarding a block item that is not pending"
-                upd (Just (low, high)) =
-                    assert (low == updateSeqNumber (uiHeader biUpdate)) $ assert (low <= high) $
-                      if low == high then Nothing else Just (low+1, high)
+                upd (Just (low, known)) =
+                    assert (low == updateSeqNumber (uiHeader biUpdate)) $
+                      case known of
+                        Seq.Empty -> Nothing
+                        (next Seq.:<| Seq.Empty) -> if low == next then Nothing else Just (low+1, known)
+                        (next Seq.:<| rest) -> if low == next then Just (low+1, rest) else Just (low+1, known)
 
 -- |Update the pending transaction table by considering the supplied 'BlockItem's
 -- pending again. The 'BlockItem's must be ordered correctly with respect
@@ -361,7 +371,12 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         reverse1 WithMetadata{wmdData=ChainUpdate{..}} = pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd
             where
                 sn = updateSeqNumber (uiHeader biUpdate)
-                upd Nothing = Just (sn, sn)
-                upd (Just (low, high)) =
+                upd Nothing = Just (sn, Seq.singleton sn)
+                upd (Just (low, known)) =
                         assert (low == sn + 1) $
-                        Just (low - 1, high)
+                        let newKnown =
+                              case known of
+                                Seq.Empty -> Seq.singleton sn
+                                (h Seq.:<| _) | h > sn -> sn Seq.<| known
+                                              | otherwise -> known
+                        in Just (low - 1, newKnown)
