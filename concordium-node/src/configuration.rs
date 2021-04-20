@@ -344,6 +344,13 @@ pub struct ConnectionConfig {
     )]
     pub hard_connection_limit: u16,
     #[structopt(
+        long = "connection-requests-batch-limit",
+        help = "Maximum number of incoming connection requests to attempt to process per \
+                iteration.",
+        default_value = "9"
+    )]
+    pub conn_requests_batch_limit: u16,
+    #[structopt(
         long = "catch-up-batch-limit",
         help = "The maximum batch size for a catch-up round.",
         default_value = "50"
