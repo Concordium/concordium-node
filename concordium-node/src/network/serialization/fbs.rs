@@ -389,7 +389,7 @@ fn serialize_request(
                 .collect::<Vec<flatbuffers::WIPOffset<network::BlockHash>>>();
             builder
                 .start_vector::<flatbuffers::WIPOffset<network::BlockHash>>(genesis_blocks.len());
-            for offset in genesis_blocks.iter() {
+            for offset in genesis_blocks.iter().rev() {
                 builder.push(*offset);
             }
             let genesis_blocks_offset = Some(builder.end_vector(genesis_blocks.len()));
