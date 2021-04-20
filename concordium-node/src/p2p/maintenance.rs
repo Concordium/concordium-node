@@ -28,7 +28,7 @@ use crate::{
     network::{Buckets, NetworkId, Networks},
     p2p::{
         bans::BanId,
-        connectivity::{accept, connect, connection_housekeeping, SELF_TOKEN},
+        connectivity::{accept, connect, connection_housekeeping, AcceptFailureReason, SELF_TOKEN},
         peers::check_peers,
     },
     plugins::consensus::{check_peer_states, update_peer_list},
@@ -39,6 +39,7 @@ use crate::{
 
 use std::{
     collections::{HashMap, HashSet},
+    io::ErrorKind,
     mem,
     net::{
         IpAddr::{self, V4, V6},
@@ -53,6 +54,10 @@ use std::{
     thread::JoinHandle,
     time::{Duration, Instant},
 };
+
+/// Maximum number of incoming connections to attempt to accept per iteration
+/// of the main connection maintenance loop.
+pub const MAX_NUM_ACCEPT_ATTEMPTS: u32 = 9;
 
 /// Configuration bits applicable to a node.
 pub struct NodeConfig {
@@ -133,7 +138,8 @@ pub struct ConnectionHandler {
 impl ConnectionHandler {
     fn new(conf: &Config, socket_server: TcpListener) -> Self {
         let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
-        let (sndr, rcvr) = crossbeam_channel::bounded(conf.connection.desired_nodes as usize);
+        let (sndr, rcvr) =
+            crossbeam_channel::bounded(conf.connection.hard_connection_limit as usize);
         let conn_changes = ConnChanges {
             changes:  rcvr,
             notifier: sndr,
@@ -597,6 +603,12 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
         let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
         let poll_interval = Duration::from_millis(node.config.poll_interval);
 
+        // A flag indicating whether there are unprocessed incoming connection attempts.
+        // We only process a bounded number of them each iteration of the loop below,
+        // and due to the way mio works we might not get new events until we've
+        // processed all existing ones.
+        let mut unprocessed_attempts = false;
+
         // Process network events until signalled to terminate.
         // For each loop iteration do the following in sequence
         // - check whether ther are any incoming connection requests
@@ -614,13 +626,34 @@ pub fn spawn(node_ref: &Arc<P2PNode>, mut poll: Poll, consensus: Option<Consensu
             }
 
             // check for new connections
-            for i in 0..events.iter().filter(|event| event.token() == SELF_TOKEN).count() {
-                if let Err(e) = accept(&node) {
-                    error!("{}", e)
+            if unprocessed_attempts || events.iter().any(|event| event.token() == SELF_TOKEN) {
+                let mut attempt_number = 0;
+                unprocessed_attempts = true;
+                while attempt_number < MAX_NUM_ACCEPT_ATTEMPTS {
+                    match node.connection_handler.socket_server.accept() {
+                        Ok((socket, addr)) => {
+                            if let Err(e) = accept(&node, socket, addr) {
+                                error!("{}", e);
+                                if let AcceptFailureReason::TooManyConnections = e {
+                                    break;
+                                }
+                            }
+                        }
+                        Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                            unprocessed_attempts = false;
+                            break;
+                        }
+                        Err(e) => {
+                            error!("{}", e);
+                        }
+                    }
+                    attempt_number += 1;
                 }
-                if i == 9 {
-                    warn!("too many connection attempts received at once; dropping the rest");
-                    break;
+                if attempt_number >= MAX_NUM_ACCEPT_ATTEMPTS {
+                    warn!(
+                        "Received 9 or more connections at once. Delaying accepting the remaining \
+                         ones."
+                    );
                 }
             }
 
