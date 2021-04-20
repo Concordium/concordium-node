@@ -246,22 +246,29 @@ insertInOrder new oldSeq = do
                    else if midElement > new then go start midPoint
                    else go (midPoint + 1) end
 
+data NonceInfo = NonceInfo { nextInLine :: Bool, isDuplicate :: Bool }
+
 -- |Insert an additional element in the pending transaction table.
 -- If the account does not yet exist create it.
+-- Returns
+--   - the resulting pending transaction table,
+--   - whether the transaction nonce is the next in line for the table,
+--   - whether the table already contains an transaction that has the input transaction's nonce.
 -- NB: This only updates the pending table, and does not ensure that invariants elsewhere are maintained.
 -- PRECONDITION: the next nonce should be less than or equal to the transaction nonce.
-addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> (PendingTransactionTable, Bool)
-addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) $ let (nextInLine, v) = HM.alterF f sender _pttWithSender in (PTT{_pttWithSender = v, ..}, nextInLine)
+addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> (PendingTransactionTable, NonceInfo)
+addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) (PTT{_pttWithSender = v, ..}, nonceInfo)
   where
-        f :: Maybe (Nonce, Seq.Seq Nonce) -> (Bool, Maybe (Nonce, Seq.Seq Nonce))
-        f Nothing = (True, Just (nextNonce, Seq.singleton nonce))
+        f :: Maybe (Nonce, Seq.Seq Nonce) -> (NonceInfo, Maybe (Nonce, Seq.Seq Nonce))
+        f Nothing = (NonceInfo { nextInLine = True, isDuplicate = False }, Just (nextNonce, Seq.singleton nonce))
         f (Just (l, known)) =
           let x = nextFreeNonce l known
           in case insertInOrder nonce known of
-               Nothing -> (False, Just (l, known))
-               Just newKnown -> (x == nonce, Just (l, newKnown))
+               Nothing -> (NonceInfo { nextInLine = False, isDuplicate = True }, Just (l, known))
+               Just newKnown -> (NonceInfo { nextInLine = x == nonce, isDuplicate = False }, Just (l, newKnown))
         nonce = transactionNonce tx
         sender = transactionSender tx
+        (nonceInfo, v) = HM.alterF f sender _pttWithSender
 
 -- |Insert an additional element in the pending transaction table.
 -- Does nothing if the next nonce is greater than the transaction nonce.

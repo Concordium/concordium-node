@@ -76,7 +76,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         -- are trying to remove is either finalized or unknown.
         removable _ = False
         -- Purge the set of pending transactions at a given nonce.  The state
-        -- tracks the maximum nonce (if any) for which there are still pending
+        -- tracks the sequence of nonces for which there are still pending
         -- transactions and the transaction hash table, from which transactions
         -- are purged.  The return value is the updated set of transactions, or
         -- @Nothing@ if all transactions at this nonce have been purged.
