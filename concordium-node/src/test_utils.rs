@@ -96,7 +96,13 @@ pub fn wait_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
         .expect("Could not delete node's data directory");
 }
 
-pub fn dummy_regenesis_blocks() -> Vec<BlockHash> { vec![BlockHash::from([0u8; SHA256 as usize])] }
+pub fn dummy_regenesis_blocks() -> Vec<BlockHash> {
+    vec![
+        BlockHash::from([0u8; SHA256 as usize]),
+        BlockHash::from([1u8; SHA256 as usize]),
+        BlockHash::from([2u8; SHA256 as usize]),
+    ]
+}
 
 /// Creates a `P2PNode` for test purposes
 /// This creates a temporary directory for the node's config and data
