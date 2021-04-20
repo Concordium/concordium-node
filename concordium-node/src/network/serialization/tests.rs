@@ -45,7 +45,7 @@ test_s11n!(
         remote_port:    1234,
         networks:       [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
         node_version:   Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-        wire_versions:  vec![0],
+        wire_versions:  vec![0, 1, 2],
         genesis_blocks: dummy_regenesis_blocks(),
         proof:          Vec::new(),
     }))

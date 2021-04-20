@@ -111,7 +111,10 @@ impl Connection {
             if common_blocks != our_blocks.len() && common_blocks != handshake.genesis_blocks.len()
             {
                 bail!(
-                    "Rejecting handshake: Didn't find a common prefix on the genesis block hashes."
+                    "Rejecting handshake: Didn't find a common prefix on the genesis block \
+                     hashes.\nOur blocks: {:?}\nTheir blocks:{:?}",
+                    our_blocks.clone(),
+                    handshake.genesis_blocks
                 );
             }
         }
