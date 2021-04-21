@@ -210,13 +210,18 @@ emptyPendingTransactionTable = PTT HM.empty HS.empty Map.empty
 numPendingCredentials :: PendingTransactionTable -> Int
 numPendingCredentials = HS.size . _pttDeployCredential
 
+numPendingTransactions :: PendingTransactionTable -> Int
+numPendingTransactions table = numPendingCredentials table + countNonces (_pttWithSender table) + countNonces (_pttUpdates table)
+  where countNonces :: Foldable (m a) => m a (b, Seq.Seq c) -> Int 
+        countNonces = foldl' (\s (_, ns) -> s + length ns) 0
+
 -- |Find the next free nonce (or sequence number) in the sequence of nonces starting at the given nonce.
 -- Concretely, @nextFreeNonce 1 [3,4,5] == 1@, @nextFreeNonce 1 [1, 3, 5] == 2@
 --
 -- The complexity of this function is log^2 in the length of the list (the
 -- additional log comes from the fact that indexing in the Seq is log(n)).
 nextFreeNonce :: (Ord n, Num n)
-  => n-- ^The starting nonce.
+  => n -- ^The starting nonce.
   -> Seq.Seq n -- ^ The sequence of used nonces.
   -> n
 nextFreeNonce def nnces = go def 0 (Seq.length nnces)

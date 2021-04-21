@@ -461,9 +461,15 @@ doStoreBlock pb@GB.PendingBlock{..} = unlessShutDown $ do
 --   * 'ResultShutDown' which indicates that consensus was shut down, and so the transaction was not added.
 doReceiveTransaction :: (TreeStateMonad pv m, TimeMonad m, SkovQueryMonad pv m) => BlockItem -> Slot -> m UpdateResult
 doReceiveTransaction tr slot = unlessShutDown $ do
-  (_, ur) <- doReceiveTransactionInternal tr slot
-  when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
-  return ur
+  -- Don't accept the transaction if there are too many pending transactions.
+  pendingNum <- numPendingTransactions <$> getPendingTransactions
+  maxPendingNum <- rpMaxPendingTransactionNum <$> getRuntimeParameters
+  if pendingNum > maxPendingNum
+  then return ResultUnverifiable
+  else do
+    (_, ur) <- doReceiveTransactionInternal tr slot
+    when (ur == ResultSuccess) $ purgeTransactionTable False =<< currentTime
+    return ur
 
 -- |Add a transaction to the transaction table.  The 'Slot' should be
 -- the slot number of the block that the transaction was received with.

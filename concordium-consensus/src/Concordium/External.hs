@@ -305,6 +305,7 @@ startConsensus ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Block construction timeout in milliseconds
            -> Word64 -- ^Maximum allowed time difference between slot time and a transaction's expiry time
+           -> Word64 -- ^Maximum number of pending transactions that are allowed to be in the pending table a given time
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> Word64 -- ^Number of seconds between transaction table purging runs
@@ -321,7 +322,7 @@ startConsensus ::
            -> CString -> Int64 -- ^Database connection string. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensus maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensus maxBlock timeout maxTimeToExpiry maxPendingTransactionNum insertionsBeforePurge transactionsKeepAlive transactionsPurgingDelay gdataC gdataLenC bidC bidLenC bcbk cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         bdata <- BS.packCStringLen (bidC, fromIntegral bidLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
@@ -335,7 +336,8 @@ startConsensus maxBlock timeout maxTimeToExpiry insertionsBeforePurge transactio
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+              rpMaxPendingTransactionNum = fromIntegral maxPendingTransactionNum
             }
         case (runGet getVersionedGenesisData gdata, AE.eitherDecodeStrict bdata) of
             (Right genData, Right bid) -> do
@@ -388,6 +390,7 @@ startConsensusPassive ::
            Word64 -- ^Maximum block size.
            -> Word64 -- ^Block construction timeout in milliseconds
            -> Word64 -- ^Maximum allowed time difference between slot time and a transaction's expiry time
+           -> Word64 -- ^Maximum number of pending transactions that are allowed to be in the pending table a given time
            -> Word64 -- ^Insertions before purging of transactions
            -> Word64 -- ^Time in seconds during which a transaction can't be purged
            -> Word64 -- ^Number of seconds between transaction table purging runs
@@ -402,7 +405,7 @@ startConsensusPassive ::
            -> CString -> Int64 -- ^Connection string to access the database. If length is 0 don't do logging.
            -> Ptr (StablePtr ConsensusRunner)
            -> IO Int64
-startConsensusPassive timeout maxTimeToExpiry maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
+startConsensusPassive timeout maxTimeToExpiry maxPendingTransactionNum maxBlock insertionsBeforePurge transactionsPurgingDelay transactionsKeepAlive gdataC gdataLenC cucbk regenesisArcPtr freeRegenesisArc regenesisCB maxLogLevel lcbk appDataC appDataLenC connStringPtr connStringLen runnerPtrPtr = handleStartExceptions logM $ do
         gdata <- BS.packCStringLen (gdataC, fromIntegral gdataLenC)
         appData <- peekCStringLen (appDataC, fromIntegral appDataLenC)
         let runtimeParams = RuntimeParameters {
@@ -415,7 +418,8 @@ startConsensusPassive timeout maxTimeToExpiry maxBlock insertionsBeforePurge tra
               rpInsertionsBeforeTransactionPurge = fromIntegral insertionsBeforePurge,
               rpTransactionsKeepAliveTime = TransactionTime transactionsKeepAlive,
               rpTransactionsPurgingDelay = fromIntegral transactionsPurgingDelay,
-              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry
+              rpMaxTimeToExpiry = fromIntegral maxTimeToExpiry,
+              rpMaxPendingTransactionNum = fromIntegral maxPendingTransactionNum
             }
         case runGet getVersionedGenesisData gdata of
             Right genData -> do
@@ -1148,8 +1152,8 @@ importBlocks cptr cstr len = do
   logm External LLDebug "Done importing file."
   return ret
 
-foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
-foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensus :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> CString -> Int64 -> FunPtr BroadcastCallback -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 -> CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
+foreign export ccall startConsensusPassive :: Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> Word64 -> CString -> Int64 -> FunPtr CatchUpStatusCallback -> Ptr () -> FunPtr (Ptr () -> IO ()) -> FunPtr RegenesisCallback -> Word8 -> FunPtr LogCallback -> CString -> Int64 ->CString -> Int64 -> Ptr (StablePtr ConsensusRunner) -> IO Int64
 foreign export ccall stopConsensus :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall startBaker :: StablePtr ConsensusRunner -> IO ()
 foreign export ccall stopBaker :: StablePtr ConsensusRunner -> IO ()
