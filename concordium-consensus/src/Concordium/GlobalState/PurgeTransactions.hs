@@ -16,7 +16,7 @@ import Concordium.Types.Transactions
 import Concordium.Types
 import Concordium.Types.Updates
 
-import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.TransactionTable hiding (updatePttEntry)
 
 type TransactionHashTable = HM.HashMap TransactionHash (BlockItem, TransactionStatus)
 
