@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 
-set -ex
+set -euxo pipefail
 
-version=$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml) # extract and unquote value of the first occurrence of a 'version' key in Cargo.toml
-
+image_tag="${IMAGE_TAG}"
 base_image_tag="${BASE_IMAGE_TAG}"
 static_libraries_image_tag="${STATIC_LIBRARIES_IMAGE_TAG}"
 genesis_ref="${GENESIS_REF}"
@@ -22,14 +21,14 @@ DOCKER_BUILDKIT=1 docker build \
   --label ghc_version="${ghc_version}" \
   --label genesis_ref="${genesis_ref}" \
   --label genesis_path="${genesis_path}" \
-  -t "concordium/staging-client:${version}" \
+  -t "concordium/staging-client:${image_tag}" \
   -f scripts/distribution/stagenet.Dockerfile \
   --ssh default \
   --no-cache \
   .
 
-docker save "concordium/staging-client:${version}" | gzip > "staging-client-${version}.tar.gz"
-echo "${version}" > VERSION
+docker save "concordium/staging-client:${image_tag}" | gzip > "staging-client-${image_tag}.tar.gz"
+echo "${image_tag}" > VERSION
 
-aws s3 cp "staging-client-${version}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+aws s3 cp "staging-client-${image_tag}.tar.gz" s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 aws s3 cp VERSION s3://distribution.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers

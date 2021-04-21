@@ -10,6 +10,7 @@ pipeline {
             steps {
                 sshagent (credentials: ['jenkins-gitlab-ssh']) {
                     sh '''\
+                        IMAGE_TAG="${image_tag}" \
                         BASE_IMAGE_TAG="${base_image_tag}" \
                         STATIC_LIBRARIES_IMAGE_TAG="${static_libraries_image_tag}" \
                         GHC_VERSION="${ghc_version}" \
