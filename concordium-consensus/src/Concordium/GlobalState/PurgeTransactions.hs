@@ -108,13 +108,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             (ptt0, trs0) <- get
             -- Purge the transactions from the transaction table.
             let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Seq.empty, trs0)
-            -- Update the pending transaction table.
-            let updptt remainingNonces (Just (low, _)) =
-                  case Seq.dropWhileL (< low) remainingNonces of
-                    Seq.Empty -> Nothing
-                    known -> Just (low, known)
-                updptt _ _ = Nothing
-                !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
+                !ptt1 = ptt0 & pttWithSender . at' addr %~ updatePttEntry mmax
             put (ptt1, trs1)
             return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
         -- Purge the deploy credential transactions that are pending.
@@ -158,12 +152,7 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
         purgeUpdates :: UpdateType -> NonFinalizedChainUpdates -> State (PendingTransactionTable, TransactionHashTable) NonFinalizedChainUpdates
         purgeUpdates uty nfcu@NonFinalizedChainUpdates{..} = state $ \(ptt0, trs0) ->
             let (newNFCUMap, (mmax, !uis1)) = runState (Map.traverseMaybeWithKey purgeUpds _nfcuMap) (Seq.empty, trs0)
-                updptt remainingSns (Just (low, _)) =
-                  case Seq.dropWhileL (< low) remainingSns of
-                    Seq.Empty -> Nothing
-                    known -> Just (low, known)
-                updptt _ _ = Nothing
-                !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
+                !ptt1 = ptt0 & pttUpdates . at' uty %~ updatePttEntry mmax
             in (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1))
         purge = do
             -- Purge each account
@@ -180,4 +169,15 @@ purgeTables lastFinSlot oldestArrivalTime currentTime TransactionTable{..} ptabl
             _ttNonFinalizedTransactions = newNFT,
             _ttNonFinalizedChainUpdates = newNFCU
         }
-        
+
+-- Helper function for updating an entry in the pending transaction table
+-- that is used by purgeAccount and purgeUpdate
+updatePttEntry :: Ord n 
+               => Seq.Seq n 
+               -> Maybe (n, b)
+               -> Maybe (n, Seq.Seq n)
+updatePttEntry remainingNs (Just (low, _)) =
+  case Seq.dropWhileL (< low) remainingNs of
+    Seq.Empty -> Nothing
+    known -> Just (low, known)
+updatePttEntry _ _ = Nothing

@@ -210,15 +210,15 @@ emptyPendingTransactionTable = PTT HM.empty HS.empty Map.empty
 numPendingCredentials :: PendingTransactionTable -> Int
 numPendingCredentials = HS.size . _pttDeployCredential
 
--- |Find the next free nonce in the sequence of nonces starting at the given nonce.
+-- |Find the next free nonce (or sequence number) in the sequence of nonces starting at the given nonce.
 -- Concretely, @nextFreeNonce 1 [3,4,5] == 1@, @nextFreeNonce 1 [1, 3, 5] == 2@
 --
 -- The complexity of this function is log^2 in the length of the list (the
 -- additional log comes from the fact that indexing in the Seq is log(n)).
-nextFreeNonce ::
-  Nonce -- ^The starting nonce.
-  -> Seq.Seq Nonce -- ^ The sequence of used nonces.
-  -> Nonce
+nextFreeNonce :: (Ord n, Num n)
+  => n-- ^The starting nonce.
+  -> Seq.Seq n -- ^ The sequence of used nonces.
+  -> n
 nextFreeNonce def nnces = go def 0 (Seq.length nnces)
     where go ret start end
               | start >= end = ret
@@ -232,7 +232,7 @@ nextFreeNonce def nnces = go def 0 (Seq.length nnces)
 -- If the nonce already exists in the sequence do nothing and return 'Nothing'.
 --
 -- The complexity of this function is log in the length of the sequence
-insertInOrder :: Nonce -> Seq.Seq Nonce -> Maybe (Seq.Seq Nonce)
+insertInOrder :: Ord n => n -> Seq.Seq n -> Maybe (Seq.Seq n)
 insertInOrder new oldSeq = do
   nexIdx <- go 0 (Seq.length oldSeq)
   return $! Seq.insertAt nexIdx new oldSeq
@@ -246,8 +246,6 @@ insertInOrder new oldSeq = do
                    else if midElement > new then go start midPoint
                    else go (midPoint + 1) end
 
-data NonceInfo = NonceInfo { nextInLine :: Bool, isDuplicate :: Bool }
-
 -- |Insert an additional element in the pending transaction table.
 -- If the account does not yet exist create it.
 -- Returns
@@ -259,17 +257,9 @@ data NonceInfo = NonceInfo { nextInLine :: Bool, isDuplicate :: Bool }
 -- PRECONDITION: the next nonce should be less than or equal to the transaction nonce.
 addPendingTransaction :: TransactionData t => Nonce -> t -> PendingTransactionTable -> (PendingTransactionTable, Bool)
 addPendingTransaction nextNonce tx PTT{..} = assert (nextNonce <= nonce) (PTT{_pttWithSender = v, ..}, nextInLine)
-  where
-        f :: Maybe (Nonce, Seq.Seq Nonce) -> (Bool, Maybe (Nonce, Seq.Seq Nonce))
-        f Nothing = (True, Just (nextNonce, Seq.singleton nonce))
-        f (Just (l, known)) =
-          let nextFree = nextFreeNonce l known
-          in case insertInOrder nonce known of
-               Nothing -> (False, Just (l, known))
-               Just newKnown -> (nextFree == nonce, Just (l, newKnown))
-        nonce = transactionNonce tx
+  where nonce = transactionNonce tx
         sender = transactionSender tx
-        (nextInLine, v) = HM.alterF f sender _pttWithSender
+        (nextInLine, v) = HM.alterF (updatePttEntry nextNonce nonce) sender _pttWithSender
 
 -- |Insert an additional element in the pending transaction table.
 -- Does nothing if the next nonce is greater than the transaction nonce.
@@ -297,16 +287,9 @@ addPendingUpdate ::
   -> (PendingTransactionTable, Bool)
 addPendingUpdate nextSN ui PTT{..} = assert (nextSN <= sn) (PTT{_pttUpdates = v, ..}, nextInLine)
   where
-    f :: Maybe (UpdateSequenceNumber, Seq.Seq UpdateSequenceNumber) -> (Bool, Maybe (UpdateSequenceNumber, Seq.Seq UpdateSequenceNumber))
-    f Nothing = (True, Just (nextSN, Seq.singleton sn))
-    f (Just (l, known)) =
-      let nextFree = nextFreeNonce l known
-      in case insertInOrder sn known of
-        Nothing -> (False, Just (l, known))
-        Just newKnown -> (nextFree == sn, Just (l, newKnown))
     sn = updateSeqNumber (uiHeader ui)
     ut = updateType (uiPayload ui)
-    (nextInLine, v) = Map.alterF f ut _pttUpdates
+    (nextInLine, v) = Map.alterF (updatePttEntry nextSN sn) ut _pttUpdates
 
 -- |Add an update instruction to the pending transaction table, checking
 -- that its sequence number is high enough.  (Does nothing if it is not.)
@@ -323,29 +306,20 @@ forwardPTT :: [BlockItem] -> PendingTransactionTable -> PendingTransactionTable
 forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
     where
         forward1 :: PendingTransactionTable -> BlockItem -> PendingTransactionTable
-        forward1 ptt WithMetadata{wmdData=NormalTransaction tr} = ptt & pttWithSender . at' (transactionSender tr) %~ upd
+        forward1 ptt WithMetadata{wmdData=NormalTransaction tr} = ptt & pttWithSender . at' (transactionSender tr) %~ upd (transactionNonce tr)
+        forward1 ptt WithMetadata{wmdData=CredentialDeployment{},..} = ptt & pttDeployCredential %~ upd'
             where
-                upd Nothing = error "forwardPTT : forwarding transaction that is not pending"
-                upd (Just (low, known)) =
-                    assert (low == transactionNonce tr) $
-                      case known of
-                        Seq.Empty -> Nothing
-                        (next Seq.:<| Seq.Empty) -> if low == next then Nothing else Just (low+1, known)
-                        (next Seq.:<| rest) -> if low == next then Just (low+1, rest) else Just (low+1, known)
-        forward1 ptt WithMetadata{wmdData=CredentialDeployment{},..} = ptt & pttDeployCredential %~ upd
-            where
-              upd ps
+              upd' ps
                 | wmdHash `HS.member` ps = HS.delete wmdHash ps
                 | otherwise = error "forwardPTT: forwarding a block item that is not pending."
-        forward1 ptt WithMetadata{wmdData=ChainUpdate{..}} = ptt & pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd
-            where
-                upd Nothing = error "forwardPTT : forwarding a block item that is not pending"
-                upd (Just (low, known)) =
-                    assert (low == updateSeqNumber (uiHeader biUpdate)) $
-                      case known of
-                        Seq.Empty -> Nothing
-                        (next Seq.:<| Seq.Empty) -> if low == next then Nothing else Just (low+1, known)
-                        (next Seq.:<| rest) -> if low == next then Just (low+1, rest) else Just (low+1, known)
+        forward1 ptt WithMetadata{wmdData=ChainUpdate{..}} = ptt & pttUpdates . at' (updateType (uiPayload biUpdate)) %~ upd (updateSeqNumber (uiHeader biUpdate))
+        upd _ Nothing = error "forwardPTT : forwarding transaction that is not pending"
+        upd n (Just (low, known)) =
+            assert (low == n) $
+              case known of
+                Seq.Empty -> Nothing
+                (next Seq.:<| Seq.Empty) -> if low == next then Nothing else Just (low+1, known)
+                (next Seq.:<| rest) -> if low == next then Just (low+1, rest) else Just (low+1, known)
 
 -- |Update the pending transaction table by considering the supplied 'BlockItem's
 -- pending again. The 'BlockItem's must be ordered correctly with respect
@@ -380,3 +354,13 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                                 (h Seq.:<| _) | h > sn -> sn Seq.<| known
                                               | otherwise -> known
                         in Just (low - 1, newKnown)
+
+-- Helper function for updating an entry in the pending transaction table
+-- that is used by addPendingTransaction and addPendingAccount
+updatePttEntry :: (Ord n, Num n) => n -> n -> Maybe (n, Seq.Seq n) -> (Bool, Maybe (n, Seq.Seq n))
+updatePttEntry nextN n Nothing = (True, Just (nextN, Seq.singleton n))
+updatePttEntry _ n (Just (l, known)) =
+  let nextFree = nextFreeNonce l known
+  in case insertInOrder n known of
+       Nothing -> (False, Just (l, known))
+       Just newKnown -> (nextFree == n, Just (l, newKnown))
