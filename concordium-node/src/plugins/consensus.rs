@@ -313,10 +313,15 @@ fn send_msg_to_consensus(
     if consensus_response.is_acceptable() {
         debug!("Processed a {} from {}", message.variant, source_id);
     } else {
-        lock_or_die!(node.bad_events.invalid_messages)
+        let num_bad_events = *lock_or_die!(node.bad_events.invalid_messages)
             .entry(source_id)
             .and_modify(|x| *x += 1)
             .or_insert(1);
+        // we do log some invalid messages to both ease debugging and see problems in
+        // normal circumstances
+        if num_bad_events < 10 {
+            warn!("Couldn't process a {} due to error code {:?}", message, consensus_response);
+        }
     }
 
     Ok(consensus_response)
